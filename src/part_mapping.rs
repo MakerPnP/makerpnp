@@ -1,13 +1,18 @@
+use std::fmt::Debug;
+use crate::as_any::AsAny;
+use crate::dyn_eq::DynEq;
 use crate::part::Part;
 
-pub struct PartMapping<'part, 'criteria>
+
+#[derive(Debug, PartialEq)]
+pub struct PartMapping<'part>
 {
     part: &'part Part,
-    criteria: Vec<&'criteria dyn PartMappingCriteria>,
+    criteria: Vec<Box<dyn PartMappingCriteria>>,
 }
 
-impl<'part, 'criteria> PartMapping<'part, 'criteria> {
-    pub fn new(part: &'part Part, criteria: Vec<&'criteria dyn PartMappingCriteria>) -> Self {
+impl<'part> PartMapping<'part> {
+    pub fn new(part: &'part Part, criteria: Vec<Box<dyn PartMappingCriteria>>) -> Self {
         Self {
             part,
             criteria
@@ -15,10 +20,18 @@ impl<'part, 'criteria> PartMapping<'part, 'criteria> {
     }
 }
 
-pub trait PartMappingCriteria {
+pub trait PartMappingCriteria : Debug + AsAny + DynEq {
     fn matches(&self, part: &Part) -> bool;
 }
 
+impl PartialEq for dyn PartMappingCriteria
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.dyn_eq(other.as_any())
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub struct ExactMatchCriteria {
     manufacturer: String,
     mpn: String,
@@ -80,10 +93,10 @@ struct PartMatcher {}
 impl PartMatcher {
     pub fn process<'parts, 'mapping>(
         parts: Vec<&'parts Part>,
-        part_mappings: Vec<&'mapping PartMapping<'mapping, 'mapping>>
-    ) -> Option<Vec<&'mapping PartMapping<'mapping, 'mapping>>> {
+        part_mappings: Vec<&'mapping PartMapping<'mapping>>
+    ) -> Option<Vec<&'mapping PartMapping<'mapping>>> {
 
-        let mut results: Vec<&'mapping PartMapping<'mapping, 'mapping>> = vec![];
+        let mut results: Vec<&'mapping PartMapping<'mapping>> = vec![];
 
         for part in parts.iter() {
             for part_mapping in part_mappings.iter() {
@@ -119,11 +132,11 @@ mod tests {
 
         // and
         let criteria1 = ExactMatchCriteria::new("MFR1".to_string(), "PART1".to_string());
-        let part_mapping1 = PartMapping::new(&part1, vec![&criteria1]);
+        let part_mapping1 = PartMapping::new(&part1, vec![Box::new(criteria1)]);
         let criteria2 = ExactMatchCriteria::new("MFR2".to_string(), "PART2".to_string());
-        let part_mapping2 = PartMapping::new(&part2, vec![&criteria2]);
+        let part_mapping2 = PartMapping::new(&part2, vec![Box::new(criteria2)]);
         let criteria3 = ExactMatchCriteria::new("MFR3".to_string(), "PART3".to_string());
-        let part_mapping3 = PartMapping::new(&part3, vec![&criteria3]);
+        let part_mapping3 = PartMapping::new(&part3, vec![Box::new(criteria3)]);
 
         let part_mappings = vec![&part_mapping1, &part_mapping2, &part_mapping3];
 
@@ -137,13 +150,6 @@ mod tests {
         // when
         let matched_mappings = PartMatcher::process(parts, part_mappings);
 
-        // then
-        assert!(matched_mappings.is_some());
-        for (matched_mapping, expected_mapping) in matched_mappings.unwrap().iter().zip(expected_part_mappings.unwrap().iter()) {
-            println!("{:?}", matched_mapping.part);
-            assert_eq!(matched_mapping.part, expected_mapping.part);
-        }
-        // FIXME we just want to do this, but cannot, due to the type specification of criteria in PartMapping
-        //assert_eq!(matched_mappings, expected_part_mappings);
+        assert_eq!(matched_mappings, expected_part_mappings);
     }
 }
