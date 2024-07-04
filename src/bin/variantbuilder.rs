@@ -52,8 +52,6 @@ fn main() -> anyhow::Result<()>{
 
     match &opts.command.unwrap() {
         Commands::Build { placements } => {
-
-            //let placements_file = File::open(placements)?;
             let placements_path_buf = PathBuf::from(placements);
             let placements_path = placements_path_buf.as_path();
             let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
@@ -77,10 +75,6 @@ fn main() -> anyhow::Result<()>{
     }
 
     Ok(())
-}
-
-fn print_usage() {
-    println!("usage")
 }
 
 fn print_version() -> anyhow::Result<()> {
