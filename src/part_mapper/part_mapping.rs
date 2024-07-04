@@ -1,7 +1,7 @@
 use crate::part::Part;
 use crate::part_mapper::criteria::PartMappingCriteria;
 
-#[derive(Debug, PartialEq)]
+#[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct PartMapping<'part>
 {
     pub part: &'part Part,
