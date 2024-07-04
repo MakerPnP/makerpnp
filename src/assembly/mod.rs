@@ -5,27 +5,27 @@ struct ProcessingResult<'placements> {
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 struct Placement {
-    refdes: String,
+    ref_des: String,
 }
 
 struct Variant {
     name: String,
-    variant_refdes_list: Vec<String>,
+    variant_ref_des_list: Vec<String>,
 }
 
 impl Variant {
     pub fn new(name: String, variant_refdes_list: Vec<String>) -> Self {
         Self {
             name,
-            variant_refdes_list
+            variant_ref_des_list: variant_refdes_list
         }
     }
 }
 
 impl Placement {
-    pub fn new(refdes: String) -> Self {
+    pub fn new(ref_des: String) -> Self {
         Self {
-            refdes
+            ref_des
         }
     }
 }
@@ -42,13 +42,13 @@ struct AssemblyVariantProcessor {}
 
 impl AssemblyVariantProcessor {
     pub fn process<'placements>(&self, placements: Vec<&'placements Placement>, variant: Variant) -> Result<ProcessingResult<'placements>, ()> {
-        if placements.is_empty() || variant.variant_refdes_list.is_empty() {
+        if placements.is_empty() || variant.variant_ref_des_list.is_empty() {
             return Err(())
         }
 
 
         let variant_placements: Vec<&Placement> = placements.iter().cloned().filter(|placement| {
-            variant.variant_refdes_list.contains(&placement.refdes)
+            variant.variant_ref_des_list.contains(&placement.ref_des)
 
         }).collect();
 
