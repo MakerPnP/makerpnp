@@ -32,9 +32,9 @@ struct DiptracePlacementRecord {
 }
 
 impl DiptracePlacementRecord {
-    pub fn as_placement(self) -> Result<Placement, ()> {
+    pub fn build_placement(&self) -> Result<Placement, ()> {
         Ok(Placement {
-            ref_des: self.ref_des,
+            ref_des: self.ref_des.clone(),
         })
     }
 }
@@ -65,7 +65,7 @@ fn main() -> anyhow::Result<()>{
                 // TODO output the record in verbose mode
                 //println!("{:?}", record);
 
-                if let Ok(placement) = record.as_placement() {
+                if let Ok(placement) = record.build_placement() {
                     placements.push(placement);
                 } else {
                     bail!("todo")
