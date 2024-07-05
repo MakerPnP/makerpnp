@@ -5,10 +5,13 @@ use thiserror::Error;
 use makerpnp::assembly::{AssemblyVariant, AssemblyVariantProcessor, Placement};
 
 #[derive(Parser)]
+#[command(name = "variantbuilder")]
+#[command(bin_name = "variantbuilder")]
+#[command(version, about, long_about = None)]
 struct Opts {
-    /// Show version information
-    #[arg(short = 'V', long)]
-    version: bool,
+    // /// Show version information
+    // #[arg(short = 'V', long)]
+    // version: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -76,10 +79,6 @@ impl DiptracePlacementRecord {
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
-    if opts.version {
-        return print_version();
-    }
-
     match &opts.command.unwrap() {
         Commands::Build { placements, assembly_variant } => {
             build_assembly_variant(placements, assembly_variant)?;
@@ -120,12 +119,6 @@ fn build_assembly_variant(placements: &String, assembly_variant_args: &AssemblyV
     let result = assembly_variant_processor.process(placements, assembly_variant)?;
 
     println!("Matched {} placements", result.placements.len());
-
-    Ok(())
-}
-
-fn print_version() -> anyhow::Result<()> {
-    println!("{} {}", env!("CARGO_BIN_NAME"), env!("CARGO_PKG_VERSION"));
 
     Ok(())
 }

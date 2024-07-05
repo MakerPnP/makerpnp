@@ -91,15 +91,15 @@ mod tests {
 
         // and
         let expected_output = indoc! {"
-        Usage: variantbuilder.exe [COMMAND]
+        Usage: variantbuilder [COMMAND]
 
         Commands:
           build  Build variant
           help   Print this message or the help of the given subcommand(s)
 
         Options:
-          -V, --version  Show version information
           -h, --help     Print help
+          -V, --version  Print version
     "};
 
         // TODO report issues with predicate::str::diff and clap
@@ -126,7 +126,7 @@ mod tests {
         let expected_output = indoc! {"
         Build variant
 
-        Usage: variantbuilder.exe build [OPTIONS] --placements <FILE>
+        Usage: variantbuilder build [OPTIONS] --placements <FILE>
 
         Options:
           -p, --placements <FILE>                 Placements file
