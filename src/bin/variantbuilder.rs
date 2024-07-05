@@ -1,7 +1,8 @@
 use std::path::PathBuf;
-use anyhow::bail;
+use anyhow::{bail, Error};
 use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
+use makerpnp::assembly::{AssemblyVariant, AssemblyVariantProcessor, Placement};
 
 #[derive(Parser)]
 struct Opts {
@@ -15,7 +16,7 @@ struct Opts {
 
 #[derive(Args)]
 #[derive(Clone)]
-struct VariantArgs {
+struct AssemblyVariantArgs {
     /// Name of assembly variant
     #[arg(long, default_value = "Default")]
     name: String,
@@ -32,12 +33,13 @@ enum AssemblyVariantError {
     Unknown
 }
 
-impl VariantArgs {
-    pub fn build_variant(&self) -> Result<AssemblyVariant, AssemblyVariantError> {
-        Ok(AssemblyVariant {
-            name: self.name.clone(),
-            ref_des_list: self.ref_des_list.clone(),
-        })
+impl AssemblyVariantArgs {
+    pub fn build_assembly_variant(&self) -> Result<AssemblyVariant, AssemblyVariantError> {
+        // TODO add all placements to the refdes list if the ref_des_list is empty
+        Ok(AssemblyVariant::new(
+            self.name.clone(),
+            self.ref_des_list.clone(),
+        ))
     }
 }
 
@@ -51,7 +53,7 @@ enum Commands {
         placements: String,
 
         #[command(flatten)]
-        assembly_variant: VariantArgs
+        assembly_variant: AssemblyVariantArgs
     },
 }
 
@@ -71,15 +73,6 @@ impl DiptracePlacementRecord {
     }
 }
 
-struct Placement {
-    ref_des: String,
-}
-
-struct AssemblyVariant {
-    name: String,
-    ref_des_list: Vec<String>
-}
-
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
@@ -89,32 +82,44 @@ fn main() -> anyhow::Result<()>{
 
     match &opts.command.unwrap() {
         Commands::Build { placements, assembly_variant } => {
-            let placements_path_buf = PathBuf::from(placements);
-            let placements_path = placements_path_buf.as_path();
-            let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
-
-            let mut placements: Vec<Placement> = vec![];
-
-            for result in csv_reader.deserialize() {
-                let record: DiptracePlacementRecord = result?;
-                // TODO output the record in verbose mode
-                //println!("{:?}", record);
-
-                if let Ok(placement) = record.build_placement() {
-                    placements.push(placement);
-                } else {
-                    bail!("todo")
-                }
-            }
-
-            println!("Loaded {} placements", placements.len());
-
-            let variant = assembly_variant.build_variant()?;
-
-            println!("Assembly variant: {}", variant.name);
-            println!("Ref_des list: {}", variant.ref_des_list.join(", "));
+            build_assembly_variant(placements, assembly_variant)?;
         },
     }
+
+    Ok(())
+}
+
+fn build_assembly_variant(placements: &String, assembly_variant_args: &AssemblyVariantArgs) -> Result<(), Error> {
+    let placements_path_buf = PathBuf::from(placements);
+    let placements_path = placements_path_buf.as_path();
+    let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
+
+    let mut placements: Vec<Placement> = vec![];
+
+    for result in csv_reader.deserialize() {
+        let record: DiptracePlacementRecord = result?;
+        // TODO output the record in verbose mode
+        //println!("{:?}", record);
+
+        if let Ok(placement) = record.build_placement() {
+            placements.push(placement);
+        } else {
+            bail!("todo")
+        }
+    }
+
+    let assembly_variant = assembly_variant_args.build_assembly_variant()?;
+
+    println!("Loaded {} placements", placements.len());
+    println!("Assembly variant: {}", assembly_variant.name);
+    println!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
+
+    let assembly_variant_processor = AssemblyVariantProcessor::default();
+
+    // when
+    let result = assembly_variant_processor.process(placements, assembly_variant)?;
+
+    println!("Matched {} placements", result.placements.len());
 
     Ok(())
 }
@@ -190,6 +195,7 @@ mod tests {
                 predicate::str::contains("Loaded 3 placements\n")
                     .and(predicate::str::contains("Assembly variant: Variant 1\n"))
                     .and(predicate::str::contains("Ref_des list: R1, J1\n"))
+                    .and(predicate::str::contains("Matched 2 placements\n"))
             );
 
         Ok(())

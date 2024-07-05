@@ -1,23 +1,26 @@
-#[cfg_attr(test, derive(PartialEq, Debug))]
-struct ProcessingResult<'placements> {
-    placements: Vec<&'placements Placement>,
-}
+use thiserror::Error;
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
-struct Placement {
-    ref_des: String,
+pub struct ProcessingResult {
+    pub placements: Vec<Placement>,
 }
 
-struct Variant {
-    name: String,
-    variant_ref_des_list: Vec<String>,
+#[cfg_attr(test, derive(PartialEq, Debug))]
+#[derive(Clone)]
+pub struct Placement {
+    pub ref_des: String,
 }
 
-impl Variant {
+pub struct AssemblyVariant {
+    pub name: String,
+    pub ref_des_list: Vec<String>,
+}
+
+impl AssemblyVariant {
     pub fn new(name: String, variant_refdes_list: Vec<String>) -> Self {
         Self {
             name,
-            variant_ref_des_list: variant_refdes_list
+            ref_des_list: variant_refdes_list
         }
     }
 }
@@ -30,26 +33,37 @@ impl Placement {
     }
 }
 
-impl<'placements> ProcessingResult<'placements> {
-    pub fn new(placements: Vec<&'placements Placement>) -> Self {
+impl ProcessingResult {
+    pub fn new(placements: Vec<Placement>) -> Self {
         Self {
             placements
         }
     }
 }
 
-struct AssemblyVariantProcessor {}
+#[derive(Error, Debug)]
+#[cfg_attr(test, derive(PartialEq))]
+pub enum ProcessingError {
+    #[error("No placements")]
+    NoPlacements,
+    #[error("Empty ref-des list")]
+    EmptyRefDesList,
+}
+
+pub struct AssemblyVariantProcessor {}
 
 impl AssemblyVariantProcessor {
-    pub fn process<'placements>(&self, placements: Vec<&'placements Placement>, variant: Variant) -> Result<ProcessingResult<'placements>, ()> {
-        if placements.is_empty() || variant.variant_ref_des_list.is_empty() {
-            return Err(())
+    pub fn process(&self, placements: Vec<Placement>, variant: AssemblyVariant) -> Result<ProcessingResult, ProcessingError> {
+        if placements.is_empty() {
+            return Err(ProcessingError::NoPlacements)
+        }
+        if variant.ref_des_list.is_empty() {
+            return Err(ProcessingError::EmptyRefDesList)
         }
 
 
-        let variant_placements: Vec<&Placement> = placements.iter().cloned().filter(|placement| {
-            variant.variant_ref_des_list.contains(&placement.ref_des)
-
+        let variant_placements: Vec<Placement> = placements.iter().cloned().filter(|placement| {
+            variant.ref_des_list.contains(&placement.ref_des)
         }).collect();
 
         Ok(ProcessingResult::new(variant_placements))
@@ -64,7 +78,7 @@ impl Default for AssemblyVariantProcessor {
 
 #[cfg(test)]
 mod test {
-    use crate::assembly::{AssemblyVariantProcessor, Placement, ProcessingResult, Variant};
+    use crate::assembly::{AssemblyVariantProcessor, Placement, ProcessingResult, AssemblyVariant, ProcessingError};
 
     #[test]
     fn process() {
@@ -80,9 +94,9 @@ mod test {
         let placement8 = Placement::new(String::from("J1"));
 
         let all_placements = vec![
-            &placement1, &placement2, &placement3,
-            &placement4, &placement5, &placement6,
-            &placement7, &placement8
+            placement1, placement2, placement3,
+            placement4, placement5, placement6,
+            placement7, placement8
         ];
 
         // and
@@ -93,13 +107,18 @@ mod test {
             String::from("J1"),
         ];
 
-        let variant = Variant::new(
+        let variant = AssemblyVariant::new(
             String::from("Variant 1"),
             variant_refdes_list,
         );
 
         // and
-        let variant_placements = vec![&placement1, &placement4, &placement7, &placement8];
+        let variant_placements = vec![
+            all_placements[1-1].clone(),
+            all_placements[4-1].clone(),
+            all_placements[7-1].clone(),
+            all_placements[8-1].clone(),
+        ];
         let expected_result = Result::Ok(ProcessingResult::new(variant_placements));
 
         // and
@@ -115,28 +134,28 @@ mod test {
     #[test]
     fn no_placements() {
         // given
-        let variant = Variant::new(String::from("Variant 1"), vec![]);
+        let variant = AssemblyVariant::new(String::from("Variant 1"), vec![]);
         let assembly_variant_processor = AssemblyVariantProcessor::default();
 
         // when
         let result = assembly_variant_processor.process(vec![], variant);
 
         // then
-        assert_eq!(result, Err(()));
+        assert_eq!(result, Err(ProcessingError::NoPlacements));
     }
 
     #[test]
     fn empty_variant_refdes_list() {
         // given
-        let variant = Variant::new(String::from("Variant 1"), vec![]);
+        let variant = AssemblyVariant::new(String::from("Variant 1"), vec![]);
         let assembly_variant_processor = AssemblyVariantProcessor::default();
 
         let placement1 = Placement::new(String::from("R1"));
 
         // when
-        let result = assembly_variant_processor.process(vec![&placement1], variant);
+        let result = assembly_variant_processor.process(vec![placement1], variant);
 
         // then
-        assert_eq!(result, Err(()));
+        assert_eq!(result, Err(ProcessingError::EmptyRefDesList));
     }
 }
