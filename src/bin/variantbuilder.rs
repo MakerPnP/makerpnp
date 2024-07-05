@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use anyhow::bail;
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
+use thiserror::Error;
 
 #[derive(Parser)]
 struct Opts {
@@ -12,6 +13,34 @@ struct Opts {
     command: Option<Commands>,
 }
 
+#[derive(Args)]
+#[derive(Clone)]
+struct VariantArgs {
+    /// Name of assembly variant
+    #[arg(long, default_value = "Default")]
+    name: String,
+
+    /// List of reference designators
+    #[arg(long, num_args = 0.., value_delimiter = ',')]
+    ref_des_list: Vec<String>
+}
+
+#[allow(dead_code)]
+#[derive(Error, Debug)]
+enum AssemblyVariantError {
+    #[error("Unknown error")]
+    Unknown
+}
+
+impl VariantArgs {
+    pub fn build_variant(&self) -> Result<AssemblyVariant, AssemblyVariantError> {
+        Ok(AssemblyVariant {
+            name: self.name.clone(),
+            ref_des_list: self.ref_des_list.clone(),
+        })
+    }
+}
+
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 enum Commands {
@@ -20,6 +49,9 @@ enum Commands {
         /// Placements file
         #[arg(short = 'p', long, value_name = "FILE")]
         placements: String,
+
+        #[command(flatten)]
+        assembly_variant: VariantArgs
     },
 }
 
@@ -43,6 +75,11 @@ struct Placement {
     ref_des: String,
 }
 
+struct AssemblyVariant {
+    name: String,
+    ref_des_list: Vec<String>
+}
+
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
@@ -51,7 +88,7 @@ fn main() -> anyhow::Result<()>{
     }
 
     match &opts.command.unwrap() {
-        Commands::Build { placements } => {
+        Commands::Build { placements, assembly_variant } => {
             let placements_path_buf = PathBuf::from(placements);
             let placements_path = placements_path_buf.as_path();
             let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
@@ -70,7 +107,12 @@ fn main() -> anyhow::Result<()>{
                 }
             }
 
-            println!("loaded {} placements", placements.len())
+            println!("Loaded {} placements", placements.len());
+
+            let variant = assembly_variant.build_variant()?;
+
+            println!("Assembly variant: {}", variant.name);
+            println!("Ref_des list: {}", variant.ref_des_list.join(", "));
         },
     }
 
@@ -91,6 +133,67 @@ mod tests {
     use indoc::indoc;
     use predicates::prelude::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn build() -> Result<(), std::io::Error> {
+        // given
+        let mut cmd = Command::cargo_bin(env!("CARGO_BIN_NAME"))
+            .unwrap();
+
+        // and
+        let temp_dir = tempdir()?;
+
+        // and
+        let mut test_placements_path = temp_dir.into_path();
+        test_placements_path.push("placements.csv");
+
+        let test_placements_file_name = test_placements_path.clone().into_os_string();
+        println!("placements file: {}", test_placements_file_name.to_str().unwrap());
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_placements_path)?;
+
+        writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "R1".to_string(),
+            name: "RES_0402".to_string(),
+            value: "330R 1/16W 5%".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "R2".to_string(),
+            name: "RES_0402".to_string(),
+            value: "330R 1/16W 5%".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "J1".to_string(),
+            name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
+            value: "POWER".to_string(),
+        })?;
+
+        writer.flush()?;
+
+        // and
+        let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
+
+        // when
+        cmd.args([
+            "build",
+            placements_arg.as_str(),
+            "--name",
+            "Variant 1",
+            "--ref-des-list=R1,J1"
+        ])
+            // then
+            .assert()
+            .success()
+            .stdout(
+                predicate::str::contains("Loaded 3 placements\n")
+                    .and(predicate::str::contains("Assembly variant: Variant 1\n"))
+                    .and(predicate::str::contains("Ref_des list: R1, J1\n"))
+            );
+
+        Ok(())
+    }
 
     #[test]
     fn version() {
@@ -141,49 +244,36 @@ mod tests {
     }
 
     #[test]
-    fn build() -> Result<(), std::io::Error> {
+    fn help_for_build_subcommand() {
         // given
         let mut cmd = Command::cargo_bin(env!("CARGO_BIN_NAME"))
             .unwrap();
 
         // and
-        let temp_dir = tempdir()?;
+        let expected_output = indoc! {"
+            Build variant
 
-        // and
-        let mut test_placements_path = temp_dir.into_path();
-        test_placements_path.push("placements.csv");
+            Usage: variantbuilder.exe build [OPTIONS] --placements <FILE>
 
-        let test_placements_file_name = test_placements_path.clone().into_os_string();
-        println!("placements file: {}", test_placements_file_name.to_str().unwrap());
+            Options:
+              -p, --placements <FILE>                 Placements file
+                  --name <NAME>                       Name of assembly variant [default: Default]
+                  --ref-des-list [<REF_DES_LIST>...]  List of reference designators
+              -h, --help                              Print help
+        "};
 
-        let mut writer = csv::WriterBuilder::new()
-            .quote_style(QuoteStyle::Always)
-            .from_path(test_placements_path)?;
-
-        writer.serialize(TestDiptracePlacementRecord {
-            ref_des: "R1".to_string(),
-            name: "RES_0402".to_string(),
-            value: "330R 1/16W 5%".to_string(),
-        })?;
-        writer.serialize(TestDiptracePlacementRecord {
-            ref_des: "J1".to_string(),
-            name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
-            value: "POWER".to_string(),
-        })?;
-
-        writer.flush()?;
-
-        // and
-        let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
+        // TODO report issues with clap
+        //      * clap - unable to find clap derive documentation for `value_delimiter`
+        //               a big gotcha was that it's not possible to use a STRING for the delimiter and
+        //               only a CHARACTER is acceptable, i.e. use single quotes around a character.
+        //               the error was: '^^^ the trait `IntoResettable<char>` is not implemented for `&str`'
 
         // when
-        cmd.args(["build", placements_arg.as_str()])
+        cmd.args(["build", "--help"])
             // then
             .assert()
             .success()
-            .stdout(predicate::str::diff("loaded 2 placements\n"));
-
-        Ok(())
+            .stdout(predicate::str::diff(expected_output));
     }
 
     #[derive(Debug, serde::Serialize)]
