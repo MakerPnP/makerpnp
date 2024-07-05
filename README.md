@@ -1,4 +1,4 @@
-![rust](https://github.com/makerpnp/makerpnp/actions/workflows/rust.yml/badge.svg)
+![rust](https://github.com/makerpnp/makerpnp/actions/workflows/rust.yml/badge.svg?event=push)
 
 # MakerPnP
 
