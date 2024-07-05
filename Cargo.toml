@@ -15,6 +15,8 @@ predicates = {  version = "3.1.0" }
 assert_cmd = { version = "2.0.14" }
 tempfile = { version = "3.10.1" }
 indoc = { version = "2.0.5" }
+csv = { version = "1.3.0" }
+serde = { version = "1.0.203", features = ["derive"] }
 
 [features]
 cli = [
@@ -26,6 +28,7 @@ cli = [
 
 [[bin]]
 name = "variantbuilder"
+test = true
 bench = false
 required-features = ["cli"]
 
