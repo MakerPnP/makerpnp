@@ -19,7 +19,7 @@ mod tests {
         let temp_dir = tempdir()?;
 
         // and
-        let mut test_placements_path = temp_dir.into_path();
+        let mut test_placements_path = temp_dir.path().to_path_buf();
         test_placements_path.push("placements.csv");
 
         let test_placements_file_name = test_placements_path.clone().into_os_string();
@@ -50,10 +50,35 @@ mod tests {
         // and
         let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
 
+        // and
+        let mut test_parts_path = temp_dir.path().to_path_buf();
+        test_parts_path.push("parts.csv");
+
+        let test_parts_file_name = test_parts_path.clone().into_os_string();
+        println!("parts file: {}", test_parts_file_name.to_str().unwrap());
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_parts_path)?;
+
+        writer.serialize(TestPartRecord {
+            manufacturer: "CONN_MFR1".to_string(),
+            mpn: "CONN1".to_string(),
+        })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "RES_MFR1".to_string(),
+            mpn: "RES1".to_string(),
+        })?;
+
+        writer.flush()?;
+
+        let parts_arg = format!("--parts={}", test_parts_file_name.to_str().unwrap());
+
         // when
         cmd.args([
             "build",
             placements_arg.as_str(),
+            parts_arg.as_str(),
             "--name",
             "Variant 1",
             "--ref-des-list=R1,J1"
@@ -66,6 +91,7 @@ mod tests {
                     .and(predicate::str::contains("Assembly variant: Variant 1\n"))
                     .and(predicate::str::contains("Ref_des list: R1, J1\n"))
                     .and(predicate::str::contains("Matched 2 placements\n"))
+                    .and(predicate::str::contains("Loaded 2 parts\n"))
             );
 
         Ok(())
@@ -126,10 +152,11 @@ mod tests {
         let expected_output = indoc! {"
         Build variant
 
-        Usage: variantbuilder build [OPTIONS] --placements <FILE>
+        Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE>
 
         Options:
-          -p, --placements <FILE>                 Placements file
+              --placements <FILE>                 Placements file
+              --parts <FILE>                      Parts file
               --name <NAME>                       Name of assembly variant [default: Default]
               --ref-des-list [<REF_DES_LIST>...]  List of reference designators
           -h, --help                              Print help
@@ -155,5 +182,12 @@ mod tests {
         ref_des: String,
         name: String,
         value: String,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all(serialize = "PascalCase"))]
+    struct TestPartRecord {
+        manufacturer: String,
+        mpn: String,
     }
 }

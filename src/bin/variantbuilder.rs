@@ -3,6 +3,7 @@ use anyhow::{bail, Error};
 use clap::{Args, Parser, Subcommand};
 use thiserror::Error;
 use makerpnp::assembly::{AssemblyVariant, AssemblyVariantProcessor, Placement};
+use makerpnp::part::Part;
 
 #[derive(Parser)]
 #[command(name = "variantbuilder")]
@@ -52,8 +53,12 @@ enum Commands {
     /// Build variant
     Build {
         /// Placements file
-        #[arg(short = 'p', long, value_name = "FILE")]
+        #[arg(long, value_name = "FILE")]
         placements: String,
+
+        /// Parts file
+        #[arg(long, value_name = "FILE")]
+        parts: String,
 
         #[command(flatten)]
         assembly_variant: AssemblyVariantArgs
@@ -76,19 +81,56 @@ impl DiptracePlacementRecord {
     }
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all(deserialize = "PascalCase"))]
+struct PartRecord {
+    manufacturer: String,
+    mpn: String,
+}
+
+impl PartRecord {
+    pub fn build_part(&self) -> Result<Part, ()> {
+        Ok(Part {
+            manufacturer: self.manufacturer.clone(),
+            mpn: self.mpn.clone(),
+        })
+    }
+}
+
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
     match &opts.command.unwrap() {
-        Commands::Build { placements, assembly_variant } => {
-            build_assembly_variant(placements, assembly_variant)?;
+        Commands::Build { placements, assembly_variant, parts } => {
+            build_assembly_variant(placements, assembly_variant, parts)?;
         },
     }
 
     Ok(())
 }
 
-fn build_assembly_variant(placements: &String, assembly_variant_args: &AssemblyVariantArgs) -> Result<(), Error> {
+fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String) -> Result<(), Error> {
+    let placements = load_placements(placements_source)?;
+    let parts = load_parts(parts_source)?;
+
+    let assembly_variant = assembly_variant_args.build_assembly_variant()?;
+
+    println!("Loaded {} placements", placements.len());
+    println!("Loaded {} parts", parts.len());
+    println!("Assembly variant: {}", assembly_variant.name);
+    println!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
+
+    let assembly_variant_processor = AssemblyVariantProcessor::default();
+
+    // when
+    let result = assembly_variant_processor.process(placements, assembly_variant)?;
+
+    println!("Matched {} placements", result.placements.len());
+
+    Ok(())
+}
+
+fn load_placements(placements: &String) -> Result<Vec<Placement>, Error> {
     let placements_path_buf = PathBuf::from(placements);
     let placements_path = placements_path_buf.as_path();
     let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
@@ -106,19 +148,26 @@ fn build_assembly_variant(placements: &String, assembly_variant_args: &AssemblyV
             bail!("todo")
         }
     }
+    Ok(placements)
+}
 
-    let assembly_variant = assembly_variant_args.build_assembly_variant()?;
+fn load_parts(parts: &String) -> Result<Vec<Part>, Error> {
+    let parts_path_buf = PathBuf::from(parts);
+    let parts_path = parts_path_buf.as_path();
+    let mut csv_reader = csv::ReaderBuilder::new().from_path(parts_path)?;
 
-    println!("Loaded {} placements", placements.len());
-    println!("Assembly variant: {}", assembly_variant.name);
-    println!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
+    let mut parts: Vec<Part> = vec![];
 
-    let assembly_variant_processor = AssemblyVariantProcessor::default();
+    for result in csv_reader.deserialize() {
+        let record: PartRecord = result?;
+        // TODO output the record in verbose mode
+        //println!("{:?}", record);
 
-    // when
-    let result = assembly_variant_processor.process(placements, assembly_variant)?;
-
-    println!("Matched {} placements", result.placements.len());
-
-    Ok(())
+        if let Ok(part) = record.build_part() {
+            parts.push(part);
+        } else {
+            bail!("todo")
+        }
+    }
+    Ok(parts)
 }
