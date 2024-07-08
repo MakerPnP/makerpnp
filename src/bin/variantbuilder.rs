@@ -126,9 +126,8 @@ enum PartMappingRecord {
 
 #[derive(Error, Debug)]
 enum CSVPartMappingRecordError {
-    #[error("Unknown EDA")]
-    // TODO use the value
-    UnknownEDA(String)
+    #[error("Unknown EDA: '{eda:?}'")]
+    UnknownEDA { eda: String }
 }
 
 impl TryFrom<CSVPartMappingRecord> for PartMappingRecord {
@@ -142,7 +141,7 @@ impl TryFrom<CSVPartMappingRecord> for PartMappingRecord {
                 manufacturer: value.manufacturer.to_string(),
                 mpn: value.mpn.to_string(),
             })),
-            _ => Err(CSVPartMappingRecordError::UnknownEDA(value.eda)),
+            _ => Err(CSVPartMappingRecordError::UnknownEDA { eda: value.eda }),
         }
     }
 }
