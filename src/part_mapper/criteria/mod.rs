@@ -31,7 +31,7 @@ pub mod diptrace {
                 EdaPlacementDetails::DipTrace(details) => {
                     self.name.eq(&details.name) && self.value.eq(&details.value)
                 },
-                _ => false
+                // _ => false
             }
         }
     }
