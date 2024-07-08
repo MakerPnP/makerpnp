@@ -1,23 +1,10 @@
 use thiserror::Error;
-use crate::placement::eda::EdaPlacement;
+use crate::eda::assembly_variant::AssemblyVariant;
+use crate::eda::eda_placement::EdaPlacement;
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct ProcessingResult {
     pub placements: Vec<EdaPlacement>,
-}
-
-pub struct AssemblyVariant {
-    pub name: String,
-    pub ref_des_list: Vec<String>,
-}
-
-impl AssemblyVariant {
-    pub fn new(name: String, variant_refdes_list: Vec<String>) -> Self {
-        Self {
-            name,
-            ref_des_list: variant_refdes_list
-        }
-    }
 }
 
 impl ProcessingResult {
@@ -48,7 +35,6 @@ impl AssemblyVariantProcessor {
             return Err(ProcessingError::EmptyRefDesList)
         }
 
-
         let variant_placements: Vec<EdaPlacement> = placements.iter().cloned().filter(|placement| {
             variant.ref_des_list.contains(&placement.ref_des)
         }).collect();
@@ -65,13 +51,13 @@ impl Default for AssemblyVariantProcessor {
 
 #[cfg(test)]
 mod test {
-    use crate::assembly::{AssemblyVariant, AssemblyVariantProcessor, ProcessingError, ProcessingResult};
-    use crate::placement::eda::{DipTracePlacementDetails, EdaPlacement};
-    use crate::placement::eda::EdaPlacementDetails::DipTrace;
+    use crate::assembly::{AssemblyVariantProcessor, ProcessingError, ProcessingResult};
+    use crate::eda::assembly_variant::AssemblyVariant;
+    use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement};
+    use crate::eda::eda_placement::EdaPlacementDetails::DipTrace;
 
     #[test]
     fn process() {
-
         // given
         let placement1 = EdaPlacement {
             ref_des: "R1".to_string(),

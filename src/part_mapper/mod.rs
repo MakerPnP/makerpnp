@@ -2,8 +2,8 @@ pub mod criteria;
 pub mod part_mapping;
 
 use std::collections::HashMap;
+use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
-use crate::placement::eda::EdaPlacement;
 
 pub struct PartMapper {}
 
@@ -33,19 +33,19 @@ impl PartMapper {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use crate::part::Part;
-    use crate::part_mapper::criteria::diptrace::ExactMatchCriteria;
+    use EdaPlacementDetails::DipTrace;
+    use crate::pnp::part::Part;
+    use crate::eda::diptrace::criteria::ExactMatchCriteria;
+    use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::PartMapper;
-    use crate::placement::eda::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
-
     #[test]
     fn map_parts() {
 
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
-        let eda_placement2 = EdaPlacement { ref_des: "R2".to_string(), details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE2".to_string() }) };
-        let eda_placement3 = EdaPlacement { ref_des: "R3".to_string(), details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "NAME3".to_string(), value: "VALUE3".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement2 = EdaPlacement { ref_des: "R2".to_string(), details: DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE2".to_string() }) };
+        let eda_placement3 = EdaPlacement { ref_des: "R3".to_string(), details: DipTrace(DipTracePlacementDetails { name: "NAME3".to_string(), value: "VALUE3".to_string() }) };
 
         let eda_placements = vec![eda_placement1, eda_placement2, eda_placement3];
 

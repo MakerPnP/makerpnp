@@ -1,4 +1,4 @@
-use crate::part::Part;
+use crate::pnp::part::Part;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 
 #[cfg_attr(test, derive(PartialEq))]
