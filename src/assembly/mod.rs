@@ -1,14 +1,9 @@
 use thiserror::Error;
+use crate::placement::eda::EdaPlacement;
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct ProcessingResult {
-    pub placements: Vec<Placement>,
-}
-
-#[cfg_attr(test, derive(PartialEq, Debug))]
-#[derive(Clone)]
-pub struct Placement {
-    pub ref_des: String,
+    pub placements: Vec<EdaPlacement>,
 }
 
 pub struct AssemblyVariant {
@@ -25,16 +20,8 @@ impl AssemblyVariant {
     }
 }
 
-impl Placement {
-    pub fn new(ref_des: String) -> Self {
-        Self {
-            ref_des
-        }
-    }
-}
-
 impl ProcessingResult {
-    pub fn new(placements: Vec<Placement>) -> Self {
+    pub fn new(placements: Vec<EdaPlacement>) -> Self {
         Self {
             placements
         }
@@ -53,7 +40,7 @@ pub enum ProcessingError {
 pub struct AssemblyVariantProcessor {}
 
 impl AssemblyVariantProcessor {
-    pub fn process(&self, placements: Vec<Placement>, variant: AssemblyVariant) -> Result<ProcessingResult, ProcessingError> {
+    pub fn process(&self, placements: &Vec<EdaPlacement>, variant: AssemblyVariant) -> Result<ProcessingResult, ProcessingError> {
         if placements.is_empty() {
             return Err(ProcessingError::NoPlacements)
         }
@@ -62,7 +49,7 @@ impl AssemblyVariantProcessor {
         }
 
 
-        let variant_placements: Vec<Placement> = placements.iter().cloned().filter(|placement| {
+        let variant_placements: Vec<EdaPlacement> = placements.iter().cloned().filter(|placement| {
             variant.ref_des_list.contains(&placement.ref_des)
         }).collect();
 
@@ -78,20 +65,48 @@ impl Default for AssemblyVariantProcessor {
 
 #[cfg(test)]
 mod test {
-    use crate::assembly::{AssemblyVariantProcessor, Placement, ProcessingResult, AssemblyVariant, ProcessingError};
+    use crate::assembly::{AssemblyVariant, AssemblyVariantProcessor, ProcessingError, ProcessingResult};
+    use crate::placement::eda::{DipTracePlacementDetails, EdaPlacement};
+    use crate::placement::eda::EdaPlacementDetails::DipTrace;
 
     #[test]
     fn process() {
 
         // given
-        let placement1 = Placement::new(String::from("R1"));
-        let placement2 = Placement::new(String::from("R2"));
-        let placement3 = Placement::new(String::from("R3"));
-        let placement4 = Placement::new(String::from("D1"));
-        let placement5 = Placement::new(String::from("D2"));
-        let placement6 = Placement::new(String::from("D3"));
-        let placement7 = Placement::new(String::from("C1"));
-        let placement8 = Placement::new(String::from("J1"));
+        let placement1 = EdaPlacement {
+            ref_des: "R1".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
+        };
+        let placement2 = EdaPlacement {
+            ref_des: "R2".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE2".to_string() }),
+        };
+        let placement3 = EdaPlacement {
+            ref_des: "R3".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME3".to_string(), value: "VALUE3".to_string() }),
+        };
+
+        let placement4 = EdaPlacement {
+            ref_des: "D1".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME4".to_string(), value: "VALUE4".to_string() }),
+        };
+        let placement5 = EdaPlacement {
+            ref_des: "D2".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME5".to_string(), value: "VALUE5".to_string() }),
+        };
+        let placement6 = EdaPlacement {
+            ref_des: "D3".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME6".to_string(), value: "VALUE6".to_string() }),
+        };
+
+        let placement7 = EdaPlacement {
+            ref_des: "C1".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME7".to_string(), value: "VALUE7".to_string() }),
+        };
+        let placement8 = EdaPlacement {
+            ref_des: "J1".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME8".to_string(), value: "VALUE8".to_string() }),
+        };
 
         let all_placements = vec![
             placement1, placement2, placement3,
@@ -125,7 +140,7 @@ mod test {
         let assembly_variant_processor = AssemblyVariantProcessor::default();
 
         // when
-        let result = assembly_variant_processor.process(all_placements, variant);
+        let result = assembly_variant_processor.process(&all_placements, variant);
 
         // then
         assert_eq!(result, expected_result);
@@ -138,7 +153,7 @@ mod test {
         let assembly_variant_processor = AssemblyVariantProcessor::default();
 
         // when
-        let result = assembly_variant_processor.process(vec![], variant);
+        let result = assembly_variant_processor.process(&vec![], variant);
 
         // then
         assert_eq!(result, Err(ProcessingError::NoPlacements));
@@ -150,10 +165,12 @@ mod test {
         let variant = AssemblyVariant::new(String::from("Variant 1"), vec![]);
         let assembly_variant_processor = AssemblyVariantProcessor::default();
 
-        let placement1 = Placement::new(String::from("R1"));
-
+        let placement1 = EdaPlacement {
+            ref_des: "R1".to_string(),
+            details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
+        };
         // when
-        let result = assembly_variant_processor.process(vec![placement1], variant);
+        let result = assembly_variant_processor.process(&vec![placement1], variant);
 
         // then
         assert_eq!(result, Err(ProcessingError::EmptyRefDesList));

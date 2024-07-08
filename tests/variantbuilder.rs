@@ -4,7 +4,7 @@
 #[cfg(feature="cli")]
 mod tests {
     use std::process::Command;
-    use assert_cmd::prelude::{CommandCargoExt, OutputAssertExt};
+    use assert_cmd::prelude::OutputAssertExt;
     use csv::QuoteStyle;
     use indoc::indoc;
     use predicates::prelude::*;
@@ -74,11 +74,45 @@ mod tests {
 
         let parts_arg = format!("--parts={}", test_parts_file_name.to_str().unwrap());
 
+        // and
+        let mut test_part_mappings_path = temp_dir.path().to_path_buf();
+        test_part_mappings_path.push("part_mappings.csv");
+
+        let test_part_mappings_file_name = test_part_mappings_path.clone().into_os_string();
+        println!("part_mappings file: {}", test_part_mappings_file_name.to_str().unwrap());
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_part_mappings_path)?;
+
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "RES_0402".to_string(),
+            value: "330R 1/16W 5%".to_string(),
+            // maps to
+            manufacturer: "RES_MFR1".to_string(),
+            mpn: "RES1".to_string(),
+        })?;
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
+            value: "POWER".to_string(),
+            // maps to
+            manufacturer: "CONN_MFR1".to_string(),
+            mpn: "CONN1".to_string(),
+        })?;
+
+        writer.flush()?;
+
+
+        let part_mappings_arg = format!("--part-mappings={}", test_part_mappings_file_name.to_str().unwrap());
+
         // when
         cmd.args([
             "build",
             placements_arg.as_str(),
             parts_arg.as_str(),
+            part_mappings_arg.as_str(),
             "--name",
             "Variant 1",
             "--ref-des-list=R1,J1"
@@ -88,10 +122,12 @@ mod tests {
             .success()
             .stdout(
                 predicate::str::contains("Loaded 3 placements\n")
+                    .and(predicate::str::contains("Loaded 2 parts\n"))
+                    .and(predicate::str::contains("Loaded 2 part mappings\n"))
                     .and(predicate::str::contains("Assembly variant: Variant 1\n"))
                     .and(predicate::str::contains("Ref_des list: R1, J1\n"))
                     .and(predicate::str::contains("Matched 2 placements\n"))
-                    .and(predicate::str::contains("Loaded 2 parts\n"))
+                    .and(predicate::str::contains("Mapped 2 placements to 2 parts\n"))
             );
 
         Ok(())
@@ -152,11 +188,12 @@ mod tests {
         let expected_output = indoc! {"
         Build variant
 
-        Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE>
+        Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE>
 
         Options:
               --placements <FILE>                 Placements file
               --parts <FILE>                      Parts file
+              --part-mappings <FILE>              Part-mappings file
               --name <NAME>                       Name of assembly variant [default: Default]
               --ref-des-list [<REF_DES_LIST>...]  List of reference designators
           -h, --help                              Print help
@@ -187,6 +224,16 @@ mod tests {
     #[derive(Debug, serde::Serialize)]
     #[serde(rename_all(serialize = "PascalCase"))]
     struct TestPartRecord {
+        manufacturer: String,
+        mpn: String,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all(serialize = "PascalCase"))]
+    struct TestPartMappingRecord {
+        eda: String,
+        name: String,
+        value: String,
         manufacturer: String,
         mpn: String,
     }

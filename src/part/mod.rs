@@ -1,4 +1,4 @@
-#[cfg_attr(test, derive(PartialEq, Debug))]
+#[derive(Debug, PartialEq)]
 pub struct Part {
     pub manufacturer: String,
     pub mpn: String,
