@@ -107,6 +107,15 @@ mod tests {
 
         let part_mappings_arg = format!("--part-mappings={}", test_part_mappings_file_name.to_str().unwrap());
 
+        // and
+        let expected_part_mapping_tree = indoc! {"
+            Mapping Tree
+            ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
+            │   └── manufacturer: 'RES_MFR1', mpn: 'RES1'
+            └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
+                └── manufacturer: 'CONN_MFR1', mpn: 'CONN1'
+        "};
+
         // when
         cmd.args([
             "build",
@@ -128,6 +137,7 @@ mod tests {
                     .and(predicate::str::contains("Ref_des list: R1, J1\n"))
                     .and(predicate::str::contains("Matched 2 placements\n"))
                     .and(predicate::str::contains("Mapped 2 placements to 2 parts\n"))
+                    .and(predicate::str::contains(expected_part_mapping_tree))
             );
 
         Ok(())

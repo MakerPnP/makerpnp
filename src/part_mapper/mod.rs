@@ -1,7 +1,6 @@
 pub mod criteria;
 pub mod part_mapping;
 
-use std::collections::HashMap;
 use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
 
@@ -11,15 +10,15 @@ impl PartMapper {
     pub fn process<'placement, 'mapping>(
         eda_placements: &'placement Vec<EdaPlacement>,
         part_mappings: &'mapping Vec<PartMapping<'mapping>>
-    ) -> HashMap<&'placement EdaPlacement, &'mapping PartMapping<'mapping>> {
+    ) -> Vec<ProcessingResult<'placement, 'mapping>> {
 
-        let mut results: HashMap<&'placement EdaPlacement, &'mapping PartMapping<'mapping>> = HashMap::new();
+        let mut results = vec![];
 
-        for placement in eda_placements.iter() {
+        for eda_placement in eda_placements.iter() {
             for part_mapping in part_mappings.iter() {
                 for criteria in part_mapping.criteria.iter() {
-                    if criteria.matches(placement) {
-                        results.insert(placement, part_mapping);
+                    if criteria.matches(eda_placement) {
+                        results.push(ProcessingResult { eda_placement, part_mapping });
                     }
                 }
             }
@@ -29,16 +28,21 @@ impl PartMapper {
     }
 }
 
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub struct ProcessingResult<'placement, 'mapping> {
+    pub eda_placement: &'placement EdaPlacement,
+    pub part_mapping: &'mapping PartMapping<'mapping>,
+}
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use EdaPlacementDetails::DipTrace;
     use crate::pnp::part::Part;
     use crate::eda::diptrace::criteria::ExactMatchCriteria;
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
     use crate::part_mapper::part_mapping::PartMapping;
-    use crate::part_mapper::PartMapper;
+    use crate::part_mapper::{PartMapper, ProcessingResult};
     #[test]
     fn map_parts() {
 
@@ -67,10 +71,11 @@ mod tests {
         let part_mappings = vec![part_mapping1, part_mapping2, part_mapping3];
 
         // and
-        let mut expected_results = HashMap::new();
-        expected_results.insert(&eda_placements[0], &part_mappings[0]);
-        expected_results.insert(&eda_placements[1], &part_mappings[1]);
-        expected_results.insert(&eda_placements[2], &part_mappings[2]);
+        let expected_results = vec![
+            ProcessingResult { eda_placement: &eda_placements[0], part_mapping: &part_mappings[0] },
+            ProcessingResult { eda_placement: &eda_placements[1], part_mapping: &part_mappings[1] },
+            ProcessingResult { eda_placement: &eda_placements[2], part_mapping: &part_mappings[2] },
+       ];
 
         // when
         let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);

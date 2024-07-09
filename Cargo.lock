@@ -262,6 +262,7 @@ dependencies = [
  "predicates",
  "serde",
  "tempfile",
+ "termtree",
  "thiserror",
 ]
 

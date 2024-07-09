@@ -1,11 +1,14 @@
+use std::fmt::{Display, Formatter};
 use anyhow::Error;
 use clap::{Args, Parser, Subcommand};
+use termtree::Tree;
 use thiserror::Error;
 
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
+use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
 use makerpnp::loaders::{eda_placements, part_mappings, parts};
-use makerpnp::part_mapper::PartMapper;
+use makerpnp::part_mapper::{PartMapper, ProcessingResult};
 
 #[derive(Parser)]
 #[command(name = "variantbuilder")]
@@ -100,7 +103,6 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 
     let assembly_variant_processor = AssemblyVariantProcessor::default();
 
-    // when
     let result = assembly_variant_processor.process(&eda_placements, assembly_variant)?;
     let variant_placements = result.placements;
     let variant_placements_count = variant_placements.len();
@@ -116,6 +118,44 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
     let matched_placement_count = matched_mappings.len();
     println!("Mapped {} placements to {} parts\n", variant_placements_count, matched_placement_count);
 
+    let tree = build_mapping_tree(matched_mappings);
+    println!("{}", tree);
+
     Ok(())
 }
 
+fn build_mapping_tree(matched_mappings: Vec<ProcessingResult>) -> Tree<String> {
+    let mut tree = Tree::new("Mapping Tree".to_string());
+
+    for ProcessingResult { eda_placement, part_mapping} in matched_mappings.iter() {
+        let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
+        let mut placement_node = Tree::new(placement_label);
+
+        let part_label = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
+        let part_node= Tree::new(part_label);
+
+        placement_node.leaves.push(part_node);
+
+        tree.leaves.push(placement_node)
+    }
+
+    tree
+}
+
+struct EdaPlacementTreeFormatter {}
+
+struct DipTracePlacementDetailsLabel<'details>(&'details DipTracePlacementDetails);
+
+impl<'details> Display for DipTracePlacementDetailsLabel<'details> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "name: '{}', value: '{}'", self.0.name, self.0.value)
+    }
+}
+
+impl EdaPlacementTreeFormatter {
+    fn format(details: &EdaPlacementDetails) -> impl Display + '_ {
+        match details {
+            EdaPlacementDetails::DipTrace(d) => DipTracePlacementDetailsLabel(d)
+        }
+    }
+}
