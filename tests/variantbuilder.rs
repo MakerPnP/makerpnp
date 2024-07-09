@@ -3,12 +3,14 @@
 
 #[cfg(feature="cli")]
 mod tests {
+    use std::ffi::OsString;
+    use std::path::PathBuf;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
     use csv::QuoteStyle;
     use indoc::indoc;
     use predicates::prelude::*;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
 
     #[test]
     fn build() -> Result<(), std::io::Error> {
@@ -19,11 +21,7 @@ mod tests {
         let temp_dir = tempdir()?;
 
         // and
-        let mut test_placements_path = temp_dir.path().to_path_buf();
-        test_placements_path.push("placements.csv");
-
-        let test_placements_file_name = test_placements_path.clone().into_os_string();
-        println!("placements file: {}", test_placements_file_name.to_str().unwrap());
+        let (test_placements_path, test_placements_file_name) = build_temp_csv_file(&temp_dir, "placements");
 
         let mut writer = csv::WriterBuilder::new()
             .quote_style(QuoteStyle::Always)
@@ -51,11 +49,7 @@ mod tests {
         let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
 
         // and
-        let mut test_parts_path = temp_dir.path().to_path_buf();
-        test_parts_path.push("parts.csv");
-
-        let test_parts_file_name = test_parts_path.clone().into_os_string();
-        println!("parts file: {}", test_parts_file_name.to_str().unwrap());
+        let (test_parts_path, test_parts_file_name) = build_temp_csv_file(&temp_dir, "parts");
 
         let mut writer = csv::WriterBuilder::new()
             .quote_style(QuoteStyle::Always)
@@ -75,11 +69,7 @@ mod tests {
         let parts_arg = format!("--parts={}", test_parts_file_name.to_str().unwrap());
 
         // and
-        let mut test_part_mappings_path = temp_dir.path().to_path_buf();
-        test_part_mappings_path.push("part_mappings.csv");
-
-        let test_part_mappings_file_name = test_part_mappings_path.clone().into_os_string();
-        println!("part_mappings file: {}", test_part_mappings_file_name.to_str().unwrap());
+        let (test_part_mappings_path, test_part_mappings_file_name) = build_temp_csv_file(&temp_dir, "part_mappings");
 
         let mut writer = csv::WriterBuilder::new()
             .quote_style(QuoteStyle::Always)
@@ -246,5 +236,22 @@ mod tests {
         value: String,
         manufacturer: String,
         mpn: String,
+    }
+
+    fn build_temp_csv_file(temp_dir: &TempDir, base: &str) -> (PathBuf, OsString) {
+        build_temp_file(temp_dir, base, "csv")
+    }
+
+    fn build_temp_file(temp_dir: &TempDir, base: &str, extension: &str) -> (PathBuf, OsString) {
+        let mut path_buf = temp_dir.path().to_path_buf();
+        path_buf.push(format!("{}.{}", base, extension));
+
+        let absolute_path = path_buf.clone().into_os_string();
+        println!("{} file: {}",
+                 base.replace('_', " "),
+                 absolute_path.to_str().unwrap()
+        );
+
+        (path_buf, absolute_path)
     }
 }
