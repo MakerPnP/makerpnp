@@ -123,14 +123,23 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 fn build_mapping_tree(matched_mappings: Vec<ProcessingResult>) -> Tree<String> {
     let mut tree = Tree::new("Mapping Tree".to_string());
 
-    for ProcessingResult { eda_placement, part_mapping} in matched_mappings.iter() {
+    for ProcessingResult { eda_placement, part_mappings } in matched_mappings.iter() {
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
         let mut placement_node = Tree::new(placement_label);
 
-        let part_label = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
-        let part_node= Tree::new(part_label);
+        for (index, part_mapping) in part_mappings.iter().enumerate() {
+            let part_label = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
 
-        placement_node.leaves.push(part_node);
+            let selected = index == 0;
+            let maybe_selected_part_label = match selected {
+                true => part_label,
+                false => format!("({})", part_label),
+            };
+
+            let part_node = Tree::new(maybe_selected_part_label);
+            placement_node.leaves.push(part_node);
+        }
+
 
         tree.leaves.push(placement_node)
     }

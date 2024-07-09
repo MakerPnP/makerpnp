@@ -63,6 +63,10 @@ mod tests {
             manufacturer: "RES_MFR1".to_string(),
             mpn: "RES1".to_string(),
         })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "RES_MFR2".to_string(),
+            mpn: "RES2".to_string(),
+        })?;
 
         writer.flush()?;
 
@@ -75,6 +79,7 @@ mod tests {
             .quote_style(QuoteStyle::Always)
             .from_path(test_part_mappings_path)?;
 
+        // and a mapping for a resistor
         writer.serialize(TestPartMappingRecord {
             eda: "DipTrace".to_string(),
             name: "RES_0402".to_string(),
@@ -83,6 +88,17 @@ mod tests {
             manufacturer: "RES_MFR1".to_string(),
             mpn: "RES1".to_string(),
         })?;
+        // and an alternative mapping for the same resistor
+        // Note: having two potential mappings forces the system (or user) to select one
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "RES_0402".to_string(),
+            value: "330R 1/16W 5%".to_string(),
+            // maps to
+            manufacturer: "RES_MFR2".to_string(),
+            mpn: "RES2".to_string(),
+        })?;
+        // and a single mapping for the connector
         writer.serialize(TestPartMappingRecord {
             eda: "DipTrace".to_string(),
             name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
@@ -94,14 +110,14 @@ mod tests {
 
         writer.flush()?;
 
-
         let part_mappings_arg = format!("--part-mappings={}", test_part_mappings_file_name.to_str().unwrap());
 
         // and
         let expected_part_mapping_tree = indoc! {"
             Mapping Tree
             ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
-            │   └── manufacturer: 'RES_MFR1', mpn: 'RES1'
+            │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
+            │   └── (manufacturer: 'RES_MFR2', mpn: 'RES2')
             └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
                 └── manufacturer: 'CONN_MFR1', mpn: 'CONN1'
         "};
@@ -121,8 +137,8 @@ mod tests {
             .success()
             .stdout(
                 predicate::str::contains("Loaded 3 placements\n")
-                    .and(predicate::str::contains("Loaded 2 parts\n"))
-                    .and(predicate::str::contains("Loaded 2 part mappings\n"))
+                    .and(predicate::str::contains("Loaded 3 parts\n"))
+                    .and(predicate::str::contains("Loaded 3 part mappings\n"))
                     .and(predicate::str::contains("Assembly variant: Variant 1\n"))
                     .and(predicate::str::contains("Ref_des list: R1, J1\n"))
                     .and(predicate::str::contains("Matched 2 placements\n"))

@@ -15,8 +15,10 @@ pub struct CSVPartMappingRecord {
     mpn: String,
 }
 
+#[non_exhaustive]
 pub enum PartMappingRecord {
     DipTracePartMapping(DipTracePartMappingRecord),
+    // TODO
     //KiCadPartMapping(KiCadPartMappingRecord),
 }
 
@@ -42,12 +44,22 @@ impl TryFrom<CSVPartMappingRecord> for PartMappingRecord {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum PartMappingError {
+    #[error("Unable to build criteria")]
+    UnableToBuildCriteria,
+
+    #[error("No matching part, criteria: {criteria:?}")]
+    NoMatchingPart { criteria: Part },
+}
+
 impl PartMappingRecord {
-    pub fn build_part_mapping<'part>(&self, parts: &'part Vec<Part>) -> Result<PartMapping<'part>, ()> {
+    pub fn build_part_mapping<'part>(&self, parts: &'part Vec<Part>) -> Result<PartMapping<'part>, PartMappingError> {
 
         let part_criteria: Part = match self {
             PartMappingRecord::DipTracePartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
-            //_ => Err(()) // TODO - unable to build part criteria
+            // TODO
+            // _ => Err(PartMappingError::UnableToBuildCriteria)
         }?;
 
         let matched_part_ref = parts.iter().find_map(|part| {
@@ -59,7 +71,7 @@ impl PartMappingRecord {
 
         let part_ref = match matched_part_ref {
             Some(part) => Ok(part),
-            _ => Err(()) // TODO
+            _ => Err(PartMappingError::NoMatchingPart { criteria: part_criteria })
         }?;
 
         let criterion = match self {

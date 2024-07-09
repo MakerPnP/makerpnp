@@ -15,13 +15,15 @@ impl PartMapper {
         let mut results = vec![];
 
         for eda_placement in eda_placements.iter() {
+            let mut result = ProcessingResult { eda_placement, part_mappings: vec![] };
             for part_mapping in part_mappings.iter() {
                 for criteria in part_mapping.criteria.iter() {
                     if criteria.matches(eda_placement) {
-                        results.push(ProcessingResult { eda_placement, part_mapping });
+                        result.part_mappings.push(part_mapping);
                     }
                 }
             }
+            results.push(result);
         }
 
         results
@@ -32,7 +34,7 @@ impl PartMapper {
 #[derive(Debug)]
 pub struct ProcessingResult<'placement, 'mapping> {
     pub eda_placement: &'placement EdaPlacement,
-    pub part_mapping: &'mapping PartMapping<'mapping>,
+    pub part_mappings: Vec<&'mapping PartMapping<'mapping>>,
 }
 
 #[cfg(test)]
@@ -72,9 +74,9 @@ mod tests {
 
         // and
         let expected_results = vec![
-            ProcessingResult { eda_placement: &eda_placements[0], part_mapping: &part_mappings[0] },
-            ProcessingResult { eda_placement: &eda_placements[1], part_mapping: &part_mappings[1] },
-            ProcessingResult { eda_placement: &eda_placements[2], part_mapping: &part_mappings[2] },
+            ProcessingResult { eda_placement: &eda_placements[0], part_mappings: vec![&part_mappings[0]] },
+            ProcessingResult { eda_placement: &eda_placements[1], part_mappings: vec![&part_mappings[1]] },
+            ProcessingResult { eda_placement: &eda_placements[2], part_mappings: vec![&part_mappings[2]] },
        ];
 
         // when
