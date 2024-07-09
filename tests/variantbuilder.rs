@@ -153,16 +153,16 @@ mod tests {
 
         // and
         let expected_output = indoc! {"
-        Usage: variantbuilder [COMMAND]
+            Usage: variantbuilder [COMMAND]
 
-        Commands:
-          build  Build variant
-          help   Print this message or the help of the given subcommand(s)
+            Commands:
+              build  Build variant
+              help   Print this message or the help of the given subcommand(s)
 
-        Options:
-          -h, --help     Print help
-          -V, --version  Print version
-    "};
+            Options:
+              -h, --help     Print help
+              -V, --version  Print version
+        "};
 
         // TODO report issues with predicate::str::diff and clap
         //      * diff - if the only difference is trailing whitespace, diff fails, without showing a difference.
@@ -186,18 +186,18 @@ mod tests {
 
         // and
         let expected_output = indoc! {"
-        Build variant
+            Build variant
 
-        Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE>
+            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE>
 
-        Options:
-              --placements <FILE>                 Placements file
-              --parts <FILE>                      Parts file
-              --part-mappings <FILE>              Part-mappings file
-              --name <NAME>                       Name of assembly variant [default: Default]
-              --ref-des-list [<REF_DES_LIST>...]  List of reference designators
-          -h, --help                              Print help
-    "};
+            Options:
+                  --placements <FILE>                 Placements file
+                  --parts <FILE>                      Parts file
+                  --part-mappings <FILE>              Part-mappings file
+                  --name <NAME>                       Name of assembly variant [default: Default]
+                  --ref-des-list [<REF_DES_LIST>...]  List of reference designators
+              -h, --help                              Print help
+        "};
 
         // TODO report issues with clap
         //      * clap - unable to find clap derive documentation for `value_delimiter`
