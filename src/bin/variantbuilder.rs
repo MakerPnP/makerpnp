@@ -15,10 +15,6 @@ use makerpnp::part_mapper::{PartMapper, ProcessingResult};
 #[command(bin_name = "variantbuilder")]
 #[command(version, about, long_about = None)]
 struct Opts {
-    // /// Show version information
-    // #[arg(short = 'V', long)]
-    // version: bool,
-
     #[command(subcommand)]
     command: Option<Commands>,
 }
