@@ -1,9 +1,11 @@
 use anyhow::{bail, Error};
 use std::path::PathBuf;
+use tracing::trace;
 use crate::loaders::csv::{CSVPartMappingRecord, PartMappingRecord};
 use crate::pnp::part::Part;
 use crate::part_mapper::part_mapping::PartMapping;
 
+#[tracing::instrument]
 pub fn load_part_mappings<'part>(parts: &'part Vec<Part>, part_mappings_source: &String) -> Result<Vec<PartMapping<'part>>, Error> {
     let part_mappings_path_buf = PathBuf::from(part_mappings_source);
     let part_mappings_path = part_mappings_path_buf.as_path();
@@ -13,8 +15,7 @@ pub fn load_part_mappings<'part>(parts: &'part Vec<Part>, part_mappings_source: 
 
     for result in csv_reader.deserialize() {
         let record: CSVPartMappingRecord = result?;
-        // TODO output the record in verbose mode
-        //println!("{:?}", record);
+        trace!("{:?}", record);
 
         let enum_record = PartMappingRecord::try_from(record)?;
 

@@ -4,11 +4,14 @@
 #[cfg(feature="cli")]
 mod tests {
     use std::ffi::OsString;
+    use std::fs;
     use std::path::PathBuf;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
+    use assert_fs::prelude::PathAssert;
     use csv::QuoteStyle;
     use indoc::indoc;
+    use predicates::function::FnPredicate;
     use predicates::prelude::*;
     use tempfile::{tempdir, TempDir};
 
@@ -122,31 +125,57 @@ mod tests {
                 └── manufacturer: 'CONN_MFR1', mpn: 'CONN1'
         "};
 
+        // TODO ask the user which mapping to use for R1
+
+        // and
+        let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
+        let trace_log_arg = format!("--trace={}", test_trace_log_file_name.to_str().unwrap());
+
         // when
         cmd.args([
+            trace_log_arg.as_str(),
             "build",
             placements_arg.as_str(),
             parts_arg.as_str(),
             part_mappings_arg.as_str(),
             "--name",
             "Variant 1",
-            "--ref-des-list=R1,J1"
+            "--ref-des-list=R1,J1",
         ])
             // then
             .assert()
-            .success()
-            .stdout(
-                predicate::str::contains("Loaded 3 placements\n")
-                    .and(predicate::str::contains("Loaded 3 parts\n"))
-                    .and(predicate::str::contains("Loaded 3 part mappings\n"))
-                    .and(predicate::str::contains("Assembly variant: Variant 1\n"))
-                    .and(predicate::str::contains("Ref_des list: R1, J1\n"))
-                    .and(predicate::str::contains("Matched 2 placements\n"))
-                    .and(predicate::str::contains("Mapped 2 placements to 2 parts\n"))
-                    .and(predicate::str::contains(expected_part_mapping_tree))
-            );
+            .stderr(print("stderr"))
+            .stdout(print("stdout"))
+            .success();
+
+        // and
+        {
+            let trace_content: String = fs::read_to_string(test_trace_log_path.clone())?;
+            println!("{}", trace_content);
+        }
+
+        let trace_log = assert_fs::NamedTempFile::new(test_trace_log_path).expect("Ok");
+
+        // TODO assert the order is as follows
+        trace_log.assert(predicate::str::contains("Loaded 3 placements\n")
+            .and(predicate::str::contains("Loaded 3 parts\n"))
+            .and(predicate::str::contains("Loaded 3 part mappings\n"))
+            .and(predicate::str::contains("Assembly variant: Variant 1\n"))
+            .and(predicate::str::contains("Ref_des list: R1, J1\n"))
+            .and(predicate::str::contains("Matched 2 placements\n"))
+            .and(predicate::str::contains("Mapped 2 placements to 2 parts\n"))
+            .and(predicate::str::contains(expected_part_mapping_tree))
+        );
 
         Ok(())
+    }
+
+    fn print(message: &str) -> FnPredicate<fn(&str) -> bool, str> {
+        println!("{}:", message);
+        predicate::function(|content| {
+            println!("{}", content);
+            true
+        })
     }
 
     #[test]
@@ -159,7 +188,8 @@ mod tests {
             // then
             .assert()
             .success()
-            .stdout(predicate::str::diff("variantbuilder 0.1.0\n"));
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff("variantbuilder 0.1.0\n")));
     }
 
     #[test]
@@ -169,15 +199,16 @@ mod tests {
 
         // and
         let expected_output = indoc! {"
-            Usage: variantbuilder [COMMAND]
+            Usage: variantbuilder [OPTIONS] [COMMAND]
 
             Commands:
               build  Build variant
               help   Print this message or the help of the given subcommand(s)
 
             Options:
-              -h, --help     Print help
-              -V, --version  Print version
+                  --trace[=<TRACE>]  Trace log file
+              -h, --help             Print help
+              -V, --version          Print version
         "};
 
         // TODO report issues with predicate::str::diff and clap
@@ -192,7 +223,8 @@ mod tests {
             // then
             .assert()
             .failure()
-            .stderr(predicate::str::diff(expected_output));
+            .stderr(print("stderr").and(predicate::str::diff(expected_output)))
+            .stdout(print("stdout"));
     }
 
     #[test]
@@ -226,7 +258,8 @@ mod tests {
             // then
             .assert()
             .success()
-            .stdout(predicate::str::diff(expected_output));
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
 
     #[derive(Debug, serde::Serialize)]

@@ -1,9 +1,13 @@
 use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::path::PathBuf;
 use anyhow::Error;
 use clap::{Args, Parser, Subcommand};
 use termtree::Tree;
 use thiserror::Error;
-
+use tracing::{info, Level, trace};
+use tracing_subscriber::fmt::format::FmtSpan;
+use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
@@ -17,10 +21,14 @@ use makerpnp::part_mapper::{PartMapper, ProcessingResult};
 struct Opts {
     #[command(subcommand)]
     command: Option<Commands>,
+
+    /// Trace log file
+    #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
+    trace: Option<PathBuf>,
+
 }
 
-#[derive(Args)]
-#[derive(Clone)]
+#[derive(Args, Clone, Debug)]
 struct AssemblyVariantArgs {
     /// Name of assembly variant
     #[arg(long, default_value = "Default")]
@@ -73,6 +81,8 @@ enum Commands {
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
+    configure_tracing(&opts)?;
+
     match &opts.command.unwrap() {
         Commands::Build { placements, assembly_variant, parts, part_mappings } => {
             build_assembly_variant(placements, assembly_variant, parts, part_mappings)?;
@@ -82,20 +92,56 @@ fn main() -> anyhow::Result<()>{
     Ok(())
 }
 
+fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
+    const SUBSCRIBER_FAILED_MESSAGE: &'static str = "setting default subscriber failed";
+    match &opts.trace {
+        Some(path) => {
+            //println!("using file_subscriber");
+            let trace_file: File = File::create(path)?;
+
+            let file_subscriber = FmtSubscriber::builder()
+                .with_writer(trace_file)
+                .with_max_level(Level::TRACE)
+                .finish();
+
+            tracing::subscriber::set_global_default(file_subscriber)
+                .expect(SUBSCRIBER_FAILED_MESSAGE);
+        },
+        _ => {
+            // FIXME currently overly verbose
+            //println!("using stdout_subscriber");
+            let stdout_subscriber = FmtSubscriber::builder()
+                .event_format(fmt::format().compact())
+                .with_level(false)
+                .with_line_number(false)
+                .with_span_events(FmtSpan::NONE)
+                .without_time()
+                .with_max_level(Level::INFO)
+                .finish();
+
+            tracing::subscriber::set_global_default(stdout_subscriber)
+                .expect(SUBSCRIBER_FAILED_MESSAGE);
+        }
+    };
+
+    Ok(())
+}
+
+#[tracing::instrument]
 fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String) -> Result<(), Error> {
 
     let eda_placements = eda_placements::load_eda_placements(placements_source)?;
-    println!("Loaded {} placements", eda_placements.len());
+    info!("Loaded {} placements", eda_placements.len());
 
     let parts = parts::load_parts(parts_source)?;
-    println!("Loaded {} parts", parts.len());
+    info!("Loaded {} parts", parts.len());
 
     let part_mappings = part_mappings::load_part_mappings(&parts, part_mappings_source)?;
-    println!("Loaded {} part mappings", part_mappings.len());
+    info!("Loaded {} part mappings", part_mappings.len());
 
     let assembly_variant = assembly_variant_args.build_assembly_variant()?;
-    println!("Assembly variant: {}", assembly_variant.name);
-    println!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
+    info!("Assembly variant: {}", assembly_variant.name);
+    info!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
 
     let assembly_variant_processor = AssemblyVariantProcessor::default();
 
@@ -103,19 +149,19 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
     let variant_placements = result.placements;
     let variant_placements_count = variant_placements.len();
 
-    println!("Matched {} placements", variant_placements_count);
+    info!("Matched {} placements", variant_placements_count);
 
-    println!("{:?}", part_mappings);
+    trace!("{:?}", part_mappings);
 
     let matched_mappings = PartMapper::process(&variant_placements, &part_mappings);
 
-    println!("{:?}", matched_mappings);
+    trace!("{:?}", matched_mappings);
 
     let matched_placement_count = matched_mappings.len();
-    println!("Mapped {} placements to {} parts\n", variant_placements_count, matched_placement_count);
+    info!("Mapped {} placements to {} parts\n", variant_placements_count, matched_placement_count);
 
     let tree = build_mapping_tree(matched_mappings);
-    println!("{}", tree);
+    info!("{}", tree);
 
     Ok(())
 }

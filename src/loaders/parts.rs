@@ -1,7 +1,10 @@
 use anyhow::{bail, Error};
 use std::path::PathBuf;
+use tracing::trace;
 use crate::loaders::csv::PartRecord;
 use crate::pnp::part::Part;
+
+#[tracing::instrument]
 pub fn load_parts(parts_source: &String) -> Result<Vec<Part>, Error> {
     let parts_path_buf = PathBuf::from(parts_source);
     let parts_path = parts_path_buf.as_path();
@@ -11,8 +14,7 @@ pub fn load_parts(parts_source: &String) -> Result<Vec<Part>, Error> {
 
     for result in csv_reader.deserialize() {
         let record: PartRecord = result?;
-        // TODO output the record in verbose mode
-        //println!("{:?}", record);
+        trace!("{:?}", record);
 
         if let Ok(part) = record.build_part() {
             parts.push(part);
