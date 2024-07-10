@@ -18,7 +18,7 @@ pub struct CSVPartMappingRecord {
 #[non_exhaustive]
 pub enum PartMappingRecord {
     DipTracePartMapping(DipTracePartMappingRecord),
-    // TODO
+    // TODO add KiCad support
     //KiCadPartMapping(KiCadPartMappingRecord),
 }
 
@@ -58,7 +58,7 @@ impl PartMappingRecord {
 
         let part_criteria: Part = match self {
             PartMappingRecord::DipTracePartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
-            // TODO
+            // TODO add KiCad support
             // _ => Err(PartMappingError::UnableToBuildCriteria)
         }?;
 
