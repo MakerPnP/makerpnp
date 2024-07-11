@@ -1,6 +1,31 @@
 // Run tests as follows:
 // `cargo test --features="cli"`
 
+macro_rules! assert_contains_inorder {
+    ($content: expr, [$($element:expr,)+]) => {
+        let _index = 0;
+        let _remainder = &$content;
+        $(
+            let element = $element;
+            let message = format!("unmatched ordered element\nindex: {}\nelement:\n{}\ncontent:\n{}\n", _index, element, _remainder);
+            let (_, _remainder) = _remainder.split_once(element).expect(message.as_str());
+            let _index = _index + 1;
+        )*
+    }
+}
+
+macro_rules! assert_inorder {
+    ($content:expr, $expected:expr) => {
+        {
+            let remainder = $content;
+            let expected = $expected;
+            let (_, remainder) = remainder.split_once(expected).expect(format!("expected string not found, expected: '{}', remaining content: '{}'", expected, remainder).as_str());
+
+            remainder.to_string()
+        }
+    };
+}
+
 #[cfg(feature="cli")]
 mod tests {
     use std::ffi::OsString;
@@ -8,7 +33,6 @@ mod tests {
     use std::path::PathBuf;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
-    use assert_fs::prelude::PathAssert;
     use csv::QuoteStyle;
     use indoc::indoc;
     use predicates::function::FnPredicate;
@@ -149,23 +173,31 @@ mod tests {
             .success();
 
         // and
-        {
-            let trace_content: String = fs::read_to_string(test_trace_log_path.clone())?;
-            println!("{}", trace_content);
-        }
+        let trace_content: String = fs::read_to_string(test_trace_log_path.clone())?;
+        println!("{}", trace_content);
 
-        let trace_log = assert_fs::NamedTempFile::new(test_trace_log_path).expect("Ok");
+        // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
+        let _remainder = trace_content.clone();
+        let _remainder = assert_inorder!(_remainder, "Loaded 3 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 3 parts\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 3 part mappings\n");
+        let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
+        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, J1\n");
+        let _remainder = assert_inorder!(_remainder, "Matched 2 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Mapped 2 placements to 2 parts\n");
+        let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
 
-        // TODO assert the order is as follows
-        trace_log.assert(predicate::str::contains("Loaded 3 placements\n")
-            .and(predicate::str::contains("Loaded 3 parts\n"))
-            .and(predicate::str::contains("Loaded 3 part mappings\n"))
-            .and(predicate::str::contains("Assembly variant: Variant 1\n"))
-            .and(predicate::str::contains("Ref_des list: R1, J1\n"))
-            .and(predicate::str::contains("Matched 2 placements\n"))
-            .and(predicate::str::contains("Mapped 2 placements to 2 parts\n"))
-            .and(predicate::str::contains(expected_part_mapping_tree))
-        );
+        // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
+        assert_contains_inorder!(trace_content, [
+            "Loaded 3 placements\n",
+            "Loaded 3 parts\n",
+            "Loaded 3 part mappings\n",
+            "Assembly variant: Variant 1\n",
+            "Ref_des list: R1, J1\n",
+            "Matched 2 placements\n",
+            "Mapped 2 placements to 2 parts\n",
+            expected_part_mapping_tree,
+        ]);
 
         Ok(())
     }
