@@ -119,7 +119,7 @@ mod tests {
 
         // and
         let expected_part_mapping_tree = indoc! {"
-            Mapping Tree
+            Mapping Result
             ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
             │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
             │   ├── manufacturer: 'RES_MFR2', mpn: 'RES2'

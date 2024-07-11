@@ -180,7 +180,7 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 }
 
 fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> {
-    let mut tree = Tree::new("Mapping Tree".to_string());
+    let mut tree = Tree::new("Mapping Result".to_string());
 
     for ProcessingResult { eda_placement, part_mappings: part_mappings_result } in matched_mappings.iter() {
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
