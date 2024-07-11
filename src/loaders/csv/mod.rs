@@ -45,7 +45,7 @@ impl TryFrom<CSVPartMappingRecord> for PartMappingRecord {
 }
 
 #[derive(Error, Debug)]
-pub enum PartMappingError {
+pub enum PartMappingRecordError {
     #[error("Unable to build criteria")]
     UnableToBuildCriteria,
 
@@ -54,7 +54,7 @@ pub enum PartMappingError {
 }
 
 impl PartMappingRecord {
-    pub fn build_part_mapping<'part>(&self, parts: &'part Vec<Part>) -> Result<PartMapping<'part>, PartMappingError> {
+    pub fn build_part_mapping<'part>(&self, parts: &'part Vec<Part>) -> Result<PartMapping<'part>, PartMappingRecordError> {
 
         let part_criteria: Part = match self {
             PartMappingRecord::DipTracePartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
@@ -71,7 +71,7 @@ impl PartMappingRecord {
 
         let part_ref = match matched_part_ref {
             Some(part) => Ok(part),
-            _ => Err(PartMappingError::NoMatchingPart { criteria: part_criteria })
+            _ => Err(PartMappingRecordError::NoMatchingPart { criteria: part_criteria })
         }?;
 
         let criterion = match self {
