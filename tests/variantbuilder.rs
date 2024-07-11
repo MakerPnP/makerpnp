@@ -43,6 +43,11 @@ mod tests {
             value: "330R 1/16W 5%".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "C1".to_string(),
+            name: "CAP_0402".to_string(),
+            value: "10uF 6.3V 20%".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
             ref_des: "J1".to_string(),
             name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
             value: "POWER".to_string(),
@@ -124,6 +129,8 @@ mod tests {
             │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
             │   ├── manufacturer: 'RES_MFR2', mpn: 'RES2'
             │   └── ERROR: Unresolved mapping conflict.
+            ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
+            │   └── ERROR: Unresolved mapping conflict.
             └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
                 └── manufacturer: 'CONN_MFR1', mpn: 'CONN1'
         "};
@@ -143,7 +150,7 @@ mod tests {
             part_mappings_arg.as_str(),
             "--name",
             "Variant 1",
-            "--ref-des-list=R1,J1",
+            "--ref-des-list=R1,C1,J1",
         ])
             // then
             .assert()
@@ -157,25 +164,23 @@ mod tests {
 
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
-        let _remainder = assert_inorder!(_remainder, "Loaded 3 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 4 placements\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, J1\n");
-        let _remainder = assert_inorder!(_remainder, "Matched 2 placements\n");
-        let _remainder = assert_inorder!(_remainder, "Mapped 2 placements to 2 parts\n");
+        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, C1, J1\n");
+        let _remainder = assert_inorder!(_remainder, "Matched 3 placements for assembly variant\n");
         let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
         let _remainder = assert_inorder!(_remainder, "Mapping failures\n");
 
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
-            "Loaded 3 placements\n",
+            "Loaded 4 placements\n",
             "Loaded 3 parts\n",
             "Loaded 3 part mappings\n",
             "Assembly variant: Variant 1\n",
-            "Ref_des list: R1, J1\n",
-            "Matched 2 placements\n",
-            "Mapped 2 placements to 2 parts\n",
+            "Ref_des list: R1, C1, J1\n",
+            "Matched 3 placements for assembly variant\n",
             expected_part_mapping_tree,
             "Mapping failures\n",
         ]);

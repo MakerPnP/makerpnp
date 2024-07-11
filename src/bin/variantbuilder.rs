@@ -150,7 +150,7 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
     let variant_placements = result.placements;
     let variant_placements_count = variant_placements.len();
 
-    info!("Matched {} placements", variant_placements_count);
+    info!("Matched {} placements for assembly variant", variant_placements_count);
 
     trace!("{:?}", part_mappings);
 
@@ -162,9 +162,6 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
         Ok(mappings) => mappings,
         Err(PartMapperError::MappingErrors(mappings)) => mappings,
     };
-
-    let matched_placement_count = matched_mappings.len();
-    info!("Mapped {} placements to {} parts", variant_placements_count, matched_placement_count);
 
     let tree = build_mapping_tree(matched_mappings);
     info!("{}", tree);
@@ -186,18 +183,22 @@ fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> 
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
         let mut placement_node = Tree::new(placement_label);
 
+        fn add_error_node(placement_node: &mut Tree<String>) {
+            let placement_error_node = Tree::new("ERROR: Unresolved mapping conflict.".to_string());
+            placement_node.leaves.push(placement_error_node);
+        }
+
         match part_mappings_result {
             Ok(part_mappings) => {
                 add_mapping_nodes(part_mappings, &mut placement_node);
             },
             Err(PartMappingError::MultipleMatchingMappings(part_mappings)) => {
                 add_mapping_nodes(part_mappings, &mut placement_node);
-
-                let placement_error_node = Tree::new("ERROR: Unresolved mapping conflict.".to_string());
-                placement_node.leaves.push(placement_error_node);
-
-            }
-            _ => todo!()
+                add_error_node(&mut placement_node);
+            },
+            Err(PartMappingError::NoMappings) => {
+                add_error_node(&mut placement_node);
+            },
         }
 
         tree.leaves.push(placement_node)
