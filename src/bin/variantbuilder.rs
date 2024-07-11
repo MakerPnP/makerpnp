@@ -12,7 +12,7 @@ use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
 use makerpnp::loaders::{eda_placements, part_mappings, parts};
-use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, ProcessingResult};
+use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
 use makerpnp::part_mapper::part_mapping::PartMapping;
 
 #[derive(Parser)]
@@ -176,10 +176,10 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
     Ok(())
 }
 
-fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> {
+fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>) -> Tree<String> {
     let mut tree = Tree::new("Mapping Result".to_string());
 
-    for ProcessingResult { eda_placement, mapping_result: part_mappings_result } in matched_mappings.iter() {
+    for PlacementPartMappingResult { eda_placement, mapping_result: part_mappings_result } in matched_mappings.iter() {
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
         let mut placement_node = Tree::new(placement_label);
 
