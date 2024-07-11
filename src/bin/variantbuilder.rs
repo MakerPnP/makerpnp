@@ -12,7 +12,7 @@ use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
 use makerpnp::loaders::{eda_placements, part_mappings, parts};
-use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, ProcessingResult};
+use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, ProcessingResult};
 use makerpnp::part_mapper::part_mapping::PartMapping;
 
 #[derive(Parser)]
@@ -179,7 +179,7 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> {
     let mut tree = Tree::new("Mapping Result".to_string());
 
-    for ProcessingResult { eda_placement, part_mappings: part_mappings_result } in matched_mappings.iter() {
+    for ProcessingResult { eda_placement, mapping_result: part_mappings_result } in matched_mappings.iter() {
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
         let mut placement_node = Tree::new(placement_label);
 
@@ -189,11 +189,11 @@ fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> 
         }
 
         match part_mappings_result {
-            Ok(part_mappings) => {
-                add_mapping_nodes(part_mappings, &mut placement_node);
-            },
-            Err(PartMappingError::MultipleMatchingMappings(part_mappings)) => {
-                add_mapping_nodes(part_mappings, &mut placement_node);
+            Ok(part_mapping_results) => {
+                add_mapping_nodes(part_mapping_results, &mut placement_node);
+            }
+            Err(PartMappingError::MultipleMatchingMappings(part_mapping_results)) => {
+                add_mapping_nodes(part_mapping_results, &mut placement_node);
                 add_error_node(&mut placement_node);
             },
             Err(PartMappingError::NoMappings) => {
@@ -207,9 +207,17 @@ fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> 
     tree
 }
 
-fn add_mapping_nodes(part_mappings: &Vec<&PartMapping>, placement_node: &mut Tree<String>) {
-    for part_mapping in part_mappings.iter() {
-        let part_label = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
+fn add_mapping_nodes(part_mapping_results: &Vec<PartMappingResult>, placement_node: &mut Tree<String>) {
+    for PartMappingResult { part_mapping, applied_rule } in part_mapping_results.iter() {
+        let part_chunk = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
+        let mut chunks = vec![part_chunk];
+
+        if let Some(rule) = applied_rule {
+            let rule_chunk = format!("({})", rule);
+            chunks.push(rule_chunk);
+        }
+
+        let part_label = chunks.join(" ");
 
         let part_node = Tree::new(part_label);
         placement_node.leaves.push(part_node);

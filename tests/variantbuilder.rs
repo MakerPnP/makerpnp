@@ -132,7 +132,7 @@ mod tests {
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
             │   └── ERROR: Unresolved mapping conflict.
             └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
-                └── manufacturer: 'CONN_MFR1', mpn: 'CONN1'
+                └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
         "};
 
         // TODO ask the user which mapping to use for R1

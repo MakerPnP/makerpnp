@@ -1,6 +1,7 @@
 pub mod criteria;
 pub mod part_mapping;
 
+use std::fmt::{Display, Formatter};
 use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
 
@@ -16,29 +17,32 @@ impl PartMapper {
         let mut mappings = vec![];
 
         for eda_placement in eda_placements.iter() {
-            let mut matching_mappings = vec![];
+            let mut part_mapping_results = vec![];
 
             for part_mapping in part_mappings.iter() {
                 for criteria in part_mapping.criteria.iter() {
                     if criteria.matches(eda_placement) {
-                        matching_mappings.push(part_mapping);
+                        part_mapping_results.push(PartMappingResult { part_mapping, applied_rule: None });
                     }
                 }
             }
 
-            let matching_mappings_result = match matching_mappings.len() {
+            let matching_mappings_result = match part_mapping_results.len() {
                 0 => {
                     error_count += 1;
                     Err(PartMappingError::NoMappings)
                 },
-                1 => Ok(matching_mappings),
+                1 => {
+                    part_mapping_results[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
+                    Ok(part_mapping_results)
+                },
                 2.. => {
                     error_count += 1;
-                    Err(PartMappingError::MultipleMatchingMappings(matching_mappings))
+                    Err(PartMappingError::MultipleMatchingMappings(part_mapping_results))
                 },
             };
 
-            let result = ProcessingResult { eda_placement, part_mappings: matching_mappings_result };
+            let result = ProcessingResult { eda_placement, mapping_result: matching_mappings_result };
             mappings.push(result);
         }
 
@@ -59,15 +63,36 @@ pub enum PartMapperError<'placement, 'mapping> {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum PartMappingError<'mapping> {
-    MultipleMatchingMappings(Vec<&'mapping PartMapping<'mapping>>),
+    MultipleMatchingMappings(Vec<PartMappingResult<'mapping>>),
     NoMappings,
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub enum AppliedMappingRule {
+    AutoSelected
+}
+
+impl Display for AppliedMappingRule {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AppliedMappingRule::AutoSelected => write!(f, "Auto-selected"),
+        }
+    }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub struct PartMappingResult<'mapping> {
+    pub part_mapping: &'mapping PartMapping<'mapping>,
+    pub applied_rule: Option<AppliedMappingRule>,
 }
 
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub struct ProcessingResult<'placement, 'mapping> {
     pub eda_placement: &'placement EdaPlacement,
-    pub part_mappings: Result<Vec<&'mapping PartMapping<'mapping>>, PartMappingError<'mapping>>,
+    pub mapping_result: Result<Vec<PartMappingResult<'mapping>>, PartMappingError<'mapping>>,
 }
 
 #[cfg(test)]
@@ -77,7 +102,8 @@ mod tests {
     use crate::eda::diptrace::criteria::ExactMatchCriteria;
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
     use crate::part_mapper::part_mapping::PartMapping;
-    use crate::part_mapper::{PartMapper, PartMapperError, PartMappingError, ProcessingResult};
+    use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, ProcessingResult};
+
     #[test]
     fn map_parts() {
         // given
@@ -106,9 +132,9 @@ mod tests {
 
         // and
         let expected_results = Ok(vec![
-            ProcessingResult { eda_placement: &eda_placements[0], part_mappings: Ok(vec![&part_mappings[0]]) },
-            ProcessingResult { eda_placement: &eda_placements[1], part_mappings: Ok(vec![&part_mappings[1]]) },
-            ProcessingResult { eda_placement: &eda_placements[2], part_mappings: Ok(vec![&part_mappings[2]]) },
+            ProcessingResult { eda_placement: &eda_placements[0], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[0], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
+            ProcessingResult { eda_placement: &eda_placements[1], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[1], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
+            ProcessingResult { eda_placement: &eda_placements[2], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[2], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
         ]);
 
         // when
@@ -143,7 +169,10 @@ mod tests {
         let expected_results = Err(PartMapperError::MappingErrors(vec![
             ProcessingResult {
                 eda_placement: &eda_placements[0],
-                part_mappings: Err(PartMappingError::MultipleMatchingMappings(vec![&part_mappings[0], &part_mappings[1]]))
+                mapping_result: Err(PartMappingError::MultipleMatchingMappings(vec![
+                    PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },
+                    PartMappingResult { part_mapping: &part_mappings[1], applied_rule: None },
+                ]))
             },
         ]));
 
@@ -167,7 +196,7 @@ mod tests {
         let expected_results = Err(PartMapperError::MappingErrors(vec![
             ProcessingResult {
                 eda_placement: &eda_placements[0],
-                part_mappings: Err(PartMappingError::NoMappings)
+                mapping_result: Err(PartMappingError::NoMappings)
             },
         ]));
 
