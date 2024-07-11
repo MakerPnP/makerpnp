@@ -5,14 +5,15 @@ use anyhow::Error;
 use clap::{Args, Parser, Subcommand};
 use termtree::Tree;
 use thiserror::Error;
-use tracing::{info, Level, trace};
+use tracing::{error, info, Level, trace};
 use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
 use makerpnp::loaders::{eda_placements, part_mappings, parts};
-use makerpnp::part_mapper::{PartMapper, ProcessingResult};
+use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, ProcessingResult};
+use makerpnp::part_mapper::part_mapping::PartMapping;
 
 #[derive(Parser)]
 #[command(name = "variantbuilder")]
@@ -153,44 +154,65 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 
     trace!("{:?}", part_mappings);
 
-    let matched_mappings = PartMapper::process(&variant_placements, &part_mappings);
+    let processing_result = PartMapper::process(&variant_placements, &part_mappings);
 
-    trace!("{:?}", matched_mappings);
+    trace!("{:?}", processing_result);
+
+    let matched_mappings = match &processing_result {
+        Ok(mappings) => mappings,
+        Err(PartMapperError::MappingErrors(mappings)) => mappings,
+    };
 
     let matched_placement_count = matched_mappings.len();
-    info!("Mapped {} placements to {} parts\n", variant_placements_count, matched_placement_count);
+    info!("Mapped {} placements to {} parts", variant_placements_count, matched_placement_count);
 
     let tree = build_mapping_tree(matched_mappings);
     info!("{}", tree);
 
+    match &processing_result {
+        Ok(_) => (),
+        Err(PartMapperError::MappingErrors(_)) => {
+            error!("Mapping failures")
+        }
+    }
+
     Ok(())
 }
 
-fn build_mapping_tree(matched_mappings: Vec<ProcessingResult>) -> Tree<String> {
+fn build_mapping_tree(matched_mappings: &Vec<ProcessingResult>) -> Tree<String> {
     let mut tree = Tree::new("Mapping Tree".to_string());
 
-    for ProcessingResult { eda_placement, part_mappings } in matched_mappings.iter() {
+    for ProcessingResult { eda_placement, part_mappings: part_mappings_result } in matched_mappings.iter() {
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
         let mut placement_node = Tree::new(placement_label);
 
-        for (index, part_mapping) in part_mappings.iter().enumerate() {
-            let part_label = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
+        match part_mappings_result {
+            Ok(part_mappings) => {
+                add_mapping_nodes(part_mappings, &mut placement_node);
+            },
+            Err(PartMappingError::MultipleMatchingMappings(part_mappings)) => {
+                add_mapping_nodes(part_mappings, &mut placement_node);
 
-            let selected = index == 0;
-            let maybe_selected_part_label = match selected {
-                true => part_label,
-                false => format!("({})", part_label),
-            };
+                let placement_error_node = Tree::new("ERROR: Unresolved mapping conflict.".to_string());
+                placement_node.leaves.push(placement_error_node);
 
-            let part_node = Tree::new(maybe_selected_part_label);
-            placement_node.leaves.push(part_node);
+            }
+            _ => todo!()
         }
-
 
         tree.leaves.push(placement_node)
     }
 
     tree
+}
+
+fn add_mapping_nodes(part_mappings: &Vec<&PartMapping>, placement_node: &mut Tree<String>) {
+    for part_mapping in part_mappings.iter() {
+        let part_label = format!("manufacturer: '{}', mpn: '{}'", part_mapping.part.manufacturer, part_mapping.part.mpn);
+
+        let part_node = Tree::new(part_label);
+        placement_node.leaves.push(part_node);
+    }
 }
 
 struct EdaPlacementTreeFormatter {}

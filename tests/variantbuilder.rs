@@ -122,7 +122,8 @@ mod tests {
             Mapping Tree
             ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
             │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
-            │   └── (manufacturer: 'RES_MFR2', mpn: 'RES2')
+            │   ├── manufacturer: 'RES_MFR2', mpn: 'RES2'
+            │   └── ERROR: Unresolved mapping conflict.
             └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
                 └── manufacturer: 'CONN_MFR1', mpn: 'CONN1'
         "};
@@ -164,6 +165,7 @@ mod tests {
         let _remainder = assert_inorder!(_remainder, "Matched 2 placements\n");
         let _remainder = assert_inorder!(_remainder, "Mapped 2 placements to 2 parts\n");
         let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
+        let _remainder = assert_inorder!(_remainder, "Mapping failures\n");
 
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
@@ -175,6 +177,7 @@ mod tests {
             "Matched 2 placements\n",
             "Mapped 2 placements to 2 parts\n",
             expected_part_mapping_tree,
+            "Mapping failures\n",
         ]);
 
         Ok(())

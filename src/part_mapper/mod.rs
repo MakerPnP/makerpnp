@@ -10,9 +10,10 @@ impl PartMapper {
     pub fn process<'placement, 'mapping>(
         eda_placements: &'placement Vec<EdaPlacement>,
         part_mappings: &'mapping Vec<PartMapping<'mapping>>
-    ) -> Vec<ProcessingResult<'placement, 'mapping>> {
+    ) -> Result<Vec<ProcessingResult<'placement, 'mapping>>, PartMapperError<'placement, 'mapping>> {
 
-        let mut results = vec![];
+        let mut error_count: usize = 0;
+        let mut mappings = vec![];
 
         for eda_placement in eda_placements.iter() {
             let mut matching_mappings = vec![];
@@ -26,17 +27,33 @@ impl PartMapper {
             }
 
             let matching_mappings_result = match matching_mappings.len() {
-                0 => Err(PartMappingError::NoMappings),
+                0 => {
+                    error_count += 1;
+                    Err(PartMappingError::NoMappings)
+                },
                 1 => Ok(matching_mappings),
-                2.. => Err(PartMappingError::MultipleMatchingMappings(matching_mappings)),
+                2.. => {
+                    error_count += 1;
+                    Err(PartMappingError::MultipleMatchingMappings(matching_mappings))
+                },
             };
 
             let result = ProcessingResult { eda_placement, part_mappings: matching_mappings_result };
-            results.push(result);
+            mappings.push(result);
         }
 
-        results
+        match error_count {
+            0 => Ok(mappings),
+            1.. => Err(PartMapperError::MappingErrors(mappings))
+        }
+
     }
+}
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug)]
+pub enum PartMapperError<'placement, 'mapping> {
+    MappingErrors(Vec<ProcessingResult<'placement, 'mapping>>),
 }
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -60,7 +77,7 @@ mod tests {
     use crate::eda::diptrace::criteria::ExactMatchCriteria;
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
     use crate::part_mapper::part_mapping::PartMapping;
-    use crate::part_mapper::{PartMapper, PartMappingError, ProcessingResult};
+    use crate::part_mapper::{PartMapper, PartMapperError, PartMappingError, ProcessingResult};
     #[test]
     fn map_parts() {
         // given
@@ -88,11 +105,11 @@ mod tests {
         let part_mappings = vec![part_mapping1, part_mapping2, part_mapping3];
 
         // and
-        let expected_results = vec![
+        let expected_results = Ok(vec![
             ProcessingResult { eda_placement: &eda_placements[0], part_mappings: Ok(vec![&part_mappings[0]]) },
             ProcessingResult { eda_placement: &eda_placements[1], part_mappings: Ok(vec![&part_mappings[1]]) },
             ProcessingResult { eda_placement: &eda_placements[2], part_mappings: Ok(vec![&part_mappings[2]]) },
-        ];
+        ]);
 
         // when
         let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);
@@ -123,12 +140,12 @@ mod tests {
         let part_mappings = vec![part_mapping1, part_mapping2];
 
         // and
-        let expected_results = vec![
+        let expected_results = Err(PartMapperError::MappingErrors(vec![
             ProcessingResult {
                 eda_placement: &eda_placements[0],
                 part_mappings: Err(PartMappingError::MultipleMatchingMappings(vec![&part_mappings[0], &part_mappings[1]]))
             },
-        ];
+        ]));
 
         // when
         let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);
@@ -147,12 +164,12 @@ mod tests {
         let part_mappings = vec![];
 
         // and
-        let expected_results = vec![
+        let expected_results = Err(PartMapperError::MappingErrors(vec![
             ProcessingResult {
                 eda_placement: &eda_placements[0],
                 part_mappings: Err(PartMappingError::NoMappings)
             },
-        ];
+        ]));
 
         // when
         let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);
