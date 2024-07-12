@@ -133,6 +133,7 @@ mod tests {
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
+    use crate::pnp::load_out_item::LoadOutItem;
 
     #[test]
     fn map_parts() {
@@ -232,6 +233,52 @@ mod tests {
 
         // when
         let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
+
+        // then
+        assert_eq!(matched_mappings, expected_results);
+    }
+
+    #[test]
+    fn map_parts_with_multiple_matching_mappings_with_one_in_the_load_out() {
+        // given
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+
+        let eda_placements = vec![eda_placement1];
+
+        // and
+        let part1 = Part::new("MFR1".to_string(), "PART1".to_string());
+        let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
+        let part3 = Part::new("MFR3".to_string(), "PART3".to_string());
+
+        let parts = vec![part1, part2, part3];
+
+        // and
+        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
+        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
+
+        let part_mappings = vec![part_mapping1, part_mapping2];
+
+        // and
+        let load_out_items = vec![
+            LoadOutItem::new("REFERENCE_1".to_string(), "MFR3".to_string(), "PART3".to_string()),
+            LoadOutItem::new("REFERENCE_2".to_string(), "MFR2".to_string(), "PART2".to_string()),
+        ];
+
+        // and
+        let expected_results = Ok(vec![
+            PlacementPartMappingResult {
+                eda_placement: &eda_placements[0],
+                mapping_result: Ok(vec![
+                    PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },
+                    PartMappingResult { part_mapping: &part_mappings[1], applied_rule: Some(AppliedMappingRule::FoundInLoadOut("REFERENCE_2".to_string())) },
+                ])
+            },
+        ]);
+
+        // when
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &load_out_items);
 
         // then
         assert_eq!(matched_mappings, expected_results);
