@@ -25,7 +25,7 @@ mod tests {
         // and
         let temp_dir = tempdir()?;
 
-        // and
+        // and placements
         let (test_placements_path, test_placements_file_name) = build_temp_csv_file(&temp_dir, "placements");
 
         let mut writer = csv::WriterBuilder::new()
@@ -58,7 +58,24 @@ mod tests {
         // and
         let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
 
-        // and
+        // and load-out
+        let (test_load_out_path, test_load_out_file_name) = build_temp_csv_file(&temp_dir, "load_out");
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_load_out_path)?;
+
+        writer.serialize(TestLoadOutRecord {
+            reference: "FEEDER_1".to_string(),
+            manufacturer: "RES_MFR2".to_string(),
+            mpn: "RES2".to_string(),
+        })?;
+
+        writer.flush()?;
+
+        let load_out_arg = format!("--load-out={}", test_load_out_file_name.to_str().unwrap());
+
+        // and parts
         let (test_parts_path, test_parts_file_name) = build_temp_csv_file(&temp_dir, "parts");
 
         let mut writer = csv::WriterBuilder::new()
@@ -82,7 +99,7 @@ mod tests {
 
         let parts_arg = format!("--parts={}", test_parts_file_name.to_str().unwrap());
 
-        // and
+        // and part mappings
         let (test_part_mappings_path, test_part_mappings_file_name) = build_temp_csv_file(&temp_dir, "part_mappings");
 
         let mut writer = csv::WriterBuilder::new()
@@ -127,15 +144,12 @@ mod tests {
             Mapping Result
             ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
             │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
-            │   ├── manufacturer: 'RES_MFR2', mpn: 'RES2'
-            │   └── ERROR: Unresolved mapping conflict.
+            │   └── manufacturer: 'RES_MFR2', mpn: 'RES2' (Found in load-out, reference: 'FEEDER_1')
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
             │   └── ERROR: Unresolved mapping conflict.
             └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
                 └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
         "};
-
-        // TODO ask the user which mapping to use for R1
 
         // and
         let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
@@ -148,6 +162,7 @@ mod tests {
             placements_arg.as_str(),
             parts_arg.as_str(),
             part_mappings_arg.as_str(),
+            load_out_arg.as_str(),
             "--name",
             "Variant 1",
             "--ref-des-list=R1,C1,J1",
@@ -167,6 +182,7 @@ mod tests {
         let _remainder = assert_inorder!(_remainder, "Loaded 4 placements\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 part mappings\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 1 load-out items\n");
         let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
         let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, C1, J1\n");
         let _remainder = assert_inorder!(_remainder, "Matched 3 placements for assembly variant\n");
@@ -257,6 +273,7 @@ mod tests {
             Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE>
 
             Options:
+                  --load-out <FILE>                   Load-out file
                   --placements <FILE>                 Placements file
                   --parts <FILE>                      Parts file
                   --part-mappings <FILE>              Part-mappings file
@@ -291,6 +308,14 @@ mod tests {
     #[derive(Debug, serde::Serialize)]
     #[serde(rename_all(serialize = "PascalCase"))]
     struct TestPartRecord {
+        manufacturer: String,
+        mpn: String,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all(serialize = "PascalCase"))]
+    struct TestLoadOutRecord {
+        reference: String,
         manufacturer: String,
         mpn: String,
     }

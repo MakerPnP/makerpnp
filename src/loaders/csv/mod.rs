@@ -4,6 +4,7 @@ use crate::pnp::part::Part;
 use crate::eda::diptrace::criteria::ExactMatchCriteria;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
+use crate::pnp::load_out_item::LoadOutItem;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
@@ -99,6 +100,24 @@ pub struct PartRecord {
 impl PartRecord {
     pub fn build_part(&self) -> Result<Part, ()> {
         Ok(Part {
+            manufacturer: self.manufacturer.clone(),
+            mpn: self.mpn.clone(),
+        })
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all(deserialize = "PascalCase"))]
+pub struct LoadOutItemRecord {
+    reference: String,
+    manufacturer: String,
+    mpn: String,
+}
+
+impl LoadOutItemRecord {
+    pub fn build_load_out_item(&self) -> Result<LoadOutItem, ()> {
+        Ok(LoadOutItem {
+            reference: self.reference.clone(),
             manufacturer: self.manufacturer.clone(),
             mpn: self.mpn.clone(),
         })

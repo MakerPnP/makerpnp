@@ -4,13 +4,15 @@ pub mod part_mapping;
 use std::fmt::{Display, Formatter};
 use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
+use crate::pnp::load_out_item::LoadOutItem;
 
 pub struct PartMapper {}
 
 impl PartMapper {
     pub fn process<'placement, 'mapping>(
         eda_placements: &'placement Vec<EdaPlacement>,
-        part_mappings: &'mapping Vec<PartMapping<'mapping>>
+        part_mappings: &'mapping Vec<PartMapping<'mapping>>,
+        load_out_items: &Vec<LoadOutItem>
     ) -> Result<Vec<PlacementPartMappingResult<'placement, 'mapping>>, PartMapperError<'placement, 'mapping>> {
 
         let mut error_count: usize = 0;
@@ -27,20 +29,8 @@ impl PartMapper {
                 }
             }
 
-            let matching_mappings_result = match part_mapping_results.len() {
-                0 => {
-                    error_count += 1;
-                    Err(PartMappingError::NoMappings)
-                },
-                1 => {
-                    part_mapping_results[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
-                    Ok(part_mapping_results)
-                },
-                2.. => {
-                    error_count += 1;
-                    Err(PartMappingError::MultipleMatchingMappings(part_mapping_results))
-                },
-            };
+            let matching_mappings_result = apply_rules(part_mapping_results, load_out_items)
+                .inspect_err(|_|error_count += 1);
 
             let result = PlacementPartMappingResult { eda_placement, mapping_result: matching_mappings_result };
             mappings.push(result);
@@ -51,6 +41,44 @@ impl PartMapper {
             1.. => Err(PartMapperError::MappingErrors(mappings))
         }
 
+    }
+}
+
+fn apply_rules<'mapping>(mut mapping_result: Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>) -> Result<Vec<PartMappingResult<'mapping>>, PartMappingError<'mapping>> {
+
+    let count = mapping_result.len();
+    if count == 0 {
+        return Err(PartMappingError::NoMappings)
+    }
+
+    if count == 1 {
+        mapping_result[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
+        return Ok(mapping_result)
+    }
+
+    let mut mapping_results_matched_to_loadout_items: Vec<(&mut PartMappingResult, &LoadOutItem)> = mapping_result.iter_mut().filter_map(|mapping_result| {
+        let thing = load_out_items.iter().find(|item| {
+            let mapped_part = mapping_result.part_mapping;
+            (item.mpn == mapped_part.part.mpn)
+                && (item.manufacturer == mapped_part.part.manufacturer)
+        });
+
+        match thing {
+            Some(loadout_item) => Some((mapping_result, loadout_item)),
+            None => None,
+        }
+    }).collect();
+
+    match mapping_results_matched_to_loadout_items.len() {
+        0 => Err(PartMappingError::MultipleMatchingMappings(mapping_result)),
+        1 => {
+            let load_out_item = &mapping_results_matched_to_loadout_items[0].1;
+            mapping_results_matched_to_loadout_items[0].0.applied_rule = Some(AppliedMappingRule::FoundInLoadOut(load_out_item.reference.clone()));
+            Ok(mapping_result)
+        },
+        2.. => {
+            todo!()
+        }
     }
 }
 
@@ -70,13 +98,15 @@ pub enum PartMappingError<'mapping> {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum AppliedMappingRule {
-    AutoSelected
+    AutoSelected,
+    FoundInLoadOut(String),
 }
 
 impl Display for AppliedMappingRule {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             AppliedMappingRule::AutoSelected => write!(f, "Auto-selected"),
+            AppliedMappingRule::FoundInLoadOut(reference) => write!(f, "Found in load-out, reference: '{}'", reference),
         }
     }
 }
@@ -138,7 +168,7 @@ mod tests {
         ]);
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -177,7 +207,7 @@ mod tests {
         ]));
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -201,7 +231,7 @@ mod tests {
         ]));
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);

@@ -11,9 +11,8 @@ use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
-use makerpnp::loaders::{eda_placements, part_mappings, parts};
+use makerpnp::loaders::{eda_placements, load_out, part_mappings, parts};
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
-use makerpnp::part_mapper::part_mapping::PartMapping;
 
 #[derive(Parser)]
 #[command(name = "variantbuilder")]
@@ -62,6 +61,10 @@ impl AssemblyVariantArgs {
 enum Commands {
     /// Build variant
     Build {
+        /// Load-out file
+        #[arg(long, value_name = "FILE")]
+        load_out: Option<String>,
+
         /// Placements file
         #[arg(long, value_name = "FILE")]
         placements: String,
@@ -85,8 +88,14 @@ fn main() -> anyhow::Result<()>{
     configure_tracing(&opts)?;
 
     match &opts.command.unwrap() {
-        Commands::Build { placements, assembly_variant, parts, part_mappings } => {
-            build_assembly_variant(placements, assembly_variant, parts, part_mappings)?;
+        Commands::Build {
+            placements,
+            assembly_variant,
+            parts,
+            part_mappings,
+            load_out,
+        } => {
+            build_assembly_variant(placements, assembly_variant, parts, part_mappings, load_out)?;
         },
     }
 
@@ -129,7 +138,7 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String) -> Result<(), Error> {
+fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, load_out_source: &Option<String>) -> Result<(), Error> {
 
     let eda_placements = eda_placements::load_eda_placements(placements_source)?;
     info!("Loaded {} placements", eda_placements.len());
@@ -139,6 +148,13 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 
     let part_mappings = part_mappings::load_part_mappings(&parts, part_mappings_source)?;
     info!("Loaded {} part mappings", part_mappings.len());
+
+    let load_out_items = match load_out_source {
+        Some(source) => load_out::load_items(source),
+        None => Ok(vec![]),
+    }?;
+
+    info!("Loaded {} load-out items", load_out_items.len());
 
     let assembly_variant = assembly_variant_args.build_assembly_variant()?;
     info!("Assembly variant: {}", assembly_variant.name);
@@ -154,7 +170,7 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
 
     trace!("{:?}", part_mappings);
 
-    let processing_result = PartMapper::process(&variant_placements, &part_mappings);
+    let processing_result = PartMapper::process(&variant_placements, &part_mappings, &load_out_items);
 
     trace!("{:?}", processing_result);
 
