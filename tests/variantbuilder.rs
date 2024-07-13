@@ -43,6 +43,16 @@ mod tests {
             value: "330R 1/16W 5%".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "R3".to_string(),
+            name: "RES_0402".to_string(),
+            value: "470R 1/16W 5%".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "R4".to_string(),
+            name: "RES_0402".to_string(),
+            value: "220R 1/16W 5%".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
             ref_des: "C1".to_string(),
             name: "CAP_0402".to_string(),
             value: "10uF 6.3V 20%".to_string(),
@@ -71,6 +81,18 @@ mod tests {
             mpn: "RES2".to_string(),
         })?;
 
+        // and two resistors which can both be used by the same placement
+        writer.serialize(TestLoadOutRecord {
+            reference: "FEEDER_2".to_string(),
+            manufacturer: "RES_MFR3".to_string(),
+            mpn: "RES3".to_string(),
+        })?;
+        writer.serialize(TestLoadOutRecord {
+            reference: "FEEDER_3".to_string(),
+            manufacturer: "RES_MFR4".to_string(),
+            mpn: "RES4".to_string(),
+        })?;
+
         writer.flush()?;
 
         let load_out_arg = format!("--load-out={}", test_load_out_file_name.to_str().unwrap());
@@ -93,6 +115,22 @@ mod tests {
         writer.serialize(TestPartRecord {
             manufacturer: "RES_MFR2".to_string(),
             mpn: "RES2".to_string(),
+        })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "RES_MFR3".to_string(),
+            mpn: "RES3".to_string(),
+        })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "RES_MFR4".to_string(),
+            mpn: "RES4".to_string(),
+        })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "RES_MFR5".to_string(),
+            mpn: "RES5".to_string(),
+        })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "RES_MFR6".to_string(),
+            mpn: "RES6".to_string(),
         })?;
 
         writer.flush()?;
@@ -125,6 +163,43 @@ mod tests {
             manufacturer: "RES_MFR2".to_string(),
             mpn: "RES2".to_string(),
         })?;
+
+        // and two more mappings for a different resistor
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "RES_0402".to_string(),
+            value: "470R 1/16W 5%".to_string(),
+            // maps to
+            manufacturer: "RES_MFR3".to_string(),
+            mpn: "RES3".to_string(),
+        })?;
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "RES_0402".to_string(),
+            value: "470R 1/16W 5%".to_string(),
+            // maps to
+            manufacturer: "RES_MFR4".to_string(),
+            mpn: "RES4".to_string(),
+        })?;
+
+        // and two more mappings for another different resistor
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "RES_0402".to_string(),
+            value: "220R 1/16W 5%".to_string(),
+            // maps to
+            manufacturer: "RES_MFR5".to_string(),
+            mpn: "RES5".to_string(),
+        })?;
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "RES_0402".to_string(),
+            value: "220R 1/16W 5%".to_string(),
+            // maps to
+            manufacturer: "RES_MFR6".to_string(),
+            mpn: "RES6".to_string(),
+        })?;
+
         // and a single mapping for the connector
         writer.serialize(TestPartMappingRecord {
             eda: "DipTrace".to_string(),
@@ -145,8 +220,16 @@ mod tests {
             ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
             │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
             │   └── manufacturer: 'RES_MFR2', mpn: 'RES2' (Found in load-out, reference: 'FEEDER_1')
+            ├── R3 (name: 'RES_0402', value: '470R 1/16W 5%')
+            │   ├── manufacturer: 'RES_MFR3', mpn: 'RES3' (Found in load-out, reference: 'FEEDER_2')
+            │   ├── manufacturer: 'RES_MFR4', mpn: 'RES4' (Found in load-out, reference: 'FEEDER_3')
+            │   └── ERROR: Unresolved mapping - Conflicting rules.
+            ├── R4 (name: 'RES_0402', value: '220R 1/16W 5%')
+            │   ├── manufacturer: 'RES_MFR5', mpn: 'RES5'
+            │   ├── manufacturer: 'RES_MFR6', mpn: 'RES6'
+            │   └── ERROR: Unresolved mapping - No rules applied.
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
-            │   └── ERROR: Unresolved mapping conflict.
+            │   └── ERROR: Unresolved mapping - No mappings found.
             └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
                 └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
         "};
@@ -165,7 +248,7 @@ mod tests {
             load_out_arg.as_str(),
             "--name",
             "Variant 1",
-            "--ref-des-list=R1,C1,J1",
+            "--ref-des-list=R1,R3,R4,C1,J1",
         ])
             // then
             .assert()
@@ -179,24 +262,25 @@ mod tests {
 
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
-        let _remainder = assert_inorder!(_remainder, "Loaded 4 placements\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 3 parts\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 3 part mappings\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 1 load-out items\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 6 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 7 parts\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 7 part mappings\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
         let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, C1, J1\n");
-        let _remainder = assert_inorder!(_remainder, "Matched 3 placements for assembly variant\n");
+        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, R3, R4, C1, J1\n");
+        let _remainder = assert_inorder!(_remainder, "Matched 5 placements for assembly variant\n");
         let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
         let _remainder = assert_inorder!(_remainder, "Mapping failures\n");
 
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
-            "Loaded 4 placements\n",
-            "Loaded 3 parts\n",
-            "Loaded 3 part mappings\n",
+            "Loaded 6 placements\n",
+            "Loaded 7 parts\n",
+            "Loaded 7 part mappings\n",
+            "Loaded 3 load-out items\n",
             "Assembly variant: Variant 1\n",
-            "Ref_des list: R1, C1, J1\n",
-            "Matched 3 placements for assembly variant\n",
+            "Ref_des list: R1, R3, R4, C1, J1\n",
+            "Matched 5 placements for assembly variant\n",
             expected_part_mapping_tree,
             "Mapping failures\n",
         ]);

@@ -4,6 +4,7 @@ pub mod part_mapping;
 use std::fmt::{Display, Formatter};
 use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
+use crate::part_mapper::PartMappingError::{ConflictingRules, NoRulesApplied};
 use crate::pnp::load_out_item::LoadOutItem;
 
 pub struct PartMapper {}
@@ -29,10 +30,22 @@ impl PartMapper {
                 }
             }
 
-            let matching_mappings_result = apply_rules(part_mapping_results, load_out_items)
-                .inspect_err(|_|error_count += 1);
+            apply_rules(&mut part_mapping_results, load_out_items);
 
-            let result = PlacementPartMappingResult { eda_placement, mapping_result: matching_mappings_result };
+            let applied_rule_count = part_mapping_results.iter().filter(|pmr|pmr.applied_rule.is_some()).count();
+
+            let mapping_result = match (part_mapping_results.len(), applied_rule_count) {
+                (_, 1) => Ok(part_mapping_results),
+                (0, _) => Err(PartMappingError::NoMappings),
+                (1.., 0) => Err(NoRulesApplied(part_mapping_results)),
+                (_, 2..) => Err(ConflictingRules(part_mapping_results)),
+            };
+
+            if mapping_result.is_err() {
+                error_count += 1
+            }
+
+            let result = PlacementPartMappingResult { eda_placement, mapping_result };
             mappings.push(result);
         }
 
@@ -44,41 +57,25 @@ impl PartMapper {
     }
 }
 
-fn apply_rules<'mapping>(mut mapping_result: Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>) -> Result<Vec<PartMappingResult<'mapping>>, PartMappingError<'mapping>> {
-
-    let count = mapping_result.len();
-    if count == 0 {
-        return Err(PartMappingError::NoMappings)
-    }
-
-    if count == 1 {
-        mapping_result[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
-        return Ok(mapping_result)
-    }
-
-    let mut mapping_results_matched_to_loadout_items: Vec<(&mut PartMappingResult, &LoadOutItem)> = mapping_result.iter_mut().filter_map(|mapping_result| {
-        let thing = load_out_items.iter().find(|item| {
-            let mapped_part = mapping_result.part_mapping;
-            (item.mpn == mapped_part.part.mpn)
-                && (item.manufacturer == mapped_part.part.manufacturer)
-        });
-
-        match thing {
-            Some(loadout_item) => Some((mapping_result, loadout_item)),
-            None => None,
-        }
-    }).collect();
-
-    match mapping_results_matched_to_loadout_items.len() {
-        0 => Err(PartMappingError::MultipleMatchingMappings(mapping_result)),
+fn apply_rules<'mapping>(mapping_results: &mut Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>) {
+    match mapping_results.len() {
         1 => {
-            let load_out_item = &mapping_results_matched_to_loadout_items[0].1;
-            mapping_results_matched_to_loadout_items[0].0.applied_rule = Some(AppliedMappingRule::FoundInLoadOut(load_out_item.reference.clone()));
-            Ok(mapping_result)
-        },
-        2.. => {
-            todo!()
+            mapping_results[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
         }
+        2.. => {
+            for mapping_result in mapping_results.iter_mut() {
+                let maybe_load_out_item = load_out_items.iter().find(|item| {
+                    let mapped_part = mapping_result.part_mapping;
+                    (item.mpn == mapped_part.part.mpn)
+                        && (item.manufacturer == mapped_part.part.manufacturer)
+                });
+
+                if let Some(load_out_item) = maybe_load_out_item {
+                    mapping_result.applied_rule = Some(AppliedMappingRule::FoundInLoadOut(load_out_item.reference.clone()));
+                }
+            }
+        },
+        _ => (),
     }
 }
 
@@ -91,7 +88,11 @@ pub enum PartMapperError<'placement, 'mapping> {
 #[cfg_attr(test, derive(PartialEq))]
 #[derive(Debug)]
 pub enum PartMappingError<'mapping> {
-    MultipleMatchingMappings(Vec<PartMappingResult<'mapping>>),
+    /// Multiple rules were applied, when there should be only one.
+    ConflictingRules(Vec<PartMappingResult<'mapping>>),
+    /// Mappings exist, but no rules were applied.
+    NoRulesApplied(Vec<PartMappingResult<'mapping>>),
+    /// No mappings to apply rules to.
     NoMappings,
 }
 
@@ -200,7 +201,7 @@ mod tests {
         let expected_results = Err(PartMapperError::MappingErrors(vec![
             PlacementPartMappingResult {
                 eda_placement: &eda_placements[0],
-                mapping_result: Err(PartMappingError::MultipleMatchingMappings(vec![
+                mapping_result: Err(PartMappingError::NoRulesApplied(vec![
                     PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },
                     PartMappingResult { part_mapping: &part_mappings[1], applied_rule: None },
                 ]))

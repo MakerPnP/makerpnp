@@ -199,8 +199,8 @@ fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>) -> Tre
         let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
         let mut placement_node = Tree::new(placement_label);
 
-        fn add_error_node(placement_node: &mut Tree<String>) {
-            let placement_error_node = Tree::new("ERROR: Unresolved mapping conflict.".to_string());
+        fn add_error_node(placement_node: &mut Tree<String>, reason: &str) {
+            let placement_error_node = Tree::new(format!("ERROR: Unresolved mapping - {}.", reason).to_string());
             placement_node.leaves.push(placement_error_node);
         }
 
@@ -208,12 +208,16 @@ fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>) -> Tre
             Ok(part_mapping_results) => {
                 add_mapping_nodes(part_mapping_results, &mut placement_node);
             }
-            Err(PartMappingError::MultipleMatchingMappings(part_mapping_results)) => {
+            Err(PartMappingError::ConflictingRules(part_mapping_results)) => {
                 add_mapping_nodes(part_mapping_results, &mut placement_node);
-                add_error_node(&mut placement_node);
+                add_error_node(&mut placement_node, "Conflicting rules");
+            },
+            Err(PartMappingError::NoRulesApplied(part_mapping_results)) => {
+                add_mapping_nodes(part_mapping_results, &mut placement_node);
+                add_error_node(&mut placement_node, "No rules applied");
             },
             Err(PartMappingError::NoMappings) => {
-                add_error_node(&mut placement_node);
+                add_error_node(&mut placement_node, "No mappings found");
             },
         }
 
