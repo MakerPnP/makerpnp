@@ -59,7 +59,7 @@ mod tests {
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "J1".to_string(),
-            name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
+            name: "HEADER_2P".to_string(),
             value: "POWER".to_string(),
         })?;
 
@@ -67,6 +67,26 @@ mod tests {
 
         // and
         let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
+
+        // and substitutions
+        let (test_substitutions_path, test_substitutions_file_name) = build_temp_csv_file(&temp_dir, "substitutions");
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_substitutions_path)?;
+
+        writer.serialize(TestSubstitutionRecord {
+            eda: "DipTrace".to_string(),
+            name_pattern: "HEADER_2P".to_string(),
+            value_pattern: "POWER".to_string(),
+            name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
+            value: "BLACK".to_string(),
+        })?;
+
+        writer.flush()?;
+
+        // and
+        let substitutions_arg = format!("--substitutions={}", test_substitutions_file_name.to_str().unwrap());
 
         // and load-out
         let (test_load_out_path, test_load_out_file_name) = build_temp_csv_file(&temp_dir, "load_out");
@@ -204,7 +224,7 @@ mod tests {
         writer.serialize(TestPartMappingRecord {
             eda: "DipTrace".to_string(),
             name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
-            value: "POWER".to_string(),
+            value: "BLACK".to_string(),
             // maps to
             manufacturer: "CONN_MFR1".to_string(),
             mpn: "CONN1".to_string(),
@@ -230,8 +250,9 @@ mod tests {
             │   └── ERROR: Unresolved mapping - No rules applied.
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
             │   └── ERROR: Unresolved mapping - No mappings found.
-            └── J1 (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'POWER')
-                └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
+            └── J1 (name: 'HEADER_2P', value: 'POWER')
+                └── Substituted (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'POWER')
+                    └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
         "};
 
         // and
@@ -246,6 +267,7 @@ mod tests {
             parts_arg.as_str(),
             part_mappings_arg.as_str(),
             load_out_arg.as_str(),
+            substitutions_arg.as_str(),
             "--name",
             "Variant 1",
             "--ref-des-list=R1,R3,R4,C1,J1",
@@ -263,6 +285,7 @@ mod tests {
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
         let _remainder = assert_inorder!(_remainder, "Loaded 6 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 1 substitution rules\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 7 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 7 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
@@ -275,6 +298,7 @@ mod tests {
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
             "Loaded 6 placements\n",
+            "Loaded 1 substitution rules\n",
             "Loaded 7 parts\n",
             "Loaded 7 part mappings\n",
             "Loaded 3 load-out items\n",
@@ -354,13 +378,14 @@ mod tests {
         let expected_output = indoc! {"
             Build variant
 
-            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE>
+            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE> --substitutions <FILE>
 
             Options:
                   --load-out <FILE>                   Load-out file
                   --placements <FILE>                 Placements file
                   --parts <FILE>                      Parts file
                   --part-mappings <FILE>              Part-mappings file
+                  --substitutions <FILE>              Substitutions file
                   --name <NAME>                       Name of assembly variant [default: Default]
                   --ref-des-list [<REF_DES_LIST>...]  List of reference designators
               -h, --help                              Print help
@@ -412,6 +437,16 @@ mod tests {
         value: String,
         manufacturer: String,
         mpn: String,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all(serialize = "PascalCase"))]
+    struct TestSubstitutionRecord {
+        eda: String,
+        name_pattern: String,
+        value_pattern: String,
+        name: String,
+        value: String,
     }
 
     fn build_temp_csv_file(temp_dir: &TempDir, base: &str) -> (PathBuf, OsString) {

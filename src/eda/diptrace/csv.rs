@@ -40,3 +40,15 @@ impl DiptracePlacementRecord {
         // _ => Err(DiptracePlacementRecordError::Unknown)
     }
 }
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all(deserialize = "PascalCase"))]
+pub struct DipTraceSubstitutionRecord {
+    // from
+    pub name_pattern: String,
+    pub value_pattern: String,
+
+    // to
+    pub name: String,
+    pub value: String,
+}

@@ -1,7 +1,8 @@
 use thiserror::Error;
-use crate::eda::diptrace::csv::DipTracePartMappingRecord;
+use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord};
 use crate::pnp::part::Part;
 use crate::eda::diptrace::criteria::ExactMatchCriteria;
+use crate::eda::eda_substitution::{DipTraceSubstitutionRuleDetails, EdaSubstitutionRule, EdaSubstitutionRuleDetails};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::load_out_item::LoadOutItem;
@@ -121,5 +122,60 @@ impl LoadOutItemRecord {
             manufacturer: self.manufacturer.clone(),
             mpn: self.mpn.clone(),
         })
+    }
+}
+
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all(deserialize = "PascalCase"))]
+pub struct CSVSubstitutionRecord {
+    eda: String,
+    name_pattern: String,
+    value_pattern: String,
+    name: String,
+    value: String,
+}
+
+#[non_exhaustive]
+pub enum SubstitutionRecord {
+    DipTraceSubstitution(DipTraceSubstitutionRecord),
+    // TODO add KiCad support
+    //KiCadSubstitution(KiCadSubstitutionRecord),
+}
+
+impl SubstitutionRecord {
+    pub fn build_eda_substitution(&self) -> Result<EdaSubstitutionRule, ()> {
+        match self {
+            SubstitutionRecord::DipTraceSubstitution(record) => Ok(EdaSubstitutionRule {
+                details: EdaSubstitutionRuleDetails::DipTrace(DipTraceSubstitutionRuleDetails {
+                    name_pattern: record.name_pattern.to_string(),
+                    value_pattern: record.value_pattern.to_string(),
+                    name: record.name.to_string(),
+                    value: record.value.to_string(),
+                }),
+            }),
+        }
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum CSVSubstitutionRecordError {
+    #[error("Unknown EDA: '{eda:?}'")]
+    UnknownEDA { eda: String }
+}
+
+impl TryFrom<CSVSubstitutionRecord> for SubstitutionRecord {
+    type Error = CSVSubstitutionRecordError;
+
+    fn try_from(value: CSVSubstitutionRecord) -> Result<Self, Self::Error> {
+        match value.eda.as_str() {
+            "DipTrace" => Ok(SubstitutionRecord::DipTraceSubstitution(DipTraceSubstitutionRecord {
+                name_pattern: value.name_pattern.to_string(),
+                value_pattern: value.value_pattern.to_string(),
+                name: value.name.to_string(),
+                value: value.value.to_string(),
+            })),
+            _ => Err(CSVSubstitutionRecordError::UnknownEDA { eda: value.eda }),
+        }
     }
 }

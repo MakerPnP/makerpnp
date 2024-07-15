@@ -11,7 +11,8 @@ use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
-use makerpnp::loaders::{eda_placements, load_out, part_mappings, parts};
+use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutor};
+use makerpnp::loaders::{eda_placements, load_out, part_mappings, parts, substitutions};
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
 
 #[derive(Parser)]
@@ -77,6 +78,10 @@ enum Commands {
         #[arg(long, value_name = "FILE")]
         part_mappings: String,
 
+        /// Substitutions file
+        #[arg(long, value_name = "FILE")]
+        substitutions: String,
+
         #[command(flatten)]
         assembly_variant: AssemblyVariantArgs
     },
@@ -93,9 +98,10 @@ fn main() -> anyhow::Result<()>{
             assembly_variant,
             parts,
             part_mappings,
+            substitutions,
             load_out,
         } => {
-            build_assembly_variant(placements, assembly_variant, parts, part_mappings, load_out)?;
+            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out)?;
         },
     }
 
@@ -138,10 +144,17 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, load_out_source: &Option<String>) -> Result<(), Error> {
+fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, eda_substitutions_source: &String, load_out_source: &Option<String>) -> Result<(), Error> {
 
-    let eda_placements = eda_placements::load_eda_placements(placements_source)?;
-    info!("Loaded {} placements", eda_placements.len());
+    let mut original_eda_placements = eda_placements::load_eda_placements(placements_source)?;
+    info!("Loaded {} placements", original_eda_placements.len());
+
+    let eda_substitution_rules = substitutions::load_eda_substitutions(eda_substitutions_source)?;
+    info!("Loaded {} substitution rules", eda_substitution_rules.len());
+
+    let eda_substitution_results = EdaSubstitutor::substitute(original_eda_placements.as_mut_slice(), &eda_substitution_rules);
+
+    let eda_placements = eda_substitution_results.iter().map(|esr|esr.resulting_placement.clone()).collect();
 
     let parts = parts::load_parts(parts_source)?;
     info!("Loaded {} parts", parts.len());
@@ -179,7 +192,7 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
         Err(PartMapperError::MappingErrors(mappings)) => mappings,
     };
 
-    let tree = build_mapping_tree(matched_mappings);
+    let tree = build_mapping_tree(matched_mappings, eda_substitution_results);
     info!("{}", tree);
 
     match &processing_result {
@@ -192,36 +205,55 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
     Ok(())
 }
 
-fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>) -> Tree<String> {
+fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>, eda_substitution_results: Vec<EdaSubstitutionResult>) -> Tree<String> {
     let mut tree = Tree::new("Mapping Result".to_string());
 
     for PlacementPartMappingResult { eda_placement, mapping_result: part_mappings_result } in matched_mappings.iter() {
-        let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&eda_placement.details));
-        let mut placement_node = Tree::new(placement_label);
 
         fn add_error_node(placement_node: &mut Tree<String>, reason: &str) {
             let placement_error_node = Tree::new(format!("ERROR: Unresolved mapping - {}.", reason).to_string());
             placement_node.leaves.push(placement_error_node);
         }
 
-        match part_mappings_result {
-            Ok(part_mapping_results) => {
-                add_mapping_nodes(part_mapping_results, &mut placement_node);
-            }
-            Err(PartMappingError::ConflictingRules(part_mapping_results)) => {
-                add_mapping_nodes(part_mapping_results, &mut placement_node);
-                add_error_node(&mut placement_node, "Conflicting rules");
-            },
-            Err(PartMappingError::NoRulesApplied(part_mapping_results)) => {
-                add_mapping_nodes(part_mapping_results, &mut placement_node);
-                add_error_node(&mut placement_node, "No rules applied");
-            },
-            Err(PartMappingError::NoMappings) => {
-                add_error_node(&mut placement_node, "No mappings found");
-            },
-        }
+        if let Some(substitution_result) = eda_substitution_results.iter().find(|candidate|{
+            candidate.original_placement.ref_des.eq(&eda_placement.ref_des)
+        }) {
+            let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&substitution_result.original_placement.details));
+            let mut placement_node = Tree::new(placement_label);
 
-        tree.leaves.push(placement_node)
+            let mut parent = &mut placement_node;
+
+            for chain_entry in substitution_result.chain.iter() {
+                let substitution_label = format!("Substituted ({}), by ({})",
+                     chain_entry.rule.format_change(),
+                     chain_entry.rule.format_criteria(),
+                );
+
+                let substitution_node = Tree::new(substitution_label);
+                parent.leaves.push(substitution_node);
+                parent = parent.leaves.last_mut().unwrap();
+            }
+
+            match part_mappings_result {
+                Ok(part_mapping_results) => {
+                    add_mapping_nodes(part_mapping_results, parent);
+                }
+                Err(PartMappingError::ConflictingRules(part_mapping_results)) => {
+                    add_mapping_nodes(part_mapping_results, parent);
+                    add_error_node(parent, "Conflicting rules");
+                },
+                Err(PartMappingError::NoRulesApplied(part_mapping_results)) => {
+                    add_mapping_nodes(part_mapping_results, parent);
+                    add_error_node(parent, "No rules applied");
+                },
+                Err(PartMappingError::NoMappings) => {
+                    add_error_node(parent, "No mappings found");
+                },
+            }
+
+            tree.leaves.push(placement_node)
+        };
+
     }
 
     tree
