@@ -78,8 +78,15 @@ mod tests {
         writer.serialize(TestSubstitutionRecord {
             eda: "DipTrace".to_string(),
             name_pattern: "HEADER_2P".to_string(),
-            value_pattern: "POWER".to_string(),
+            value_pattern: "BLACK".to_string(),
             name: "CONN_HEADER_2P54_2P_NS_V".to_string(),
+            value: "BLACK".to_string(),
+        })?;
+        writer.serialize(TestSubstitutionRecord {
+            eda: "DipTrace".to_string(),
+            name_pattern: "HEADER_2P".to_string(),
+            value_pattern: "POWER".to_string(),
+            name: "HEADER_2P".to_string(),
             value: "BLACK".to_string(),
         })?;
 
@@ -251,8 +258,9 @@ mod tests {
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
             │   └── ERROR: Unresolved mapping - No mappings found.
             └── J1 (name: 'HEADER_2P', value: 'POWER')
-                └── Substituted (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'POWER')
-                    └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
+                └── Substituted (name: 'HEADER_2P', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'POWER')
+                    └── Substituted (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'BLACK')
+                        └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
         "};
 
         // and
@@ -285,7 +293,7 @@ mod tests {
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
         let _remainder = assert_inorder!(_remainder, "Loaded 6 placements\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 1 substitution rules\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 2 substitution rules\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 7 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 7 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
@@ -298,7 +306,7 @@ mod tests {
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
             "Loaded 6 placements\n",
-            "Loaded 1 substitution rules\n",
+            "Loaded 2 substitution rules\n",
             "Loaded 7 parts\n",
             "Loaded 7 part mappings\n",
             "Loaded 3 load-out items\n",
