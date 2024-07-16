@@ -6,6 +6,7 @@ use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::part_mapper::PartMappingError::{ConflictingRules, NoRulesApplied};
 use crate::pnp::load_out_item::LoadOutItem;
+use crate::pnp::part::Part;
 
 pub struct PartMapper {}
 
@@ -34,18 +35,21 @@ impl PartMapper {
 
             let applied_rule_count = part_mapping_results.iter().filter(|pmr|pmr.applied_rule.is_some()).count();
 
-            let mapping_result = match (part_mapping_results.len(), applied_rule_count) {
-                (_, 1) => Ok(part_mapping_results),
-                (0, _) => Err(PartMappingError::NoMappings),
-                (1.., 0) => Err(NoRulesApplied(part_mapping_results)),
-                (_, 2..) => Err(ConflictingRules(part_mapping_results)),
+            let (mapping_result, part) = match (part_mapping_results.len(), applied_rule_count) {
+                (_, 1) => {
+                    let part = part_mapping_results.iter().find(|it|it.applied_rule.is_some()).unwrap().part_mapping.part;
+                    (Ok(part_mapping_results), Some(part))
+                },
+                (0, _) => (Err(PartMappingError::NoMappings), None),
+                (1.., 0) => (Err(NoRulesApplied(part_mapping_results)), None),
+                (_, 2..) => (Err(ConflictingRules(part_mapping_results)), None),
             };
 
             if mapping_result.is_err() {
                 error_count += 1
             }
 
-            let result = PlacementPartMappingResult { eda_placement, mapping_result };
+            let result = PlacementPartMappingResult { part, eda_placement, mapping_result };
             mappings.push(result);
         }
 
@@ -53,7 +57,6 @@ impl PartMapper {
             0 => Ok(mappings),
             1.. => Err(PartMapperError::MappingErrors(mappings))
         }
-
     }
 }
 
@@ -124,6 +127,7 @@ pub struct PartMappingResult<'mapping> {
 pub struct PlacementPartMappingResult<'placement, 'mapping> {
     pub eda_placement: &'placement EdaPlacement,
     pub mapping_result: Result<Vec<PartMappingResult<'mapping>>, PartMappingError<'mapping>>,
+    pub part: Option<&'mapping Part>
 }
 
 #[cfg(test)]
@@ -164,9 +168,9 @@ mod tests {
 
         // and
         let expected_results = Ok(vec![
-            PlacementPartMappingResult { eda_placement: &eda_placements[0], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[0], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
-            PlacementPartMappingResult { eda_placement: &eda_placements[1], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[1], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
-            PlacementPartMappingResult { eda_placement: &eda_placements[2], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[2], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
+            PlacementPartMappingResult { part: Some(&parts[0]), eda_placement: &eda_placements[0], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[0], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
+            PlacementPartMappingResult { part: Some(&parts[1]), eda_placement: &eda_placements[1], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[1], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
+            PlacementPartMappingResult { part: Some(&parts[2]), eda_placement: &eda_placements[2], mapping_result: Ok(vec![PartMappingResult { part_mapping: &part_mappings[2], applied_rule: Some(AppliedMappingRule::AutoSelected) }]) },
         ]);
 
         // when
@@ -200,6 +204,7 @@ mod tests {
         // and
         let expected_results = Err(PartMapperError::MappingErrors(vec![
             PlacementPartMappingResult {
+                part: None,
                 eda_placement: &eda_placements[0],
                 mapping_result: Err(PartMappingError::NoRulesApplied(vec![
                     PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },
@@ -227,6 +232,7 @@ mod tests {
         // and
         let expected_results = Err(PartMapperError::MappingErrors(vec![
             PlacementPartMappingResult {
+                part: None,
                 eda_placement: &eda_placements[0],
                 mapping_result: Err(PartMappingError::NoMappings)
             },
@@ -270,6 +276,7 @@ mod tests {
         // and
         let expected_results = Ok(vec![
             PlacementPartMappingResult {
+                part: Some(&parts[2 - 1]),
                 eda_placement: &eda_placements[0],
                 mapping_result: Ok(vec![
                     PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },

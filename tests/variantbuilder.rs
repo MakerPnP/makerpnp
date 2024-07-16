@@ -8,6 +8,7 @@ extern crate makerpnp;
 mod tests {
     use std::ffi::OsString;
     use std::fs;
+    use std::fs::read_to_string;
     use std::path::PathBuf;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
@@ -264,6 +265,16 @@ mod tests {
         "};
 
         // and
+        let expected_csv_content = indoc! {"
+            \"RefDes\",\"Manufacturer\",\"Mpn\"
+            \"R1\",\"RES_MFR2\",\"RES2\"
+            \"J1\",\"CONN_MFR1\",\"CONN1\"
+        "};
+
+        let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
+        let csv_output_arg = format!("--output={}", test_csv_output_file_name.to_str().unwrap());
+
+        // and
         let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
         let trace_log_arg = format!("--trace={}", test_trace_log_file_name.to_str().unwrap());
 
@@ -276,6 +287,7 @@ mod tests {
             part_mappings_arg.as_str(),
             load_out_arg.as_str(),
             substitutions_arg.as_str(),
+            csv_output_arg.as_str(),
             "--name",
             "Variant 1",
             "--ref-des-list=R1,R3,R4,C1,J1",
@@ -316,6 +328,12 @@ mod tests {
             expected_part_mapping_tree,
             "Mapping failures\n",
         ]);
+
+        // and
+        let csv_output_file = assert_fs::NamedTempFile::new(test_csv_output_path).unwrap();
+        let csv_content = read_to_string(csv_output_file)?;
+        println!("{}", csv_content);
+        assert!(predicate::str::diff(expected_csv_content).eval(csv_content.as_str()));
 
         Ok(())
     }
@@ -386,7 +404,7 @@ mod tests {
         let expected_output = indoc! {"
             Build variant
 
-            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE> --substitutions <FILE>
+            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE> --substitutions <FILE> --output <FILE>
 
             Options:
                   --load-out <FILE>                   Load-out file
@@ -394,6 +412,7 @@ mod tests {
                   --parts <FILE>                      Parts file
                   --part-mappings <FILE>              Part-mappings file
                   --substitutions <FILE>              Substitutions file
+                  --output <FILE>                     Output file
                   --name <NAME>                       Name of assembly variant [default: Default]
                   --ref-des-list [<REF_DES_LIST>...]  List of reference designators
               -h, --help                              Print help

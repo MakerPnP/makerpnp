@@ -3,6 +3,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use anyhow::Error;
 use clap::{Args, Parser, Subcommand};
+use csv::QuoteStyle;
 use termtree::Tree;
 use thiserror::Error;
 use tracing::{error, info, Level, trace};
@@ -82,6 +83,10 @@ enum Commands {
         #[arg(long, value_name = "FILE")]
         substitutions: String,
 
+        /// Output file
+        #[arg(long, value_name = "FILE")]
+        output: String,
+
         #[command(flatten)]
         assembly_variant: AssemblyVariantArgs
     },
@@ -100,8 +105,9 @@ fn main() -> anyhow::Result<()>{
             part_mappings,
             substitutions,
             load_out,
+            output,
         } => {
-            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out)?;
+            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out, output)?;
         },
     }
 
@@ -144,7 +150,7 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, eda_substitutions_source: &String, load_out_source: &Option<String>) -> Result<(), Error> {
+fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, eda_substitutions_source: &String, load_out_source: &Option<String>, output: &String) -> Result<(), Error> {
 
     let mut original_eda_placements = eda_placements::load_eda_placements(placements_source)?;
     info!("Loaded {} placements", original_eda_placements.len());
@@ -202,13 +208,53 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
         }
     }
 
+    write_output_csv(output, matched_mappings)?;
+
+    Ok(())
+}
+
+fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementPartMappingResult>) -> anyhow::Result<()> {
+
+    let output_path = PathBuf::from(output_file_name);
+
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all(serialize = "PascalCase"))]
+    struct Record {
+        ref_des: String,
+        manufacturer: String,
+        mpn: String,
+    }
+
+    let mut writer = csv::WriterBuilder::new()
+        .quote_style(QuoteStyle::Always)
+        .from_path(output_path)?;
+
+    for matched_mapping in matched_mappings.iter() {
+        match matched_mapping {
+            PlacementPartMappingResult {
+                eda_placement, part, .. } if part.is_some() => {
+
+                let part = part.unwrap();
+
+                writer.serialize(Record {
+                    ref_des: eda_placement.ref_des.clone(),
+                    manufacturer: part.manufacturer.clone(),
+                    mpn: part.mpn.clone(),
+                })?;
+            },
+            _ => (),
+        }
+    }
+
+    writer.flush()?;
+
     Ok(())
 }
 
 fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>, eda_substitution_results: Vec<EdaSubstitutionResult>) -> Tree<String> {
     let mut tree = Tree::new("Mapping Result".to_string());
 
-    for PlacementPartMappingResult { eda_placement, mapping_result: part_mappings_result } in matched_mappings.iter() {
+    for PlacementPartMappingResult { eda_placement, mapping_result: part_mappings_result, .. } in matched_mappings.iter() {
 
         fn add_error_node(placement_node: &mut Tree<String>, reason: &str) {
             let placement_error_node = Tree::new(format!("ERROR: Unresolved mapping - {}.", reason).to_string());
