@@ -61,36 +61,42 @@ mod test {
         // given
         let placement1 = EdaPlacement {
             ref_des: "R1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
         };
         let placement2 = EdaPlacement {
             ref_des: "R2".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE2".to_string() }),
         };
         let placement3 = EdaPlacement {
             ref_des: "R3".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME3".to_string(), value: "VALUE3".to_string() }),
         };
-
         let placement4 = EdaPlacement {
             ref_des: "D1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME4".to_string(), value: "VALUE4".to_string() }),
         };
         let placement5 = EdaPlacement {
             ref_des: "D2".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME5".to_string(), value: "VALUE5".to_string() }),
         };
         let placement6 = EdaPlacement {
             ref_des: "D3".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME6".to_string(), value: "VALUE6".to_string() }),
         };
-
         let placement7 = EdaPlacement {
             ref_des: "C1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME7".to_string(), value: "VALUE7".to_string() }),
         };
         let placement8 = EdaPlacement {
             ref_des: "J1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME8".to_string(), value: "VALUE8".to_string() }),
         };
 
@@ -153,6 +159,7 @@ mod test {
 
         let placement1 = EdaPlacement {
             ref_des: "R1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
         };
         // when

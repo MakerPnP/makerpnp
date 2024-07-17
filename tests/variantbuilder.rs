@@ -16,6 +16,8 @@ mod tests {
     use indoc::indoc;
     use predicates::function::FnPredicate;
     use predicates::prelude::*;
+    use predicates_tree::CaseTreeExt;
+
     use tempfile::{tempdir, TempDir};
 
     #[test]
@@ -62,6 +64,16 @@ mod tests {
             ref_des: "J1".to_string(),
             name: "HEADER_2P".to_string(),
             value: "POWER".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "TP1".to_string(),
+            name: "".to_string(),
+            value: "".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "TP2".to_string(),
+            name: "".to_string(),
+            value: "".to_string(),
         })?;
 
         writer.flush()?;
@@ -278,17 +290,26 @@ mod tests {
             │   └── ERROR: Unresolved mapping - No rules applied.
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
             │   └── ERROR: Unresolved mapping - No mappings found.
-            └── J1 (name: 'HEADER_2P', value: 'POWER')
-                └── Substituted (name: 'HEADER_2P', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'POWER')
-                    └── Substituted (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'BLACK')
-                        └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
+            ├── J1 (name: 'HEADER_2P', value: 'POWER')
+            │   └── Substituted (name: 'HEADER_2P', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'POWER')
+            │       └── Substituted (name: 'CONN_HEADER_2P54_2P_NS_V', value: 'BLACK'), by (name_pattern: 'HEADER_2P', value_pattern: 'BLACK')
+            │           └── manufacturer: 'CONN_MFR1', mpn: 'CONN1' (Auto-selected)
+            ├── TP1 (name: '', value: '')
+            │   └── ERROR: Unresolved mapping - No mappings found.
+            └── TP2 (name: '', value: '')
+                └── ERROR: Unresolved mapping - No mappings found.
         "};
 
         // and
         let expected_csv_content = indoc! {"
-            \"RefDes\",\"Manufacturer\",\"Mpn\"
-            \"R1\",\"RES_MFR2\",\"RES2\"
-            \"J1\",\"CONN_MFR1\",\"CONN1\"
+            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\"
+            \"R1\",\"RES_MFR2\",\"RES2\",\"true\"
+            \"R3\",\"\",\"\",\"true\"
+            \"R4\",\"\",\"\",\"true\"
+            \"C1\",\"\",\"\",\"true\"
+            \"J1\",\"CONN_MFR1\",\"CONN1\",\"true\"
+            \"TP1\",\"\",\"\",\"false\"
+            \"TP2\",\"\",\"\",\"false\"
         "};
 
         let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
@@ -310,7 +331,8 @@ mod tests {
             csv_output_arg.as_str(),
             "--name",
             "Variant 1",
-            "--ref-des-list=R1,R3,R4,C1,J1",
+            "--ref-des-list=R1,R3,R4,C1,J1,TP1,TP2",
+            "--ref-des-disable-list=TP1,TP2",
         ])
             // then
             .assert()
@@ -327,27 +349,27 @@ mod tests {
 
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
-        let _remainder = assert_inorder!(_remainder, "Loaded 6 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 8 placements\n");
         let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
         let _remainder = assert_inorder!(_remainder, "Loaded 7 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 7 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
         let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, R3, R4, C1, J1\n");
-        let _remainder = assert_inorder!(_remainder, "Matched 5 placements for assembly variant\n");
+        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, R3, R4, C1, J1, TP1, TP2\n");
+        let _remainder = assert_inorder!(_remainder, "Matched 7 placements for assembly variant\n");
         let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
         let _remainder = assert_inorder!(_remainder, "Mapping failures\n");
 
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
-            "Loaded 6 placements\n",
+            "Loaded 8 placements\n",
             expected_substitutions_file_1_message.as_str(),
             "Loaded 7 parts\n",
             "Loaded 7 part mappings\n",
             "Loaded 3 load-out items\n",
             "Assembly variant: Variant 1\n",
-            "Ref_des list: R1, R3, R4, C1, J1\n",
-            "Matched 5 placements for assembly variant\n",
+            "Ref_des list: R1, R3, R4, C1, J1, TP1, TP2\n",
+            "Matched 7 placements for assembly variant\n",
             expected_part_mapping_tree,
             "Mapping failures\n",
         ]);
@@ -356,7 +378,19 @@ mod tests {
         let csv_output_file = assert_fs::NamedTempFile::new(test_csv_output_path).unwrap();
         let csv_content = read_to_string(csv_output_file)?;
         println!("{}", csv_content);
-        assert!(predicate::str::diff(expected_csv_content).eval(csv_content.as_str()));
+
+        // FIXME when this fails, it doesn't actually show the diff!
+        //assert!(predicate::str::diff(csv_content).eval(expected_csv_content));
+        // FIXME neither does this
+        //assert!(predicate::str::diff(csv_content).find_case(false, expected_csv_content).is_none());
+        // FIXME this does, but it's *very* unergonomic
+        // let diff = predicate::str::diff(csv_content);
+        // let case = diff.find_case(false, expected_csv_content);
+        // assert!(case.is_none(), "{}", case.unwrap().tree());
+        // FIXME this does, but adds logic to the test
+        if let Some(case) = predicate::str::diff(expected_csv_content).find_case(false, csv_content.as_str()) {
+            panic!("Unexpected CSV content\n{}", case.tree());
+        }
 
         Ok(())
     }
@@ -430,15 +464,26 @@ mod tests {
             Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE> --output <FILE>
 
             Options:
-                  --load-out <FILE>                   Load-out file
-                  --placements <FILE>                 Placements file
-                  --parts <FILE>                      Parts file
-                  --part-mappings <FILE>              Part-mappings file
-                  --substitutions[=<FILE>...]         Substitutions files
-                  --output <FILE>                     Output file
-                  --name <NAME>                       Name of assembly variant [default: Default]
-                  --ref-des-list [<REF_DES_LIST>...]  List of reference designators
-              -h, --help                              Print help
+                  --load-out <FILE>
+                      Load-out file
+                  --placements <FILE>
+                      Placements file
+                  --parts <FILE>
+                      Parts file
+                  --part-mappings <FILE>
+                      Part-mappings file
+                  --substitutions[=<FILE>...]
+                      Substitutions files
+                  --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
+                      List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
+                  --output <FILE>
+                      Output file
+                  --name <NAME>
+                      Name of assembly variant [default: Default]
+                  --ref-des-list [<REF_DES_LIST>...]
+                      List of reference designators
+              -h, --help
+                      Print help
         "};
 
         // TODO report issues with clap

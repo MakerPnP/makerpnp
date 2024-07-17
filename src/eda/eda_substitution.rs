@@ -147,7 +147,7 @@ pub mod eda_substitutor_tests {
     #[test]
     pub fn substitute_one_placement_using_a_chain() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
         let eda_placements= vec![eda_placement1];
 
         // and two substitution rules that must be applied
@@ -174,7 +174,7 @@ pub mod eda_substitutor_tests {
         let expected_results = vec![
             EdaSubstitutionResult {
                 original_placement: &eda_placements[0],
-                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "SUBSTITUTED_NAME1".to_string(), value: "SUBSTITUTED_VALUE1".to_string() }) },
+                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true, details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "SUBSTITUTED_NAME1".to_string(), value: "SUBSTITUTED_VALUE1".to_string() }) },
                 chain: vec![
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[1] },
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[0] },

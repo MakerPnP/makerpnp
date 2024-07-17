@@ -1,6 +1,7 @@
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaPlacement {
     pub ref_des: String,
+    pub place: bool,
     pub details: EdaPlacementDetails,
 }
 

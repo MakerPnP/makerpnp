@@ -353,6 +353,7 @@ dependencies = [
  "csv",
  "indoc",
  "predicates",
+ "predicates-tree",
  "serde",
  "tempfile",
  "termtree",

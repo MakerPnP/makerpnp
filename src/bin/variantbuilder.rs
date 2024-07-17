@@ -11,7 +11,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
-use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
+use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
 use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::loaders::{eda_placements, load_out, part_mappings, parts, substitutions};
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
@@ -84,6 +84,10 @@ enum Commands {
         #[arg(long, require_equals = true, value_delimiter = ',', num_args = 0.., value_name = "FILE")]
         substitutions: Vec<String>,
 
+        /// List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
+        #[arg(long, num_args = 0.., value_delimiter = ',')]
+        ref_des_disable_list: Vec<String>,
+
         /// Output file
         #[arg(long, value_name = "FILE")]
         output: String,
@@ -107,8 +111,9 @@ fn main() -> anyhow::Result<()>{
             substitutions,
             load_out,
             output,
+            ref_des_disable_list,
         } => {
-            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out, output)?;
+            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out, output, ref_des_disable_list)?;
         },
     }
 
@@ -151,7 +156,16 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, eda_substitutions_sources: &[String], load_out_source: &Option<String>, output: &String) -> Result<(), Error> {
+fn build_assembly_variant(
+    placements_source: &String,
+    assembly_variant_args: &AssemblyVariantArgs,
+    parts_source: &String,
+    part_mappings_source: &String,
+    eda_substitutions_sources: &[String],
+    load_out_source: &Option<String>,
+    output: &String,
+    ref_des_disable_list: &Vec<String>
+) -> Result<(), Error> {
 
     let mut original_eda_placements = eda_placements::load_eda_placements(placements_source)?;
     info!("Loaded {} placements", original_eda_placements.len());
@@ -167,7 +181,14 @@ fn build_assembly_variant(placements_source: &String, assembly_variant_args: &As
     let eda_substitution_results = EdaSubstitutor::substitute(original_eda_placements.as_mut_slice(), eda_substitution_rules.as_slice());
     trace!("eda_substitution_results: {:?}", eda_substitution_results);
 
-    let eda_placements = eda_substitution_results.iter().map(|esr|esr.resulting_placement.clone()).collect();
+    info!("disabling placements: {:?}", ref_des_disable_list);
+    let mut eda_placements: Vec<EdaPlacement> = eda_substitution_results.iter().map(|esr|esr.resulting_placement.clone()).collect();
+
+    for eda_placement in eda_placements.iter_mut() {
+        if ref_des_disable_list.contains(&eda_placement.ref_des) {
+            eda_placement.place = false;
+        }
+    }
 
     let parts = parts::load_parts(parts_source)?;
     info!("Loaded {} parts", parts.len());
@@ -230,6 +251,7 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
         ref_des: String,
         manufacturer: String,
         mpn: String,
+        place: bool,
     }
 
     let mut writer = csv::WriterBuilder::new()
@@ -238,18 +260,18 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
 
     for matched_mapping in matched_mappings.iter() {
         match matched_mapping {
-            PlacementPartMappingResult {
-                eda_placement, part, .. } if part.is_some() => {
+            PlacementPartMappingResult { eda_placement, part, .. } => {
 
-                let part = part.unwrap();
-
-                writer.serialize(Record {
+                let empty_value = "".to_string();
+                let record = Record {
                     ref_des: eda_placement.ref_des.clone(),
-                    manufacturer: part.manufacturer.clone(),
-                    mpn: part.mpn.clone(),
-                })?;
+                    manufacturer: part.map_or_else(||empty_value.clone(),|part| part.manufacturer.clone()),
+                    mpn: part.map_or_else(||empty_value.clone(),|part| part.mpn.clone()),
+                    place: eda_placement.place,
+                };
+
+                writer.serialize(record)?;
             },
-            _ => (),
         }
     }
 

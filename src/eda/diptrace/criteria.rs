@@ -30,6 +30,7 @@ mod exact_match_critera_tests {
         let criteria = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
         };
 
@@ -43,6 +44,7 @@ mod exact_match_critera_tests {
         let criteria = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE1".to_string() }),
         };
 
@@ -56,6 +58,7 @@ mod exact_match_critera_tests {
         let criteria = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
+            place: true,
             details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE2".to_string() }),
         };
 

@@ -31,6 +31,7 @@ impl DiptracePlacementRecord {
     pub fn build_eda_placement(&self) -> Result<EdaPlacement, DiptracePlacementRecordError> {
         Ok(EdaPlacement {
             ref_des: self.ref_des.to_string(),
+            place: true,
             details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails {
                 name: self.name.to_string(),
                 value: self.value.to_string(),
