@@ -12,7 +12,7 @@ use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacementDetails};
-use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutor};
+use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::loaders::{eda_placements, load_out, part_mappings, parts, substitutions};
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
 
@@ -58,6 +58,7 @@ impl AssemblyVariantArgs {
     }
 }
 
+// TODO rename 'FILE' to 'SOURCE' for all, and cleanup doc comments
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 enum Commands {
@@ -79,9 +80,9 @@ enum Commands {
         #[arg(long, value_name = "FILE")]
         part_mappings: String,
 
-        /// Substitutions file
-        #[arg(long, value_name = "FILE")]
-        substitutions: String,
+        /// Substitutions files
+        #[arg(long, require_equals = true, value_delimiter = ',', num_args = 0.., value_name = "FILE")]
+        substitutions: Vec<String>,
 
         /// Output file
         #[arg(long, value_name = "FILE")]
@@ -150,15 +151,21 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 }
 
 #[tracing::instrument]
-fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, eda_substitutions_source: &String, load_out_source: &Option<String>, output: &String) -> Result<(), Error> {
+fn build_assembly_variant(placements_source: &String, assembly_variant_args: &AssemblyVariantArgs, parts_source: &String, part_mappings_source: &String, eda_substitutions_sources: &[String], load_out_source: &Option<String>, output: &String) -> Result<(), Error> {
 
     let mut original_eda_placements = eda_placements::load_eda_placements(placements_source)?;
     info!("Loaded {} placements", original_eda_placements.len());
 
-    let eda_substitution_rules = substitutions::load_eda_substitutions(eda_substitutions_source)?;
-    info!("Loaded {} substitution rules", eda_substitution_rules.len());
+    let eda_substitution_rules = eda_substitutions_sources.iter().try_fold(vec![], | mut rules, source | {
+        let source_rules = substitutions::load_eda_substitutions(source)?;
+        info!("Loaded {} substitution rules from {}", source_rules.len(), source);
+        rules.extend(source_rules);
 
-    let eda_substitution_results = EdaSubstitutor::substitute(original_eda_placements.as_mut_slice(), &eda_substitution_rules);
+        Ok::<Vec<EdaSubstitutionRule>, anyhow::Error>(rules)
+    })?;
+
+    let eda_substitution_results = EdaSubstitutor::substitute(original_eda_placements.as_mut_slice(), eda_substitution_rules.as_slice());
+    trace!("eda_substitution_results: {:?}", eda_substitution_results);
 
     let eda_placements = eda_substitution_results.iter().map(|esr|esr.resulting_placement.clone()).collect();
 

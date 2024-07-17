@@ -36,7 +36,7 @@ mod tests {
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R1".to_string(),
             name: "RES_0402".to_string(),
-            value: "330R 1/16W 5%".to_string(),
+            value: "330R".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R2".to_string(),
@@ -69,12 +69,29 @@ mod tests {
         // and
         let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
 
-        // and substitutions
-        let (test_substitutions_path, test_substitutions_file_name) = build_temp_csv_file(&temp_dir, "substitutions");
+        // and per-assembly-variant substitutions
+        let (test_assembly_substitutions_path, test_assembly_substitutions_file_name) = build_temp_csv_file(&temp_dir, "assembly-substitutions");
 
         let mut writer = csv::WriterBuilder::new()
             .quote_style(QuoteStyle::Always)
-            .from_path(test_substitutions_path)?;
+            .from_path(test_assembly_substitutions_path)?;
+
+        writer.serialize(TestSubstitutionRecord {
+            eda: "DipTrace".to_string(),
+            name_pattern: "RES_0402".to_string(),
+            value_pattern: "330R".to_string(),
+            name: "RES_0402".to_string(),
+            value: "330R 1/16W 5%".to_string(),
+        })?;
+
+        writer.flush()?;
+
+        // and global substitutions
+        let (test_global_substitutions_path, test_global_substitutions_file_name) = build_temp_csv_file(&temp_dir, "global-substitutions");
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_global_substitutions_path)?;
 
         writer.serialize(TestSubstitutionRecord {
             eda: "DipTrace".to_string(),
@@ -93,8 +110,10 @@ mod tests {
 
         writer.flush()?;
 
-        // and
-        let substitutions_arg = format!("--substitutions={}", test_substitutions_file_name.to_str().unwrap());
+        let substitutions_arg = format!("--substitutions={},{}",
+            test_assembly_substitutions_file_name.to_str().unwrap(),
+            test_global_substitutions_file_name.to_str().unwrap(),
+        );
 
         // and load-out
         let (test_load_out_path, test_load_out_file_name) = build_temp_csv_file(&temp_dir, "load_out");
@@ -245,9 +264,10 @@ mod tests {
         // and
         let expected_part_mapping_tree = indoc! {"
             Mapping Result
-            ├── R1 (name: 'RES_0402', value: '330R 1/16W 5%')
-            │   ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
-            │   └── manufacturer: 'RES_MFR2', mpn: 'RES2' (Found in load-out, reference: 'FEEDER_1')
+            ├── R1 (name: 'RES_0402', value: '330R')
+            │   └── Substituted (name: 'RES_0402', value: '330R 1/16W 5%'), by (name_pattern: 'RES_0402', value_pattern: '330R')
+            │       ├── manufacturer: 'RES_MFR1', mpn: 'RES1'
+            │       └── manufacturer: 'RES_MFR2', mpn: 'RES2' (Found in load-out, reference: 'FEEDER_1')
             ├── R3 (name: 'RES_0402', value: '470R 1/16W 5%')
             │   ├── manufacturer: 'RES_MFR3', mpn: 'RES3' (Found in load-out, reference: 'FEEDER_2')
             │   ├── manufacturer: 'RES_MFR4', mpn: 'RES4' (Found in load-out, reference: 'FEEDER_3')
@@ -302,10 +322,13 @@ mod tests {
         let trace_content: String = fs::read_to_string(test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
+        // and
+        let expected_substitutions_file_1_message = format!("Loaded 2 substitution rules from {}\n", test_global_substitutions_file_name.to_str().unwrap());
+
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
         let _remainder = assert_inorder!(_remainder, "Loaded 6 placements\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 2 substitution rules\n");
+        let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
         let _remainder = assert_inorder!(_remainder, "Loaded 7 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 7 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
@@ -318,7 +341,7 @@ mod tests {
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
             "Loaded 6 placements\n",
-            "Loaded 2 substitution rules\n",
+            expected_substitutions_file_1_message.as_str(),
             "Loaded 7 parts\n",
             "Loaded 7 part mappings\n",
             "Loaded 3 load-out items\n",
@@ -404,14 +427,14 @@ mod tests {
         let expected_output = indoc! {"
             Build variant
 
-            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE> --substitutions <FILE> --output <FILE>
+            Usage: variantbuilder build [OPTIONS] --placements <FILE> --parts <FILE> --part-mappings <FILE> --output <FILE>
 
             Options:
                   --load-out <FILE>                   Load-out file
                   --placements <FILE>                 Placements file
                   --parts <FILE>                      Parts file
                   --part-mappings <FILE>              Part-mappings file
-                  --substitutions <FILE>              Substitutions file
+                  --substitutions[=<FILE>...]         Substitutions files
                   --output <FILE>                     Output file
                   --name <NAME>                       Name of assembly variant [default: Default]
                   --ref-des-list [<REF_DES_LIST>...]  List of reference designators
