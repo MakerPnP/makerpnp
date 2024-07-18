@@ -63,31 +63,26 @@ impl PartMapper {
 }
 
 fn apply_rules<'mapping>(ref_des: &String, mapping_results: &mut Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>, assembly_rules: &Vec<AssemblyRule>) {
+    for mapping_result in mapping_results.iter_mut() {
+        let maybe_assembly_rule = assembly_rules.iter().find(|rule| {
+            let mapped_part = mapping_result.part_mapping;
+            *ref_des == rule.ref_des &&
+                mapped_part.part.manufacturer == rule.manufacturer &&
+                mapped_part.part.mpn == rule.mpn
+        });
+
+        if let Some(_rule) = maybe_assembly_rule {
+            mapping_result.applied_rule = Some(AppliedMappingRule::AssemblyRule);
+            return
+        }
+    }
+
     match mapping_results.len() {
         1 => {
             mapping_results[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
         }
         2.. => {
-            let mut stop_rule_application: bool = false;
-
             for mapping_result in mapping_results.iter_mut() {
-                if stop_rule_application {
-                    continue
-                }
-
-                let maybe_assembly_rule = assembly_rules.iter().find(|rule| {
-                    let mapped_part = mapping_result.part_mapping;
-                    *ref_des == rule.ref_des &&
-                        mapped_part.part.manufacturer == rule.manufacturer &&
-                        mapped_part.part.mpn == rule.mpn
-                });
-
-                if let Some(_rule) = maybe_assembly_rule {
-                    mapping_result.applied_rule = Some(AppliedMappingRule::AssemblyRule);
-                    stop_rule_application = true;
-                    continue
-                }
-
                 let maybe_load_out_item = load_out_items.iter().find(|item| {
                     let mapped_part = mapping_result.part_mapping;
                     (item.mpn == mapped_part.part.mpn)
@@ -370,4 +365,56 @@ mod tests {
         assert_eq!(matched_mappings, expected_results);
     }
 
+    #[test]
+    fn map_parts_with_multiple_matching_mappings_with_an_assembly_rule_and_loadout_item() {
+        // given
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+
+        let eda_placements = vec![eda_placement1];
+
+        // and
+        let part1 = Part::new("MFR1".to_string(), "PART1".to_string());
+        let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
+
+        let parts = vec![part1, part2];
+
+        // and
+        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
+        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
+
+        let part_mappings = vec![part_mapping1, part_mapping2];
+
+        // and
+        let load_out_items = vec![
+            LoadOutItem::new("REFERENCE_1".to_string(), "MFR1".to_string(), "PART1".to_string()),
+        ];
+
+        // and
+        let assembly_rule1 = AssemblyRule {
+            ref_des: "R1".to_string(),
+            manufacturer: "MFR2".to_string(),
+            mpn: "PART2".to_string(),
+        };
+        let assembly_rules = &vec![assembly_rule1];
+
+        // and
+        let expected_results = Ok(vec![
+            PlacementPartMappingResult {
+                part: Some(&parts[2-1]),
+                eda_placement: &eda_placements[0],
+                mapping_result: Ok(vec![
+                    PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },
+                    PartMappingResult { part_mapping: &part_mappings[1], applied_rule: Some(AppliedMappingRule::AssemblyRule) },
+                ])
+            },
+        ]);
+
+        // when
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &load_out_items, assembly_rules);
+
+        // then
+        assert_eq!(matched_mappings, expected_results);
+    }
 }
