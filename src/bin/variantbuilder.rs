@@ -13,7 +13,7 @@ use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
 use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
-use makerpnp::loaders::{eda_placements, load_out, part_mappings, parts, substitutions};
+use makerpnp::loaders::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
 
 #[derive(Parser)]
@@ -88,6 +88,10 @@ enum Commands {
         #[arg(long, num_args = 0.., value_delimiter = ',')]
         ref_des_disable_list: Vec<String>,
 
+        /// Assembly rules file
+        #[arg(long, value_name = "FILE")]
+        assembly_rules: Option<String>,
+
         /// Output file
         #[arg(long, value_name = "FILE")]
         output: String,
@@ -110,10 +114,11 @@ fn main() -> anyhow::Result<()>{
             part_mappings,
             substitutions,
             load_out,
+            assembly_rules,
             output,
             ref_des_disable_list,
         } => {
-            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out, output, ref_des_disable_list)?;
+            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out, assembly_rules, output, ref_des_disable_list)?;
         },
     }
 
@@ -163,6 +168,7 @@ fn build_assembly_variant(
     part_mappings_source: &String,
     eda_substitutions_sources: &[String],
     load_out_source: &Option<String>,
+    assembly_rules_source: &Option<String>,
     output: &String,
     ref_des_disable_list: &Vec<String>
 ) -> Result<(), Error> {
@@ -200,8 +206,13 @@ fn build_assembly_variant(
         Some(source) => load_out::load_items(source),
         None => Ok(vec![]),
     }?;
-
     info!("Loaded {} load-out items", load_out_items.len());
+
+    let assembly_rules = match assembly_rules_source {
+        Some(source) => assembly_rules::load(source),
+        None => Ok(vec![]),
+    }?;
+    info!("Loaded {} assembly rules", assembly_rules.len());
 
     let assembly_variant = assembly_variant_args.build_assembly_variant()?;
     info!("Assembly variant: {}", assembly_variant.name);
@@ -217,7 +228,7 @@ fn build_assembly_variant(
 
     trace!("{:?}", part_mappings);
 
-    let processing_result = PartMapper::process(&variant_placements, &part_mappings, &load_out_items);
+    let processing_result = PartMapper::process(&variant_placements, &part_mappings, &load_out_items, &assembly_rules);
 
     trace!("{:?}", processing_result);
 

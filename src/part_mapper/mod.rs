@@ -2,6 +2,7 @@ pub mod criteria;
 pub mod part_mapping;
 
 use std::fmt::{Display, Formatter};
+use crate::assembly::rules::AssemblyRule;
 use crate::eda::eda_placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::part_mapper::PartMappingError::{ConflictingRules, NoRulesApplied};
@@ -14,7 +15,8 @@ impl PartMapper {
     pub fn process<'placement, 'mapping>(
         eda_placements: &'placement Vec<EdaPlacement>,
         part_mappings: &'mapping Vec<PartMapping<'mapping>>,
-        load_out_items: &Vec<LoadOutItem>
+        load_out_items: &Vec<LoadOutItem>,
+        assembly_rules: &Vec<AssemblyRule>
     ) -> Result<Vec<PlacementPartMappingResult<'placement, 'mapping>>, PartMapperError<'placement, 'mapping>> {
 
         let mut error_count: usize = 0;
@@ -31,7 +33,7 @@ impl PartMapper {
                 }
             }
 
-            apply_rules(&mut part_mapping_results, load_out_items);
+            apply_rules(&eda_placement.ref_des, &mut part_mapping_results, load_out_items, assembly_rules);
 
             let applied_rule_count = part_mapping_results.iter().filter(|pmr|pmr.applied_rule.is_some()).count();
 
@@ -60,13 +62,32 @@ impl PartMapper {
     }
 }
 
-fn apply_rules<'mapping>(mapping_results: &mut Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>) {
+fn apply_rules<'mapping>(ref_des: &String, mapping_results: &mut Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>, assembly_rules: &Vec<AssemblyRule>) {
     match mapping_results.len() {
         1 => {
             mapping_results[0].applied_rule = Some(AppliedMappingRule::AutoSelected);
         }
         2.. => {
+            let mut stop_rule_application: bool = false;
+
             for mapping_result in mapping_results.iter_mut() {
+                if stop_rule_application {
+                    continue
+                }
+
+                let maybe_assembly_rule = assembly_rules.iter().find(|rule| {
+                    let mapped_part = mapping_result.part_mapping;
+                    *ref_des == rule.ref_des &&
+                        mapped_part.part.manufacturer == rule.manufacturer &&
+                        mapped_part.part.mpn == rule.mpn
+                });
+
+                if let Some(_rule) = maybe_assembly_rule {
+                    mapping_result.applied_rule = Some(AppliedMappingRule::AssemblyRule);
+                    stop_rule_application = true;
+                    continue
+                }
+
                 let maybe_load_out_item = load_out_items.iter().find(|item| {
                     let mapped_part = mapping_result.part_mapping;
                     (item.mpn == mapped_part.part.mpn)
@@ -104,6 +125,7 @@ pub enum PartMappingError<'mapping> {
 pub enum AppliedMappingRule {
     AutoSelected,
     FoundInLoadOut(String),
+    AssemblyRule,
 }
 
 impl Display for AppliedMappingRule {
@@ -111,6 +133,7 @@ impl Display for AppliedMappingRule {
         match self {
             AppliedMappingRule::AutoSelected => write!(f, "Auto-selected"),
             AppliedMappingRule::FoundInLoadOut(reference) => write!(f, "Found in load-out, reference: '{}'", reference),
+            AppliedMappingRule::AssemblyRule => write!(f, "Matched assembly-rule"),
         }
     }
 }
@@ -133,6 +156,7 @@ pub struct PlacementPartMappingResult<'placement, 'mapping> {
 #[cfg(test)]
 mod tests {
     use EdaPlacementDetails::DipTrace;
+    use crate::assembly::rules::AssemblyRule;
     use crate::pnp::part::Part;
     use crate::eda::diptrace::criteria::ExactMatchCriteria;
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
@@ -174,7 +198,7 @@ mod tests {
         ]);
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -214,7 +238,7 @@ mod tests {
         ]));
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -239,7 +263,7 @@ mod tests {
         ]));
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -286,9 +310,64 @@ mod tests {
         ]);
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &load_out_items);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &load_out_items, &vec![]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
     }
+
+    #[test]
+    fn map_parts_with_multiple_matching_mappings_with_an_assembly_rule() {
+        // given
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+
+        let eda_placements = vec![eda_placement1];
+
+        // and
+        let part1 = Part::new("MFR1".to_string(), "PART1".to_string());
+        let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
+        let part3 = Part::new("MFR3".to_string(), "PART3".to_string());
+
+        let parts = vec![part1, part2, part3];
+
+        // and
+        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
+        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
+
+        let part_mappings = vec![part_mapping1, part_mapping2];
+
+        // and
+        let assembly_rule1 = AssemblyRule {
+            ref_des: "C1".to_string(),
+            manufacturer: "MFR3".to_string(),
+            mpn: "PART3".to_string(),
+        };
+        let assembly_rule2 = AssemblyRule {
+            ref_des: "R1".to_string(),
+            manufacturer: "MFR2".to_string(),
+            mpn: "PART2".to_string(),
+        };
+        let assembly_rules = &vec![assembly_rule1, assembly_rule2];
+
+        // and
+        let expected_results = Ok(vec![
+            PlacementPartMappingResult {
+                part: Some(&parts[2-1]),
+                eda_placement: &eda_placements[0],
+                mapping_result: Ok(vec![
+                    PartMappingResult { part_mapping: &part_mappings[0], applied_rule: None },
+                    PartMappingResult { part_mapping: &part_mappings[1], applied_rule: Some(AppliedMappingRule::AssemblyRule) },
+                ])
+            },
+        ]);
+
+        // when
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], assembly_rules);
+
+        // then
+        assert_eq!(matched_mappings, expected_results);
+    }
+
 }

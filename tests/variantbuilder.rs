@@ -56,6 +56,11 @@ mod tests {
             value: "220R 1/16W 5%".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
+            ref_des: "D1".to_string(),
+            name: "DIO_0603".to_string(),
+            value: "1A 10V".to_string(),
+        })?;
+        writer.serialize(TestDiptracePlacementRecord {
             ref_des: "C1".to_string(),
             name: "CAP_0402".to_string(),
             value: "10uF 6.3V 20%".to_string(),
@@ -191,6 +196,14 @@ mod tests {
             manufacturer: "RES_MFR6".to_string(),
             mpn: "RES6".to_string(),
         })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "DIO_MFR1".to_string(),
+            mpn: "DIO1".to_string(),
+        })?;
+        writer.serialize(TestPartRecord {
+            manufacturer: "DIO_MFR2".to_string(),
+            mpn: "DIO2".to_string(),
+        })?;
 
         writer.flush()?;
 
@@ -258,7 +271,23 @@ mod tests {
             manufacturer: "RES_MFR6".to_string(),
             mpn: "RES6".to_string(),
         })?;
-
+        // and two more mappings for a diode
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "DIO_0603".to_string(),
+            value: "1A 10V".to_string(),
+            // maps to
+            manufacturer: "DIO_MFR1".to_string(),
+            mpn: "DIO1".to_string(),
+        })?;
+        writer.serialize(TestPartMappingRecord {
+            eda: "DipTrace".to_string(),
+            name: "DIO_0603".to_string(),
+            value: "1A 10V".to_string(),
+            // maps to
+            manufacturer: "DIO_MFR2".to_string(),
+            mpn: "DIO2".to_string(),
+        })?;
         // and a single mapping for the connector
         writer.serialize(TestPartMappingRecord {
             eda: "DipTrace".to_string(),
@@ -272,6 +301,24 @@ mod tests {
         writer.flush()?;
 
         let part_mappings_arg = format!("--part-mappings={}", test_part_mappings_file_name.to_str().unwrap());
+
+        // and assembly-rules
+        let (test_assembly_rule_path, test_assembly_rule_file_name) = build_temp_csv_file(&temp_dir, "assembly_rule");
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_assembly_rule_path)?;
+
+        writer.serialize(TestAssemblyRuleRecord {
+            ref_des: "D1".to_string(),
+            manufacturer: "DIO_MFR2".to_string(),
+            mpn: "DIO2".to_string(),
+        })?;
+
+        writer.flush()?;
+
+        let assembly_rules_arg = format!("--assembly-rules={}", test_assembly_rule_file_name.to_str().unwrap());
+
 
         // and
         let expected_part_mapping_tree = indoc! {"
@@ -288,6 +335,9 @@ mod tests {
             │   ├── manufacturer: 'RES_MFR5', mpn: 'RES5'
             │   ├── manufacturer: 'RES_MFR6', mpn: 'RES6'
             │   └── ERROR: Unresolved mapping - No rules applied.
+            ├── D1 (name: 'DIO_0603', value: '1A 10V')
+            │   ├── manufacturer: 'DIO_MFR1', mpn: 'DIO1'
+            │   └── manufacturer: 'DIO_MFR2', mpn: 'DIO2' (Matched assembly-rule)
             ├── C1 (name: 'CAP_0402', value: '10uF 6.3V 20%')
             │   └── ERROR: Unresolved mapping - No mappings found.
             ├── J1 (name: 'HEADER_2P', value: 'POWER')
@@ -306,6 +356,7 @@ mod tests {
             \"R1\",\"RES_MFR2\",\"RES2\",\"true\"
             \"R3\",\"\",\"\",\"true\"
             \"R4\",\"\",\"\",\"true\"
+            \"D1\",\"DIO_MFR2\",\"DIO2\",\"true\"
             \"C1\",\"\",\"\",\"true\"
             \"J1\",\"CONN_MFR1\",\"CONN1\",\"true\"
             \"TP1\",\"\",\"\",\"false\"
@@ -328,10 +379,11 @@ mod tests {
             part_mappings_arg.as_str(),
             load_out_arg.as_str(),
             substitutions_arg.as_str(),
+            assembly_rules_arg.as_str(),
             csv_output_arg.as_str(),
             "--name",
             "Variant 1",
-            "--ref-des-list=R1,R3,R4,C1,J1,TP1,TP2",
+            "--ref-des-list=R1,R3,R4,D1,C1,J1,TP1,TP2",
             "--ref-des-disable-list=TP1,TP2",
         ])
             // then
@@ -349,27 +401,29 @@ mod tests {
 
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
-        let _remainder = assert_inorder!(_remainder, "Loaded 8 placements\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 9 placements\n");
         let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
-        let _remainder = assert_inorder!(_remainder, "Loaded 7 parts\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 7 part mappings\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 9 parts\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 9 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
+        let _remainder = assert_inorder!(_remainder, "Loaded 1 assembly rules\n");
         let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, R3, R4, C1, J1, TP1, TP2\n");
-        let _remainder = assert_inorder!(_remainder, "Matched 7 placements for assembly variant\n");
+        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, R3, R4, D1, C1, J1, TP1, TP2\n");
+        let _remainder = assert_inorder!(_remainder, "Matched 8 placements for assembly variant\n");
         let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
         let _remainder = assert_inorder!(_remainder, "Mapping failures\n");
 
         // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
-            "Loaded 8 placements\n",
+            "Loaded 9 placements\n",
             expected_substitutions_file_1_message.as_str(),
-            "Loaded 7 parts\n",
-            "Loaded 7 part mappings\n",
+            "Loaded 9 parts\n",
+            "Loaded 9 part mappings\n",
             "Loaded 3 load-out items\n",
+            "Loaded 1 assembly rules\n",
             "Assembly variant: Variant 1\n",
-            "Ref_des list: R1, R3, R4, C1, J1, TP1, TP2\n",
-            "Matched 7 placements for assembly variant\n",
+            "Ref_des list: R1, R3, R4, D1, C1, J1, TP1, TP2\n",
+            "Matched 8 placements for assembly variant\n",
             expected_part_mapping_tree,
             "Mapping failures\n",
         ]);
@@ -476,6 +530,8 @@ mod tests {
                       Substitutions files
                   --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
                       List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
+                  --assembly-rules <FILE>
+                      Assembly rules file
                   --output <FILE>
                       Output file
                   --name <NAME>
@@ -520,6 +576,14 @@ mod tests {
     #[serde(rename_all(serialize = "PascalCase"))]
     struct TestLoadOutRecord {
         reference: String,
+        manufacturer: String,
+        mpn: String,
+    }
+
+    #[derive(Debug, serde::Serialize)]
+    #[serde(rename_all(serialize = "PascalCase"))]
+    struct TestAssemblyRuleRecord {
+        ref_des: String,
         manufacturer: String,
         mpn: String,
     }

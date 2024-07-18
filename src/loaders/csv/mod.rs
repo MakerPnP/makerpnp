@@ -1,4 +1,5 @@
 use thiserror::Error;
+use crate::assembly::rules::AssemblyRule;
 use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord};
 use crate::pnp::part::Part;
 use crate::eda::diptrace::criteria::ExactMatchCriteria;
@@ -177,5 +178,23 @@ impl TryFrom<CSVSubstitutionRecord> for SubstitutionRecord {
             })),
             _ => Err(CSVSubstitutionRecordError::UnknownEDA { eda: value.eda }),
         }
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all(deserialize = "PascalCase"))]
+pub struct AssemblyRuleRecord {
+    ref_des: String,
+    manufacturer: String,
+    mpn: String,
+}
+
+impl AssemblyRuleRecord {
+    pub fn build_assembly_rule(&self) -> Result<AssemblyRule, ()> {
+        Ok(AssemblyRule {
+            ref_des: self.ref_des.clone(),
+            manufacturer: self.manufacturer.clone(),
+            mpn: self.mpn.clone(),
+        })
     }
 }

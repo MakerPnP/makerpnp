@@ -2,6 +2,8 @@ use thiserror::Error;
 use crate::eda::assembly_variant::AssemblyVariant;
 use crate::eda::eda_placement::EdaPlacement;
 
+pub mod rules;
+
 #[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct ProcessingResult {
     pub placements: Vec<EdaPlacement>,
