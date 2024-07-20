@@ -2,7 +2,7 @@ use thiserror::Error;
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord};
 use crate::pnp::part::Part;
-use crate::eda::diptrace::criteria::ExactMatchCriteria;
+use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
 use crate::eda::eda_substitution::{DipTraceSubstitutionRuleDetails, EdaSubstitutionRule, EdaSubstitutionRuleDetails};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
@@ -79,7 +79,7 @@ impl PartMappingRecord {
 
         let criterion = match self {
             PartMappingRecord::DipTracePartMapping(record) => {
-                Ok(ExactMatchCriteria::new(record.name.clone(), record.value.clone()))
+                Ok(DipTraceExactMatchCriteria::new(record.name.clone(), record.value.clone()))
             }
         }?;
 

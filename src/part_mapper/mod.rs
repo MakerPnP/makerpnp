@@ -153,7 +153,7 @@ mod tests {
     use EdaPlacementDetails::DipTrace;
     use crate::assembly::rules::AssemblyRule;
     use crate::pnp::part::Part;
-    use crate::eda::diptrace::criteria::ExactMatchCriteria;
+    use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
@@ -176,11 +176,11 @@ mod tests {
         let parts = vec![part1, part2, part3];
 
         // and
-        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = ExactMatchCriteria::new("NAME2".to_string(), "VALUE2".to_string());
+        let criteria2 = DipTraceExactMatchCriteria::new("NAME2".to_string(), "VALUE2".to_string());
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
-        let criteria3 = ExactMatchCriteria::new("NAME3".to_string(), "VALUE3".to_string());
+        let criteria3 = DipTraceExactMatchCriteria::new("NAME3".to_string(), "VALUE3".to_string());
         let part_mapping3 = PartMapping::new(&parts[3 - 1], vec![Box::new(criteria3)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2, part_mapping3];
@@ -213,9 +213,9 @@ mod tests {
         let parts = vec![part1, part2];
 
         // and
-        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
@@ -279,9 +279,9 @@ mod tests {
         let parts = vec![part1, part2, part3];
 
         // and
-        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
@@ -326,9 +326,9 @@ mod tests {
         let parts = vec![part1, part2, part3];
 
         // and
-        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
@@ -379,9 +379,9 @@ mod tests {
         let parts = vec![part1, part2];
 
         // and
-        let criteria1 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = ExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
