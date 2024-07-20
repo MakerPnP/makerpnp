@@ -3,7 +3,7 @@ use crate::assembly::rules::AssemblyRule;
 use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord, KiCadPartMappingRecord};
 use crate::pnp::part::Part;
 use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
-use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleChangeItem, EdaSubstitutionRuleCriteriaItem};
+use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
 use crate::eda::kicad::criteria::KiCadExactMatchCriteria;
 use crate::eda::kicad::csv::KiCadSubstitutionRecord;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
@@ -180,22 +180,22 @@ impl SubstitutionRecord {
                 criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: record.name_pattern.clone() } );
                 criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: record.value_pattern.clone() } );
 
-                let mut changes: Vec<EdaSubstitutionRuleChangeItem> = vec![];
-                changes.push(EdaSubstitutionRuleChangeItem { field_name: "name".to_string(), field_value: record.name.clone() } );
-                changes.push(EdaSubstitutionRuleChangeItem { field_name: "value".to_string(), field_value: record.value.clone() } );
+                let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
+                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "name".to_string(), field_value: record.name.clone() } );
+                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "value".to_string(), field_value: record.value.clone() } );
 
-                Ok(EdaSubstitutionRule { criteria, changes })
+                Ok(EdaSubstitutionRule { criteria, transforms })
             },
             SubstitutionRecord::KiCadSubstitution(record) => {
                 let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
                 criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: record.package_pattern.clone() } );
                 criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: record.val_pattern.clone() } );
 
-                let mut changes: Vec<EdaSubstitutionRuleChangeItem> = vec![];
-                changes.push(EdaSubstitutionRuleChangeItem { field_name: "package".to_string(), field_value: record.package.clone() } );
-                changes.push(EdaSubstitutionRuleChangeItem { field_name: "val".to_string(), field_value: record.val.clone() } );
+                let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
+                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "package".to_string(), field_value: record.package.clone() } );
+                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "val".to_string(), field_value: record.val.clone() } );
 
-                Ok(EdaSubstitutionRule { criteria, changes })
+                Ok(EdaSubstitutionRule { criteria, transforms })
             },
         }
     }

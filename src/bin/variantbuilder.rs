@@ -337,7 +337,7 @@ fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>, eda_su
 
             for chain_entry in substitution_result.chain.iter() {
                 let substitution_label = format!("Substituted ({}), by ({})",
-                     chain_entry.rule.format_change(),
+                     chain_entry.rule.format_transform(),
                      chain_entry.rule.format_criteria(),
                 );
 
