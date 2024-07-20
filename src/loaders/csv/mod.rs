@@ -3,7 +3,7 @@ use crate::assembly::rules::AssemblyRule;
 use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord, KiCadPartMappingRecord};
 use crate::pnp::part::Part;
 use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
-use crate::eda::eda_substitution::{DipTraceSubstitutionRuleDetails, EdaSubstitutionRule, EdaSubstitutionRuleDetails, KiCadSubstitutionRuleDetails};
+use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleChangeItem, EdaSubstitutionRuleCriteriaItem};
 use crate::eda::kicad::criteria::KiCadExactMatchCriteria;
 use crate::eda::kicad::csv::KiCadSubstitutionRecord;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
@@ -175,22 +175,28 @@ pub enum SubstitutionRecord {
 impl SubstitutionRecord {
     pub fn build_eda_substitution(&self) -> Result<EdaSubstitutionRule, ()> {
         match self {
-            SubstitutionRecord::DipTraceSubstitution(record) => Ok(EdaSubstitutionRule {
-                details: EdaSubstitutionRuleDetails::DipTrace(DipTraceSubstitutionRuleDetails {
-                    name_pattern: record.name_pattern.to_string(),
-                    value_pattern: record.value_pattern.to_string(),
-                    name: record.name.to_string(),
-                    value: record.value.to_string(),
-                }),
-            }),
-            SubstitutionRecord::KiCadSubstitution(record) => Ok(EdaSubstitutionRule {
-                details: EdaSubstitutionRuleDetails::KiCad(KiCadSubstitutionRuleDetails {
-                    package_pattern: record.package_pattern.to_string(),
-                    val_pattern: record.val_pattern.to_string(),
-                    package: record.package.to_string(),
-                    val: record.val.to_string(),
-                }),
-            }),
+            SubstitutionRecord::DipTraceSubstitution(record) => {
+                let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
+                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: record.name_pattern.clone() } );
+                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: record.value_pattern.clone() } );
+
+                let mut changes: Vec<EdaSubstitutionRuleChangeItem> = vec![];
+                changes.push(EdaSubstitutionRuleChangeItem { field_name: "name".to_string(), field_value: record.name.clone() } );
+                changes.push(EdaSubstitutionRuleChangeItem { field_name: "value".to_string(), field_value: record.value.clone() } );
+
+                Ok(EdaSubstitutionRule { criteria, changes })
+            },
+            SubstitutionRecord::KiCadSubstitution(record) => {
+                let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
+                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: record.package_pattern.clone() } );
+                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: record.val_pattern.clone() } );
+
+                let mut changes: Vec<EdaSubstitutionRuleChangeItem> = vec![];
+                changes.push(EdaSubstitutionRuleChangeItem { field_name: "package".to_string(), field_value: record.package.clone() } );
+                changes.push(EdaSubstitutionRuleChangeItem { field_name: "val".to_string(), field_value: record.val.clone() } );
+
+                Ok(EdaSubstitutionRule { criteria, changes })
+            },
         }
     }
 }

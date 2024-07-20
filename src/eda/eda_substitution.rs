@@ -1,136 +1,81 @@
 use crate::eda::eda_placement::{EdaPlacement, EdaPlacementDetails};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EdaSubstitutionRuleCriteriaItem {
+    pub field_name: String,
+    // TODO replace with exact-match/regexp-match/etc, for now exact-match only.
+    pub field_pattern: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EdaSubstitutionRuleChangeItem {
+    pub field_name: String,
+    pub field_value: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRule {
-    pub details: EdaSubstitutionRuleDetails,
+    pub criteria: Vec<EdaSubstitutionRuleCriteriaItem>,
+    pub changes: Vec<EdaSubstitutionRuleChangeItem>,
 }
 
 impl EdaSubstitutionRule {
     pub fn format_criteria(&self) -> String {
-        // TODO consider using a trait for 'format_critera'
-        match &self.details {
-            EdaSubstitutionRuleDetails::DipTrace(details) => details.format_critera(),
-            EdaSubstitutionRuleDetails::KiCad(details) => details.format_critera(),
-        }
-    }
-}
+        let mut result: Vec<String> = vec![];
 
-impl EdaSubstitutionRule {
+        for criterion in self.criteria.iter() {
+            result.push(format!("{}_pattern: '{}'", criterion.field_name, criterion.field_pattern));
+        }
+        return result.join(", ");
+    }
+
     pub fn format_change(&self) -> String {
-        // TODO consider using a trait for 'format_change'
-        match &self.details {
-            EdaSubstitutionRuleDetails::DipTrace(details) => details.format_change(),
-            EdaSubstitutionRuleDetails::KiCad(details) => details.format_change(),
-        }
-    }
-}
+        let mut result: Vec<String> = vec![];
 
-impl EdaSubstitutionRule {
-    pub fn matches(&self, eda_placement: &EdaPlacement) -> bool {
-        match &self.details {
-            EdaSubstitutionRuleDetails::DipTrace(details) if details.matches(eda_placement) => true,
-            EdaSubstitutionRuleDetails::KiCad(details) if details.matches(eda_placement) => true,
-            _ => false
+        for change in self.changes.iter() {
+            result.push(format!("{}: '{}'", change.field_name, change.field_value));
         }
+        return result.join(", ");
+    }
+
+    pub fn matches(&self, eda_placement: &EdaPlacement) -> bool {
+
+        let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, criterion| {
+            // TODO update EdaPlacementDetails so it has a list of fields to make this trivial
+            let field_matched = match (&eda_placement.details, criterion.field_name.as_str()) {
+                (EdaPlacementDetails::DipTrace(details), "name") if criterion.field_pattern.eq(details.name.as_str()) => true,
+                (EdaPlacementDetails::DipTrace(details), "value") if criterion.field_pattern.eq(details.value.as_str()) => true,
+                (EdaPlacementDetails::KiCad(details), "package") if criterion.field_pattern.eq(details.package.as_str()) => true,
+                (EdaPlacementDetails::KiCad(details), "val") if criterion.field_pattern.eq(details.val.as_str()) => true,
+                _ => false,
+            };
+
+            if let Some(ref mut accumulated_result) = &mut matched {
+                *accumulated_result &= field_matched;
+            } else {
+                matched = Some(field_matched)
+            }
+
+            matched
+        });
+        
+        result.unwrap_or(false)
     }
 
     pub fn apply(&self, eda_placement: &EdaPlacement) -> EdaPlacement {
-        // TODO error handling
-        DetailsSubstitutor::substitute(&self.details, eda_placement).expect("OK")
-    }
-
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum EdaSubstitutionRuleDetails {
-    DipTrace(DipTraceSubstitutionRuleDetails),
-    KiCad(KiCadSubstitutionRuleDetails),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DipTraceSubstitutionRuleDetails {
-    // from
-    pub name_pattern: String,
-    pub value_pattern: String,
-
-    // to
-    pub name: String,
-    pub value: String,
-}
-
-impl DipTraceSubstitutionRuleDetails {
-    pub fn format_change(&self) -> String {
-        format!("name: '{}', value: '{}'", self.name, self.value)
-    }
-
-    pub fn format_critera(&self) -> String {
-        format!("name_pattern: '{}', value_pattern: '{}'", self.name_pattern, self.value_pattern)
-    }
-
-    pub fn matches(&self, eda_placement: &EdaPlacement) -> bool {
-        match &eda_placement.details {
-            EdaPlacementDetails::DipTrace(placement_details) => {
-                self.name_pattern.eq(&placement_details.name) && self.value_pattern.eq(&placement_details.value)
+        let result = self.changes.iter().fold(eda_placement.clone(), |mut placement, change_item| {
+            // TODO update EdaPlacement so it has a list of fields to make this trivial
+            match (&mut placement.details, change_item.field_name.as_str()) {
+                (EdaPlacementDetails::DipTrace(details), "name") => details.name = change_item.field_value.clone(),
+                (EdaPlacementDetails::DipTrace(details), "value") => details.value = change_item.field_value.clone(),
+                (EdaPlacementDetails::KiCad(details), "package") => details.package = change_item.field_value.clone(),
+                (EdaPlacementDetails::KiCad(details), "val") => details.val = change_item.field_value.clone(),
+                _ => (),
             }
-            _ => false
-        }
-    }
-}
+            placement
+        });
 
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct KiCadSubstitutionRuleDetails {
-    // from
-    pub package_pattern: String,
-    pub val_pattern: String,
-
-    // to
-    pub package: String,
-    pub val: String,
-}
-
-impl KiCadSubstitutionRuleDetails {
-    pub fn format_change(&self) -> String {
-        format!("package: '{}', val: '{}'", self.package, self.val)
-    }
-
-    pub fn format_critera(&self) -> String {
-        format!("package_pattern: '{}', val_pattern: '{}'", self.package_pattern, self.val_pattern)
-    }
-
-    pub fn matches(&self, eda_placement: &EdaPlacement) -> bool {
-        match &eda_placement.details {
-            EdaPlacementDetails::KiCad(placement_details) => {
-                self.package_pattern.eq(&placement_details.package) && self.val_pattern.eq(&placement_details.val)
-            }
-            _ => false
-        }
-    }
-}
-
-struct DetailsSubstitutor {}
-
-impl DetailsSubstitutor {
-    pub fn substitute<'placement>(details: &EdaSubstitutionRuleDetails, eda_placement: &'placement EdaPlacement) -> Result<EdaPlacement, ()> {
-        let mut substitute = eda_placement.clone();
-        match (details, &mut substitute.details) {
-            (EdaSubstitutionRuleDetails::DipTrace(ref source_details), EdaPlacementDetails::DipTrace(ref mut substitute_details)) => {
-                substitute_details.name = source_details.name.clone();
-                substitute_details.value = source_details.value.clone();
-
-                Ok(substitute)
-            }
-            (EdaSubstitutionRuleDetails::KiCad(ref source_details), EdaPlacementDetails::KiCad(ref mut substitute_details)) => {
-                substitute_details.package = source_details.package.clone();
-                substitute_details.val = source_details.val.clone();
-
-                Ok(substitute)
-            },
-            _ => {
-                // TODO more descriptive error handling
-                Err(())
-            }
-        }
+        result
     }
 }
 
@@ -192,7 +137,7 @@ impl EdaSubstitutor {
 #[cfg(test)]
 pub mod eda_substitutor_tests {
     use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails, KiCadPlacementDetails};
-    use crate::eda::eda_substitution::{DipTraceSubstitutionRuleDetails, EdaSubstitutionRule, EdaSubstitutionRuleDetails, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, KiCadSubstitutionRuleDetails};
+    use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, EdaSubstitutionRuleCriteriaItem, EdaSubstitutionRuleChangeItem};
 
     #[test]
     pub fn substitute_one_diptrace_placement_using_a_chain() {
@@ -201,21 +146,24 @@ pub mod eda_substitutor_tests {
         let eda_placements= vec![eda_placement1];
 
         // and two substitution rules that must be applied
+
         let first_eda_substitution = EdaSubstitutionRule {
-            details: EdaSubstitutionRuleDetails::DipTrace(DipTraceSubstitutionRuleDetails {
-                name_pattern: "NAME1".to_string(),
-                value_pattern: "VALUE1".to_string(),
-                name: "INTERMEDIATE_NAME1".to_string(),
-                value: "INTERMEDIATE_VALUE1".to_string(),
-            })
+            criteria: vec![
+                EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
+                EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }
+            ], changes: vec![
+                EdaSubstitutionRuleChangeItem { field_name: "name".to_string(), field_value: "INTERMEDIATE_NAME1".to_string() },
+                EdaSubstitutionRuleChangeItem { field_name: "value".to_string(), field_value: "INTERMEDIATE_VALUE1".to_string() }
+            ],
         };
         let second_eda_substitution = EdaSubstitutionRule {
-            details: EdaSubstitutionRuleDetails::DipTrace(DipTraceSubstitutionRuleDetails {
-                name_pattern: "INTERMEDIATE_NAME1".to_string(),
-                value_pattern: "INTERMEDIATE_VALUE1".to_string(),
-                name: "SUBSTITUTED_NAME1".to_string(),
-                value: "SUBSTITUTED_VALUE1".to_string(),
-            })
+            criteria: vec![
+                EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: "INTERMEDIATE_NAME1".to_string() },
+                EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: "INTERMEDIATE_VALUE1".to_string() }
+            ], changes: vec![
+                EdaSubstitutionRuleChangeItem { field_name: "name".to_string(), field_value: "SUBSTITUTED_NAME1".to_string() },
+                EdaSubstitutionRuleChangeItem { field_name: "value".to_string(), field_value: "SUBSTITUTED_VALUE1".to_string() }
+            ],
         };
         // and a list of rules, that are out-of-order (i.e. eda_substitution1 must be applied first)
         let eda_substitutions= vec![second_eda_substitution, first_eda_substitution];
@@ -250,20 +198,22 @@ pub mod eda_substitutor_tests {
 
         // and two substitution rules that must be applied
         let first_eda_substitution = EdaSubstitutionRule {
-            details: EdaSubstitutionRuleDetails::KiCad(KiCadSubstitutionRuleDetails {
-                package_pattern: "PACKAGE1".to_string(),
-                val_pattern: "VAL1".to_string(),
-                package: "INTERMEDIATE_PACKAGE1".to_string(),
-                val: "INTERMEDIATE_VAL1".to_string(),
-            })
+            criteria: vec![
+                EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: "PACKAGE1".to_string() },
+                EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: "VAL1".to_string() }
+            ], changes: vec![
+                EdaSubstitutionRuleChangeItem { field_name: "package".to_string(), field_value: "INTERMEDIATE_PACKAGE1".to_string() },
+                EdaSubstitutionRuleChangeItem { field_name: "val".to_string(), field_value: "INTERMEDIATE_VAL1".to_string() }
+            ],
         };
         let second_eda_substitution = EdaSubstitutionRule {
-            details: EdaSubstitutionRuleDetails::KiCad(KiCadSubstitutionRuleDetails {
-                package_pattern: "INTERMEDIATE_PACKAGE1".to_string(),
-                val_pattern: "INTERMEDIATE_VAL1".to_string(),
-                package: "SUBSTITUTED_PACKAGE1".to_string(),
-                val: "SUBSTITUTED_VAL1".to_string(),
-            })
+            criteria: vec![
+                EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: "INTERMEDIATE_PACKAGE1".to_string() },
+                EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: "INTERMEDIATE_VAL1".to_string() }
+            ], changes: vec![
+                EdaSubstitutionRuleChangeItem { field_name: "package".to_string(), field_value: "SUBSTITUTED_PACKAGE1".to_string() },
+                EdaSubstitutionRuleChangeItem { field_name: "val".to_string(), field_value: "SUBSTITUTED_VAL1".to_string() }
+            ],
         };
         // and a list of rules, that are out-of-order (i.e. eda_substitution1 must be applied first)
         let eda_substitutions= vec![second_eda_substitution, first_eda_substitution];
