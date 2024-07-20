@@ -15,6 +15,18 @@ pub struct DipTracePartMappingRecord {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
+pub struct KiCadPartMappingRecord {
+    // from
+    pub package: String,
+    pub val: String,
+
+    // to
+    pub manufacturer: String,
+    pub mpn: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all(deserialize = "PascalCase"))]
 pub struct DiptracePlacementRecord {
     ref_des: String,
     name: String,

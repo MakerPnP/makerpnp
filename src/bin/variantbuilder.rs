@@ -2,7 +2,7 @@ use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::path::PathBuf;
 use anyhow::Error;
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use csv::QuoteStyle;
 use termtree::Tree;
 use thiserror::Error;
@@ -11,8 +11,9 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
-use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
+use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails, KiCadPlacementDetails};
 use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
+use makerpnp::eda::EdaTool;
 use makerpnp::loaders::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
 
@@ -58,12 +59,34 @@ impl AssemblyVariantArgs {
     }
 }
 
+#[derive(Clone)]
+#[derive(ValueEnum)]
+pub enum EdaToolArg {
+    #[value(name("diptrace"))]
+    DipTrace,
+    #[value(name("kicad"))]
+    KiCad,
+}
+
+impl EdaToolArg {
+    pub fn build(&self) -> EdaTool {
+        match self {
+            EdaToolArg::DipTrace => EdaTool::DipTrace,
+            EdaToolArg::KiCad => EdaTool::KiCad,
+        }
+    }
+}
+
 // TODO rename 'FILE' to 'SOURCE' for all, and cleanup doc comments
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 enum Commands {
     /// Build variant
     Build {
+        /// EDA tool
+        #[arg(long)]
+        eda: EdaToolArg,
+
         /// Load-out file
         #[arg(long, value_name = "FILE")]
         load_out: Option<String>,
@@ -108,6 +131,7 @@ fn main() -> anyhow::Result<()>{
 
     match &opts.command.unwrap() {
         Commands::Build {
+            eda,
             placements,
             assembly_variant,
             parts,
@@ -118,7 +142,8 @@ fn main() -> anyhow::Result<()>{
             output,
             ref_des_disable_list,
         } => {
-            build_assembly_variant(placements, assembly_variant, parts, part_mappings, substitutions, load_out, assembly_rules, output, ref_des_disable_list)?;
+            let eda_tool= eda.build();
+            build_assembly_variant(eda_tool, placements, assembly_variant, parts, part_mappings, substitutions, load_out, assembly_rules, output, ref_des_disable_list)?;
         },
     }
 
@@ -162,6 +187,7 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 
 #[tracing::instrument]
 fn build_assembly_variant(
+    eda_tool: EdaTool,
     placements_source: &String,
     assembly_variant_args: &AssemblyVariantArgs,
     parts_source: &String,
@@ -173,7 +199,7 @@ fn build_assembly_variant(
     ref_des_disable_list: &Vec<String>
 ) -> Result<(), Error> {
 
-    let mut original_eda_placements = eda_placements::load_eda_placements(placements_source)?;
+    let mut original_eda_placements = eda_placements::load_eda_placements(eda_tool, placements_source)?;
     info!("Loaded {} placements", original_eda_placements.len());
 
     let eda_substitution_rules = eda_substitutions_sources.iter().try_fold(vec![], | mut rules, source | {
@@ -372,10 +398,19 @@ impl<'details> Display for DipTracePlacementDetailsLabel<'details> {
     }
 }
 
+struct KiCadPlacementDetailsLabel<'details>(&'details KiCadPlacementDetails);
+
+impl<'details> Display for KiCadPlacementDetailsLabel<'details> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "package: '{}', val: '{}'", self.0.package, self.0.val)
+    }
+}
+
 impl EdaPlacementTreeFormatter {
-    fn format(details: &EdaPlacementDetails) -> impl Display + '_ {
+    fn format(details: &EdaPlacementDetails) -> Box<dyn Display + '_> {
         match details {
-            EdaPlacementDetails::DipTrace(d) => DipTracePlacementDetailsLabel(d)
+            EdaPlacementDetails::DipTrace(d) => Box::new(DipTracePlacementDetailsLabel(d)),
+            EdaPlacementDetails::KiCad(d) => Box::new(KiCadPlacementDetailsLabel(d)),
         }
     }
 }

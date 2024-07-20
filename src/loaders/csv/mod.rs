@@ -1,9 +1,11 @@
 use thiserror::Error;
 use crate::assembly::rules::AssemblyRule;
-use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord};
+use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord, KiCadPartMappingRecord};
 use crate::pnp::part::Part;
 use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
-use crate::eda::eda_substitution::{DipTraceSubstitutionRuleDetails, EdaSubstitutionRule, EdaSubstitutionRuleDetails};
+use crate::eda::eda_substitution::{DipTraceSubstitutionRuleDetails, EdaSubstitutionRule, EdaSubstitutionRuleDetails, KiCadSubstitutionRuleDetails};
+use crate::eda::kicad::criteria::KiCadExactMatchCriteria;
+use crate::eda::kicad::csv::KiCadSubstitutionRecord;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::load_out_item::LoadOutItem;
@@ -12,8 +14,13 @@ use crate::pnp::load_out_item::LoadOutItem;
 #[serde(rename_all(deserialize = "PascalCase"))]
 pub struct CSVPartMappingRecord {
     eda: String,
-    name: String,
-    value: String,
+    // DipTrace
+    name: Option<String>,
+    value: Option<String>,
+    // KiCad
+    package: Option<String>,
+    val: Option<String>,
+
     manufacturer: String,
     mpn: String,
 }
@@ -21,8 +28,7 @@ pub struct CSVPartMappingRecord {
 #[non_exhaustive]
 pub enum PartMappingRecord {
     DipTracePartMapping(DipTracePartMappingRecord),
-    // TODO add KiCad support
-    //KiCadPartMapping(KiCadPartMappingRecord),
+    KiCadPartMapping(KiCadPartMappingRecord),
 }
 
 #[derive(Error, Debug)]
@@ -35,10 +41,19 @@ impl TryFrom<CSVPartMappingRecord> for PartMappingRecord {
     type Error = CSVPartMappingRecordError;
 
     fn try_from(value: CSVPartMappingRecord) -> Result<Self, Self::Error> {
+        // FIXME unwrap() might fail below if the CSV file columns don't exist.
         match value.eda.as_str() {
             "DipTrace" => Ok(PartMappingRecord::DipTracePartMapping(DipTracePartMappingRecord {
-                name: value.name.to_string(),
-                value: value.value.to_string(),
+                name: value.name.unwrap().to_string(),
+                value: value.value.unwrap().to_string(),
+
+                manufacturer: value.manufacturer.to_string(),
+                mpn: value.mpn.to_string(),
+            })),
+            "KiCad" => Ok(PartMappingRecord::KiCadPartMapping(KiCadPartMappingRecord {
+                package: value.package.unwrap().to_string(),
+                val: value.val.unwrap().to_string(),
+
                 manufacturer: value.manufacturer.to_string(),
                 mpn: value.mpn.to_string(),
             })),
@@ -61,7 +76,7 @@ impl PartMappingRecord {
 
         let part_criteria: Part = match self {
             PartMappingRecord::DipTracePartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
-            // TODO add KiCad support
+            PartMappingRecord::KiCadPartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
             // _ => Err(PartMappingError::UnableToBuildCriteria)
         }?;
 
@@ -77,14 +92,18 @@ impl PartMappingRecord {
             _ => Err(PartMappingRecordError::NoMatchingPart { criteria: part_criteria })
         }?;
 
-        let criterion = match self {
+        let mut criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
+
+        match self {
             PartMappingRecord::DipTracePartMapping(record) => {
-                Ok(DipTraceExactMatchCriteria::new(record.name.clone(), record.value.clone()))
+                criteria.push(Box::new(DipTraceExactMatchCriteria::new(record.name.clone(), record.value.clone())))
             }
-        }?;
-
-
-        let criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![Box::new(criterion)];
+            PartMappingRecord::KiCadPartMapping(record) => {
+                criteria.push(Box::new(KiCadExactMatchCriteria::new(record.package.clone(), record.val.clone())))
+            },
+            // TODO investigate using non_exhaustive on the PartMappingRecord
+            //_ => return Err(UnableToBuildCriteria)
+        };
 
         let part_mapping = PartMapping::new(part_ref, criteria);
 
@@ -131,17 +150,26 @@ impl LoadOutItemRecord {
 #[serde(rename_all(deserialize = "PascalCase"))]
 pub struct CSVSubstitutionRecord {
     eda: String,
-    name_pattern: String,
-    value_pattern: String,
-    name: String,
-    value: String,
+
+    // DipTrace From
+    name_pattern: Option<String>,
+    value_pattern: Option<String>,
+    // KiCad From
+    package_pattern: Option<String>,
+    val_pattern: Option<String>,
+
+    // DipTrace To
+    name: Option<String>,
+    value: Option<String>,
+    // KiCad To
+    package: Option<String>,
+    val: Option<String>,
 }
 
 #[non_exhaustive]
 pub enum SubstitutionRecord {
     DipTraceSubstitution(DipTraceSubstitutionRecord),
-    // TODO add KiCad support
-    //KiCadSubstitution(KiCadSubstitutionRecord),
+    KiCadSubstitution(KiCadSubstitutionRecord),
 }
 
 impl SubstitutionRecord {
@@ -155,13 +183,21 @@ impl SubstitutionRecord {
                     value: record.value.to_string(),
                 }),
             }),
+            SubstitutionRecord::KiCadSubstitution(record) => Ok(EdaSubstitutionRule {
+                details: EdaSubstitutionRuleDetails::KiCad(KiCadSubstitutionRuleDetails {
+                    package_pattern: record.package_pattern.to_string(),
+                    val_pattern: record.val_pattern.to_string(),
+                    package: record.package.to_string(),
+                    val: record.val.to_string(),
+                }),
+            }),
         }
     }
 }
 
 #[derive(Error, Debug)]
 pub enum CSVSubstitutionRecordError {
-    #[error("Unknown EDA: '{eda:?}'")]
+    #[error("Unknown EDA: '{eda:}'")]
     UnknownEDA { eda: String }
 }
 
@@ -169,12 +205,19 @@ impl TryFrom<CSVSubstitutionRecord> for SubstitutionRecord {
     type Error = CSVSubstitutionRecordError;
 
     fn try_from(value: CSVSubstitutionRecord) -> Result<Self, Self::Error> {
+        // FIXME unwrap() might fail below if the CSV file columns don't exist.
         match value.eda.as_str() {
             "DipTrace" => Ok(SubstitutionRecord::DipTraceSubstitution(DipTraceSubstitutionRecord {
-                name_pattern: value.name_pattern.to_string(),
-                value_pattern: value.value_pattern.to_string(),
-                name: value.name.to_string(),
-                value: value.value.to_string(),
+                name_pattern: value.name_pattern.unwrap().to_string(),
+                value_pattern: value.value_pattern.unwrap().to_string(),
+                name: value.name.unwrap().to_string(),
+                value: value.value.unwrap().to_string(),
+            })),
+            "KiCad" => Ok(SubstitutionRecord::KiCadSubstitution(KiCadSubstitutionRecord {
+                package_pattern: value.package_pattern.unwrap().to_string(),
+                val_pattern: value.val_pattern.unwrap().to_string(),
+                package: value.package.unwrap().to_string(),
+                val: value.val.unwrap().to_string(),
             })),
             _ => Err(CSVSubstitutionRecordError::UnknownEDA { eda: value.eda }),
         }

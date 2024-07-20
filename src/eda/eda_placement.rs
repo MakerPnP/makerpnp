@@ -7,8 +7,8 @@ pub struct EdaPlacement {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EdaPlacementDetails {
-    DipTrace(DipTracePlacementDetails)
-    //...KiCad(KiCadPlacementDetails)
+    DipTrace(DipTracePlacementDetails),
+    KiCad(KiCadPlacementDetails),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -16,3 +16,10 @@ pub struct DipTracePlacementDetails {
     pub name: String,
     pub value: String,
 }
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct KiCadPlacementDetails {
+    pub package: String,
+    pub val: String,
+}
+

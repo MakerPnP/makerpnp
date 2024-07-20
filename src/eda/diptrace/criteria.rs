@@ -4,6 +4,9 @@ use crate::part_mapper::criteria::PlacementMappingCriteria;
 pub struct DipTraceExactMatchCriteria {
     name: String,
     value: String,
+
+    // TODO consider using a hashmap of fields and values so it can work for any type of placement
+    //      then move outside of the diptrace package
 }
 
 impl PlacementMappingCriteria for DipTraceExactMatchCriteria {
@@ -12,7 +15,7 @@ impl PlacementMappingCriteria for DipTraceExactMatchCriteria {
             EdaPlacementDetails::DipTrace(details) => {
                 self.name.eq(&details.name) && self.value.eq(&details.value)
             },
-            // _ => false
+            _ => false
         }
     }
 }
