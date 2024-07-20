@@ -397,12 +397,14 @@ mod tests {
         println!("{}", trace_content);
 
         // and
-        let expected_substitutions_file_1_message = format!("Loaded 2 substitution rules from {}\n", test_global_substitutions_file_name.to_str().unwrap());
+        let expected_substitutions_file_1_message = format!("Loaded 1 substitution rules from {}\n", test_assembly_substitutions_file_name.to_str().unwrap());
+        let expected_substitutions_file_2_message = format!("Loaded 2 substitution rules from {}\n", test_global_substitutions_file_name.to_str().unwrap());
 
         // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
         let _remainder = trace_content.clone();
         let _remainder = assert_inorder!(_remainder, "Loaded 9 placements\n");
         let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
+        let _remainder = assert_inorder!(_remainder, expected_substitutions_file_2_message.as_str());
         let _remainder = assert_inorder!(_remainder, "Loaded 9 parts\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 9 part mappings\n");
         let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
