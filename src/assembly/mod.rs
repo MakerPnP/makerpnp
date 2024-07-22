@@ -22,8 +22,6 @@ impl ProcessingResult {
 pub enum ProcessingError {
     #[error("No placements")]
     NoPlacements,
-    #[error("Empty ref-des list")]
-    EmptyRefDesList,
 }
 
 pub struct AssemblyVariantProcessor {}
@@ -33,12 +31,9 @@ impl AssemblyVariantProcessor {
         if placements.is_empty() {
             return Err(ProcessingError::NoPlacements)
         }
-        if variant.ref_des_list.is_empty() {
-            return Err(ProcessingError::EmptyRefDesList)
-        }
 
         let variant_placements: Vec<EdaPlacement> = placements.iter().cloned().filter(|placement| {
-            variant.ref_des_list.contains(&placement.ref_des)
+            variant.ref_des_list.is_empty() || variant.ref_des_list.contains(&placement.ref_des)
         }).collect();
 
         Ok(ProcessingResult::new(variant_placements))
@@ -185,10 +180,22 @@ mod test {
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
         };
+
+        let all_placements = vec![
+            placement1
+        ];
+
+        let expected_variant_placements = vec![
+            all_placements[1-1].clone(),
+        ];
+
+        // and
+        let expected_result = Ok(ProcessingResult::new(expected_variant_placements));
+
         // when
-        let result = assembly_variant_processor.process(&vec![placement1], variant);
+        let result = assembly_variant_processor.process(&all_placements, variant);
 
         // then
-        assert_eq!(result, Err(ProcessingError::EmptyRefDesList));
+        assert_eq!(result, expected_result);
     }
 }

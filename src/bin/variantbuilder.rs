@@ -50,7 +50,6 @@ enum AssemblyVariantError {
 
 impl AssemblyVariantArgs {
     pub fn build_assembly_variant(&self) -> Result<AssemblyVariant, AssemblyVariantError> {
-        // TODO add all placements to the refdes list if the ref_des_list is empty
         Ok(AssemblyVariant::new(
             self.name.clone(),
             self.ref_des_list.clone(),
@@ -119,7 +118,7 @@ enum Commands {
         output: String,
 
         #[command(flatten)]
-        assembly_variant: AssemblyVariantArgs
+        assembly_variant: Option<AssemblyVariantArgs>
     },
 }
 
@@ -186,7 +185,7 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
 fn build_assembly_variant(
     eda_tool: EdaTool,
     placements_source: &String,
-    assembly_variant_args: &AssemblyVariantArgs,
+    assembly_variant_args: &Option<AssemblyVariantArgs>,
     parts_source: &String,
     part_mappings_source: &String,
     eda_substitutions_sources: &[String],
@@ -238,7 +237,10 @@ fn build_assembly_variant(
     }?;
     info!("Loaded {} assembly rules", assembly_rules.len());
 
-    let assembly_variant = assembly_variant_args.build_assembly_variant()?;
+    let assembly_variant = assembly_variant_args.as_ref().map_or_else(|| Ok(AssemblyVariant::default()), | args | {
+        args.build_assembly_variant()
+    })?;
+
     info!("Assembly variant: {}", assembly_variant.name);
     info!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
 

@@ -443,7 +443,7 @@ mod tests {
     }
 
     #[test]
-    fn build_kicad() -> Result<(), std::io::Error> {
+    fn build_kicad_using_default_assembly_variant() -> Result<(), std::io::Error> {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder"));
 
         // and
@@ -555,9 +555,6 @@ mod tests {
             part_mappings_arg.as_str(),
             csv_output_arg.as_str(),
             substitutions_arg.as_str(),
-            "--name",
-            "Variant 1",
-            "--ref-des-list=R1",
         ])
             // then
             .assert()
@@ -575,8 +572,8 @@ mod tests {
         let _remainder = assert_inorder!(_remainder, "Loaded 1 placements\n");
         let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
         let _remainder = assert_inorder!(_remainder, "Loaded 1 parts\n");
-        let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1\n");
+        let _remainder = assert_inorder!(_remainder, "Assembly variant: Default\n");
+        let _remainder = assert_inorder!(_remainder, "Ref_des list: \n");
         let _remainder = assert_inorder!(_remainder, "Matched 1 placements for assembly variant\n");
         let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
 
