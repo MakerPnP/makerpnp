@@ -75,7 +75,6 @@ impl EdaToolArg {
     }
 }
 
-// TODO rename 'FILE' to 'SOURCE' for all, and cleanup doc comments
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 enum Commands {
@@ -85,35 +84,35 @@ enum Commands {
         #[arg(long)]
         eda: EdaToolArg,
 
-        /// Load-out file
-        #[arg(long, value_name = "FILE")]
+        /// Load-out source
+        #[arg(long, value_name = "SOURCE")]
         load_out: Option<String>,
 
-        /// Placements file
-        #[arg(long, value_name = "FILE")]
+        /// Placements source
+        #[arg(long, value_name = "SOURCE")]
         placements: String,
 
-        /// Parts file
-        #[arg(long, value_name = "FILE")]
+        /// Parts source
+        #[arg(long, value_name = "SOURCE")]
         parts: String,
 
-        /// Part-mappings file
-        #[arg(long, value_name = "FILE")]
+        /// Part-mappings source
+        #[arg(long, value_name = "SOURCE")]
         part_mappings: String,
 
-        /// Substitutions files
-        #[arg(long, require_equals = true, value_delimiter = ',', num_args = 0.., value_name = "FILE")]
+        /// Substitution sources
+        #[arg(long, require_equals = true, value_delimiter = ',', num_args = 0.., value_name = "SOURCE")]
         substitutions: Vec<String>,
 
         /// List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
         #[arg(long, num_args = 0.., value_delimiter = ',')]
         ref_des_disable_list: Vec<String>,
 
-        /// Assembly rules file
-        #[arg(long, value_name = "FILE")]
+        /// Assembly rules source
+        #[arg(long, value_name = "SOURCE")]
         assembly_rules: Option<String>,
 
-        /// Output file
+        /// Output CSV file
         #[arg(long, value_name = "FILE")]
         output: String,
 

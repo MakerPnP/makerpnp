@@ -656,27 +656,27 @@ mod tests {
         let expected_output = indoc! {"
             Build variant
 
-            Usage: variantbuilder build [OPTIONS] --eda <EDA> --placements <FILE> --parts <FILE> --part-mappings <FILE> --output <FILE>
+            Usage: variantbuilder build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE>
 
             Options:
                   --eda <EDA>
                       EDA tool [possible values: diptrace, kicad]
-                  --load-out <FILE>
-                      Load-out file
-                  --placements <FILE>
-                      Placements file
-                  --parts <FILE>
-                      Parts file
-                  --part-mappings <FILE>
-                      Part-mappings file
-                  --substitutions[=<FILE>...]
-                      Substitutions files
+                  --load-out <SOURCE>
+                      Load-out source
+                  --placements <SOURCE>
+                      Placements source
+                  --parts <SOURCE>
+                      Parts source
+                  --part-mappings <SOURCE>
+                      Part-mappings source
+                  --substitutions[=<SOURCE>...]
+                      Substitution sources
                   --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
                       List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
-                  --assembly-rules <FILE>
-                      Assembly rules file
+                  --assembly-rules <SOURCE>
+                      Assembly rules source
                   --output <FILE>
-                      Output file
+                      Output CSV file
                   --name <NAME>
                       Name of assembly variant [default: Default]
                   --ref-des-list [<REF_DES_LIST>...]
