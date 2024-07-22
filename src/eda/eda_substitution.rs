@@ -100,6 +100,8 @@ impl EdaSubstitutor {
             let mut eda_placement = original_eda_placement.clone();
             let mut chain = vec![];
 
+            // FIXME if the rule makes no modification to the placement, then it will match again on the next iteration causing an infinite loop
+            //       consider filtering out invalid rules at the source instead of handling this situation here (where it is too late to do anything about)
             loop {
                 let mut applied_rule_count_this_pass = 0;
 
