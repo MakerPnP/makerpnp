@@ -3,7 +3,7 @@ pub mod part_mapping;
 
 use std::fmt::{Display, Formatter};
 use crate::assembly::rules::AssemblyRule;
-use crate::eda::eda_placement::EdaPlacement;
+use crate::eda::placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::part_mapper::PartMappingError::{ConflictingRules, NoRulesApplied};
 use crate::pnp::load_out_item::LoadOutItem;
@@ -153,7 +153,7 @@ mod tests {
     use crate::assembly::rules::AssemblyRule;
     use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
     use crate::pnp::part::Part;
-    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
+    use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
     use crate::pnp::load_out_item::LoadOutItem;

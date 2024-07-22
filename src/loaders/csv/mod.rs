@@ -3,7 +3,7 @@ use thiserror::Error;
 use heck::ToUpperCamelCase;
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
-use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
+use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::part::Part;

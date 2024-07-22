@@ -1,6 +1,6 @@
 use thiserror::Error;
 use crate::eda::assembly_variant::AssemblyVariant;
-use crate::eda::eda_placement::EdaPlacement;
+use crate::eda::placement::EdaPlacement;
 
 pub mod rules;
 
@@ -50,7 +50,7 @@ impl Default for AssemblyVariantProcessor {
 mod test {
     use crate::assembly::{AssemblyVariantProcessor, ProcessingError, ProcessingResult};
     use crate::eda::assembly_variant::AssemblyVariant;
-    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
+    use crate::eda::placement::{EdaPlacement, EdaPlacementField};
 
     #[test]
     fn process() {

@@ -3,7 +3,7 @@ use anyhow::{bail, Error};
 use std::path::PathBuf;
 use tracing::trace;
 use crate::eda::diptrace::csv::DiptracePlacementRecord;
-use crate::eda::eda_placement::EdaPlacement;
+use crate::eda::placement::EdaPlacement;
 use crate::eda::EdaTool;
 use crate::eda::kicad::csv::KiCadPlacementRecord;
 

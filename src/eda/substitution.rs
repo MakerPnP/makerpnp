@@ -1,4 +1,4 @@
-use crate::eda::eda_placement::EdaPlacement;
+use crate::eda::placement::EdaPlacement;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRuleCriteriaItem {
@@ -135,8 +135,8 @@ impl EdaSubstitutor {
 
 #[cfg(test)]
 pub mod eda_substitutor_tests {
-    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField };
-    use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, EdaSubstitutionRuleCriteriaItem, EdaSubstitutionRuleTransformItem};
+    use crate::eda::placement::{EdaPlacement, EdaPlacementField };
+    use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, EdaSubstitutionRuleCriteriaItem, EdaSubstitutionRuleTransformItem};
 
     #[test]
     pub fn substitute_one_diptrace_placement_using_a_chain() {

@@ -2,7 +2,7 @@ use tracing::Level;
 use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
-use crate::eda::eda_substitution::EdaSubstitutionRule;
+use crate::eda::substitution::EdaSubstitutionRule;
 use crate::loaders::csv::SubstitutionRecord;
 
 #[tracing::instrument(level = Level::DEBUG)]

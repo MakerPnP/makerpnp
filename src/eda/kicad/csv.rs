@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
+use crate::eda::placement::{EdaPlacement, EdaPlacementField};
 
 #[derive(Error, Debug)]
 pub enum KiCadPlacementRecordError {

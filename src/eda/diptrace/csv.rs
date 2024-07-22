@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
+use crate::eda::placement::{EdaPlacement, EdaPlacementField};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]

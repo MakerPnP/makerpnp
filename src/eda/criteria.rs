@@ -1,4 +1,4 @@
-use crate::eda::eda_placement::{EdaPlacement};
+use crate::eda::placement::{EdaPlacement};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,7 +53,7 @@ impl PlacementMappingCriteria for GenericExactMatchCriteria {
 #[cfg(test)]
 mod exact_match_critera_tests {
     use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
-    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
+    use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::criteria::PlacementMappingCriteria;
 
     #[test]

@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use crate::eda::eda_placement::EdaPlacement;
+use crate::eda::placement::EdaPlacement;
 use crate::util::dynamic::as_any::AsAny;
 use crate::util::dynamic::dynamic_eq::DynamicEq;
 
