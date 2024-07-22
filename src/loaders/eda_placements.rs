@@ -1,3 +1,4 @@
+use tracing::Level;
 use anyhow::{bail, Error};
 use std::path::PathBuf;
 use tracing::trace;
@@ -6,7 +7,7 @@ use crate::eda::eda_placement::EdaPlacement;
 use crate::eda::EdaTool;
 use crate::eda::kicad::csv::KiCadPlacementRecord;
 
-#[tracing::instrument]
+#[tracing::instrument(level = Level::DEBUG)]
 pub fn load_eda_placements(eda_tool: EdaTool, placements_source: &String) -> Result<Vec<EdaPlacement>, Error> {
     let placements_path_buf = PathBuf::from(placements_source);
     let placements_path = placements_path_buf.as_path();

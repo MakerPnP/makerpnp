@@ -1,10 +1,11 @@
+use tracing::Level;
 use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
 use crate::assembly::rules::AssemblyRule;
 use crate::loaders::csv::AssemblyRuleRecord;
 
-#[tracing::instrument]
+#[tracing::instrument(level = Level::DEBUG)]
 pub fn load(assembly_rule_source: &String) -> Result<Vec<AssemblyRule>, Error>  {
     let assembly_rule_path_buf = PathBuf::from(assembly_rule_source);
     let assembly_rule_path = assembly_rule_path_buf.as_path();

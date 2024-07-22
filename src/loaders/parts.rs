@@ -1,10 +1,11 @@
+use tracing::Level;
 use anyhow::{bail, Error};
 use std::path::PathBuf;
 use tracing::trace;
 use crate::loaders::csv::PartRecord;
 use crate::pnp::part::Part;
 
-#[tracing::instrument]
+#[tracing::instrument(level = Level::DEBUG)]
 pub fn load_parts(parts_source: &String) -> Result<Vec<Part>, Error> {
     let parts_path_buf = PathBuf::from(parts_source);
     let parts_path = parts_path_buf.as_path();

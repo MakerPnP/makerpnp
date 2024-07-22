@@ -1,10 +1,11 @@
+use tracing::Level;
 use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
 use crate::loaders::csv::LoadOutItemRecord;
 use crate::pnp::load_out_item::LoadOutItem;
 
-#[tracing::instrument]
+#[tracing::instrument(level = Level::DEBUG)]
 pub fn load_items(load_out_source: &String) -> Result<Vec<LoadOutItem>, Error>  {
     let load_out_path_buf = PathBuf::from(load_out_source);
     let load_out_path = load_out_path_buf.as_path();

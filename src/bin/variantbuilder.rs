@@ -7,7 +7,7 @@ use termtree::Tree;
 use thiserror::Error;
 use tracing::{error, info, Level, trace};
 use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::{fmt, FmtSubscriber};
+use tracing_subscriber::FmtSubscriber;
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
 use makerpnp::eda::eda_placement::{EdaPlacement, EdaPlacementField};
@@ -165,10 +165,8 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
                 .expect(SUBSCRIBER_FAILED_MESSAGE);
         },
         _ => {
-            // FIXME currently overly verbose
             //println!("using stdout_subscriber");
             let stdout_subscriber = FmtSubscriber::builder()
-                .event_format(fmt::format().compact())
                 .with_level(false)
                 .with_line_number(false)
                 .with_span_events(FmtSpan::NONE)
@@ -184,7 +182,7 @@ fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[tracing::instrument]
+#[tracing::instrument(level = Level::DEBUG)]
 fn build_assembly_variant(
     eda_tool: EdaTool,
     placements_source: &String,

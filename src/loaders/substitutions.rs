@@ -1,10 +1,11 @@
+use tracing::Level;
 use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
 use crate::eda::eda_substitution::EdaSubstitutionRule;
 use crate::loaders::csv::SubstitutionRecord;
 
-#[tracing::instrument]
+#[tracing::instrument(level = Level::DEBUG)]
 pub fn load_eda_substitutions(substitutions_source: &String) -> Result<Vec<EdaSubstitutionRule>, Error> {
     let substitutions_path_buf = PathBuf::from(substitutions_source);
     let substitutions_path = substitutions_path_buf.as_path();
