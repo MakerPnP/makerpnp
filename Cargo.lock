@@ -351,6 +351,7 @@ dependencies = [
  "assert_fs",
  "clap",
  "csv",
+ "heck",
  "indoc",
  "predicates",
  "predicates-tree",

@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
 use crate::eda::eda_substitution::EdaSubstitutionRule;
-use crate::loaders::csv::{CSVSubstitutionRecord, SubstitutionRecord};
+use crate::loaders::csv::SubstitutionRecord;
 
 #[tracing::instrument]
 pub fn load_eda_substitutions(substitutions_source: &String) -> Result<Vec<EdaSubstitutionRule>, Error> {
@@ -13,12 +13,10 @@ pub fn load_eda_substitutions(substitutions_source: &String) -> Result<Vec<EdaSu
     let mut eda_substitutions: Vec<EdaSubstitutionRule> = vec![];
 
     for result in csv_reader.deserialize() {
-        let record: CSVSubstitutionRecord = result?;
+        let record: SubstitutionRecord = result?;
         trace!("{:?}", record);
 
-        let enum_record = SubstitutionRecord::try_from(record)?;
-
-        if let Ok(eda_substitution) = enum_record.build_eda_substitution() {
+        if let Ok(eda_substitution) = record.build_eda_substitution() {
             eda_substitutions.push(eda_substitution);
         } else {
             bail!("todo")

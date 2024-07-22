@@ -30,15 +30,3 @@ impl KiCadPlacementRecord {
         // _ => Err(KiCadPlacementRecordError::Unknown)
     }
 }
-
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all(deserialize = "PascalCase"))]
-pub struct KiCadSubstitutionRecord {
-    // from
-    pub package_pattern: String,
-    pub val_pattern: String,
-
-    // to
-    pub package: String,
-    pub val: String,
-}

@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 use thiserror::Error;
+use heck::ToUpperCamelCase;
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
-use crate::eda::diptrace::csv::DipTraceSubstitutionRecord;
 use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
-use crate::eda::kicad::csv::KiCadSubstitutionRecord;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::part::Part;
@@ -111,56 +110,48 @@ impl LoadOutItemRecord {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
-pub struct CSVSubstitutionRecord {
-    eda: String,
+pub struct SubstitutionRecord {
+    eda: CSVEdaToolValue,
 
-    // DipTrace From
-    name_pattern: Option<String>,
-    value_pattern: Option<String>,
-    // KiCad From
-    package_pattern: Option<String>,
-    val_pattern: Option<String>,
-
-    // DipTrace To
-    name: Option<String>,
-    value: Option<String>,
-    // KiCad To
-    package: Option<String>,
-    val: Option<String>,
+    #[serde(flatten)]
+    fields: HashMap<String, String>,
 }
 
-#[non_exhaustive]
-pub enum SubstitutionRecord {
-    DipTraceSubstitution(DipTraceSubstitutionRecord),
-    KiCadSubstitution(KiCadSubstitutionRecord),
+#[derive(Error, Debug)]
+pub enum SubstitutionRecordError {
+    #[error("Field mismatch, expected: {0:?}")]
+    FieldMismatch(Vec<String>)
 }
 
 impl SubstitutionRecord {
-    pub fn build_eda_substitution(&self) -> Result<EdaSubstitutionRule, ()> {
-        match self {
-            SubstitutionRecord::DipTraceSubstitution(record) => {
-                let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
-                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: record.name_pattern.clone() } );
-                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: record.value_pattern.clone() } );
+    pub fn build_eda_substitution(&self) -> Result<EdaSubstitutionRule, SubstitutionRecordError> {
 
-                let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
-                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "name".to_string(), field_value: record.name.clone() } );
-                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "value".to_string(), field_value: record.value.clone() } );
+        let fields_names = match self.eda {
+            CSVEdaToolValue::DipTrace => ["name","value"],
+            CSVEdaToolValue::KiCad => ["package","val"],
+        };
 
-                Ok(EdaSubstitutionRule { criteria, transforms })
-            },
-            SubstitutionRecord::KiCadSubstitution(record) => {
-                let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
-                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: record.package_pattern.clone() } );
-                criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: record.val_pattern.clone() } );
+        let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
+        let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
 
-                let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
-                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "package".to_string(), field_value: record.package.clone() } );
-                transforms.push(EdaSubstitutionRuleTransformItem { field_name: "val".to_string(), field_value: record.val.clone() } );
+        for &field_name in fields_names.iter() {
+            // Note: heck's UpperCamelCase appears to be the same as serde's PascalCase
+            //       however we can't use serde's case transforms as they are internal to serde.
+            //       see serde_derive::internals::case::RenameRule
 
-                Ok(EdaSubstitutionRule { criteria, transforms })
-            },
+            let name_field = field_name.to_upper_camel_case();
+            let pattern_field = format!("{}_pattern", field_name).to_upper_camel_case();
+
+            match (self.fields.get(&name_field), self.fields.get(&pattern_field)) {
+                (Some(field_name_value), Some(pattern_value)) => {
+                    criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: field_name.to_string(), field_pattern: pattern_value.to_string() } );
+                    transforms.push(EdaSubstitutionRuleTransformItem { field_name: field_name.to_string(), field_value: field_name_value.to_string() } );
+                },
+                _ => return Err(SubstitutionRecordError::FieldMismatch(vec![name_field, pattern_field])),
+            }
         }
+
+        Ok(EdaSubstitutionRule { criteria, transforms })
     }
 }
 
@@ -168,29 +159,6 @@ impl SubstitutionRecord {
 pub enum CSVSubstitutionRecordError {
     #[error("Unknown EDA: '{eda:}'")]
     UnknownEDA { eda: String }
-}
-
-impl TryFrom<CSVSubstitutionRecord> for SubstitutionRecord {
-    type Error = CSVSubstitutionRecordError;
-
-    fn try_from(value: CSVSubstitutionRecord) -> Result<Self, Self::Error> {
-        // FIXME unwrap() might fail below if the CSV file columns don't exist.
-        match value.eda.as_str() {
-            "DipTrace" => Ok(SubstitutionRecord::DipTraceSubstitution(DipTraceSubstitutionRecord {
-                name_pattern: value.name_pattern.unwrap().to_string(),
-                value_pattern: value.value_pattern.unwrap().to_string(),
-                name: value.name.unwrap().to_string(),
-                value: value.value.unwrap().to_string(),
-            })),
-            "KiCad" => Ok(SubstitutionRecord::KiCadSubstitution(KiCadSubstitutionRecord {
-                package_pattern: value.package_pattern.unwrap().to_string(),
-                val_pattern: value.val_pattern.unwrap().to_string(),
-                package: value.package.unwrap().to_string(),
-                val: value.val.unwrap().to_string(),
-            })),
-            _ => Err(CSVSubstitutionRecordError::UnknownEDA { eda: value.eda }),
-        }
-    }
 }
 
 #[derive(Debug, serde::Deserialize)]
