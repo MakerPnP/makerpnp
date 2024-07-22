@@ -4,6 +4,9 @@
 #[macro_use]
 extern crate makerpnp;
 
+#[path = "inc/int_test.rs"]
+pub mod int_test;
+
 #[cfg(feature="cli")]
 mod tests {
     use std::ffi::OsString;
@@ -14,11 +17,11 @@ mod tests {
     use assert_cmd::prelude::OutputAssertExt;
     use csv::QuoteStyle;
     use indoc::indoc;
-    use predicates::function::FnPredicate;
     use predicates::prelude::*;
     use predicates_tree::CaseTreeExt;
 
     use tempfile::{tempdir, TempDir};
+    use crate::int_test::print;
 
     #[test]
     fn build() -> Result<(), std::io::Error> {
@@ -574,14 +577,6 @@ mod tests {
         assert_csv_content(csv_content, expected_csv_content);
 
         Ok(())
-    }
-
-    fn print(message: &str) -> FnPredicate<fn(&str) -> bool, str> {
-        println!("{}:", message);
-        predicate::function(|content| {
-            println!("{}", content);
-            true
-        })
     }
 
     #[test]

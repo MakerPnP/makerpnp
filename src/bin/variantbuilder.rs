@@ -27,7 +27,6 @@ struct Opts {
     /// Trace log file
     #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
     trace: Option<PathBuf>,
-
 }
 
 #[derive(Args, Clone, Debug)]

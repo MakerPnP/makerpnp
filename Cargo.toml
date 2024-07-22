@@ -36,3 +36,9 @@ test = true
 bench = false
 required-features = ["cli"]
 
+
+[[bin]]
+name = "jobbuilder"
+test = true
+bench = false
+required-features = ["cli"]
