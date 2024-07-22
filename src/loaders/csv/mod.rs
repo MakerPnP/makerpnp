@@ -1,64 +1,31 @@
+use std::collections::HashMap;
 use thiserror::Error;
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
-use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord, KiCadPartMappingRecord};
-use crate::pnp::part::Part;
+use crate::eda::diptrace::csv::DipTraceSubstitutionRecord;
 use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
 use crate::eda::kicad::csv::KiCadSubstitutionRecord;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
+use crate::pnp::part::Part;
 use crate::pnp::load_out_item::LoadOutItem;
 
 #[derive(Debug, serde::Deserialize)]
+enum CSVEdaToolValue {
+    DipTrace,
+    KiCad,
+}
+
+#[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
-pub struct CSVPartMappingRecord {
-    eda: String,
-    // DipTrace
-    name: Option<String>,
-    value: Option<String>,
-    // KiCad
-    package: Option<String>,
-    val: Option<String>,
+pub struct PartMappingRecord {
+    eda: CSVEdaToolValue,
 
     manufacturer: String,
     mpn: String,
-}
 
-#[non_exhaustive]
-pub enum PartMappingRecord {
-    DipTracePartMapping(DipTracePartMappingRecord),
-    KiCadPartMapping(KiCadPartMappingRecord),
-}
-
-#[derive(Error, Debug)]
-pub enum CSVPartMappingRecordError {
-    #[error("Unknown EDA: '{eda:?}'")]
-    UnknownEDA { eda: String }
-}
-
-impl TryFrom<CSVPartMappingRecord> for PartMappingRecord {
-    type Error = CSVPartMappingRecordError;
-
-    fn try_from(value: CSVPartMappingRecord) -> Result<Self, Self::Error> {
-        // FIXME unwrap() might fail below if the CSV file columns don't exist.
-        match value.eda.as_str() {
-            "DipTrace" => Ok(PartMappingRecord::DipTracePartMapping(DipTracePartMappingRecord {
-                name: value.name.unwrap().to_string(),
-                value: value.value.unwrap().to_string(),
-
-                manufacturer: value.manufacturer.to_string(),
-                mpn: value.mpn.to_string(),
-            })),
-            "KiCad" => Ok(PartMappingRecord::KiCadPartMapping(KiCadPartMappingRecord {
-                package: value.package.unwrap().to_string(),
-                val: value.val.unwrap().to_string(),
-
-                manufacturer: value.manufacturer.to_string(),
-                mpn: value.mpn.to_string(),
-            })),
-            _ => Err(CSVPartMappingRecordError::UnknownEDA { eda: value.eda }),
-        }
-    }
+    #[serde(flatten)]
+    fields: HashMap<String, String>,
 }
 
 #[derive(Error, Debug)]
@@ -73,11 +40,7 @@ pub enum PartMappingRecordError {
 impl PartMappingRecord {
     pub fn build_part_mapping<'part>(&self, parts: &'part Vec<Part>) -> Result<PartMapping<'part>, PartMappingRecordError> {
 
-        let part_criteria: Part = match self {
-            PartMappingRecord::DipTracePartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
-            PartMappingRecord::KiCadPartMapping(r) => Ok(Part { manufacturer: r.manufacturer.clone(), mpn: r.mpn.clone() }),
-            // _ => Err(PartMappingError::UnableToBuildCriteria)
-        }?;
+        let part_criteria: Part = Part { manufacturer: self.manufacturer.clone(), mpn: self.mpn.clone() };
 
         let matched_part_ref = parts.iter().find_map(|part| {
             match part.eq(&part_criteria) {
@@ -93,26 +56,17 @@ impl PartMappingRecord {
 
         let mut mapping_criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
 
-        match self {
-            PartMappingRecord::DipTracePartMapping(record) => {
-                let criteria = GenericExactMatchCriteria { criteria: vec![
-                    GenericCriteriaItem::new("name".to_string(), record.name.clone()),
-                    GenericCriteriaItem::new("value".to_string(), record.value.clone()),
-                ]};
-
-                mapping_criteria.push(Box::new(criteria))
+        let criteria_fields = self.fields.iter().filter(|(ref key, ref _value)|{
+            match self.eda {
+                CSVEdaToolValue::DipTrace => ["name", "value"].contains(&key.to_lowercase().as_str()),
+                CSVEdaToolValue::KiCad => ["package", "val"].contains(&key.to_lowercase().as_str()),
             }
-            PartMappingRecord::KiCadPartMapping(record) => {
-                let criteria = GenericExactMatchCriteria { criteria: vec![
-                    GenericCriteriaItem::new("package".to_string(), record.package.clone()),
-                    GenericCriteriaItem::new("val".to_string(), record.val.clone()),
-                ]};
+        }).map(|(key,value)| {
+            GenericCriteriaItem::new(key.to_lowercase(), value.clone())
+        }).collect();
+        let criteria = GenericExactMatchCriteria { criteria: criteria_fields };
 
-                mapping_criteria.push(Box::new(criteria))
-            },
-            // TODO investigate using non_exhaustive on the PartMappingRecord
-            //_ => return Err(UnableToBuildCriteria)
-        };
+        mapping_criteria.push(Box::new(criteria));
 
         let part_mapping = PartMapping::new(part_ref, mapping_criteria);
 

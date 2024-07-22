@@ -226,6 +226,7 @@ fn build_assembly_variant(
 
     let part_mappings = part_mappings::load_part_mappings(&parts, part_mappings_source)?;
     info!("Loaded {} part mappings", part_mappings.len());
+    trace!("{:?}", part_mappings);
 
     let load_out_items = match load_out_source {
         Some(source) => load_out::load_items(source),

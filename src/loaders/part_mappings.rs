@@ -1,7 +1,7 @@
 use anyhow::{bail, Error};
 use std::path::PathBuf;
 use tracing::trace;
-use crate::loaders::csv::{CSVPartMappingRecord, PartMappingRecord};
+use crate::loaders::csv::PartMappingRecord;
 use crate::pnp::part::Part;
 use crate::part_mapper::part_mapping::PartMapping;
 
@@ -14,12 +14,10 @@ pub fn load_part_mappings<'part>(parts: &'part Vec<Part>, part_mappings_source: 
     let mut part_mappings: Vec<PartMapping> = vec![];
 
     for result in csv_reader.deserialize() {
-        let record: CSVPartMappingRecord = result?;
+        let record: PartMappingRecord = result?;
         trace!("{:?}", record);
 
-        let enum_record = PartMappingRecord::try_from(record)?;
-
-        if let Ok(part_mapping) = enum_record.build_part_mapping(parts) {
+        if let Ok(part_mapping) = record.build_part_mapping(parts) {
             part_mappings.push(part_mapping);
         } else {
             bail!("todo")
