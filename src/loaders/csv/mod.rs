@@ -1,10 +1,9 @@
 use thiserror::Error;
 use crate::assembly::rules::AssemblyRule;
+use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
 use crate::eda::diptrace::csv::{DipTracePartMappingRecord, DipTraceSubstitutionRecord, KiCadPartMappingRecord};
 use crate::pnp::part::Part;
-use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
 use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
-use crate::eda::kicad::criteria::KiCadExactMatchCriteria;
 use crate::eda::kicad::csv::KiCadSubstitutionRecord;
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
@@ -92,20 +91,30 @@ impl PartMappingRecord {
             _ => Err(PartMappingRecordError::NoMatchingPart { criteria: part_criteria })
         }?;
 
-        let mut criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
+        let mut mapping_criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
 
         match self {
             PartMappingRecord::DipTracePartMapping(record) => {
-                criteria.push(Box::new(DipTraceExactMatchCriteria::new(record.name.clone(), record.value.clone())))
+                let criteria = GenericExactMatchCriteria { criteria: vec![
+                    GenericCriteriaItem::new("name".to_string(), record.name.clone()),
+                    GenericCriteriaItem::new("value".to_string(), record.value.clone()),
+                ]};
+
+                mapping_criteria.push(Box::new(criteria))
             }
             PartMappingRecord::KiCadPartMapping(record) => {
-                criteria.push(Box::new(KiCadExactMatchCriteria::new(record.package.clone(), record.val.clone())))
+                let criteria = GenericExactMatchCriteria { criteria: vec![
+                    GenericCriteriaItem::new("package".to_string(), record.package.clone()),
+                    GenericCriteriaItem::new("val".to_string(), record.val.clone()),
+                ]};
+
+                mapping_criteria.push(Box::new(criteria))
             },
             // TODO investigate using non_exhaustive on the PartMappingRecord
             //_ => return Err(UnableToBuildCriteria)
         };
 
-        let part_mapping = PartMapping::new(part_ref, criteria);
+        let part_mapping = PartMapping::new(part_ref, mapping_criteria);
 
         Ok(part_mapping)
     }

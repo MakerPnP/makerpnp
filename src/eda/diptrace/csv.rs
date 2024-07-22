@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
+use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
@@ -44,10 +44,10 @@ impl DiptracePlacementRecord {
         Ok(EdaPlacement {
             ref_des: self.ref_des.to_string(),
             place: true,
-            details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails {
-                name: self.name.to_string(),
-                value: self.value.to_string(),
-            })
+            fields: vec![
+                EdaPlacementField { name: "name".to_string(), value: self.name.to_string() },
+                EdaPlacementField { name: "value".to_string(), value: self.value.to_string() },
+            ],
         })
 
         // _ => Err(DiptracePlacementRecordError::Unknown)

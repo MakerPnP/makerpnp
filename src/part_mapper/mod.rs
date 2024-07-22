@@ -150,11 +150,10 @@ pub struct PlacementPartMappingResult<'placement, 'mapping> {
 
 #[cfg(test)]
 mod tests {
-    use EdaPlacementDetails::DipTrace;
     use crate::assembly::rules::AssemblyRule;
+    use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
     use crate::pnp::part::Part;
-    use crate::eda::diptrace::criteria::DipTraceExactMatchCriteria;
-    use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails};
+    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
     use crate::pnp::load_out_item::LoadOutItem;
@@ -162,9 +161,24 @@ mod tests {
     #[test]
     fn map_parts() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
-        let eda_placement2 = EdaPlacement { ref_des: "R2".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE2".to_string() }) };
-        let eda_placement3 = EdaPlacement { ref_des: "R3".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME3".to_string(), value: "VALUE3".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
+        let eda_placement2 = EdaPlacement { ref_des: "R2".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME2".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE2".to_string()),
+            ],
+        };
+        let eda_placement3 = EdaPlacement { ref_des: "R3".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME3".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE3".to_string()),
+            ],
+        };
 
         let eda_placements = vec![eda_placement1, eda_placement2, eda_placement3];
 
@@ -176,11 +190,20 @@ mod tests {
         let parts = vec![part1, part2, part3];
 
         // and
-        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = DipTraceExactMatchCriteria::new("NAME2".to_string(), "VALUE2".to_string());
+        let criteria2 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME2".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE2".to_string() ),
+        ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
-        let criteria3 = DipTraceExactMatchCriteria::new("NAME3".to_string(), "VALUE3".to_string());
+        let criteria3 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME3".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE3".to_string() ),
+        ]};
         let part_mapping3 = PartMapping::new(&parts[3 - 1], vec![Box::new(criteria3)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2, part_mapping3];
@@ -202,7 +225,12 @@ mod tests {
     #[test]
     fn map_parts_with_multiple_matching_mappings() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
 
         let eda_placements = vec![eda_placement1];
 
@@ -213,9 +241,15 @@ mod tests {
         let parts = vec![part1, part2];
 
         // and
-        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
@@ -242,7 +276,12 @@ mod tests {
     #[test]
     fn map_parts_with_no_part_mappings() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
 
         let eda_placements = vec![eda_placement1];
 
@@ -267,7 +306,12 @@ mod tests {
     #[test]
     fn map_parts_with_multiple_matching_mappings_with_one_in_the_load_out() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
 
         let eda_placements = vec![eda_placement1];
 
@@ -279,9 +323,15 @@ mod tests {
         let parts = vec![part1, part2, part3];
 
         // and
-        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
@@ -314,7 +364,12 @@ mod tests {
     #[test]
     fn map_parts_with_multiple_matching_mappings_with_an_assembly_rule() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
 
         let eda_placements = vec![eda_placement1];
 
@@ -326,9 +381,15 @@ mod tests {
         let parts = vec![part1, part2, part3];
 
         // and
-        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];
@@ -368,7 +429,12 @@ mod tests {
     #[test]
     fn map_parts_with_multiple_matching_mappings_with_an_assembly_rule_and_loadout_item() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
 
         let eda_placements = vec![eda_placement1];
 
@@ -379,9 +445,15 @@ mod tests {
         let parts = vec![part1, part2];
 
         // and
-        let criteria1 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria1 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = DipTraceExactMatchCriteria::new("NAME1".to_string(), "VALUE1".to_string());
+        let criteria2 = GenericExactMatchCriteria { criteria: vec![
+            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
+            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
         let part_mappings = vec![part_mapping1, part_mapping2];

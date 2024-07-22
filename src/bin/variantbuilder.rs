@@ -1,4 +1,3 @@
-use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::path::PathBuf;
 use anyhow::Error;
@@ -11,7 +10,7 @@ use tracing_subscriber::fmt::format::FmtSpan;
 use tracing_subscriber::{fmt, FmtSubscriber};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::eda::assembly_variant::AssemblyVariant;
-use makerpnp::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails, KiCadPlacementDetails};
+use makerpnp::eda::eda_placement::{EdaPlacement, EdaPlacementField};
 use makerpnp::eda::eda_substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::eda::EdaTool;
 use makerpnp::loaders::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
@@ -330,7 +329,7 @@ fn build_mapping_tree(matched_mappings: &Vec<PlacementPartMappingResult>, eda_su
         if let Some(substitution_result) = eda_substitution_results.iter().find(|candidate|{
             candidate.original_placement.ref_des.eq(&eda_placement.ref_des)
         }) {
-            let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&substitution_result.original_placement.details));
+            let placement_label = format!("{} ({})", eda_placement.ref_des, EdaPlacementTreeFormatter::format(&substitution_result.original_placement.fields.as_slice()));
             let mut placement_node = Tree::new(placement_label);
 
             let mut parent = &mut placement_node;
@@ -390,27 +389,9 @@ fn add_mapping_nodes(part_mapping_results: &Vec<PartMappingResult>, placement_no
 
 struct EdaPlacementTreeFormatter {}
 
-struct DipTracePlacementDetailsLabel<'details>(&'details DipTracePlacementDetails);
-
-impl<'details> Display for DipTracePlacementDetailsLabel<'details> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "name: '{}', value: '{}'", self.0.name, self.0.value)
-    }
-}
-
-struct KiCadPlacementDetailsLabel<'details>(&'details KiCadPlacementDetails);
-
-impl<'details> Display for KiCadPlacementDetailsLabel<'details> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "package: '{}', val: '{}'", self.0.package, self.0.val)
-    }
-}
-
 impl EdaPlacementTreeFormatter {
-    fn format(details: &EdaPlacementDetails) -> Box<dyn Display + '_> {
-        match details {
-            EdaPlacementDetails::DipTrace(d) => Box::new(DipTracePlacementDetailsLabel(d)),
-            EdaPlacementDetails::KiCad(d) => Box::new(KiCadPlacementDetailsLabel(d)),
-        }
+    fn format(fields: &[EdaPlacementField]) -> String {
+        let chunks: Vec<String> = fields.iter().map(|field|format!("{}: '{}'", field.name, field.value)).collect();
+        format!("{}", chunks.join(", "))
     }
 }

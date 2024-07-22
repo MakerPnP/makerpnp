@@ -1,5 +1,5 @@
 use thiserror::Error;
-use crate::eda::eda_placement::{EdaPlacement, EdaPlacementDetails, KiCadPlacementDetails};
+use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
 
 #[derive(Error, Debug)]
 pub enum KiCadPlacementRecordError {
@@ -21,10 +21,10 @@ impl KiCadPlacementRecord {
         Ok(EdaPlacement {
             ref_des: self.ref_des.to_string(),
             place: true,
-            details: EdaPlacementDetails::KiCad(KiCadPlacementDetails {
-                package: self.package.to_string(),
-                val: self.val.to_string(),
-            })
+            fields: vec![
+                EdaPlacementField { name: "package".to_string(), value: self.package.to_string() },
+                EdaPlacementField { name: "val".to_string(), value: self.val.to_string() },
+            ],
         })
 
         // _ => Err(KiCadPlacementRecordError::Unknown)

@@ -55,8 +55,7 @@ impl Default for AssemblyVariantProcessor {
 mod test {
     use crate::assembly::{AssemblyVariantProcessor, ProcessingError, ProcessingResult};
     use crate::eda::assembly_variant::AssemblyVariant;
-    use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement};
-    use crate::eda::eda_placement::EdaPlacementDetails::DipTrace;
+    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField};
 
     #[test]
     fn process() {
@@ -64,42 +63,61 @@ mod test {
         let placement1 = EdaPlacement {
             ref_des: "R1".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
         };
         let placement2 = EdaPlacement {
             ref_des: "R2".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME2".to_string(), value: "VALUE2".to_string() }),
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME2".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE2".to_string()),
+            ],
         };
         let placement3 = EdaPlacement {
             ref_des: "R3".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME3".to_string(), value: "VALUE3".to_string() }),
-        };
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME3".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE3".to_string()),
+            ],        };
         let placement4 = EdaPlacement {
             ref_des: "D1".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME4".to_string(), value: "VALUE4".to_string() }),
-        };
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME4".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE4".to_string()),
+            ],        };
         let placement5 = EdaPlacement {
             ref_des: "D2".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME5".to_string(), value: "VALUE5".to_string() }),
-        };
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME5".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE5".to_string()),
+            ],        };
         let placement6 = EdaPlacement {
             ref_des: "D3".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME6".to_string(), value: "VALUE6".to_string() }),
-        };
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME6".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE6".to_string()),
+            ],        };
         let placement7 = EdaPlacement {
             ref_des: "C1".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME7".to_string(), value: "VALUE7".to_string() }),
-        };
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME7".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE7".to_string()),
+            ],        };
         let placement8 = EdaPlacement {
             ref_des: "J1".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME8".to_string(), value: "VALUE8".to_string() }),
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME8".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE8".to_string()),
+            ],
         };
 
         let all_placements = vec![
@@ -128,7 +146,7 @@ mod test {
             all_placements[7-1].clone(),
             all_placements[8-1].clone(),
         ];
-        let expected_result = Result::Ok(ProcessingResult::new(variant_placements));
+        let expected_result = Ok(ProcessingResult::new(variant_placements));
 
         // and
         let assembly_variant_processor = AssemblyVariantProcessor::default();
@@ -162,7 +180,10 @@ mod test {
         let placement1 = EdaPlacement {
             ref_des: "R1".to_string(),
             place: true,
-            details: DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }),
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
         };
         // when
         let result = assembly_variant_processor.process(&vec![placement1], variant);

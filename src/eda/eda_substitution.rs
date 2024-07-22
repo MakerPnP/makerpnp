@@ -1,4 +1,4 @@
-use crate::eda::eda_placement::{EdaPlacement, EdaPlacementDetails};
+use crate::eda::eda_placement::EdaPlacement;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRuleCriteriaItem {
@@ -41,19 +41,20 @@ impl EdaSubstitutionRule {
     pub fn matches(&self, eda_placement: &EdaPlacement) -> bool {
 
         let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, criterion| {
-            // TODO update EdaPlacementDetails so it has a list of fields to make this trivial
-            let field_matched = match (&eda_placement.details, criterion.field_name.as_str()) {
-                (EdaPlacementDetails::DipTrace(details), "name") if criterion.field_pattern.eq(details.name.as_str()) => true,
-                (EdaPlacementDetails::DipTrace(details), "value") if criterion.field_pattern.eq(details.value.as_str()) => true,
-                (EdaPlacementDetails::KiCad(details), "package") if criterion.field_pattern.eq(details.package.as_str()) => true,
-                (EdaPlacementDetails::KiCad(details), "val") if criterion.field_pattern.eq(details.val.as_str()) => true,
-                _ => false,
-            };
+            let matched_field = eda_placement.fields.iter().find(|field | {
+                criterion.field_name.eq(field.name.as_str()) &&
+                    criterion.field_pattern.eq(field.value.as_str())
+            });
 
-            if let Some(ref mut accumulated_result) = &mut matched {
-                *accumulated_result &= field_matched;
-            } else {
-                matched = Some(field_matched)
+            match (&mut matched, matched_field) {
+                // matched, previous fields checked
+                (Some(accumulated_result), Some(_field)) => *accumulated_result &= true,
+                // matched, first field
+                (None, Some(_field)) => matched = Some(true),
+                // not matched, previous fields checked
+                (Some(accumulated_result), None) => *accumulated_result = false,
+                // not matched, first field
+                (None, None) => matched = Some(false),
             }
 
             matched
@@ -64,14 +65,10 @@ impl EdaSubstitutionRule {
 
     pub fn apply(&self, eda_placement: &EdaPlacement) -> EdaPlacement {
         let result = self.transforms.iter().fold(eda_placement.clone(), |mut placement, change_item| {
-            // TODO update EdaPlacement so it has a list of fields to make this trivial
-            match (&mut placement.details, change_item.field_name.as_str()) {
-                (EdaPlacementDetails::DipTrace(details), "name") => details.name = change_item.field_value.clone(),
-                (EdaPlacementDetails::DipTrace(details), "value") => details.value = change_item.field_value.clone(),
-                (EdaPlacementDetails::KiCad(details), "package") => details.package = change_item.field_value.clone(),
-                (EdaPlacementDetails::KiCad(details), "val") => details.val = change_item.field_value.clone(),
-                _ => (),
+            if let Some(field) = placement.fields.iter_mut().find(|field| field.name.eq(change_item.field_name.as_str())) {
+                field.value = change_item.field_value.clone()
             }
+
             placement
         });
 
@@ -136,13 +133,18 @@ impl EdaSubstitutor {
 
 #[cfg(test)]
 pub mod eda_substitutor_tests {
-    use crate::eda::eda_placement::{DipTracePlacementDetails, EdaPlacement, EdaPlacementDetails, KiCadPlacementDetails};
+    use crate::eda::eda_placement::{EdaPlacement, EdaPlacementField };
     use crate::eda::eda_substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, EdaSubstitutionRuleCriteriaItem, EdaSubstitutionRuleTransformItem};
 
     #[test]
     pub fn substitute_one_diptrace_placement_using_a_chain() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "NAME1".to_string(), value: "VALUE1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+        };
         let eda_placements= vec![eda_placement1];
 
         // and two substitution rules that must be applied
@@ -174,7 +176,12 @@ pub mod eda_substitutor_tests {
         let expected_results = vec![
             EdaSubstitutionResult {
                 original_placement: &eda_placements[0],
-                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true, details: EdaPlacementDetails::DipTrace(DipTracePlacementDetails { name: "SUBSTITUTED_NAME1".to_string(), value: "SUBSTITUTED_VALUE1".to_string() }) },
+                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true,
+                    fields: vec![
+                        EdaPlacementField::new("name".to_string(), "SUBSTITUTED_NAME1".to_string()),
+                        EdaPlacementField::new("value".to_string(), "SUBSTITUTED_VALUE1".to_string()),
+                    ],
+                },
                 chain: vec![
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[1] },
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[0] },
@@ -195,7 +202,12 @@ pub mod eda_substitutor_tests {
     #[test]
     pub fn substitute_one_kicad_placement_using_a_chain() {
         // // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true, details: EdaPlacementDetails::KiCad(KiCadPlacementDetails { package: "PACKAGE1".to_string(), val: "VAL1".to_string() }) };
+        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+            fields: vec![
+                EdaPlacementField::new("package".to_string(), "PACKAGE1".to_string()),
+                EdaPlacementField::new("val".to_string(), "VAL1".to_string()),
+            ],
+        };
         let eda_placements= vec![eda_placement1];
 
         // and two substitution rules that must be applied
@@ -226,7 +238,12 @@ pub mod eda_substitutor_tests {
         let expected_results = vec![
             EdaSubstitutionResult {
                 original_placement: &eda_placements[0],
-                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true, details: EdaPlacementDetails::KiCad(KiCadPlacementDetails { package: "SUBSTITUTED_PACKAGE1".to_string(), val: "SUBSTITUTED_VAL1".to_string() }) },
+                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true,
+                    fields: vec![
+                        EdaPlacementField::new("package".to_string(), "SUBSTITUTED_PACKAGE1".to_string()),
+                        EdaPlacementField::new("val".to_string(), "SUBSTITUTED_VAL1".to_string()),
+                    ],
+                },
                 chain: vec![
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[1] },
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[0] },
