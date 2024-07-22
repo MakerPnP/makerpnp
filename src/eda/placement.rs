@@ -2,7 +2,7 @@
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaPlacementField {
     pub name: String,
-    // FUTURE if there's a requirement to store other EDA specific data types other than String, perhaps implement an emum named EdaPlacementValue.
+    // FUTURE if there's a requirement to store other EDA specific data types other than String, perhaps implement an enum named EdaPlacementValue.
     pub value: String,
 }
 
