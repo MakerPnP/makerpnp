@@ -399,25 +399,10 @@ mod tests {
         let expected_substitutions_file_1_message = format!("Loaded 1 substitution rules from {}\n", test_assembly_substitutions_file_name.to_str().unwrap());
         let expected_substitutions_file_2_message = format!("Loaded 2 substitution rules from {}\n", test_global_substitutions_file_name.to_str().unwrap());
 
-        // method 1 (when this fails, you get an error with details, and the stacktrace contains the line number)
-        let _remainder = trace_content.clone();
-        let _remainder = assert_inorder!(_remainder, "Loaded 9 placements\n");
-        let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
-        let _remainder = assert_inorder!(_remainder, expected_substitutions_file_2_message.as_str());
-        let _remainder = assert_inorder!(_remainder, "Loaded 9 parts\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 9 part mappings\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 3 load-out items\n");
-        let _remainder = assert_inorder!(_remainder, "Loaded 1 assembly rules\n");
-        let _remainder = assert_inorder!(_remainder, "Assembly variant: Variant 1\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: R1, R3, R4, D1, C1, J1, TP1, TP2\n");
-        let _remainder = assert_inorder!(_remainder, "Matched 8 placements for assembly variant\n");
-        let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
-        let _remainder = assert_inorder!(_remainder, "Mapping failures\n");
-
-        // method 2 (when this fails, you get an error, with details, but stacktrace does not contain the exact line number)
         assert_contains_inorder!(trace_content, [
             "Loaded 9 placements\n",
             expected_substitutions_file_1_message.as_str(),
+            expected_substitutions_file_2_message.as_str(),
             "Loaded 9 parts\n",
             "Loaded 9 part mappings\n",
             "Loaded 3 load-out items\n",
@@ -568,14 +553,15 @@ mod tests {
 
         let expected_substitutions_file_1_message = format!("Loaded 1 substitution rules from {}\n", test_global_substitutions_file_name.to_str().unwrap());
 
-        let _remainder = trace_content.clone();
-        let _remainder = assert_inorder!(_remainder, "Loaded 1 placements\n");
-        let _remainder = assert_inorder!(_remainder, expected_substitutions_file_1_message.as_str());
-        let _remainder = assert_inorder!(_remainder, "Loaded 1 parts\n");
-        let _remainder = assert_inorder!(_remainder, "Assembly variant: Default\n");
-        let _remainder = assert_inorder!(_remainder, "Ref_des list: \n");
-        let _remainder = assert_inorder!(_remainder, "Matched 1 placements for assembly variant\n");
-        let _remainder = assert_inorder!(_remainder, expected_part_mapping_tree);
+        assert_contains_inorder!(trace_content, [
+            "Loaded 1 placements\n",
+            expected_substitutions_file_1_message.as_str(),
+            "Loaded 1 parts\n",
+            "Assembly variant: Default\n",
+            "Ref_des list: \n",
+            "Matched 1 placements for assembly variant\n",
+            expected_part_mapping_tree,
+        ]);
 
         // and
         let csv_output_file = assert_fs::NamedTempFile::new(test_csv_output_path).unwrap();

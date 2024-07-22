@@ -8,7 +8,7 @@ pub mod ordered {
         let _remainder = &$content;
         $(
             let element = $element;
-            let message = format!("unmatched ordered element\nindex: {}\nelement:\n{}\ncontent:\n{}\n", _index, element, _remainder);
+            let message = format!("unmatched ordered element\nindex: {}\nexpected:\n{}\ncontent:\n{}\n", _index, element, _remainder);
             let (_, _remainder) = _remainder.split_once(element).expect(message.as_str());
             let _index = _index + 1;
         )*
