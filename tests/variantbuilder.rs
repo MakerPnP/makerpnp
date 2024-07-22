@@ -359,7 +359,7 @@ mod tests {
             \"J1\",\"CONN_MFR1\",\"CONN1\",\"true\"
             \"TP1\",\"\",\"\",\"false\"
             \"TP2\",\"\",\"\",\"false\"
-        "};
+        "}.to_string();
 
         let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
         let csv_output_arg = format!("--output={}", test_csv_output_file_name.to_str().unwrap());
@@ -392,7 +392,7 @@ mod tests {
             .success();
 
         // and
-        let trace_content: String = fs::read_to_string(test_trace_log_path.clone())?;
+        let trace_content: String = read_to_string(test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
         // and
@@ -419,12 +419,15 @@ mod tests {
         let csv_content = read_to_string(csv_output_file)?;
         println!("{}", csv_content);
 
-        // TODO improve readability of this assertion, use a macro?
+        assert_csv_content(csv_content, expected_csv_content);
+
+        Ok(())
+    }
+
+    fn assert_csv_content(csv_content: String, expected_csv_content: String) {
         if let Some(case) = predicate::str::diff(expected_csv_content).find_case(false, csv_content.as_str()) {
             panic!("Unexpected CSV content\n{}", case.tree());
         }
-
-        Ok(())
     }
 
     #[test]
@@ -528,7 +531,7 @@ mod tests {
         let expected_csv_content = indoc! {"
             \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\"
             \"R1\",\"RES_MFR1\",\"RES1\",\"true\"
-        "};
+        "}.to_string();
 
         // when
         cmd.args([
@@ -568,10 +571,7 @@ mod tests {
         let csv_content = read_to_string(csv_output_file)?;
         println!("{}", csv_content);
 
-        // TODO improve readability of this assertion, use a macro?
-        if let Some(case) = predicate::str::diff(expected_csv_content).find_case(false, csv_content.as_str()) {
-            panic!("Unexpected CSV content\n{}", case.tree());
-        }
+        assert_csv_content(csv_content, expected_csv_content);
 
         Ok(())
     }
