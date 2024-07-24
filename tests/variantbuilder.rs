@@ -9,19 +9,17 @@ pub mod int_test;
 
 #[cfg(feature="cli")]
 mod tests {
-    use std::ffi::OsString;
     use std::fs;
     use std::fs::read_to_string;
-    use std::path::PathBuf;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
     use csv::QuoteStyle;
     use indoc::indoc;
     use predicates::prelude::*;
     use predicates_tree::CaseTreeExt;
+    use tempfile::tempdir;
 
-    use tempfile::{tempdir, TempDir};
-    use crate::int_test::print;
+    use crate::int_test::{build_temp_csv_file, build_temp_file, print};
 
     #[test]
     fn build() -> Result<(), std::io::Error> {
@@ -793,22 +791,5 @@ mod tests {
         val_pattern: String,
         package: String,
         val: String,
-    }
-
-    fn build_temp_csv_file(temp_dir: &TempDir, base: &str) -> (PathBuf, OsString) {
-        build_temp_file(temp_dir, base, "csv")
-    }
-
-    fn build_temp_file(temp_dir: &TempDir, base: &str, extension: &str) -> (PathBuf, OsString) {
-        let mut path_buf = temp_dir.path().to_path_buf();
-        path_buf.push(format!("{}.{}", base, extension));
-
-        let absolute_path = path_buf.clone().into_os_string();
-        println!("{} file: {}",
-                 base.replace('_', " "),
-                 absolute_path.to_str().unwrap()
-        );
-
-        (path_buf, absolute_path)
     }
 }

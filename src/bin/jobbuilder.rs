@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand};
+use tracing::info;
+use makerpnp::cli;
 
 #[derive(Parser)]
 #[command(name = "jobbuilder")]
@@ -7,7 +9,7 @@ use clap::{Parser, Subcommand};
 #[command(version, about, long_about = None)]
 struct Opts {
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Option<Command>,
 
     /// Trace log file
     #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
@@ -16,14 +18,24 @@ struct Opts {
 
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
-enum Commands {
+enum Command {
     /// Build job
-    Build {}
+    Build {
+    }
 }
 
 
 fn main() -> anyhow::Result<()>{
-    let _opts = Opts::parse();
+    let opts = Opts::parse();
+
+    cli::tracing::configure_tracing(opts.trace)?;
+
+    match &opts.command.unwrap() {
+        Command::Build {
+        } => {
+            info!("Build");
+        }
+    }
 
     Ok(())
 }

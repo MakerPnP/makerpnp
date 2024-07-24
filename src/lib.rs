@@ -7,3 +7,6 @@ pub mod pnp;
 pub mod eda;
 
 pub mod loaders;
+
+#[cfg(feature="cli")]
+pub mod cli;

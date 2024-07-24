@@ -1,4 +1,3 @@
-use std::fs::File;
 use std::path::PathBuf;
 use anyhow::Error;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -6,10 +5,9 @@ use csv::QuoteStyle;
 use termtree::Tree;
 use thiserror::Error;
 use tracing::{error, info, Level, trace};
-use tracing_subscriber::fmt::format::FmtSpan;
-use tracing_subscriber::FmtSubscriber;
 use makerpnp::assembly::AssemblyVariantProcessor;
-use makerpnp::eda::assembly_variant::AssemblyVariant;
+use makerpnp::assembly::assembly_variant::AssemblyVariant;
+use makerpnp::cli;
 use makerpnp::eda::placement::{EdaPlacement, EdaPlacementField};
 use makerpnp::eda::substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::eda::EdaTool;
@@ -22,7 +20,7 @@ use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartM
 #[command(version, about, long_about = None)]
 struct Opts {
     #[command(subcommand)]
-    command: Option<Commands>,
+    command: Option<Command>,
 
     /// Trace log file
     #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
@@ -76,7 +74,7 @@ impl EdaToolArg {
 
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
-enum Commands {
+enum Command {
     /// Build variant
     Build {
         /// EDA tool
@@ -123,10 +121,10 @@ enum Commands {
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
-    configure_tracing(&opts)?;
+    cli::tracing::configure_tracing(opts.trace)?;
 
     match &opts.command.unwrap() {
-        Commands::Build {
+        Command::Build {
             eda,
             placements,
             assembly_variant,
@@ -142,39 +140,6 @@ fn main() -> anyhow::Result<()>{
             build_assembly_variant(eda_tool, placements, assembly_variant, parts, part_mappings, substitutions, load_out, assembly_rules, output, ref_des_disable_list)?;
         },
     }
-
-    Ok(())
-}
-
-fn configure_tracing(opts: &Opts) -> anyhow::Result<()> {
-    const SUBSCRIBER_FAILED_MESSAGE: &'static str = "setting default subscriber failed";
-    match &opts.trace {
-        Some(path) => {
-            //println!("using file_subscriber");
-            let trace_file: File = File::create(path)?;
-
-            let file_subscriber = FmtSubscriber::builder()
-                .with_writer(trace_file)
-                .with_max_level(Level::TRACE)
-                .finish();
-
-            tracing::subscriber::set_global_default(file_subscriber)
-                .expect(SUBSCRIBER_FAILED_MESSAGE);
-        },
-        _ => {
-            //println!("using stdout_subscriber");
-            let stdout_subscriber = FmtSubscriber::builder()
-                .with_level(false)
-                .with_line_number(false)
-                .with_span_events(FmtSpan::NONE)
-                .without_time()
-                .with_max_level(Level::INFO)
-                .finish();
-
-            tracing::subscriber::set_global_default(stdout_subscriber)
-                .expect(SUBSCRIBER_FAILED_MESSAGE);
-        }
-    };
 
     Ok(())
 }

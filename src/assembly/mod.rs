@@ -1,8 +1,9 @@
 use thiserror::Error;
-use crate::eda::assembly_variant::AssemblyVariant;
+use assembly_variant::AssemblyVariant;
 use crate::eda::placement::EdaPlacement;
 
 pub mod rules;
+pub mod assembly_variant;
 
 #[cfg_attr(test, derive(PartialEq, Debug))]
 pub struct ProcessingResult {
@@ -49,7 +50,7 @@ impl Default for AssemblyVariantProcessor {
 #[cfg(test)]
 mod test {
     use crate::assembly::{AssemblyVariantProcessor, ProcessingError, ProcessingResult};
-    use crate::eda::assembly_variant::AssemblyVariant;
+    use crate::assembly::assembly_variant::AssemblyVariant;
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
 
     #[test]
