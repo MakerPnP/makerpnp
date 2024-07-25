@@ -8,6 +8,7 @@ clap = { version = "4.5.8", features = ["derive", "env"], optional = true }
 anyhow = { version = "1.0.86" }
 csv = { version = "1.3.0" }
 serde = { version = "1.0.203", features = ["derive"] }
+serde_json = { version = "1.0.120" }
 thiserror = { version = "1.0.61" }
 termtree = { version = "0.4.1", optional = true }
 tracing = { version = "0.1.40" }
@@ -38,7 +39,7 @@ required-features = ["cli"]
 
 
 [[bin]]
-name = "jobbuilder"
+name = "planner"
 test = true
 bench = false
 required-features = ["cli"]
