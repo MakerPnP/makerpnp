@@ -2,10 +2,11 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use clap::{Parser, Subcommand};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tracing::info;
 use makerpnp::cli;
 pub use serde_json::*;
+use makerpnp::planning::{DesignName, Project, UnitAssignment, UnitPath, VariantName};
 
 #[derive(Parser)]
 #[command(name = "planner")]
@@ -22,6 +23,10 @@ struct Opts {
     /// Path
     #[arg(long, require_equals = true, default_value = ".")]
     path: String,
+
+    /// Job name
+    #[arg(long, require_equals = true)]
+    name: String,
 }
 
 #[derive(Subcommand)]
@@ -29,16 +34,21 @@ struct Opts {
 enum Command {
     /// Create a new job
     Create {
-        /// Job name
-        #[arg(long, require_equals = true)]
-        name: String,
-    }
-}
+    },
+    /// Assign a design variant to a PCB unit
+    AssignVariantToUnit {
+        /// Name of the design
+        #[arg(long, require_equals = true, value_parser = clap::value_parser!(DesignName), value_name = "DESIGN_NAME")]
+        design: DesignName,
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all(deserialize = "snake_case"))]
-struct Project {
-    name: String,
+        /// Variant of the design
+        #[arg(long, require_equals = true, value_parser = clap::value_parser!(VariantName), value_name = "VARIANT_NAME")]
+        variant: VariantName,
+
+        /// PCB unit path
+        #[arg(long, require_equals = true, value_parser = clap::value_parser!(UnitPath), value_name = "UNIT_PATH")]
+        unit: UnitPath,
+    }
 }
 
 
@@ -47,29 +57,61 @@ fn main() -> anyhow::Result<()>{
 
     cli::tracing::configure_tracing(opts.trace)?;
 
-    match &opts.command.unwrap() {
-        Command::Create {
-            name
-        } => {
-            let path = PathBuf::from(opts.path);
+    let project_file_path = build_project_file_path(&opts.name, &opts.path);
 
-            let project = Project { name: name.to_string() };
+    // TODO print help if no command specified, currently this panics
+    match opts.command.unwrap() {
+        Command::Create {} => {
+            let project = Project::new(opts.name.to_string());
+            project_save(&project, &project_file_path)?;
 
-            let mut project_file_path: PathBuf = path.clone();
-            project_file_path.push(format!("project-{}.mpnp.json", name));
+            info!("Created job: {}", project.name);
+        },
+        Command::AssignVariantToUnit { design, variant, unit } => {
+            let mut project = project_load(&project_file_path)?;
+            project.add_assignment(UnitAssignment {
+                unit_path: unit.clone(),
+                design_name: design.clone(),
+                variant_name: variant.clone(),
+            });
 
-            let project_file = File::create(project_file_path)?;
+            project_save(&project, &project_file_path)?;
 
-            let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
-            let mut ser = serde_json::Serializer::with_formatter(project_file, formatter);
-            project.serialize(&mut ser).unwrap();
-
-            let mut project_file = ser.into_inner();
-            project_file.write(b"\n")?;
-
-            info!("Created job: {}", name);
-        }
+            info!("Assignment created. unit: {}, design: {}, variant: {}",
+                unit,
+                design,
+                variant,
+            );
+        },
     }
+
+    Ok(())
+}
+
+fn build_project_file_path(name: &str, path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    let name = name;
+
+    let mut project_file_path: PathBuf = path.clone();
+    project_file_path.push(format!("project-{}.mpnp.json", name));
+    project_file_path
+}
+
+fn project_load(project_file_path: &PathBuf) -> anyhow::Result<Project> {
+    let project_file = File::open(project_file_path.clone())?;
+    let mut de = serde_json::Deserializer::from_reader(project_file);
+    let project = Project::deserialize(&mut de)?;
+    Ok(project)
+}
+
+fn project_save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()> {
+    let project_file = File::create(project_file_path)?;
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(project_file, formatter);
+    project.serialize(&mut ser).unwrap();
+
+    let mut project_file = ser.into_inner();
+    project_file.write(b"\n")?;
 
     Ok(())
 }
