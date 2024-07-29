@@ -2,10 +2,17 @@ use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all(deserialize = "snake_case"))]
+#[serde(rename_all = "snake_case")]
 pub struct Project {
     pub name: String,
     pub unit_assignments: Vec<UnitAssignment>,
+    pub processes: Vec<Process>
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Process {
+    Pnp
 }
 
 impl Project {
@@ -29,6 +36,7 @@ impl Default for Project {
         Self {
             name: "Unnamed".to_string(),
             unit_assignments: vec![],
+            processes: vec![Process::Pnp]
         }
     }
 }

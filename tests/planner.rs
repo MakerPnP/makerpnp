@@ -93,7 +93,10 @@ mod operation_sequence_1 {
         let expected_project_content = indoc! {r#"
             {
                 "name": "job1",
-                "unit_assignments": []
+                "unit_assignments": [],
+                "processes": [
+                    "pnp"
+                ]
             }
         "#};
 
@@ -151,6 +154,9 @@ mod operation_sequence_1 {
                         "design_name": "design_a",
                         "variant_name": "variant_a"
                     }
+                ],
+                "processes": [
+                    "pnp"
                 ]
             }
         "#};
