@@ -12,6 +12,7 @@ use makerpnp::eda::placement::{EdaPlacement, EdaPlacementField};
 use makerpnp::eda::substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::eda::EdaTool;
 use makerpnp::loaders::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
+use makerpnp::loaders::placements::PlacementRecord;
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
 
 #[derive(Parser)]
@@ -245,14 +246,6 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
 
     let output_path = PathBuf::from(output_file_name);
 
-    #[derive(Debug, serde::Serialize)]
-    #[serde(rename_all(serialize = "PascalCase"))]
-    struct Record {
-        ref_des: String,
-        manufacturer: String,
-        mpn: String,
-        place: bool,
-    }
 
     let mut writer = csv::WriterBuilder::new()
         .quote_style(QuoteStyle::Always)
@@ -263,7 +256,7 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
             PlacementPartMappingResult { eda_placement, part, .. } => {
 
                 let empty_value = "".to_string();
-                let record = Record {
+                let record = PlacementRecord {
                     ref_des: eda_placement.ref_des.clone(),
                     manufacturer: part.map_or_else(||empty_value.clone(),|part| part.manufacturer.clone()),
                     mpn: part.map_or_else(||empty_value.clone(),|part| part.mpn.clone()),

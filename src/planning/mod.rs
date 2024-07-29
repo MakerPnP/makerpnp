@@ -1,18 +1,35 @@
+use std::collections::{BTreeMap};
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use serde_with::serde_as;
+use crate::pnp::part::Part;
 
+#[serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Project {
     pub name: String,
     pub unit_assignments: Vec<UnitAssignment>,
-    pub processes: Vec<Process>
+    pub processes: Vec<Process>,
+
+    #[serde_as(as = "Vec<(_, _)>")]
+    pub process_part_assignments: BTreeMap<Part, ProcessAssignment>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Hash, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Process {
     Pnp
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Hash, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+//#[serde(try_from = "String")]
+pub enum ProcessAssignment {
+    Unassigned,
+    Assigned(Process),
 }
 
 impl Project {
@@ -36,7 +53,8 @@ impl Default for Project {
         Self {
             name: "Unnamed".to_string(),
             unit_assignments: vec![],
-            processes: vec![Process::Pnp]
+            processes: vec![Process::Pnp],
+            process_part_assignments: Default::default(),
         }
     }
 }
@@ -49,13 +67,13 @@ pub struct UnitAssignment {
     pub variant_name: VariantName,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct DesignName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct VariantName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct UnitPath(String);
 
 impl FromStr for DesignName {

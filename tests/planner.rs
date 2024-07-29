@@ -6,7 +6,8 @@ pub mod int_test;
 
 #[cfg(feature="cli")]
 mod operation_sequence_1 {
-    use std::fs::read_to_string;
+    use std::fs::{File, read_to_string};
+    use std::io::Write;
     use std::path::PathBuf;
     use assert_cmd::Command;
     use indoc::indoc;
@@ -26,7 +27,9 @@ mod operation_sequence_1 {
 
             pub trace_log_arg: String,
             pub path_arg: String,
+            pub name_arg: String,
             pub test_trace_log_path: PathBuf,
+            pub test_project_path: PathBuf,
         }
 
         impl Context {
@@ -38,11 +41,17 @@ mod operation_sequence_1 {
                 let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
                 let trace_log_arg = format!("--trace={}", test_trace_log_file_name.to_str().unwrap());
 
+                let (test_project_path, _test_project_file_name) = build_temp_file(&temp_dir, "project-job1", "mpnp.json");
+
+                let name_arg = "--name=job1".to_string();
+
                 Context {
                     temp_dir,
                     path_arg,
+                    name_arg,
                     trace_log_arg,
                     test_trace_log_path,
+                    test_project_path,
                 }
             }
         }
@@ -89,14 +98,14 @@ mod operation_sequence_1 {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
 
         // and
-        let (test_project_path, _test_project_file_name) = build_temp_file(&ctx.temp_dir, "project-job1", "mpnp.json");
         let expected_project_content = indoc! {r#"
             {
                 "name": "job1",
                 "unit_assignments": [],
                 "processes": [
                     "pnp"
-                ]
+                ],
+                "process_part_assignments": []
             }
         "#};
 
@@ -104,7 +113,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            "--name=job1",
+            ctx.name_arg.as_str(),
             "create",
         ];
         println!("args: {:?}", args);
@@ -126,7 +135,7 @@ mod operation_sequence_1 {
         ]);
 
         // and
-        let job_status_content: String = read_to_string(test_project_path.clone())?;
+        let job_status_content: String = read_to_string(ctx.test_project_path.clone())?;
         println!("{}", job_status_content);
 
         assert_eq!(job_status_content, expected_project_content);
@@ -144,7 +153,21 @@ mod operation_sequence_1 {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
 
         // and
-        let (test_project_path, _test_project_file_name) = build_temp_file(&ctx.temp_dir, "project-job1", "mpnp.json");
+        let design_a_variant_a_placements_csv_content = indoc! {r#"
+            "RefDes","Manufacturer","Mpn","Place"
+            "R1","RES_MFR1","RES1","true"
+            "R2","RES_MFR2","RES2","true"
+            "J1","CONN_MFR1","CONN1","true"
+        "#};
+
+        let mut placements_path = ctx.temp_dir.path().to_path_buf();
+        placements_path.push("design_a_variant_a_placements.csv");
+
+        let mut placments_file = File::create(placements_path)?;
+        placments_file.write(design_a_variant_a_placements_csv_content.as_bytes())?;
+        placments_file.flush()?;
+
+        // and
         let expected_project_content = indoc! {r#"
             {
                 "name": "job1",
@@ -157,6 +180,29 @@ mod operation_sequence_1 {
                 ],
                 "processes": [
                     "pnp"
+                ],
+                "process_part_assignments": [
+                    [
+                        {
+                            "manufacturer": "CONN_MFR1",
+                            "mpn": "CONN1"
+                        },
+                        "unassigned"
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR1",
+                            "mpn": "RES1"
+                        },
+                        "unassigned"
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR2",
+                            "mpn": "RES2"
+                        },
+                        "unassigned"
+                    ]
                 ]
             }
         "#};
@@ -165,7 +211,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            "--name=job1",
+            ctx.name_arg.as_str(),
             "assign-variant-to-unit",
             "--design=design_a",
             "--variant=variant_a",
@@ -189,7 +235,7 @@ mod operation_sequence_1 {
         ]);
 
         // and
-        let job_status_content: String = read_to_string(test_project_path.clone())?;
+        let job_status_content: String = read_to_string(ctx.test_project_path.clone())?;
         println!("{}", job_status_content);
 
         assert_eq!(job_status_content, expected_project_content);
@@ -198,8 +244,102 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_3_cleanup() {
+    fn sequence_3_assign_process_to_parts() -> Result<(), anyhow::Error> {
+        // given
         let mut ctx_guard = context::aquire(3);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = indoc! {r#"
+            {
+                "name": "job1",
+                "unit_assignments": [
+                    {
+                        "unit_path": "panel:1:unit:1",
+                        "design_name": "design_a",
+                        "variant_name": "variant_a"
+                    }
+                ],
+                "processes": [
+                    "pnp"
+                ],
+                "process_part_assignments": [
+                    [
+                        {
+                            "manufacturer": "CONN_MFR1",
+                            "mpn": "CONN1"
+                        },
+                        {
+                            "assigned": "pnp"
+                        }
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR1",
+                            "mpn": "RES1"
+                        },
+                        {
+                            "assigned": "pnp"
+                        }
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR2",
+                            "mpn": "RES2"
+                        },
+                        {
+                            "assigned": "pnp"
+                        }
+                    ]
+                ]
+            }
+        "#};
+
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.name_arg.as_str(),
+            "assign-process-to-parts",
+            "--process=pnp",
+            "--manufacturer=.*",
+            "--mpn=.*",
+        ];
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "changing process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, old_process: Unassigned, new_process: Pnp",
+            "changing process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, old_process: Unassigned, new_process: Pnp",
+            "changing process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, old_process: Unassigned, new_process: Pnp",
+        ]);
+
+        // and
+        let job_status_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", job_status_content);
+
+        assert_eq!(job_status_content, expected_project_content);
+
+        Ok(())
+    }
+
+
+    #[test]
+    fn sequence_4_cleanup() {
+        let mut ctx_guard = context::aquire(4);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -222,9 +362,10 @@ mod help {
             Usage: planner [OPTIONS] --name=<NAME> [COMMAND]
 
             Commands:
-              create                  Create a new job
-              assign-variant-to-unit  Assign a design variant to a PCB unit
-              help                    Print this message or the help of the given subcommand(s)
+              create                   Create a new job
+              assign-variant-to-unit   Assign a design variant to a PCB unit
+              assign-process-to-parts  Assign process to parts
+              help                     Print this message or the help of the given subcommand(s)
 
             Options:
                   --trace[=<TRACE>]  Trace log file
@@ -288,6 +429,33 @@ mod help {
 
         // when
         cmd.args(["assign-variant-to-unit", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+    #[test]
+    fn help_for_assign_process_to_parts() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Assign process to parts
+
+            Usage: planner --name=<NAME> assign-process-to-parts --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+
+            Options:
+                  --process=<PROCESS>            Process name [possible values: pnp]
+                  --manufacturer=<MANUFACTURER>  Manufacturer pattern (regexp)
+                  --mpn=<MPN>                    Manufacturer part number (regexp)
+              -h, --help                         Print help
+        "};
+
+        // when
+        cmd.args(["assign-process-to-parts", "--help"])
             // then
             .assert()
             .success()
