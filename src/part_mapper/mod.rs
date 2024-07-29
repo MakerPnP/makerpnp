@@ -13,10 +13,10 @@ pub struct PartMapper {}
 
 impl PartMapper {
     pub fn process<'placement, 'mapping>(
-        eda_placements: &'placement Vec<EdaPlacement>,
-        part_mappings: &'mapping Vec<PartMapping<'mapping>>,
-        load_out_items: &Vec<LoadOutItem>,
-        assembly_rules: &Vec<AssemblyRule>
+        eda_placements: &'placement [EdaPlacement],
+        part_mappings: &'mapping [PartMapping<'mapping>],
+        load_out_items: &[LoadOutItem],
+        assembly_rules: &[AssemblyRule]
     ) -> Result<Vec<PlacementPartMappingResult<'placement, 'mapping>>, PartMapperError<'placement, 'mapping>> {
 
         let mut error_count: usize = 0;
@@ -62,7 +62,7 @@ impl PartMapper {
     }
 }
 
-fn apply_rules<'mapping>(ref_des: &String, mapping_results: &mut Vec<PartMappingResult<'mapping>>, load_out_items: &Vec<LoadOutItem>, assembly_rules: &Vec<AssemblyRule>) {
+fn apply_rules<'mapping>(ref_des: &String, mapping_results: &mut [PartMappingResult<'mapping>], load_out_items: &[LoadOutItem], assembly_rules: &[AssemblyRule]) {
     for mapping_result in mapping_results.iter_mut() {
         let maybe_assembly_rule = assembly_rules.iter().find(|rule| {
             let mapped_part = mapping_result.part_mapping;
@@ -187,7 +187,7 @@ mod tests {
         let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
         let part3 = Part::new("MFR3".to_string(), "PART3".to_string());
 
-        let parts = vec![part1, part2, part3];
+        let parts = [part1, part2, part3];
 
         // and
         let criteria1 = GenericExactMatchCriteria { criteria: vec![
@@ -216,7 +216,7 @@ mod tests {
         ]);
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &[], &[]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -238,7 +238,7 @@ mod tests {
         let part1 = Part::new("MFR1".to_string(), "PART1".to_string());
         let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
 
-        let parts = vec![part1, part2];
+        let parts = [part1, part2];
 
         // and
         let criteria1 = GenericExactMatchCriteria { criteria: vec![
@@ -267,7 +267,7 @@ mod tests {
         ]));
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &[], &[]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -297,7 +297,7 @@ mod tests {
         ]));
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &[], &[]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -320,7 +320,7 @@ mod tests {
         let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
         let part3 = Part::new("MFR3".to_string(), "PART3".to_string());
 
-        let parts = vec![part1, part2, part3];
+        let parts = [part1, part2, part3];
 
         // and
         let criteria1 = GenericExactMatchCriteria { criteria: vec![
@@ -355,7 +355,7 @@ mod tests {
         ]);
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &load_out_items, &vec![]);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &load_out_items, &[]);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -378,7 +378,7 @@ mod tests {
         let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
         let part3 = Part::new("MFR3".to_string(), "PART3".to_string());
 
-        let parts = vec![part1, part2, part3];
+        let parts = [part1, part2, part3];
 
         // and
         let criteria1 = GenericExactMatchCriteria { criteria: vec![
@@ -405,7 +405,7 @@ mod tests {
             manufacturer: "MFR2".to_string(),
             mpn: "PART2".to_string(),
         };
-        let assembly_rules = &vec![assembly_rule1, assembly_rule2];
+        let assembly_rules = &[assembly_rule1, assembly_rule2];
 
         // and
         let expected_results = Ok(vec![
@@ -420,7 +420,7 @@ mod tests {
         ]);
 
         // when
-        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &vec![], assembly_rules);
+        let matched_mappings = PartMapper::process(&eda_placements, &part_mappings, &[], assembly_rules);
 
         // then
         assert_eq!(matched_mappings, expected_results);
@@ -442,7 +442,7 @@ mod tests {
         let part1 = Part::new("MFR1".to_string(), "PART1".to_string());
         let part2 = Part::new("MFR2".to_string(), "PART2".to_string());
 
-        let parts = vec![part1, part2];
+        let parts = [part1, part2];
 
         // and
         let criteria1 = GenericExactMatchCriteria { criteria: vec![
@@ -469,7 +469,7 @@ mod tests {
             manufacturer: "MFR2".to_string(),
             mpn: "PART2".to_string(),
         };
-        let assembly_rules = &vec![assembly_rule1];
+        let assembly_rules = &[assembly_rule1];
 
         // and
         let expected_results = Ok(vec![

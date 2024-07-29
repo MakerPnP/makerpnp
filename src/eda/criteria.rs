@@ -26,7 +26,7 @@ impl PlacementMappingCriteria for GenericExactMatchCriteria {
 
     fn matches(&self, eda_placement: &EdaPlacement) -> bool {
 
-        let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, ref criterion| {
+        let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, criterion| {
             let matched_field = eda_placement.fields.iter().find(|field | {
                 criterion.field_name.eq(field.name.as_str()) &&
                     criterion.field_pattern.eq(field.value.as_str())

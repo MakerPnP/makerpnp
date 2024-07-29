@@ -37,15 +37,12 @@ pub enum PartMappingRecordError {
 }
 
 impl PartMappingRecord {
-    pub fn build_part_mapping<'part>(&self, parts: &'part Vec<Part>) -> Result<PartMapping<'part>, PartMappingRecordError> {
+    pub fn build_part_mapping<'part>(&self, parts: &'part [Part]) -> Result<PartMapping<'part>, PartMappingRecordError> {
 
         let part_criteria: Part = Part { manufacturer: self.manufacturer.clone(), mpn: self.mpn.clone() };
 
-        let matched_part_ref = parts.iter().find_map(|part| {
-            match part.eq(&part_criteria) {
-                true => Some(part),
-                false => None,
-            }
+        let matched_part_ref = parts.iter().find(|&part| {
+            part.eq(&part_criteria)
         });
 
         let part_ref = match matched_part_ref {
@@ -55,7 +52,7 @@ impl PartMappingRecord {
 
         let mut mapping_criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
 
-        let criteria_fields = self.fields.iter().filter(|(ref key, ref _value)|{
+        let criteria_fields = self.fields.iter().filter(|(key, _value)|{
             match self.eda {
                 CSVEdaToolValue::DipTrace => ["name", "value"].contains(&key.to_lowercase().as_str()),
                 CSVEdaToolValue::KiCad => ["package", "val"].contains(&key.to_lowercase().as_str()),

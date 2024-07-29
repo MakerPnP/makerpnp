@@ -265,8 +265,8 @@ fn project_load(project_file_path: &PathBuf) -> anyhow::Result<Project> {
 
 fn project_save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()> {
     let project_file = File::create(project_file_path)?;
-    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
-    let mut ser = serde_json::Serializer::with_formatter(project_file, formatter);
+    let formatter = ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = Serializer::with_formatter(project_file, formatter);
     project.serialize(&mut ser)?;
 
     let mut project_file = ser.into_inner();

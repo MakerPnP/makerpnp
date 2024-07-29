@@ -28,22 +28,20 @@ pub enum ProcessingError {
 pub struct AssemblyVariantProcessor {}
 
 impl AssemblyVariantProcessor {
-    pub fn process(&self, placements: &Vec<EdaPlacement>, variant: AssemblyVariant) -> Result<ProcessingResult, ProcessingError> {
+    pub fn process(placements: &[EdaPlacement], variant: AssemblyVariant) -> Result<ProcessingResult, ProcessingError> {
         if placements.is_empty() {
             return Err(ProcessingError::NoPlacements)
         }
 
-        let variant_placements: Vec<EdaPlacement> = placements.iter().cloned().filter(|placement| {
-            variant.ref_des_list.is_empty() || variant.ref_des_list.contains(&placement.ref_des)
+        let variant_placements: Vec<EdaPlacement> = placements.iter().filter_map(|placement| {
+            if variant.ref_des_list.is_empty() || variant.ref_des_list.contains(&placement.ref_des) {
+                Some(placement.clone())
+            } else {
+                None
+            }
         }).collect();
 
         Ok(ProcessingResult::new(variant_placements))
-    }
-}
-
-impl Default for AssemblyVariantProcessor {
-    fn default() -> Self {
-        Self {}
     }
 }
 
@@ -143,12 +141,9 @@ mod test {
             all_placements[8-1].clone(),
         ];
         let expected_result = Ok(ProcessingResult::new(variant_placements));
-
-        // and
-        let assembly_variant_processor = AssemblyVariantProcessor::default();
-
+        
         // when
-        let result = assembly_variant_processor.process(&all_placements, variant);
+        let result = AssemblyVariantProcessor::process(&all_placements, variant);
 
         // then
         assert_eq!(result, expected_result);
@@ -158,10 +153,9 @@ mod test {
     fn no_placements() {
         // given
         let variant = AssemblyVariant::new(String::from("Variant 1"), vec![]);
-        let assembly_variant_processor = AssemblyVariantProcessor::default();
 
         // when
-        let result = assembly_variant_processor.process(&vec![], variant);
+        let result = AssemblyVariantProcessor::process(&[], variant);
 
         // then
         assert_eq!(result, Err(ProcessingError::NoPlacements));
@@ -171,7 +165,6 @@ mod test {
     fn empty_variant_refdes_list() {
         // given
         let variant = AssemblyVariant::new(String::from("Variant 1"), vec![]);
-        let assembly_variant_processor = AssemblyVariantProcessor::default();
 
         let placement1 = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -194,7 +187,7 @@ mod test {
         let expected_result = Ok(ProcessingResult::new(expected_variant_placements));
 
         // when
-        let result = assembly_variant_processor.process(&all_placements, variant);
+        let result = AssemblyVariantProcessor::process(&all_placements, variant);
 
         // then
         assert_eq!(result, expected_result);

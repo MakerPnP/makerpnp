@@ -9,7 +9,6 @@ pub mod int_test;
 
 #[cfg(feature="cli")]
 mod tests {
-    use std::fs;
     use std::fs::read_to_string;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
@@ -552,7 +551,7 @@ mod tests {
             .success();
 
         // and
-        let trace_content: String = fs::read_to_string(test_trace_log_path.clone())?;
+        let trace_content: String = read_to_string(test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
         let expected_substitutions_file_1_message = format!("Loaded 1 substitution rules from {}\n", test_global_substitutions_file_name.to_str().unwrap());

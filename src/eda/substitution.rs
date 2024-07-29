@@ -26,7 +26,7 @@ impl EdaSubstitutionRule {
         for criterion in self.criteria.iter() {
             result.push(format!("{}_pattern: '{}'", criterion.field_name, criterion.field_pattern));
         }
-        return result.join(", ");
+        result.join(", ")
     }
 
     pub fn format_transform(&self) -> String {
@@ -35,7 +35,7 @@ impl EdaSubstitutionRule {
         for transform in self.transforms.iter() {
             result.push(format!("{}: '{}'", transform.field_name, transform.field_value));
         }
-        return result.join(", ");
+        result.join(", ")
     }
 
     pub fn matches(&self, eda_placement: &EdaPlacement) -> bool {
@@ -66,7 +66,7 @@ impl EdaSubstitutionRule {
     pub fn apply(&self, eda_placement: &EdaPlacement) -> EdaPlacement {
         let result = self.transforms.iter().fold(eda_placement.clone(), |mut placement, change_item| {
             if let Some(field) = placement.fields.iter_mut().find(|field| field.name.eq(change_item.field_name.as_str())) {
-                field.value = change_item.field_value.clone()
+                field.value.clone_from(&change_item.field_value);
             }
 
             placement
@@ -106,14 +106,11 @@ impl EdaSubstitutor {
                 let mut applied_rule_count_this_pass = 0;
 
                 for rule in eda_substitution_rules.iter() {
-                    match rule.matches(&eda_placement) {
-                        true => {
-                            applied_rule_count_this_pass+= 1;
-                            eda_placement = rule.apply(&eda_placement);
+                    if rule.matches(&eda_placement) {
+                        applied_rule_count_this_pass+= 1;
+                        eda_placement = rule.apply(&eda_placement);
 
-                            chain.push(EdaSubstitutionChainEntry { rule });
-                        },
-                        _ => ()
+                        chain.push(EdaSubstitutionChainEntry { rule });
                     }
                 }
 

@@ -208,9 +208,7 @@ fn build_assembly_variant(
     info!("Assembly variant: {}", assembly_variant.name);
     info!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
 
-    let assembly_variant_processor = AssemblyVariantProcessor::default();
-
-    let result = assembly_variant_processor.process(&eda_placements, assembly_variant)?;
+    let result = AssemblyVariantProcessor::process(&eda_placements, assembly_variant)?;
     let variant_placements = result.placements;
     let variant_placements_count = variant_placements.len();
 
