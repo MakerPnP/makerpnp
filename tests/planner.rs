@@ -393,10 +393,13 @@ mod operation_sequence_1 {
                     ]
                 ],
                 "phases": [
-                    {
-                        "reference": "top_1",
-                        "process": "pnp"
-                    }
+                    [
+                        "top_1",
+                        {
+                            "reference": "top_1",
+                            "process": "pnp"
+                        }
+                    ]
                 ]
             }
         "#};

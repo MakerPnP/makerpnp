@@ -140,8 +140,6 @@ fn main() -> anyhow::Result<()>{
             
             project.add_phase(reference.clone(), process.clone())?;
 
-            info!("Created phase. reference: '{}', process: {:?}", reference, process);
-            
             project_save(&project, &project_file_path)?;
         },
     }

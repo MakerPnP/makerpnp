@@ -1,9 +1,9 @@
-use std::collections::{BTreeMap};
+use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use serde_with::serde_as;
-use tracing::trace;
+use tracing::info;
 use crate::pnp::part::Part;
 
 #[serde_as]
@@ -23,12 +23,13 @@ pub struct Project {
     #[serde(default)]
     pub process_part_assignments: BTreeMap<Part, ProcessAssignment>,
 
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde_as(as = "Vec<(_, _)>")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    pub phases: Vec<Phase>,
+    pub phases: BTreeMap<Reference, Phase>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialOrd, Ord)]
 #[derive(Hash, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Process {
@@ -57,11 +58,11 @@ impl Project {
         match self.unit_assignments.entry(unit_path.clone()) {
             Entry::Vacant(entry) => {
                 entry.insert(design_variant.clone());
-                trace!("Unit assignment added. unit: {}, design_variant: {}", unit_path, design_variant )
+                info!("Unit assignment added. unit: {}, design_variant: {}", unit_path, design_variant )
             }
             Entry::Occupied(mut entry) => { 
                 let old_value = entry.insert(design_variant.clone());
-                trace!("Unit assignment updated. unit: {}, old: {}, new: {}", unit_path, old_value, design_variant )
+                info!("Unit assignment updated. unit: {}, old: {}, new: {}", unit_path, old_value, design_variant )
             }
         }         
         
@@ -69,11 +70,21 @@ impl Project {
     }
 
     pub fn add_phase(&mut self, reference: Reference, process: Process) -> anyhow::Result<()> {
-        let phase = Phase { reference, process };
 
-        // TODO check to see if phase already exists
-        self.phases.push(phase);
-        
+        match self.phases.entry(reference.clone()) {
+            Entry::Vacant(entry) => {
+                let phase = Phase { reference: reference.clone(), process: process.clone() };
+                entry.insert(phase);
+                info!("Created phase. reference: '{}', process: {:?}", reference, process);
+            }
+            Entry::Occupied(mut entry) => {
+                let existing_phase = entry.get_mut();
+                let old_phase = existing_phase.clone();
+                existing_phase.process = process.clone();
+                info!("Updated phase. reference: '{}', old_process: {:?}, new_process: {:?}", reference, old_phase.process, process);
+            }
+        }
+
         Ok(())
     }
 }
@@ -85,12 +96,12 @@ impl Default for Project {
             unit_assignments: Default::default(),
             processes: vec![Process::Pnp],
             process_part_assignments: Default::default(),
-            phases: vec![],
+            phases: Default::default(),
         }
     }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Phase {
     reference: Reference,
     process: Process,
@@ -105,13 +116,13 @@ pub struct DesignVariant {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct DesignName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct VariantName(String);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnitPath(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Reference(String);
 
 impl FromStr for DesignName {
