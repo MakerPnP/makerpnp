@@ -575,11 +575,12 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner --name=<NAME> create-phase --process=<PROCESS> --reference=<REFERENCE>
+            Usage: planner --name=<NAME> create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE>
 
             Options:
                   --process=<PROCESS>      Process name [possible values: pnp]
                   --reference=<REFERENCE>  Reference
+                  --load-out=<LOAD_OUT>    Load-out name
               -h, --help                   Print help
         "};
 

@@ -8,7 +8,7 @@ use tracing::{debug, info, trace};
 use makerpnp::cli;
 pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, Process, ProcessAssignment, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, Process, ProcessAssignment, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::part::Part;
 
 #[derive(Parser)]
@@ -88,6 +88,10 @@ enum Command {
         /// Reference
         #[arg(long, require_equals = true)]
         reference: Reference,
+        
+        /// Load-out name
+        #[arg(long, require_equals = true)]
+        load_out: Option<LoadOutName>,
     },
 }
 
@@ -133,12 +137,12 @@ fn main() -> anyhow::Result<()>{
 
             project_save(&project, &project_file_path)?;
         },
-        Command::CreatePhase { process: process_arg, reference } => {
+        Command::CreatePhase { process: process_arg, reference, load_out } => {
             let mut project = project_load(&project_file_path)?;
 
             let process: Process = process_arg.into();
             
-            project.add_phase(reference.clone(), process.clone())?;
+            project.update_phase(reference, process, load_out)?;
 
             project_save(&project, &project_file_path)?;
         },
