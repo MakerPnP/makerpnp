@@ -181,27 +181,36 @@ mod operation_sequence_1 {
                 "processes": [
                     "pnp"
                 ],
-                "process_part_assignments": [
+                "part_states": [
                     [
                         {
                             "manufacturer": "CONN_MFR1",
                             "mpn": "CONN1"
                         },
-                        "unassigned"
+                        {
+                            "process": "unassigned",
+                            "load_out": "unassigned"
+                        }
                     ],
                     [
                         {
                             "manufacturer": "RES_MFR1",
                             "mpn": "RES1"
                         },
-                        "unassigned"
+                        {
+                            "process": "unassigned",
+                            "load_out": "unassigned"
+                        }
                     ],
                     [
                         {
                             "manufacturer": "RES_MFR2",
                             "mpn": "RES2"
                         },
-                        "unassigned"
+                        {
+                            "process": "unassigned",
+                            "load_out": "unassigned"
+                        }
                     ]
                 ]
             }
@@ -268,14 +277,17 @@ mod operation_sequence_1 {
                 "processes": [
                     "pnp"
                 ],
-                "process_part_assignments": [
+                "part_states": [
                     [
                         {
                             "manufacturer": "CONN_MFR1",
                             "mpn": "CONN1"
                         },
                         {
-                            "assigned": "pnp"
+                            "process": {
+                                "assigned": "pnp"
+                            },
+                            "load_out": "unassigned"
                         }
                     ],
                     [
@@ -284,7 +296,10 @@ mod operation_sequence_1 {
                             "mpn": "RES1"
                         },
                         {
-                            "assigned": "pnp"
+                            "process": {
+                                "assigned": "pnp"
+                            },
+                            "load_out": "unassigned"
                         }
                     ],
                     [
@@ -293,7 +308,10 @@ mod operation_sequence_1 {
                             "mpn": "RES2"
                         },
                         {
-                            "assigned": "pnp"
+                            "process": {
+                                "assigned": "pnp"
+                            },
+                            "load_out": "unassigned"
                         }
                     ]
                 ]
@@ -363,14 +381,17 @@ mod operation_sequence_1 {
                 "processes": [
                     "pnp"
                 ],
-                "process_part_assignments": [
+                "part_states": [
                     [
                         {
                             "manufacturer": "CONN_MFR1",
                             "mpn": "CONN1"
                         },
                         {
-                            "assigned": "pnp"
+                            "process": {
+                                "assigned": "pnp"
+                            },
+                            "load_out": "unassigned"
                         }
                     ],
                     [
@@ -379,7 +400,10 @@ mod operation_sequence_1 {
                             "mpn": "RES1"
                         },
                         {
-                            "assigned": "pnp"
+                            "process": {
+                                "assigned": "pnp"
+                            },
+                            "load_out": "unassigned"
                         }
                     ],
                     [
@@ -388,7 +412,10 @@ mod operation_sequence_1 {
                             "mpn": "RES2"
                         },
                         {
-                            "assigned": "pnp"
+                            "process": {
+                                "assigned": "pnp"
+                            },
+                            "load_out": "unassigned"
                         }
                     ]
                 ],

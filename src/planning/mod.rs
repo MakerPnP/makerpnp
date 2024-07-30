@@ -21,7 +21,7 @@ pub struct Project {
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    pub process_part_assignments: BTreeMap<Part, ProcessAssignment>,
+    pub part_states: BTreeMap<Part, PartState>,
 
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -29,20 +29,43 @@ pub struct Project {
     pub phases: BTreeMap<Reference, Phase>,
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(PartialEq, Eq)]
+pub struct PartState {
+    pub process: ProcessAssignment,
+    pub load_out: LoadOutAssignment,
+}
+
+impl Default for PartState {
+    fn default() -> Self {
+        Self {
+            process: ProcessAssignment::Unassigned,
+            load_out: LoadOutAssignment::Unassigned,
+        }
+    }
+}
+
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialOrd, Ord)]
-#[derive(Hash, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum Process {
     Pnp
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-#[derive(Hash, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-//#[serde(try_from = "String")]
 pub enum ProcessAssignment {
     Unassigned,
     Assigned(Process),
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LoadOutAssignment {
+    Unassigned,
+    Assigned(LoadOutName),
 }
 
 impl Project {
@@ -60,12 +83,12 @@ impl Project {
                 entry.insert(design_variant.clone());
                 info!("Unit assignment added. unit: {}, design_variant: {}", unit_path, design_variant )
             }
-            Entry::Occupied(mut entry) => { 
+            Entry::Occupied(mut entry) => {
                 let old_value = entry.insert(design_variant.clone());
                 info!("Unit assignment updated. unit: {}, old: {}, new: {}", unit_path, old_value, design_variant )
             }
-        }         
-        
+        }
+
         Ok(())
     }
 
@@ -80,10 +103,10 @@ impl Project {
             Entry::Occupied(mut entry) => {
                 let existing_phase = entry.get_mut();
                 let old_phase = existing_phase.clone();
-                
+
                 existing_phase.process = process;
                 existing_phase.load_out = load_out;
-                
+
                 info!("Updated phase. old: {:?}, new: {:?}", old_phase, existing_phase);
             }
         }
@@ -98,7 +121,7 @@ impl Default for Project {
             name: "Unnamed".to_string(),
             unit_assignments: Default::default(),
             processes: vec![Process::Pnp],
-            process_part_assignments: Default::default(),
+            part_states: Default::default(),
             phases: Default::default(),
         }
     }
@@ -108,7 +131,7 @@ impl Default for Project {
 pub struct Phase {
     reference: Reference,
     process: Process,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     load_out: Option<LoadOutName>,

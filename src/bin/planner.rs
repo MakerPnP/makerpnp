@@ -8,7 +8,7 @@ use tracing::{debug, info, trace};
 use makerpnp::cli;
 pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, Process, ProcessAssignment, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PartState, Process, ProcessAssignment, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::part::Part;
 
 #[derive(Parser)]
@@ -119,7 +119,7 @@ fn main() -> anyhow::Result<()>{
             let unique_design_variants = build_unique_design_variants(&project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
 
-            project_refresh_assignments(&mut project, all_parts.as_slice());
+            project_refresh_parts(&mut project, all_parts.as_slice());
 
             project_save(&project, &project_file_path)?;
         },
@@ -131,7 +131,7 @@ fn main() -> anyhow::Result<()>{
             let unique_design_variants = build_unique_design_variants(&project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
 
-            project_refresh_assignments(&mut project, all_parts.as_slice());
+            project_refresh_parts(&mut project, all_parts.as_slice());
 
             project_update_assignments(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
 
@@ -158,64 +158,64 @@ enum Change {
     Unused,
 }
 
-fn project_refresh_assignments(project: &mut Project, all_parts: &[Part]) {
-    let changes = find_changes(project, all_parts);
+fn project_refresh_parts(project: &mut Project, all_parts: &[Part]) {
+    let changes = find_part_changes(project, all_parts);
 
     for change_item in changes.iter() {
         match change_item {
             (Change::New, part) => {
-                debug!("new unassigned part. part: {:?}", part);
-                let _ = project.process_part_assignments.entry(part.clone()).or_insert(ProcessAssignment::Unassigned);
+                debug!("new part. part: {:?}", part);
+                let _ = project.part_states.entry(part.clone()).or_insert(PartState::default());
             }
             (Change::Existing, _) => {}
             (Change::Unused, part) => {
-                debug!("removing previously assigned part. part: {:?}", part);
-                let _ = project.process_part_assignments.remove(&part);
+                debug!("removing previously part. part: {:?}", part);
+                let _ = project.part_states.remove(&part);
             }
         }
     }
 }
 
-fn find_changes(project: &mut Project, all_parts: &[Part]) -> Vec<(Change, Part)> {
+fn find_part_changes(project: &mut Project, all_parts: &[Part]) -> Vec<(Change, Part)> {
     let mut changes: Vec<(Change, Part)> = vec![];
 
     for part in all_parts.iter() {
-        match project.process_part_assignments.contains_key(part) {
+        match project.part_states.contains_key(part) {
             true => changes.push((Change::Existing, part.clone())),
             false => changes.push((Change::New, part.clone())),
         }
     }
 
-    for (part, _process) in project.process_part_assignments.iter() {
+    for (part, _process) in project.part_states.iter() {
         if !all_parts.contains(part) {
             changes.push((Change::Unused, part.clone()))
         }
     }
 
-    info!("changes:\n{:?}", changes);
+    info!("part changes:\n{:?}", changes);
 
     changes
 }
 
 fn project_update_assignments(project: &mut Project, all_parts: &[Part], process: Process, manufacturer_pattern: Regex, mpn_pattern: Regex) {
 
-    let changes = find_changes(project, all_parts);
+    let changes = find_part_changes(project, all_parts);
 
     for change in changes.iter() {
         match change {
             (Change::Existing, part) => {
                 if manufacturer_pattern.is_match(part.manufacturer.as_str()) && mpn_pattern.is_match(part.mpn.as_str()) {
-                    project.process_part_assignments.entry(part.clone())
+                    project.part_states.entry(part.clone())
                         .and_modify(|v| {
 
-                            let should_change = match v {
+                            let should_change = match &v.process {
                                 ProcessAssignment::Unassigned => true,
                                 ProcessAssignment::Assigned(current_process) => current_process != &process,
                             };
 
                             if should_change {
-                                info!("changing process. part: {:?}, old_process: {:?}, new_process: {:?}", part, v, process);
-                                *v = ProcessAssignment::Assigned(process.clone())
+                                info!("changing process. part: {:?}, old_process: {:?}, new_process: {:?}", part, v.process, process);
+                                v.process = ProcessAssignment::Assigned(process.clone())
                             }
                         });
                 }
