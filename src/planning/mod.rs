@@ -9,11 +9,19 @@ use crate::pnp::part::Part;
 #[serde(rename_all = "snake_case")]
 pub struct Project {
     pub name: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub unit_assignments: Vec<UnitAssignment>,
     pub processes: Vec<Process>,
 
     #[serde_as(as = "Vec<(_, _)>")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default)]
     pub process_part_assignments: BTreeMap<Part, ProcessAssignment>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub phases: Vec<Phase>,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -33,18 +41,27 @@ pub enum ProcessAssignment {
 }
 
 impl Project {
-    pub fn add_assignment(&mut self, unit_assignment: UnitAssignment) {
-        // TODO check to see if assignment already exists
-        self.unit_assignments.push(unit_assignment)
-    }
-}
-
-impl Project {
     pub fn new(name: String) -> Self {
         Self {
             name,
             ..Self::default()
         }
+    }
+
+    pub fn add_assignment(&mut self, unit_assignment: UnitAssignment) -> anyhow::Result<()> {
+        // TODO check to see if assignment already exists
+        self.unit_assignments.push(unit_assignment);
+        
+        Ok(())
+    }
+
+    pub fn add_phase(&mut self, reference: Reference, process: Process) -> anyhow::Result<()> {
+        let phase = Phase { reference, process };
+
+        // TODO check to see if phase already exists
+        self.phases.push(phase);
+        
+        Ok(())
     }
 }
 
@@ -55,10 +72,16 @@ impl Default for Project {
             unit_assignments: vec![],
             processes: vec![Process::Pnp],
             process_part_assignments: Default::default(),
+            phases: vec![],
         }
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct Phase {
+    reference: Reference,
+    process: Process,
+}
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct UnitAssignment {
@@ -75,6 +98,9 @@ pub struct VariantName(String);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct UnitPath(String);
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct Reference(String);
 
 impl FromStr for DesignName {
     type Err = String;
@@ -100,6 +126,14 @@ impl FromStr for UnitPath {
     }
 }
 
+impl FromStr for Reference {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Reference(s.to_string()))
+    }
+}
+
 impl Display for DesignName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
@@ -113,6 +147,12 @@ impl Display for VariantName {
 }
 
 impl Display for UnitPath {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl Display for Reference {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }

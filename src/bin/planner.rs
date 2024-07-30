@@ -8,7 +8,7 @@ use tracing::{debug, info, trace};
 use makerpnp::cli;
 pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, Process, ProcessAssignment, Project, UnitAssignment, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, Process, ProcessAssignment, Project, Reference, UnitAssignment, UnitPath, VariantName};
 use makerpnp::pnp::part::Part;
 
 #[derive(Parser)]
@@ -78,7 +78,17 @@ enum Command {
         /// Manufacturer part number (regexp)
         #[arg(long, require_equals = true)]
         mpn: Regex,
-    }
+    },
+    /// Create a phase
+    CreatePhase {
+        /// Process name
+        #[arg(long, require_equals = true)]
+        process: ProcessArg,
+        
+        /// Reference
+        #[arg(long, require_equals = true)]
+        reference: Reference,
+    },
 }
 
 
@@ -103,7 +113,7 @@ fn main() -> anyhow::Result<()>{
                 unit_path: unit.clone(),
                 design_name: design.clone(),
                 variant_name: variant.clone(),
-            });
+            })?;
 
             let unique_design_variants = build_unique_design_variants(&mut project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
@@ -131,7 +141,18 @@ fn main() -> anyhow::Result<()>{
             project_update_assignments(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
 
             project_save(&project, &project_file_path)?;
-        }
+        },
+        Command::CreatePhase { process: process_arg, reference } => {
+            let mut project = project_load(&project_file_path)?;
+
+            let process: Process = process_arg.into();
+            
+            project.add_phase(reference.clone(), process.clone())?;
+
+            info!("Created phase. reference: '{}', process: {:?}", reference, process);
+            
+            project_save(&project, &project_file_path)?;
+        },
     }
 
     Ok(())

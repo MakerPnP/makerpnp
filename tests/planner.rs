@@ -101,11 +101,9 @@ mod operation_sequence_1 {
         let expected_project_content = indoc! {r#"
             {
                 "name": "job1",
-                "unit_assignments": [],
                 "processes": [
                     "pnp"
-                ],
-                "process_part_assignments": []
+                ]
             }
         "#};
 
@@ -135,10 +133,10 @@ mod operation_sequence_1 {
         ]);
 
         // and
-        let job_status_content: String = read_to_string(ctx.test_project_path.clone())?;
-        println!("{}", job_status_content);
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
 
-        assert_eq!(job_status_content, expected_project_content);
+        assert_eq!(project_content, expected_project_content);
 
         Ok(())
     }
@@ -235,10 +233,10 @@ mod operation_sequence_1 {
         ]);
 
         // and
-        let job_status_content: String = read_to_string(ctx.test_project_path.clone())?;
-        println!("{}", job_status_content);
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
 
-        assert_eq!(job_status_content, expected_project_content);
+        assert_eq!(project_content, expected_project_content);
 
         Ok(())
     }
@@ -328,18 +326,113 @@ mod operation_sequence_1 {
         ]);
 
         // and
-        let job_status_content: String = read_to_string(ctx.test_project_path.clone())?;
-        println!("{}", job_status_content);
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
 
-        assert_eq!(job_status_content, expected_project_content);
+        assert_eq!(project_content, expected_project_content);
 
         Ok(())
     }
 
+    #[test]
+    fn sequence_4_create_phase() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::aquire(4);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = indoc! {r#"
+            {
+                "name": "job1",
+                "unit_assignments": [
+                    {
+                        "unit_path": "panel:1:unit:1",
+                        "design_name": "design_a",
+                        "variant_name": "variant_a"
+                    }
+                ],
+                "processes": [
+                    "pnp"
+                ],
+                "process_part_assignments": [
+                    [
+                        {
+                            "manufacturer": "CONN_MFR1",
+                            "mpn": "CONN1"
+                        },
+                        {
+                            "assigned": "pnp"
+                        }
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR1",
+                            "mpn": "RES1"
+                        },
+                        {
+                            "assigned": "pnp"
+                        }
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR2",
+                            "mpn": "RES2"
+                        },
+                        {
+                            "assigned": "pnp"
+                        }
+                    ]
+                ],
+                "phases": [
+                    {
+                        "reference": "top_1",
+                        "process": "pnp"
+                    }
+                ]
+            }
+        "#};
+
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.name_arg.as_str(),
+            "create-phase",
+            "--reference=top_1",
+            "--process=pnp"
+        ];
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "Created phase. reference: 'top_1', process: Pnp",
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
 
     #[test]
-    fn sequence_4_cleanup() {
-        let mut ctx_guard = context::aquire(4);
+    fn sequence_5_cleanup() {
+        let mut ctx_guard = context::aquire(5);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -365,6 +458,7 @@ mod help {
               create                   Create a new job
               assign-variant-to-unit   Assign a design variant to a PCB unit
               assign-process-to-parts  Assign process to parts
+              create-phase             Create a phase
               help                     Print this message or the help of the given subcommand(s)
 
             Options:
@@ -462,4 +556,32 @@ mod help {
             .stderr(print("stderr"))
             .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
+
+    #[test]
+    fn help_for_create_phase() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Create a phase
+
+            Usage: planner --name=<NAME> create-phase --process=<PROCESS> --reference=<REFERENCE>
+
+            Options:
+                  --process=<PROCESS>      Process name [possible values: pnp]
+                  --reference=<REFERENCE>  Reference
+              -h, --help                   Print help
+        "};
+
+        // when
+        cmd.args(["create-phase", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+
 }
