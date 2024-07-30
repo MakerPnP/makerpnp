@@ -8,7 +8,7 @@ use tracing::{debug, info, trace};
 use makerpnp::cli;
 pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, Process, ProcessAssignment, Project, Reference, UnitAssignment, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, Process, ProcessAssignment, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::part::Part;
 
 #[derive(Parser)]
@@ -109,31 +109,22 @@ fn main() -> anyhow::Result<()>{
         },
         Command::AssignVariantToUnit { design, variant, unit } => {
             let mut project = project_load(&project_file_path)?;
-            project.add_assignment(UnitAssignment {
-                unit_path: unit.clone(),
-                design_name: design.clone(),
-                variant_name: variant.clone(),
-            })?;
+            
+            project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
 
-            let unique_design_variants = build_unique_design_variants(&mut project);
+            let unique_design_variants = build_unique_design_variants(&project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
 
             project_refresh_assignments(&mut project, all_parts.as_slice());
 
             project_save(&project, &project_file_path)?;
-
-            info!("Assignment created. unit: {}, design: {}, variant: {}",
-                unit,
-                design,
-                variant,
-            );
         },
         Command::AssignProcessToParts { process: process_arg, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
             let mut project = project_load(&project_file_path)?;
 
             let process: Process = process_arg.into();
 
-            let unique_design_variants = build_unique_design_variants(&mut project);
+            let unique_design_variants = build_unique_design_variants(&project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
 
             project_refresh_assignments(&mut project, all_parts.as_slice());
@@ -234,11 +225,10 @@ fn project_update_assignments(project: &mut Project, all_parts: &[Part], process
     }
 }
 
-fn build_unique_design_variants(project: &Project) -> Vec<(DesignName, VariantName)> {
-    let unique_design_variants: Vec<(DesignName, VariantName)> = project.unit_assignments.iter().fold(vec![], |mut acc, item| {
-        let design_variant = (item.design_name.clone(), item.variant_name.clone());
-        if !acc.contains(&design_variant) {
-            acc.push(design_variant)
+fn build_unique_design_variants(project: &Project) -> Vec<DesignVariant> {
+    let unique_design_variants: Vec<DesignVariant> = project.unit_assignments.iter().fold(vec![], |mut acc, (_path, design_variant)| {
+        if !acc.contains(design_variant) {
+            acc.push(design_variant.clone())
         }
 
         acc
@@ -247,10 +237,10 @@ fn build_unique_design_variants(project: &Project) -> Vec<(DesignName, VariantNa
     unique_design_variants
 }
 
-fn load_all_parts(unique_design_variants: &[(DesignName, VariantName)], path: &PathBuf) -> anyhow::Result<Vec<Part>> {
+fn load_all_parts(unique_design_variants: &[DesignVariant], path: &PathBuf) -> anyhow::Result<Vec<Part>> {
     let mut all_parts: Vec<Part> = vec![];
 
-    for (design, variant) in unique_design_variants {
+    for DesignVariant { design_name: design, variant_name: variant } in unique_design_variants {
         let mut placements_path = PathBuf::from(path);
         placements_path.push(format!("{}_{}_placements.csv", design, variant) );
 
@@ -270,8 +260,6 @@ fn load_all_parts(unique_design_variants: &[(DesignName, VariantName)], path: &P
 }
 
 fn build_project_file_path(name: &str, path: &PathBuf) -> PathBuf {
-    let name = name;
-
     let mut project_file_path: PathBuf = path.clone();
     project_file_path.push(format!("project-{}.mpnp.json", name));
     project_file_path

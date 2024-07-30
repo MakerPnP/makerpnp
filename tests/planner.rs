@@ -170,11 +170,13 @@ mod operation_sequence_1 {
             {
                 "name": "job1",
                 "unit_assignments": [
-                    {
-                        "unit_path": "panel:1:unit:1",
-                        "design_name": "design_a",
-                        "variant_name": "variant_a"
-                    }
+                    [
+                        "panel:1:unit:1",
+                        {
+                            "design_name": "design_a",
+                            "variant_name": "variant_a"
+                        }
+                    ]
                 ],
                 "processes": [
                     "pnp"
@@ -229,7 +231,7 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Assignment created. unit: panel:1:unit:1, design: design_a, variant: variant_a\n",
+            "Unit assignment added. unit: panel:1:unit:1, design_variant: design_a-variant_a\n",
         ]);
 
         // and
@@ -255,11 +257,13 @@ mod operation_sequence_1 {
             {
                 "name": "job1",
                 "unit_assignments": [
-                    {
-                        "unit_path": "panel:1:unit:1",
-                        "design_name": "design_a",
-                        "variant_name": "variant_a"
-                    }
+                    [
+                        "panel:1:unit:1",
+                        {
+                            "design_name": "design_a",
+                            "variant_name": "variant_a"
+                        }
+                    ]
                 ],
                 "processes": [
                     "pnp"
@@ -348,11 +352,13 @@ mod operation_sequence_1 {
             {
                 "name": "job1",
                 "unit_assignments": [
-                    {
-                        "unit_path": "panel:1:unit:1",
-                        "design_name": "design_a",
-                        "variant_name": "variant_a"
-                    }
+                    [
+                        "panel:1:unit:1",
+                        {
+                            "design_name": "design_a",
+                            "variant_name": "variant_a"
+                        }
+                    ]
                 ],
                 "processes": [
                     "pnp"

@@ -1,7 +1,9 @@
 use std::collections::{BTreeMap};
+use std::collections::btree_map::Entry;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use serde_with::serde_as;
+use tracing::trace;
 use crate::pnp::part::Part;
 
 #[serde_as]
@@ -9,9 +11,11 @@ use crate::pnp::part::Part;
 #[serde(rename_all = "snake_case")]
 pub struct Project {
     pub name: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+
+    #[serde_as(as = "Vec<(_, _)>")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    pub unit_assignments: Vec<UnitAssignment>,
+    pub unit_assignments: BTreeMap<UnitPath, DesignVariant>,
     pub processes: Vec<Process>,
 
     #[serde_as(as = "Vec<(_, _)>")]
@@ -48,9 +52,18 @@ impl Project {
         }
     }
 
-    pub fn add_assignment(&mut self, unit_assignment: UnitAssignment) -> anyhow::Result<()> {
-        // TODO check to see if assignment already exists
-        self.unit_assignments.push(unit_assignment);
+
+    pub fn update_assignment(&mut self, unit_path: UnitPath, design_variant: DesignVariant) -> anyhow::Result<()> {
+        match self.unit_assignments.entry(unit_path.clone()) {
+            Entry::Vacant(entry) => {
+                entry.insert(design_variant.clone());
+                trace!("Unit assignment added. unit: {}, design_variant: {}", unit_path, design_variant )
+            }
+            Entry::Occupied(mut entry) => { 
+                let old_value = entry.insert(design_variant.clone());
+                trace!("Unit assignment updated. unit: {}, old: {}, new: {}", unit_path, old_value, design_variant )
+            }
+        }         
         
         Ok(())
     }
@@ -69,7 +82,7 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             name: "Unnamed".to_string(),
-            unit_assignments: vec![],
+            unit_assignments: Default::default(),
             processes: vec![Process::Pnp],
             process_part_assignments: Default::default(),
             phases: vec![],
@@ -83,9 +96,8 @@ pub struct Phase {
     process: Process,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub struct UnitAssignment {
-    pub unit_path: UnitPath,
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct DesignVariant {
     pub design_name: DesignName,
     pub variant_name: VariantName,
 }
@@ -96,7 +108,7 @@ pub struct DesignName(String);
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct VariantName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnitPath(String);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -156,4 +168,11 @@ impl Display for Reference {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }
+}
+
+impl Display for DesignVariant {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}-{}", self.design_name, self.variant_name)
+    }
+    
 }
