@@ -1,14 +1,14 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::{PathBuf};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 use makerpnp::cli;
 pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PartState, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PartState, PcbSide, Process, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::part::Part;
 
 #[derive(Parser)]
@@ -79,9 +79,28 @@ enum Command {
         /// Load-out name
         #[arg(long, require_equals = true)]
         load_out: Option<LoadOutName>,
+        
+        /// PCB side
+        #[arg(long, require_equals = true)]
+        pcb_side: PcbSideArg,
     },
 }
 
+#[derive(ValueEnum, Clone)]
+#[value(rename_all = "lower")]
+enum PcbSideArg {
+    Top,
+    Bottom,
+}
+
+impl From<PcbSideArg> for PcbSide {
+    fn from(value: PcbSideArg) -> Self {
+        match value {
+            PcbSideArg::Top => Self::Top,
+            PcbSideArg::Bottom => Self::Bottom,
+        }
+    }
+}
 // FUTURE consider merging the AssignProcessToParts and AssignLoadOutToParts commands
 //        consider making a group for the criteria args (manufacturer/mpn/etc).
 
@@ -127,10 +146,12 @@ fn main() -> anyhow::Result<()>{
 
             project_save(&project, &project_file_path)?;
         },
-        Command::CreatePhase { process, reference, load_out } => {
+        Command::CreatePhase { process, reference, load_out , pcb_side: pcb_side_arg } => {
             let mut project = project_load(&project_file_path)?;
 
-            project.update_phase(reference, process, load_out)?;
+            let pcb_side = pcb_side_arg.into();
+            
+            project.update_phase(reference, process, load_out, pcb_side)?;
 
             project_save(&project, &project_file_path)?;
         },

@@ -61,11 +61,11 @@ impl Project {
         Ok(())
     }
 
-    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: Option<LoadOutName>) -> anyhow::Result<()> {
+    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: Option<LoadOutName>, pcb_side: PcbSide) -> anyhow::Result<()> {
 
         match self.phases.entry(reference.clone()) {
             Entry::Vacant(entry) => {
-                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone() };
+                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone() };
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
             }
@@ -104,12 +104,22 @@ pub struct Phase {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     load_out: Option<LoadOutName>,
+    
+    // TODO consider adding PCB unit + SIDE assignments to the phase instead of just a single side
+    pcb_side: PcbSide,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct DesignVariant {
     pub design_name: DesignName,
     pub variant_name: VariantName,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum PcbSide {
+    Top,
+    Bottom,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]

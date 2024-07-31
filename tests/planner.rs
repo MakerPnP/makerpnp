@@ -414,7 +414,8 @@ mod operation_sequence_1 {
                         {
                             "reference": "top_1",
                             "process": "pnp",
-                            "load_out": "load_out_1"
+                            "load_out": "load_out_1",
+                            "pcb_side": "top"
                         }
                     ]
                 ]
@@ -430,6 +431,7 @@ mod operation_sequence_1 {
             "--reference=top_1",
             "--process=pnp",
             "--load-out=load_out_1",
+            "--pcb-side=top",
         ];
 
         // when
@@ -593,12 +595,13 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner --name=<NAME> create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE>
+            Usage: planner --name=<NAME> create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE> --pcb-side=<PCB_SIDE>
 
             Options:
                   --process=<PROCESS>      Process name
                   --reference=<REFERENCE>  Reference
                   --load-out=<LOAD_OUT>    Load-out name
+                  --pcb-side=<PCB_SIDE>    PCB side [possible values: top, bottom]
               -h, --help                   Print help
         "};
 
