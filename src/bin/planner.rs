@@ -117,19 +117,19 @@ fn main() -> anyhow::Result<()>{
             let mut project = project_load(&project_file_path)?;
 
             // TODO validate that process is a process used by the project
-            
+
             let unique_design_variants = build_unique_design_variants(&project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
 
             project_refresh_parts(&mut project, all_parts.as_slice());
 
-            project_update_assignments(&mut project, all_parts.as_slice(), Some(process), manufacturer_pattern, mpn_pattern);
+            project_update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
 
             project_save(&project, &project_file_path)?;
         },
         Command::CreatePhase { process, reference, load_out } => {
             let mut project = project_load(&project_file_path)?;
-            
+
             project.update_phase(reference, process, load_out)?;
 
             project_save(&project, &project_file_path)?;
@@ -185,7 +185,8 @@ fn find_part_changes(project: &mut Project, all_parts: &[Part]) -> Vec<(Change, 
     changes
 }
 
-fn project_update_assignments(project: &mut Project, all_parts: &[Part], process: Option<Process>, manufacturer_pattern: Regex, mpn_pattern: Regex) {
+// TODO currently only supports adding a process, add support for removing a process too.
+fn project_update_applicable_processes(project: &mut Project, all_parts: &[Part], process: Process, manufacturer_pattern: Regex, mpn_pattern: Regex) {
 
     let changes = find_part_changes(project, all_parts);
 
@@ -195,14 +196,11 @@ fn project_update_assignments(project: &mut Project, all_parts: &[Part], process
                 if manufacturer_pattern.is_match(part.manufacturer.as_str()) && mpn_pattern.is_match(part.mpn.as_str()) {
                     project.part_states.entry(part.clone())
                         .and_modify(|v| {
-                            
-                            if let Some(process) = &process {
-                                
-                                let inserted = v.applicable_processes.insert(process.clone());
 
-                                if inserted {
-                                    info!("Added process. part: {:?}, applicable_processes: {:?}", part, v.applicable_processes);
-                                }
+                            let inserted = v.applicable_processes.insert(process.clone());
+
+                            if inserted {
+                                info!("Added process. part: {:?}, applicable_processes: {:?}", part, v.applicable_processes);
                             }
                         });
                 }
