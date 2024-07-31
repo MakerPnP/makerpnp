@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
@@ -29,43 +29,12 @@ pub struct Project {
     pub phases: BTreeMap<Reference, Phase>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default)]
 #[derive(PartialEq, Eq)]
 pub struct PartState {
-    pub process: ProcessAssignment,
-    pub load_out: LoadOutAssignment,
-}
-
-impl Default for PartState {
-    fn default() -> Self {
-        Self {
-            process: ProcessAssignment::Unassigned,
-            load_out: LoadOutAssignment::Unassigned,
-        }
-    }
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialOrd, Ord)]
-#[derive(PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum Process {
-    Pnp
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-#[derive(PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ProcessAssignment {
-    Unassigned,
-    Assigned(Process),
-}
-
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-#[derive(PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum LoadOutAssignment {
-    Unassigned,
-    Assigned(LoadOutName),
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    #[serde(default)]
+    pub applicable_processes: BTreeSet<Process>,
 }
 
 impl Project {
@@ -98,7 +67,7 @@ impl Project {
             Entry::Vacant(entry) => {
                 let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone() };
                 entry.insert(phase);
-                info!("Created phase. reference: '{}', process: {:?}, load_out: {:?}", reference, process, load_out);
+                info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
             }
             Entry::Occupied(mut entry) => {
                 let existing_phase = entry.get_mut();
@@ -120,7 +89,7 @@ impl Default for Project {
         Self {
             name: "Unnamed".to_string(),
             unit_assignments: Default::default(),
-            processes: vec![Process::Pnp],
+            processes: vec![Process("pnp".to_string()), Process("manual".to_string())],
             part_states: Default::default(),
             phases: Default::default(),
         }
@@ -157,6 +126,9 @@ pub struct UnitPath(String);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Reference(String);
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Process(String);
 
 impl FromStr for LoadOutName {
     type Err = String;
@@ -198,11 +170,20 @@ impl FromStr for Reference {
     }
 }
 
+impl FromStr for Process {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Process(s.to_string()))
+    }
+}
+
 impl Display for LoadOutName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }
 }
+
 impl Display for DesignName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
@@ -222,6 +203,12 @@ impl Display for UnitPath {
 }
 
 impl Display for Reference {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl Display for Process {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }

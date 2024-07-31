@@ -102,7 +102,8 @@ mod operation_sequence_1 {
             {
                 "name": "job1",
                 "processes": [
-                    "pnp"
+                    "pnp",
+                    "manual"
                 ]
             }
         "#};
@@ -179,7 +180,8 @@ mod operation_sequence_1 {
                     ]
                 ],
                 "processes": [
-                    "pnp"
+                    "pnp",
+                    "manual"
                 ],
                 "part_states": [
                     [
@@ -187,30 +189,21 @@ mod operation_sequence_1 {
                             "manufacturer": "CONN_MFR1",
                             "mpn": "CONN1"
                         },
-                        {
-                            "process": "unassigned",
-                            "load_out": "unassigned"
-                        }
+                        {}
                     ],
                     [
                         {
                             "manufacturer": "RES_MFR1",
                             "mpn": "RES1"
                         },
-                        {
-                            "process": "unassigned",
-                            "load_out": "unassigned"
-                        }
+                        {}
                     ],
                     [
                         {
                             "manufacturer": "RES_MFR2",
                             "mpn": "RES2"
                         },
-                        {
-                            "process": "unassigned",
-                            "load_out": "unassigned"
-                        }
+                        {}
                     ]
                 ]
             }
@@ -275,7 +268,8 @@ mod operation_sequence_1 {
                     ]
                 ],
                 "processes": [
-                    "pnp"
+                    "pnp",
+                    "manual"
                 ],
                 "part_states": [
                     [
@@ -284,10 +278,9 @@ mod operation_sequence_1 {
                             "mpn": "CONN1"
                         },
                         {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": "unassigned"
+                            "applicable_processes": [
+                                "pnp"
+                            ]
                         }
                     ],
                     [
@@ -296,10 +289,9 @@ mod operation_sequence_1 {
                             "mpn": "RES1"
                         },
                         {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": "unassigned"
+                            "applicable_processes": [
+                                "pnp"
+                            ]
                         }
                     ],
                     [
@@ -308,10 +300,9 @@ mod operation_sequence_1 {
                             "mpn": "RES2"
                         },
                         {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": "unassigned"
+                            "applicable_processes": [
+                                "pnp"
+                            ]
                         }
                     ]
                 ]
@@ -342,9 +333,9 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Changing process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, old: Unassigned, new: Pnp",
-            "Changing process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, old: Unassigned, new: Pnp",
-            "Changing process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, old: Unassigned, new: Pnp",
+            "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: {Process(\"pnp\")}",
+            "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: {Process(\"pnp\")}",
+            "Added process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, applicable_processes: {Process(\"pnp\")}",
         ]);
 
         // and
@@ -379,7 +370,8 @@ mod operation_sequence_1 {
                     ]
                 ],
                 "processes": [
-                    "pnp"
+                    "pnp",
+                    "manual"
                 ],
                 "part_states": [
                     [
@@ -388,10 +380,9 @@ mod operation_sequence_1 {
                             "mpn": "CONN1"
                         },
                         {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": "unassigned"
+                            "applicable_processes": [
+                                "pnp"
+                            ]
                         }
                     ],
                     [
@@ -400,10 +391,9 @@ mod operation_sequence_1 {
                             "mpn": "RES1"
                         },
                         {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": "unassigned"
+                            "applicable_processes": [
+                                "pnp"
+                            ]
                         }
                     ],
                     [
@@ -412,10 +402,9 @@ mod operation_sequence_1 {
                             "mpn": "RES2"
                         },
                         {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": "unassigned"
+                            "applicable_processes": [
+                                "pnp"
+                            ]
                         }
                     ]
                 ],
@@ -456,7 +445,7 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Created phase. reference: 'top_1', process: Pnp",
+            "Created phase. reference: 'top_1', process: pnp",
         ]);
 
         // and
@@ -468,135 +457,9 @@ mod operation_sequence_1 {
         Ok(())
     }
 
-    #[test]
-    fn sequence_5_assign_load_out_to_parts() -> Result<(), anyhow::Error> {
-        // given
-        let mut ctx_guard = context::aquire(5);
-        let ctx = ctx_guard.1.as_mut().unwrap();
-
-        // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
-
-        // and
-        let expected_project_content = indoc! {r#"
-            {
-                "name": "job1",
-                "unit_assignments": [
-                    [
-                        "panel:1:unit:1",
-                        {
-                            "design_name": "design_a",
-                            "variant_name": "variant_a"
-                        }
-                    ]
-                ],
-                "processes": [
-                    "pnp"
-                ],
-                "part_states": [
-                    [
-                        {
-                            "manufacturer": "CONN_MFR1",
-                            "mpn": "CONN1"
-                        },
-                        {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": {
-                                "assigned": "load_out_1"
-                            }
-                        }
-                    ],
-                    [
-                        {
-                            "manufacturer": "RES_MFR1",
-                            "mpn": "RES1"
-                        },
-                        {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": {
-                                "assigned": "load_out_1"
-                            }
-                        }
-                    ],
-                    [
-                        {
-                            "manufacturer": "RES_MFR2",
-                            "mpn": "RES2"
-                        },
-                        {
-                            "process": {
-                                "assigned": "pnp"
-                            },
-                            "load_out": {
-                                "assigned": "load_out_1"
-                            }
-                        }
-                    ]
-                ],
-                "phases": [
-                    [
-                        "top_1",
-                        {
-                            "reference": "top_1",
-                            "process": "pnp",
-                            "load_out": "load_out_1"
-                        }
-                    ]
-                ]
-            }
-        "#};
-
-        // and
-        let args = [
-            ctx.trace_log_arg.as_str(),
-            ctx.path_arg.as_str(),
-            ctx.name_arg.as_str(),
-            "assign-load-out-to-parts",
-            "--load-out=load_out_1",
-
-            "--manufacturer=.*",
-            "--mpn=.*",
-
-            // TODO add other ways of assigning
-            //      * design-variant-refdes
-            //      * smt/through-hole
-            //      * pattern
-            //      * package
-        ];
-
-        // when
-        cmd.args(args)
-            // then
-            .assert()
-            .success()
-            .stderr(print("stderr"))
-            .stdout(print("stdout"));
-
-        // and
-        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
-        println!("{}", trace_content);
-
-        assert_contains_inorder!(trace_content, [
-            "Changing load-out. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, old: Unassigned, new: LoadOutName(\"load_out_1\")",
-            "Changing load-out. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, old: Unassigned, new: LoadOutName(\"load_out_1\")",
-            "Changing load-out. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, old: Unassigned, new: LoadOutName(\"load_out_1\")",
-        ]);
-
-        // and
-        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
-        println!("{}", project_content);
-
-        assert_eq!(project_content, expected_project_content);
-
-        Ok(())
-    }
     #[test]
     fn sequence_6_cleanup() {
-        let mut ctx_guard = context::aquire(6);
+        let mut ctx_guard = context::aquire(5);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -619,12 +482,11 @@ mod help {
             Usage: planner [OPTIONS] --name=<NAME> [COMMAND]
 
             Commands:
-              create                    Create a new job
-              assign-variant-to-unit    Assign a design variant to a PCB unit
-              assign-process-to-parts   Assign a process to parts
-              create-phase              Create a phase
-              assign-load-out-to-parts  Assign a load-out to parts
-              help                      Print this message or the help of the given subcommand(s)
+              create                   Create a new job
+              assign-variant-to-unit   Assign a design variant to a PCB unit
+              assign-process-to-parts  Assign a process to parts
+              create-phase             Create a phase
+              help                     Print this message or the help of the given subcommand(s)
 
             Options:
                   --trace[=<TRACE>]  Trace log file
@@ -707,7 +569,7 @@ mod help {
             Usage: planner --name=<NAME> assign-process-to-parts --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
 
             Options:
-                  --process=<PROCESS>            Process name [possible values: pnp]
+                  --process=<PROCESS>            Process name
                   --manufacturer=<MANUFACTURER>  Manufacturer pattern (regexp)
                   --mpn=<MPN>                    Manufacturer part number (regexp)
               -h, --help                         Print help
@@ -715,33 +577,6 @@ mod help {
 
         // when
         cmd.args(["assign-process-to-parts", "--help"])
-            // then
-            .assert()
-            .success()
-            .stderr(print("stderr"))
-            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
-    }
-
-    #[test]
-    fn help_for_assign_load_out_to_parts() {
-        // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
-
-        // and
-        let expected_output = indoc! {"
-            Assign a load-out to parts
-
-            Usage: planner --name=<NAME> assign-load-out-to-parts --load-out=<LOAD_OUT> --manufacturer=<MANUFACTURER> --mpn=<MPN>
-
-            Options:
-                  --load-out=<LOAD_OUT>          Load-out name
-                  --manufacturer=<MANUFACTURER>  Manufacturer pattern (regexp)
-                  --mpn=<MPN>                    Manufacturer part number (regexp)
-              -h, --help                         Print help
-        "};
-
-        // when
-        cmd.args(["assign-load-out-to-parts", "--help"])
             // then
             .assert()
             .success()
@@ -761,7 +596,7 @@ mod help {
             Usage: planner --name=<NAME> create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE>
 
             Options:
-                  --process=<PROCESS>      Process name [possible values: pnp]
+                  --process=<PROCESS>      Process name
                   --reference=<REFERENCE>  Reference
                   --load-out=<LOAD_OUT>    Load-out name
               -h, --help                   Print help

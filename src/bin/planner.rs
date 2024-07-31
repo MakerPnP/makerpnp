@@ -1,14 +1,14 @@
 use std::fs::File;
 use std::io::Write;
 use std::path::{PathBuf};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, trace};
 use makerpnp::cli;
 pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutAssignment, LoadOutName, PartState, Process, ProcessAssignment, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PartState, Process, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::part::Part;
 
 #[derive(Parser)]
@@ -30,19 +30,6 @@ struct Opts {
     /// Job name
     #[arg(long, require_equals = true)]
     name: String,
-}
-
-#[derive(Clone, ValueEnum)]
-enum ProcessArg {
-    Pnp,
-}
-
-impl From<ProcessArg> for Process {
-    fn from(value: ProcessArg) -> Self {
-        match value {
-            ProcessArg::Pnp => Process::Pnp
-        }
-    }
 }
 
 #[derive(Subcommand)]
@@ -69,7 +56,7 @@ enum Command {
     AssignProcessToParts {
         /// Process name
         #[arg(long, require_equals = true)]
-        process: ProcessArg,
+        process: Process,
 
         /// Manufacturer pattern (regexp)
         #[arg(long, require_equals = true)]
@@ -83,7 +70,7 @@ enum Command {
     CreatePhase {
         /// Process name
         #[arg(long, require_equals = true)]
-        process: ProcessArg,
+        process: Process,
         
         /// Reference
         #[arg(long, require_equals = true)]
@@ -93,20 +80,6 @@ enum Command {
         #[arg(long, require_equals = true)]
         load_out: Option<LoadOutName>,
     },
-    /// Assign a load-out to parts
-    AssignLoadOutToParts {
-        /// Load-out name
-        #[arg(long, require_equals = true)]
-        load_out: LoadOutName,
-
-        /// Manufacturer pattern (regexp)
-        #[arg(long, require_equals = true)]
-        manufacturer: Regex,
-
-        /// Manufacturer part number (regexp)
-        #[arg(long, require_equals = true)]
-        mpn: Regex,
-    }
 }
 
 // FUTURE consider merging the AssignProcessToParts and AssignLoadOutToParts commands
@@ -140,38 +113,24 @@ fn main() -> anyhow::Result<()>{
 
             project_save(&project, &project_file_path)?;
         },
-        Command::AssignProcessToParts { process: process_arg, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
+        Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
             let mut project = project_load(&project_file_path)?;
 
-            let process: Process = process_arg.into();
-
+            // TODO validate that process is a process used by the project
+            
             let unique_design_variants = build_unique_design_variants(&project);
             let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
 
             project_refresh_parts(&mut project, all_parts.as_slice());
 
-            project_update_assignments(&mut project, all_parts.as_slice(), Some(process), None, manufacturer_pattern, mpn_pattern);
+            project_update_assignments(&mut project, all_parts.as_slice(), Some(process), manufacturer_pattern, mpn_pattern);
 
             project_save(&project, &project_file_path)?;
         },
-        Command::CreatePhase { process: process_arg, reference, load_out } => {
+        Command::CreatePhase { process, reference, load_out } => {
             let mut project = project_load(&project_file_path)?;
-
-            let process: Process = process_arg.into();
             
             project.update_phase(reference, process, load_out)?;
-
-            project_save(&project, &project_file_path)?;
-        },
-        Command::AssignLoadOutToParts { load_out, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
-            let mut project = project_load(&project_file_path)?;
-
-            let unique_design_variants = build_unique_design_variants(&project);
-            let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
-
-            project_refresh_parts(&mut project, all_parts.as_slice());
-
-            project_update_assignments(&mut project, all_parts.as_slice(), None, Some(load_out), manufacturer_pattern, mpn_pattern);
 
             project_save(&project, &project_file_path)?;
         },
@@ -226,7 +185,7 @@ fn find_part_changes(project: &mut Project, all_parts: &[Part]) -> Vec<(Change, 
     changes
 }
 
-fn project_update_assignments(project: &mut Project, all_parts: &[Part], process: Option<Process>, load_out: Option<LoadOutName>, manufacturer_pattern: Regex, mpn_pattern: Regex) {
+fn project_update_assignments(project: &mut Project, all_parts: &[Part], process: Option<Process>, manufacturer_pattern: Regex, mpn_pattern: Regex) {
 
     let changes = find_part_changes(project, all_parts);
 
@@ -238,26 +197,11 @@ fn project_update_assignments(project: &mut Project, all_parts: &[Part], process
                         .and_modify(|v| {
                             
                             if let Some(process) = &process {
-                                let should_change_process = match &v.process {
-                                    ProcessAssignment::Unassigned => true,
-                                    ProcessAssignment::Assigned(current_process) => current_process != process,
-                                };
+                                
+                                let inserted = v.applicable_processes.insert(process.clone());
 
-                                if should_change_process {
-                                    info!("Changing process. part: {:?}, old: {:?}, new: {:?}", part, v.process, process);
-                                    v.process = ProcessAssignment::Assigned(process.clone())
-                                }
-                            }
-
-                            if let Some(load_out) = &load_out {
-                                let should_change_load_out = match &v.load_out {
-                                    LoadOutAssignment::Unassigned => true,
-                                    LoadOutAssignment::Assigned(current_load_out) => current_load_out != load_out,
-                                };
-
-                                if should_change_load_out {
-                                    info!("Changing load-out. part: {:?}, old: {:?}, new: {:?}", part, v.load_out, load_out);
-                                    v.load_out = LoadOutAssignment::Assigned(load_out.clone())
+                                if inserted {
+                                    info!("Added process. part: {:?}, applicable_processes: {:?}", part, v.applicable_processes);
                                 }
                             }
                         });
