@@ -1,15 +1,19 @@
+use std::collections::BTreeMap;
 use std::fs::File;
 use std::io::Write;
-use std::path::{PathBuf};
+use std::path::PathBuf;
+use std::str::FromStr;
 use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use thiserror::__private::AsDisplay;
 use tracing::{debug, info, trace};
 use makerpnp::cli;
-pub use serde_json::*;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PartState, PcbSide, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PcbSide, PhaseName, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
+use makerpnp::pnp::placement::Placement;
 
 #[derive(Parser)]
 #[command(name = "planner")]
@@ -79,11 +83,21 @@ enum Command {
         /// Load-out name
         #[arg(long, require_equals = true)]
         load_out: Option<LoadOutName>,
-        
+
         /// PCB side
         #[arg(long, require_equals = true)]
         pcb_side: PcbSideArg,
     },
+    /// Assign placements to a phase
+    AssignPlacementsToPhase {
+        /// Phase name
+        #[arg(long, require_equals = true)]
+        phase: PhaseName,
+
+        /// Placements pattern (regexp)
+        #[arg(long, require_equals = true)]
+        placements: Regex,
+    }
 }
 
 #[derive(ValueEnum, Clone)]
@@ -125,10 +139,7 @@ fn main() -> anyhow::Result<()>{
             
             project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
 
-            let unique_design_variants = build_unique_design_variants(&project);
-            let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
-
-            project_refresh_parts(&mut project, all_parts.as_slice());
+            project_refresh_from_design_variants(&mut project, &opts.path)?;
 
             project_save(&project, &project_file_path)?;
         },
@@ -137,10 +148,7 @@ fn main() -> anyhow::Result<()>{
 
             // TODO validate that process is a process used by the project
 
-            let unique_design_variants = build_unique_design_variants(&project);
-            let all_parts = load_all_parts(unique_design_variants.as_slice(), &opts.path)?;
-
-            project_refresh_parts(&mut project, all_parts.as_slice());
+            let all_parts = project_refresh_from_design_variants(&mut project, &opts.path)?;
 
             project_update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
 
@@ -150,14 +158,115 @@ fn main() -> anyhow::Result<()>{
             let mut project = project_load(&project_file_path)?;
 
             let pcb_side = pcb_side_arg.into();
-            
+
             project.update_phase(reference, process, load_out, pcb_side)?;
 
             project_save(&project, &project_file_path)?;
         },
+        Command::AssignPlacementsToPhase { phase, placements: placements_pattern } => {
+            let mut project = project_load(&project_file_path)?;
+
+            project_refresh_from_design_variants(&mut project, &opts.path)?;
+
+            for (_path, state) in project.placements.iter_mut().filter(|(path, _state)| {
+                let path_str = format!("{}", path);
+                
+                placements_pattern.is_match(&path_str)
+            }) {
+                state.phase = Some(phase.clone());
+            }
+            
+            // TODO ensure placements' side matches the phase's pcb unit's side.
+
+            project_save(&project, &project_file_path)?;
+        }
     }
 
     Ok(())
+}
+
+fn project_refresh_from_design_variants(project: &mut Project, path: &PathBuf) -> anyhow::Result<Vec<Part>> {
+    let unique_design_variants = build_unique_design_variants(project);
+    let design_variant_placement_map = load_all_placements(unique_design_variants.as_slice(), path)?;
+
+    let unique_parts = build_unique_parts(&design_variant_placement_map);
+
+    project_refresh_parts(project, unique_parts.as_slice());
+
+    project_refresh_placements(project, &design_variant_placement_map);
+
+    Ok(unique_parts)
+}
+
+fn project_refresh_placements(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) {
+    let changes: Vec<(Change, UnitPath, Placement)> = find_placement_changes(project, design_variant_placement_map);
+
+    for (change, unit_path, placement) in changes.iter() {
+        let mut path: ObjectPath = ObjectPath::from_str(&unit_path.to_string()).expect("always ok");
+        path.push("ref_des".to_string(), placement.ref_des.clone());
+
+        let placement_state_entry = project.placements.entry(path);
+
+        match (change, placement) {
+            (Change::New, placement) => {
+                debug!("new placement. placement: {:?}", placement);
+
+                let placement_state = PlacementState {
+                    unit_path: unit_path.clone(),
+                    placement: placement.clone(),
+                    placed: false,
+                    status: PlacementStatus::Known,
+                    phase: None,
+                };
+
+                placement_state_entry.or_insert(placement_state);
+            }
+            (Change::Existing, _) => {
+                placement_state_entry.and_modify(|ps| {
+                    ps.placement = placement.clone();
+                });
+            }
+            (Change::Unused, placement) => {
+                debug!("marking placement as unused. placement: {:?}", placement);
+
+                placement_state_entry.and_modify(|ps|{
+                    ps.status = PlacementStatus::Unknown;
+                });
+
+            }
+        }
+    }
+}
+
+fn find_placement_changes(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) -> Vec<(Change, UnitPath, Placement)> {
+    let mut changes: Vec<(Change, UnitPath, Placement)> = vec![];
+
+    for (design_variant, placements) in design_variant_placement_map.iter() {
+
+        for (unit_path, assignment_design_variant) in project.unit_assignments.iter() {
+            if !design_variant.eq(assignment_design_variant) {
+                continue
+            }
+
+            for placement in placements {
+                let mut path: ObjectPath = ObjectPath::from_str(&unit_path.to_string()).expect("always ok");
+                path.push("ref_des".to_string(), placement.ref_des.clone());
+
+                // look for a placement state for the placement for this object path
+
+                match project.placements.contains_key(&path) {
+                    true => changes.push((Change::Existing, unit_path.clone(), placement.clone())),
+                    false => changes.push((Change::New, unit_path.clone(), placement.clone())),
+                }
+            }
+        }
+    }
+
+    // TODO find the placements that we knew about previously, but that are no-longer in the design_variant_placement_map
+
+    info!("placement changes:\n{:?}", changes);
+
+    changes
 }
 
 #[derive(Debug)]
@@ -245,26 +354,53 @@ fn build_unique_design_variants(project: &Project) -> Vec<DesignVariant> {
     unique_design_variants
 }
 
-fn load_all_parts(unique_design_variants: &[DesignVariant], path: &PathBuf) -> anyhow::Result<Vec<Part>> {
-    let mut all_parts: Vec<Part> = vec![];
+fn load_placements(placements_path: PathBuf) -> Result<Vec<Placement>, csv::Error>{
+    let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
 
-    for DesignVariant { design_name: design, variant_name: variant } in unique_design_variants {
-        let mut placements_path = PathBuf::from(path);
-        placements_path.push(format!("{}_{}_placements.csv", design, variant) );
-
-        let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
-        for result in csv_reader.deserialize() {
-            let record: PlacementRecord = result?;
+    let records = csv_reader.deserialize().into_iter()
+        .inspect(|record| {
             trace!("{:?}", record);
+        })
+        .filter_map(|record: Result<PlacementRecord, csv::Error> | {
+            match record {
+                Ok(record) => Some(record.as_placement()),
+                _ => None
+            }
+        })
+        .collect();
 
-            let part = Part { manufacturer: record.manufacturer, mpn: record.mpn };
-            if !all_parts.contains(&part) {
-                all_parts.push(part);
+    Ok(records)
+}
+
+fn load_all_placements(unique_design_variants: &[DesignVariant], path: &PathBuf) -> anyhow::Result<BTreeMap<DesignVariant, Vec<Placement>>> {
+    let mut all_placements: BTreeMap<DesignVariant, Vec<Placement>> = Default::default();
+
+    for design_variant in unique_design_variants {
+        let DesignVariant { design_name: design, variant_name: variant } = design_variant;
+
+        let mut placements_path = PathBuf::from(path);
+        placements_path.push(format!("{}_{}_placements.csv", design, variant));
+
+        let placements = load_placements(placements_path)?;
+        let _ = all_placements.insert(design_variant.clone(), placements);
+    }
+
+    Ok(all_placements)
+}
+
+fn build_unique_parts(design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) -> Vec<Part> {
+
+    let mut unique_parts: Vec<Part> = vec![];
+    for placements in design_variant_placement_map.values() {
+
+        for record in placements {
+            if !unique_parts.contains(&record.part) {
+                unique_parts.push(record.part.clone());
             }
         }
     }
 
-    Ok(all_parts)
+    unique_parts
 }
 
 fn build_project_file_path(name: &str, path: &PathBuf) -> PathBuf {
@@ -282,8 +418,8 @@ fn project_load(project_file_path: &PathBuf) -> anyhow::Result<Project> {
 
 fn project_save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()> {
     let project_file = File::create(project_file_path)?;
-    let formatter = ser::PrettyFormatter::with_indent(b"    ");
-    let mut ser = Serializer::with_formatter(project_file, formatter);
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(project_file, formatter);
     project.serialize(&mut ser)?;
 
     let mut project_file = ser.into_inner();

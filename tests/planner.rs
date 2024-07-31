@@ -172,7 +172,7 @@ mod operation_sequence_1 {
                 "name": "job1",
                 "unit_assignments": [
                     [
-                        "panel:1:unit:1",
+                        "panel=1::unit=1",
                         {
                             "design_name": "design_a",
                             "variant_name": "variant_a"
@@ -205,6 +205,56 @@ mod operation_sequence_1 {
                         },
                         {}
                     ]
+                ],
+                "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=J1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "J1",
+                                "part": {
+                                    "manufacturer": "CONN_MFR1",
+                                    "mpn": "CONN1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R1",
+                                "part": {
+                                    "manufacturer": "RES_MFR1",
+                                    "mpn": "RES1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R2",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R2",
+                                "part": {
+                                    "manufacturer": "RES_MFR2",
+                                    "mpn": "RES2"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ]
                 ]
             }
         "#};
@@ -217,7 +267,7 @@ mod operation_sequence_1 {
             "assign-variant-to-unit",
             "--design=design_a",
             "--variant=variant_a",
-            "--unit=panel:1:unit:1",
+            "--unit=panel=1::unit=1",
         ];
 
         // when
@@ -233,7 +283,7 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Unit assignment added. unit: panel:1:unit:1, design_variant: design_a-variant_a\n",
+            "Unit assignment added. unit: 'panel=1::unit=1', design_variant: design_a-variant_a\n",
         ]);
 
         // and
@@ -260,7 +310,7 @@ mod operation_sequence_1 {
                 "name": "job1",
                 "unit_assignments": [
                     [
-                        "panel:1:unit:1",
+                        "panel=1::unit=1",
                         {
                             "design_name": "design_a",
                             "variant_name": "variant_a"
@@ -303,6 +353,56 @@ mod operation_sequence_1 {
                             "applicable_processes": [
                                 "pnp"
                             ]
+                        }
+                    ]
+                ],
+                "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=J1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "J1",
+                                "part": {
+                                    "manufacturer": "CONN_MFR1",
+                                    "mpn": "CONN1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R1",
+                                "part": {
+                                    "manufacturer": "RES_MFR1",
+                                    "mpn": "RES1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R2",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R2",
+                                "part": {
+                                    "manufacturer": "RES_MFR2",
+                                    "mpn": "RES2"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
                         }
                     ]
                 ]
@@ -362,7 +462,7 @@ mod operation_sequence_1 {
                 "name": "job1",
                 "unit_assignments": [
                     [
-                        "panel:1:unit:1",
+                        "panel=1::unit=1",
                         {
                             "design_name": "design_a",
                             "variant_name": "variant_a"
@@ -418,6 +518,56 @@ mod operation_sequence_1 {
                             "pcb_side": "top"
                         }
                     ]
+                ],
+                "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=J1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "J1",
+                                "part": {
+                                    "manufacturer": "CONN_MFR1",
+                                    "mpn": "CONN1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R1",
+                                "part": {
+                                    "manufacturer": "RES_MFR1",
+                                    "mpn": "RES1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R2",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R2",
+                                "part": {
+                                    "manufacturer": "RES_MFR2",
+                                    "mpn": "RES2"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ]
                 ]
             }
         "#};
@@ -460,8 +610,182 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_6_cleanup() {
+    fn sequence_5_assign_placements_to_phase() -> Result<(), anyhow::Error> {
+        // given
         let mut ctx_guard = context::aquire(5);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = indoc! {r#"
+            {
+                "name": "job1",
+                "unit_assignments": [
+                    [
+                        "panel=1::unit=1",
+                        {
+                            "design_name": "design_a",
+                            "variant_name": "variant_a"
+                        }
+                    ]
+                ],
+                "processes": [
+                    "pnp",
+                    "manual"
+                ],
+                "part_states": [
+                    [
+                        {
+                            "manufacturer": "CONN_MFR1",
+                            "mpn": "CONN1"
+                        },
+                        {
+                            "applicable_processes": [
+                                "pnp"
+                            ]
+                        }
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR1",
+                            "mpn": "RES1"
+                        },
+                        {
+                            "applicable_processes": [
+                                "pnp"
+                            ]
+                        }
+                    ],
+                    [
+                        {
+                            "manufacturer": "RES_MFR2",
+                            "mpn": "RES2"
+                        },
+                        {
+                            "applicable_processes": [
+                                "pnp"
+                            ]
+                        }
+                    ]
+                ],
+                "phases": [
+                    [
+                        "top_1",
+                        {
+                            "reference": "top_1",
+                            "process": "pnp",
+                            "load_out": "load_out_1",
+                            "pcb_side": "top"
+                        }
+                    ]
+                ],
+                "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=J1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "J1",
+                                "part": {
+                                    "manufacturer": "CONN_MFR1",
+                                    "mpn": "CONN1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R1",
+                                "part": {
+                                    "manufacturer": "RES_MFR1",
+                                    "mpn": "RES1"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known",
+                            "phase": "top_1"
+                        }
+                    ],
+                    [
+                        "panel=1::unit=1::ref_des=R2",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "R2",
+                                "part": {
+                                    "manufacturer": "RES_MFR2",
+                                    "mpn": "RES2"
+                                },
+                                "place": true
+                            },
+                            "placed": false,
+                            "status": "Known",
+                            "phase": "top_1"
+                        }
+                    ]
+                ]
+            }
+        "#};
+
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.name_arg.as_str(),
+            "assign-placements-to-phase",
+            "--phase=top_1",
+
+            // By placement path pattern
+            //"--placements=panel=1::unit=1::ref_des=R1"
+            "--placements=panel=1::unit=1::ref_des=R.*",
+            //"--placements=panel=1::unit=1::ref_des=J1",
+            //"--placements=panel=.*::unit=.*::ref_des=R1"
+            //"--placements=panel=1::unit=.*::ref_des=.*"
+            //"--placements=.*::ref_des=R.*"
+            //"--placements=.*",
+
+            // FUTURE By manufacturer and mpn
+            // "--manufacturer=RES_MFR.*",
+            // "--mpn=.*"
+        ];
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        // assert_contains_inorder!(trace_content, [
+        //     "TODO",
+        // ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sequence_6_cleanup() {
+        let mut ctx_guard = context::aquire(6);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -484,11 +808,12 @@ mod help {
             Usage: planner [OPTIONS] --name=<NAME> [COMMAND]
 
             Commands:
-              create                   Create a new job
-              assign-variant-to-unit   Assign a design variant to a PCB unit
-              assign-process-to-parts  Assign a process to parts
-              create-phase             Create a phase
-              help                     Print this message or the help of the given subcommand(s)
+              create                      Create a new job
+              assign-variant-to-unit      Assign a design variant to a PCB unit
+              assign-process-to-parts     Assign a process to parts
+              create-phase                Create a phase
+              assign-placements-to-phase  Assign placements to a phase
+              help                        Print this message or the help of the given subcommand(s)
 
             Options:
                   --trace[=<TRACE>]  Trace log file
@@ -607,6 +932,32 @@ mod help {
 
         // when
         cmd.args(["create-phase", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+    #[test]
+    fn help_for_assign_placements_to_phase() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Assign placements to a phase
+
+            Usage: planner --name=<NAME> assign-placements-to-phase --phase=<PHASE> --placements=<PLACEMENTS>
+
+            Options:
+                  --phase=<PHASE>            Phase name
+                  --placements=<PLACEMENTS>  Placements pattern (regexp)
+              -h, --help                     Print help
+        "};
+
+        // when
+        cmd.args(["assign-placements-to-phase", "--help"])
             // then
             .assert()
             .success()

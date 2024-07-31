@@ -1,13 +1,9 @@
-#[cfg_attr(test, derive(PartialEq, Debug))]
-#[derive(Clone)]
+use crate::pnp::part::Part;
+
+#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct Placement {
     pub ref_des: String,
-}
-
-impl Placement {
-    pub fn new(ref_des: String) -> Self {
-        Self {
-            ref_des
-        }
-    }
+    pub part: Part,
+    pub place: bool,
 }

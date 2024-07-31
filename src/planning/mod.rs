@@ -3,8 +3,11 @@ use std::collections::btree_map::Entry;
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use serde_with::serde_as;
+use serde_with::DisplayFromStr;
 use tracing::info;
+use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
+use crate::pnp::placement::Placement;
 
 #[serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
@@ -27,6 +30,11 @@ pub struct Project {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     pub phases: BTreeMap<Reference, Phase>,
+    
+    #[serde_as(as = "Vec<(DisplayFromStr, _)>")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default)]
+    pub placements: BTreeMap<ObjectPath, PlacementState>
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default)]
@@ -35,6 +43,24 @@ pub struct PartState {
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     #[serde(default)]
     pub applicable_processes: BTreeSet<Process>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PlacementState {
+    pub unit_path: UnitPath,
+    pub placement: Placement,
+    pub placed: bool,
+    pub status: PlacementStatus,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub phase: Option<PhaseName>
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub enum PlacementStatus {
+    Known,
+    Unknown,
 }
 
 impl Project {
@@ -50,11 +76,11 @@ impl Project {
         match self.unit_assignments.entry(unit_path.clone()) {
             Entry::Vacant(entry) => {
                 entry.insert(design_variant.clone());
-                info!("Unit assignment added. unit: {}, design_variant: {}", unit_path, design_variant )
+                info!("Unit assignment added. unit: '{}', design_variant: {}", unit_path, design_variant )
             }
             Entry::Occupied(mut entry) => {
                 let old_value = entry.insert(design_variant.clone());
-                info!("Unit assignment updated. unit: {}, old: {}, new: {}", unit_path, old_value, design_variant )
+                info!("Unit assignment updated. unit: '{}', old: {}, new: {}", unit_path, old_value, design_variant )
             }
         }
 
@@ -92,6 +118,7 @@ impl Default for Project {
             processes: vec![Process("pnp".to_string()), Process("manual".to_string())],
             part_states: Default::default(),
             phases: Default::default(),
+            placements: Default::default(),
         }
     }
 }
@@ -109,7 +136,7 @@ pub struct Phase {
     pcb_side: PcbSide,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DesignVariant {
     pub design_name: DesignName,
     pub variant_name: VariantName,
@@ -125,11 +152,14 @@ pub enum PcbSide {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct LoadOutName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DesignName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VariantName(String);
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PhaseName(String);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnitPath(String);
@@ -161,6 +191,14 @@ impl FromStr for VariantName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(VariantName(s.to_string()))
+    }
+}
+
+impl FromStr for PhaseName {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(PhaseName(s.to_string()))
     }
 }
 
@@ -201,6 +239,12 @@ impl Display for DesignName {
 }
 
 impl Display for VariantName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
+}
+
+impl Display for PhaseName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }
