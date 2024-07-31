@@ -174,7 +174,7 @@ fn project_refresh_parts(project: &mut Project, all_parts: &[Part]) {
         match change_item {
             (Change::New, part) => {
                 debug!("new part. part: {:?}", part);
-                let _ = project.part_states.entry(part.clone()).or_insert(PartState::default());
+                let _ = project.part_states.entry(part.clone()).or_default();
             }
             (Change::Existing, _) => {}
             (Change::Unused, part) => {
