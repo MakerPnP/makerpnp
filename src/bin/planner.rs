@@ -292,7 +292,10 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
                         }
                         None => {
                             trace!("unknown placement");
-                            changes.push((Change::Unused, unit_path.clone(), state.placement.clone()));
+                            match state.status {
+                                PlacementStatus::Unknown => (),
+                                PlacementStatus::Known => changes.push((Change::Unused, unit_path.clone(), state.placement.clone())), 
+                            }
                         }
                     }
                 }
