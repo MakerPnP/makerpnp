@@ -250,6 +250,8 @@ fn project_refresh_placements(project: &mut Project, design_variant_placement_ma
 fn find_placement_changes(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) -> Vec<(Change, UnitPath, Placement)> {
     let mut changes: Vec<(Change, UnitPath, Placement)> = vec![];
 
+    // find new or existing placements that are in the updated design_variant_placement_map
+
     for (design_variant, placements) in design_variant_placement_map.iter() {
 
         for (unit_path, assignment_design_variant) in project.unit_assignments.iter() {
@@ -271,8 +273,34 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
         }
     }
 
-    // TODO find the placements that we knew about previously, but that are no-longer in the design_variant_placement_map
+    // find the placements that we knew about previously, but that are no-longer in the design_variant_placement_map
 
+    for (path, state) in project.placements.iter_mut() {
+
+        for (unit_path, design_variant) in project.unit_assignments.iter() {
+
+            let path_str = path.to_string();
+            let unit_path_str = unit_path.to_string();
+            let is_matched_unit = path_str.starts_with(&unit_path_str);
+            trace!("path_str: {}, unit_path_str: {}, is_matched_unit: {}", path_str, unit_path_str, is_matched_unit);
+            
+            if is_matched_unit {
+               
+                if let Some(placements) = design_variant_placement_map.get(design_variant) {
+                    match placements.iter().find(|placement| placement.ref_des.eq(&state.placement.ref_des)) {
+                        Some(_) => {
+                            trace!("known placement");
+                        }
+                        None => {
+                            trace!("unknown placement");
+                            state.status = PlacementStatus::Unknown
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
     info!("placement changes:\n{:?}", changes);
 
     changes

@@ -155,7 +155,7 @@ mod operation_sequence_1 {
         let design_a_variant_a_placements_csv_content = indoc! {r#"
             "RefDes","Manufacturer","Mpn","Place","PcbSide"
             "R1","RES_MFR1","RES1","true","Top"
-            "R2","RES_MFR2","RES2","true","Top"
+            "C1","CAP_MFR1","CAP1","true","Bottom"
             "J1","CONN_MFR1","CONN1","true","Top"
         "#};
 
@@ -186,6 +186,13 @@ mod operation_sequence_1 {
                 "part_states": [
                     [
                         {
+                            "manufacturer": "CAP_MFR1",
+                            "mpn": "CAP1"
+                        },
+                        {}
+                    ],
+                    [
+                        {
                             "manufacturer": "CONN_MFR1",
                             "mpn": "CONN1"
                         },
@@ -197,16 +204,26 @@ mod operation_sequence_1 {
                             "mpn": "RES1"
                         },
                         {}
-                    ],
-                    [
-                        {
-                            "manufacturer": "RES_MFR2",
-                            "mpn": "RES2"
-                        },
-                        {}
                     ]
                 ],
                 "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=C1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "C1",
+                                "part": {
+                                    "manufacturer": "CAP_MFR1",
+                                    "mpn": "CAP1"
+                                },
+                                "place": true,
+                                "pcb_side": "bottom"
+                            },
+                            "placed": false,
+                            "status": "Known"
+                        }
+                    ],
                     [
                         "panel=1::unit=1::ref_des=J1",
                         {
@@ -233,23 +250,6 @@ mod operation_sequence_1 {
                                 "part": {
                                     "manufacturer": "RES_MFR1",
                                     "mpn": "RES1"
-                                },
-                                "place": true,
-                                "pcb_side": "top"
-                            },
-                            "placed": false,
-                            "status": "Known"
-                        }
-                    ],
-                    [
-                        "panel=1::unit=1::ref_des=R2",
-                        {
-                            "unit_path": "panel=1::unit=1",
-                            "placement": {
-                                "ref_des": "R2",
-                                "part": {
-                                    "manufacturer": "RES_MFR2",
-                                    "mpn": "RES2"
                                 },
                                 "place": true,
                                 "pcb_side": "top"
@@ -307,6 +307,20 @@ mod operation_sequence_1 {
         // and
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
 
+        let design_a_variant_a_placements_csv_content = indoc! {r#"
+            "RefDes","Manufacturer","Mpn","Place","PcbSide"
+            "R1","RES_MFR1","RES1","true","Top"
+            "R2","RES_MFR2","RES2","true","Top"
+            "J1","CONN_MFR1","CONN1","true","Top"
+        "#};
+
+        let mut placements_path = ctx.temp_dir.path().to_path_buf();
+        placements_path.push("design_a_variant_a_placements.csv");
+
+        let mut placments_file = File::create(placements_path)?;
+        placments_file.write(design_a_variant_a_placements_csv_content.as_bytes())?;
+        placments_file.flush()?;
+
         // and
         let expected_project_content = indoc! {r#"
             {
@@ -360,6 +374,23 @@ mod operation_sequence_1 {
                     ]
                 ],
                 "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=C1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "C1",
+                                "part": {
+                                    "manufacturer": "CAP_MFR1",
+                                    "mpn": "CAP1"
+                                },
+                                "place": true,
+                                "pcb_side": "bottom"
+                            },
+                            "placed": false,
+                            "status": "Unknown"
+                        }
+                    ],
                     [
                         "panel=1::unit=1::ref_des=J1",
                         {
@@ -527,6 +558,23 @@ mod operation_sequence_1 {
                 ],
                 "placements": [
                     [
+                        "panel=1::unit=1::ref_des=C1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "C1",
+                                "part": {
+                                    "manufacturer": "CAP_MFR1",
+                                    "mpn": "CAP1"
+                                },
+                                "place": true,
+                                "pcb_side": "bottom"
+                            },
+                            "placed": false,
+                            "status": "Unknown"
+                        }
+                    ],
+                    [
                         "panel=1::unit=1::ref_des=J1",
                         {
                             "unit_path": "panel=1::unit=1",
@@ -691,6 +739,23 @@ mod operation_sequence_1 {
                     ]
                 ],
                 "placements": [
+                    [
+                        "panel=1::unit=1::ref_des=C1",
+                        {
+                            "unit_path": "panel=1::unit=1",
+                            "placement": {
+                                "ref_des": "C1",
+                                "part": {
+                                    "manufacturer": "CAP_MFR1",
+                                    "mpn": "CAP1"
+                                },
+                                "place": true,
+                                "pcb_side": "bottom"
+                            },
+                            "placed": false,
+                            "status": "Unknown"
+                        }
+                    ],
                     [
                         "panel=1::unit=1::ref_des=J1",
                         {
