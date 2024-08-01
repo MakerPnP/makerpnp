@@ -1012,8 +1012,8 @@ mod help {
 
             Options:
                   --process=<PROCESS>      Process name
-                  --reference=<REFERENCE>  Reference
-                  --load-out=<LOAD_OUT>    Load-out name
+                  --reference=<REFERENCE>  Phase reference (e.g. 'top_1')
+                  --load-out=<LOAD_OUT>    Load-out name (e.g. 'load_out_1')
                   --pcb-side=<PCB_SIDE>    PCB side [possible values: top, bottom]
               -h, --help                   Print help
         "};
@@ -1039,7 +1039,7 @@ mod help {
             Usage: planner --name=<NAME> assign-placements-to-phase --phase=<PHASE> --placements=<PLACEMENTS>
 
             Options:
-                  --phase=<PHASE>            Phase name
+                  --phase=<PHASE>            Phase reference (e.g. 'top_1')
                   --placements=<PLACEMENTS>  Placements pattern (regexp)
               -h, --help                     Print help
         "};

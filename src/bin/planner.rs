@@ -3,14 +3,14 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
-use anyhow::bail;
 use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use tracing::{debug, info, trace};
 use makerpnp::cli;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PcbSide, PhaseName, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PcbSide, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
 use makerpnp::pnp::placement::Placement;
@@ -76,11 +76,11 @@ enum Command {
         #[arg(long, require_equals = true)]
         process: Process,
         
-        /// Reference
+        /// Phase reference (e.g. 'top_1')
         #[arg(long, require_equals = true)]
         reference: Reference,
         
-        /// Load-out name
+        /// Load-out name (e.g. 'load_out_1')
         #[arg(long, require_equals = true)]
         load_out: LoadOutName,
 
@@ -90,9 +90,9 @@ enum Command {
     },
     /// Assign placements to a phase
     AssignPlacementsToPhase {
-        /// Phase name
+        /// Phase reference (e.g. 'top_1')
         #[arg(long, require_equals = true)]
-        phase: PhaseName,
+        phase: Reference,
 
         /// Placements pattern (regexp)
         #[arg(long, require_equals = true)]
@@ -163,33 +163,40 @@ fn main() -> anyhow::Result<()>{
 
             project_save(&project, &project_file_path)?;
         },
-        Command::AssignPlacementsToPhase { phase: phase_name, placements: placements_pattern } => {
+        Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
             let mut project = project_load(&project_file_path)?;
 
             project_refresh_from_design_variants(&mut project, &opts.path)?;
             
-            let phase_reference= match Reference::from_str(&phase_name.to_string()) {
-                Ok(phase_reference) => phase_reference,
-                Err(_) => { bail!("invalid phase reference. phase: '{}'", phase_name) }
-            };
-            
-            let phase = match project.phases.get(&phase_reference) {
-                Some(phase) => phase,
-                None => { bail!("unknown phase. phase: '{}'", phase_reference) }
-            };
-
-            for (placement_path, state) in project.placements.iter_mut().filter(|(path, state)| {
-                let path_str = format!("{}", path);
-                
-                placements_pattern.is_match(&path_str) &&
-                   state.placement.pcb_side.eq(&phase.pcb_side) 
-            }) {
-                info!("Assigning placement to phase. phase: {}, placement_path: {}", phase_name, placement_path);
-                state.phase = Some(phase_name.clone());
-            }
+            assign_placements_to_phase(&mut project, &reference, placements_pattern)?;
 
             project_save(&project, &project_file_path)?;
         }
+    }
+
+    Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum PlacementAssignmentError {
+    #[error("Unknown phase. phase: '{0:}'")]
+    UnknownPhase(Reference)
+}
+
+fn assign_placements_to_phase(project: &mut Project, phase_reference: &Reference, placements_pattern: Regex) -> Result<(), PlacementAssignmentError> {
+    let phase = match project.phases.get(phase_reference) {
+        Some(phase) => Ok(phase),
+        None => Err(PlacementAssignmentError::UnknownPhase(phase_reference.clone())),
+    }?;
+
+    for (placement_path, state) in project.placements.iter_mut().filter(|(path, state)| {
+        let path_str = format!("{}", path);
+
+        placements_pattern.is_match(&path_str) &&
+            state.placement.pcb_side.eq(&phase.pcb_side)
+    }) {
+        info!("Assigning placement to phase. phase: {}, placement_path: {}", phase_reference, placement_path);
+        state.phase = Some(phase_reference.clone());
     }
 
     Ok(())
@@ -283,9 +290,8 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
             let unit_path_str = unit_path.to_string();
             let is_matched_unit = path_str.starts_with(&unit_path_str);
             trace!("path_str: {}, unit_path_str: {}, is_matched_unit: {}", path_str, unit_path_str, is_matched_unit);
-            
+
             if is_matched_unit {
-               
                 if let Some(placements) = design_variant_placement_map.get(design_variant) {
                     match placements.iter().find(|placement| placement.ref_des.eq(&state.placement.ref_des)) {
                         Some(_) => {
@@ -295,7 +301,7 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
                             trace!("unknown placement");
                             match state.status {
                                 PlacementStatus::Unknown => (),
-                                PlacementStatus::Known => changes.push((Change::Unused, unit_path.clone(), state.placement.clone())), 
+                                PlacementStatus::Known => changes.push((Change::Unused, unit_path.clone(), state.placement.clone())),
                             }
                         }
                     }
@@ -303,7 +309,7 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
             }
         }
     }
-    
+
     info!("placement changes:\n{:?}", changes);
 
     changes

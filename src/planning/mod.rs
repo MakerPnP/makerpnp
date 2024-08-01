@@ -54,7 +54,7 @@ pub struct PlacementState {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    pub phase: Option<PhaseName>
+    pub phase: Option<Reference>
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -156,9 +156,6 @@ pub struct DesignName(String);
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct VariantName(String);
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
-pub struct PhaseName(String);
-
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UnitPath(String);
 
@@ -189,14 +186,6 @@ impl FromStr for VariantName {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(VariantName(s.to_string()))
-    }
-}
-
-impl FromStr for PhaseName {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(PhaseName(s.to_string()))
     }
 }
 
@@ -237,12 +226,6 @@ impl Display for DesignName {
 }
 
 impl Display for VariantName {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.0.as_str())
-    }
-}
-
-impl Display for PhaseName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }
