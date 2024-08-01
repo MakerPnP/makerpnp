@@ -857,9 +857,10 @@ mod operation_sequence_1 {
         let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
-        // assert_contains_inorder!(trace_content, [
-        //     "TODO",
-        // ]);
+        assert_contains_inorder!(trace_content, [
+            "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R1",
+            "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R2",
+        ]);
 
         // and
         let project_content: String = read_to_string(ctx.test_project_path.clone())?;

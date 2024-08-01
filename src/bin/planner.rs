@@ -178,12 +178,13 @@ fn main() -> anyhow::Result<()>{
                 None => { bail!("unknown phase. phase: '{}'", phase_reference) }
             };
 
-            for (_path, state) in project.placements.iter_mut().filter(|(path, state)| {
+            for (placement_path, state) in project.placements.iter_mut().filter(|(path, state)| {
                 let path_str = format!("{}", path);
                 
                 placements_pattern.is_match(&path_str) &&
                    state.placement.pcb_side.eq(&phase.pcb_side) 
             }) {
+                info!("Assigning placement to phase. phase: {}, placement_path: {}", phase_name, placement_path);
                 state.phase = Some(phase_name.clone());
             }
 
