@@ -218,7 +218,7 @@ fn project_refresh_placements(project: &mut Project, design_variant_placement_ma
 
         match (change, placement) {
             (Change::New, placement) => {
-                debug!("new placement. placement: {:?}", placement);
+                debug!("New placement. placement: {:?}", placement);
 
                 let placement_state = PlacementState {
                     unit_path: unit_path.clone(),
@@ -236,12 +236,11 @@ fn project_refresh_placements(project: &mut Project, design_variant_placement_ma
                 });
             }
             (Change::Unused, placement) => {
-                debug!("marking placement as unused. placement: {:?}", placement);
+                debug!("Marking placement as unused. placement: {:?}", placement);
 
                 placement_state_entry.and_modify(|ps|{
                     ps.status = PlacementStatus::Unknown;
                 });
-
             }
         }
     }
@@ -293,7 +292,7 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
                         }
                         None => {
                             trace!("unknown placement");
-                            state.status = PlacementStatus::Unknown
+                            changes.push((Change::Unused, unit_path.clone(), state.placement.clone()));
                         }
                     }
                 }
@@ -319,12 +318,12 @@ fn project_refresh_parts(project: &mut Project, all_parts: &[Part]) {
     for change_item in changes.iter() {
         match change_item {
             (Change::New, part) => {
-                debug!("new part. part: {:?}", part);
+                debug!("New part. part: {:?}", part);
                 let _ = project.part_states.entry(part.clone()).or_default();
             }
             (Change::Existing, _) => {}
             (Change::Unused, part) => {
-                debug!("removing previously part. part: {:?}", part);
+                debug!("Removing previously part. part: {:?}", part);
                 let _ = project.part_states.remove(&part);
             }
         }

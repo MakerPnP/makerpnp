@@ -287,6 +287,12 @@ mod operation_sequence_1 {
 
         assert_contains_inorder!(trace_content, [
             "Unit assignment added. unit: 'panel=1::unit=1', design_variant: design_a-variant_a\n",
+            "New part. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }\n",
+            "New part. part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }\n",
+            "New part. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }\n",
+            "New placement. placement: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top }\n",
+            "New placement. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom }\n",
+            "New placement. placement: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top }\n",
         ]);
 
         // and
@@ -470,6 +476,10 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
+            "New part. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }\n",
+            "Removing previously part. part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }\n",
+            "New placement. placement: Placement { ref_des: \"R2\", part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, place: true, pcb_side: Top }\n",
+            "Marking placement as unused. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom }\n",
             "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: {Process(\"pnp\")}",
             "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: {Process(\"pnp\")}",
             "Added process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, applicable_processes: {Process(\"pnp\")}",
