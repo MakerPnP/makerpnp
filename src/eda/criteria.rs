@@ -55,6 +55,7 @@ mod exact_match_critera_tests {
     use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::criteria::PlacementMappingCriteria;
+    use crate::planning::PcbSide;
 
     #[test]
     fn matches() {
@@ -70,6 +71,7 @@ mod exact_match_critera_tests {
                 EdaPlacementField { name: "name".to_string(), value: "NAME1".to_string() },
                 EdaPlacementField { name: "value".to_string(), value: "VALUE1".to_string() },
             ],
+            pcb_side: PcbSide::Top,
         };
 
         // when
@@ -90,6 +92,7 @@ mod exact_match_critera_tests {
                 EdaPlacementField { name: "name".to_string(), value: "NAME2".to_string() },
                 EdaPlacementField { name: "value".to_string(), value: "VALUE1".to_string() },
             ],
+            pcb_side: PcbSide::Top,
         };
 
         // when
@@ -110,6 +113,7 @@ mod exact_match_critera_tests {
                 EdaPlacementField { name: "name".to_string(), value: "NAME2".to_string() },
                 EdaPlacementField { name: "value".to_string(), value: "VALUE2".to_string() },
             ],
+            pcb_side: PcbSide::Top,
         };
 
         // when

@@ -3,10 +3,10 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
+use anyhow::bail;
 use clap::{Parser, Subcommand, ValueEnum};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use thiserror::__private::AsDisplay;
 use tracing::{debug, info, trace};
 use makerpnp::cli;
 use makerpnp::loaders::placements::PlacementRecord;
@@ -163,20 +163,29 @@ fn main() -> anyhow::Result<()>{
 
             project_save(&project, &project_file_path)?;
         },
-        Command::AssignPlacementsToPhase { phase, placements: placements_pattern } => {
+        Command::AssignPlacementsToPhase { phase: phase_name, placements: placements_pattern } => {
             let mut project = project_load(&project_file_path)?;
 
             project_refresh_from_design_variants(&mut project, &opts.path)?;
+            
+            let phase_reference= match Reference::from_str(&phase_name.to_string()) {
+                Ok(phase_reference) => phase_reference,
+                Err(_) => { bail!("invalid phase reference. phase: '{}'", phase_name) }
+            };
+            
+            let phase = match project.phases.get(&phase_reference) {
+                Some(phase) => phase,
+                None => { bail!("unknown phase. phase: '{}'", phase_reference) }
+            };
 
-            for (_path, state) in project.placements.iter_mut().filter(|(path, _state)| {
+            for (_path, state) in project.placements.iter_mut().filter(|(path, state)| {
                 let path_str = format!("{}", path);
                 
-                placements_pattern.is_match(&path_str)
+                placements_pattern.is_match(&path_str) &&
+                   state.placement.pcb_side.eq(&phase.pcb_side) 
             }) {
-                state.phase = Some(phase.clone());
+                state.phase = Some(phase_name.clone());
             }
-            
-            // TODO ensure placements' side matches the phase's pcb unit's side.
 
             project_save(&project, &project_file_path)?;
         }
@@ -362,6 +371,7 @@ fn load_placements(placements_path: PathBuf) -> Result<Vec<Placement>, csv::Erro
             trace!("{:?}", record);
         })
         .filter_map(|record: Result<PlacementRecord, csv::Error> | {
+            // TODO report errors
             match record {
                 Ok(record) => Some(record.as_placement()),
                 _ => None

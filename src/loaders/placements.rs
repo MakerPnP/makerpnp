@@ -1,3 +1,4 @@
+use crate::planning::PcbSide;
 use crate::pnp::part::Part;
 use crate::pnp::placement::Placement;
 
@@ -8,6 +9,32 @@ pub struct PlacementRecord {
     pub manufacturer: String,
     pub mpn: String,
     pub place: bool,
+    pub pcb_side: PlacementRecordPcbSide,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "PascalCase")]
+pub enum PlacementRecordPcbSide {
+    Top,
+    Bottom,
+}
+
+impl From<&PlacementRecordPcbSide> for PcbSide {
+    fn from(value: &PlacementRecordPcbSide) -> Self {
+        match value {
+            PlacementRecordPcbSide::Top => PcbSide::Top,
+            PlacementRecordPcbSide::Bottom => PcbSide::Bottom,
+        }
+    }
+}
+
+impl From<&PcbSide> for PlacementRecordPcbSide {
+    fn from(value: &PcbSide) -> Self {
+        match value {
+            PcbSide::Top => PlacementRecordPcbSide::Top,
+            PcbSide::Bottom => PlacementRecordPcbSide::Bottom,
+        }
+    }
 }
 
 impl PlacementRecord {
@@ -16,6 +43,7 @@ impl PlacementRecord {
             ref_des: self.ref_des.clone(),
             part: Part { manufacturer: self.manufacturer.clone(), mpn: self.mpn.clone() },
             place: self.place,
+            pcb_side: PcbSide::from(&self.pcb_side)
         }
     }
 }

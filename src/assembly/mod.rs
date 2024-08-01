@@ -50,6 +50,7 @@ mod test {
     use crate::assembly::{AssemblyVariantProcessor, ProcessingError, ProcessingResult};
     use crate::assembly::assembly_variant::AssemblyVariant;
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
+    use crate::planning::PcbSide;
 
     #[test]
     fn process() {
@@ -61,6 +62,7 @@ mod test {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
         let placement2 = EdaPlacement {
             ref_des: "R2".to_string(),
@@ -69,6 +71,7 @@ mod test {
                 EdaPlacementField::new("name".to_string(), "NAME2".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE2".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
         let placement3 = EdaPlacement {
             ref_des: "R3".to_string(),
@@ -76,35 +79,48 @@ mod test {
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME3".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE3".to_string()),
-            ],        };
+            ],
+            pcb_side: PcbSide::Top,
+        };
         let placement4 = EdaPlacement {
             ref_des: "D1".to_string(),
             place: true,
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME4".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE4".to_string()),
-            ],        };
+            ],
+            pcb_side: PcbSide::Top,
+        };
         let placement5 = EdaPlacement {
             ref_des: "D2".to_string(),
             place: true,
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME5".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE5".to_string()),
-            ],        };
+            ],
+            pcb_side: PcbSide::Top,
+
+        };
         let placement6 = EdaPlacement {
             ref_des: "D3".to_string(),
             place: true,
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME6".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE6".to_string()),
-            ],        };
+            ],
+            pcb_side: PcbSide::Top,
+
+        };
         let placement7 = EdaPlacement {
             ref_des: "C1".to_string(),
             place: true,
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME7".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE7".to_string()),
-            ],        };
+            ],
+            pcb_side: PcbSide::Top,
+
+        };
         let placement8 = EdaPlacement {
             ref_des: "J1".to_string(),
             place: true,
@@ -112,6 +128,7 @@ mod test {
                 EdaPlacementField::new("name".to_string(), "NAME8".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE8".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let all_placements = vec![
@@ -173,6 +190,7 @@ mod test {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let all_placements = vec![

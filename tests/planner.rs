@@ -153,10 +153,10 @@ mod operation_sequence_1 {
 
         // and
         let design_a_variant_a_placements_csv_content = indoc! {r#"
-            "RefDes","Manufacturer","Mpn","Place"
-            "R1","RES_MFR1","RES1","true"
-            "R2","RES_MFR2","RES2","true"
-            "J1","CONN_MFR1","CONN1","true"
+            "RefDes","Manufacturer","Mpn","Place","PcbSide"
+            "R1","RES_MFR1","RES1","true","Top"
+            "R2","RES_MFR2","RES2","true","Top"
+            "J1","CONN_MFR1","CONN1","true","Top"
         "#};
 
         let mut placements_path = ctx.temp_dir.path().to_path_buf();
@@ -217,7 +217,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "CONN_MFR1",
                                     "mpn": "CONN1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -233,7 +234,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR1",
                                     "mpn": "RES1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -249,7 +251,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR2",
                                     "mpn": "RES2"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -367,7 +370,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "CONN_MFR1",
                                     "mpn": "CONN1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -383,7 +387,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR1",
                                     "mpn": "RES1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -399,7 +404,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR2",
                                     "mpn": "RES2"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -530,7 +536,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "CONN_MFR1",
                                     "mpn": "CONN1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -546,7 +553,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR1",
                                     "mpn": "RES1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -562,7 +570,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR2",
                                     "mpn": "RES2"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -692,7 +701,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "CONN_MFR1",
                                     "mpn": "CONN1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known"
@@ -708,7 +718,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR1",
                                     "mpn": "RES1"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known",
@@ -725,7 +736,8 @@ mod operation_sequence_1 {
                                     "manufacturer": "RES_MFR2",
                                     "mpn": "RES2"
                                 },
-                                "place": true
+                                "place": true,
+                                "pcb_side": "top"
                             },
                             "placed": false,
                             "status": "Known",

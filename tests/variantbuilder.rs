@@ -39,46 +39,55 @@ mod tests {
             ref_des: "R1".to_string(),
             name: "RES_0402".to_string(),
             value: "330R".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R2".to_string(),
             name: "RES_0402".to_string(),
             value: "330R 1/16W 5%".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R3".to_string(),
             name: "RES_0402".to_string(),
             value: "470R 1/16W 5%".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R4".to_string(),
             name: "RES_0402".to_string(),
             value: "220R 1/16W 5%".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "D1".to_string(),
             name: "DIO_0603".to_string(),
             value: "1A 10V".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "C1".to_string(),
             name: "CAP_0402".to_string(),
             value: "10uF 6.3V 20%".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "J1".to_string(),
             name: "HEADER_2P".to_string(),
             value: "POWER".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "TP1".to_string(),
             name: "".to_string(),
             value: "".to_string(),
+            side: "Top".to_string(),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "TP2".to_string(),
             name: "".to_string(),
             value: "".to_string(),
+            side: "Top".to_string(),
         })?;
 
         writer.flush()?;
@@ -350,15 +359,15 @@ mod tests {
 
         // and
         let expected_csv_content = indoc! {"
-            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\"
-            \"R1\",\"RES_MFR2\",\"RES2\",\"true\"
-            \"R3\",\"\",\"\",\"true\"
-            \"R4\",\"\",\"\",\"true\"
-            \"D1\",\"DIO_MFR2\",\"DIO2\",\"true\"
-            \"C1\",\"\",\"\",\"true\"
-            \"J1\",\"CONN_MFR1\",\"CONN1\",\"true\"
-            \"TP1\",\"\",\"\",\"false\"
-            \"TP2\",\"\",\"\",\"false\"
+            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\",\"PcbSide\"
+            \"R1\",\"RES_MFR2\",\"RES2\",\"true\",\"Top\"
+            \"R3\",\"\",\"\",\"true\",\"Top\"
+            \"R4\",\"\",\"\",\"true\",\"Top\"
+            \"D1\",\"DIO_MFR2\",\"DIO2\",\"true\",\"Top\"
+            \"C1\",\"\",\"\",\"true\",\"Top\"
+            \"J1\",\"CONN_MFR1\",\"CONN1\",\"true\",\"Top\"
+            \"TP1\",\"\",\"\",\"false\",\"Top\"
+            \"TP2\",\"\",\"\",\"false\",\"Top\"
         "}.to_string();
 
         let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
@@ -448,6 +457,7 @@ mod tests {
             ref_des: "R1".to_string(),
             package: "R_0402_1005Metric".to_string(),
             val: "330R".to_string(),
+            side: "top".to_string(),
         })?;
 
         writer.flush()?;
@@ -529,8 +539,8 @@ mod tests {
 
         // and
         let expected_csv_content = indoc! {"
-            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\"
-            \"R1\",\"RES_MFR1\",\"RES1\",\"true\"
+            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\",\"PcbSide\"
+            \"R1\",\"RES_MFR1\",\"RES1\",\"true\",\"Top\"
         "}.to_string();
 
         // when
@@ -684,6 +694,7 @@ mod tests {
         ref_des: String,
         name: String,
         value: String,
+        side: String,
     }
 
     #[derive(Debug, serde::Serialize)]
@@ -693,6 +704,7 @@ mod tests {
         ref_des: String,
         package: String,
         val: String,
+        side: String,
     }
 
     #[derive(Debug, serde::Serialize)]

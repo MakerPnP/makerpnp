@@ -156,6 +156,7 @@ mod tests {
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
+    use crate::planning::PcbSide;
     use crate::pnp::load_out_item::LoadOutItem;
 
     #[test]
@@ -166,18 +167,21 @@ mod tests {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
         let eda_placement2 = EdaPlacement { ref_des: "R2".to_string(), place: true,
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME2".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE2".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
         let eda_placement3 = EdaPlacement { ref_des: "R3".to_string(), place: true,
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME3".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE3".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let eda_placements = vec![eda_placement1, eda_placement2, eda_placement3];
@@ -230,6 +234,7 @@ mod tests {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let eda_placements = vec![eda_placement1];
@@ -281,6 +286,7 @@ mod tests {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let eda_placements = vec![eda_placement1];
@@ -311,6 +317,7 @@ mod tests {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let eda_placements = vec![eda_placement1];
@@ -369,6 +376,7 @@ mod tests {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let eda_placements = vec![eda_placement1];
@@ -434,6 +442,7 @@ mod tests {
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
+            pcb_side: PcbSide::Top,
         };
 
         let eda_placements = vec![eda_placement1];

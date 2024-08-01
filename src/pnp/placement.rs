@@ -1,3 +1,4 @@
+use crate::planning::PcbSide;
 use crate::pnp::part::Part;
 
 #[cfg_attr(test, derive(PartialEq))]
@@ -6,4 +7,5 @@ pub struct Placement {
     pub ref_des: String,
     pub part: Part,
     pub place: bool,
+    pub pcb_side: PcbSide,
 }

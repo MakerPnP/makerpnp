@@ -125,15 +125,15 @@ impl Default for Project {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Phase {
-    reference: Reference,
-    process: Process,
+    pub reference: Reference,
+    pub process: Process,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
-    load_out: Option<LoadOutName>,
+    pub load_out: Option<LoadOutName>,
     
     // TODO consider adding PCB unit + SIDE assignments to the phase instead of just a single side
-    pcb_side: PcbSide,
+    pub pcb_side: PcbSide,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]

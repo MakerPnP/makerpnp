@@ -259,6 +259,7 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
                     manufacturer: part.map_or_else(||empty_value.clone(),|part| part.manufacturer.clone()),
                     mpn: part.map_or_else(||empty_value.clone(),|part| part.mpn.clone()),
                     place: eda_placement.place,
+                    pcb_side: (&eda_placement.pcb_side).into(),
                 };
 
                 writer.serialize(record)?;
