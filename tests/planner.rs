@@ -1007,7 +1007,7 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner --name=<NAME> create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE> --pcb-side=<PCB_SIDE>
+            Usage: planner --name=<NAME> create-phase --process=<PROCESS> --reference=<REFERENCE> --load-out=<LOAD_OUT> --pcb-side=<PCB_SIDE>
 
             Options:
                   --process=<PROCESS>      Process name

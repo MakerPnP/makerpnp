@@ -82,7 +82,7 @@ enum Command {
         
         /// Load-out name
         #[arg(long, require_equals = true)]
-        load_out: Option<LoadOutName>,
+        load_out: LoadOutName,
 
         /// PCB side
         #[arg(long, require_equals = true)]

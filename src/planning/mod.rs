@@ -87,7 +87,7 @@ impl Project {
         Ok(())
     }
 
-    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: Option<LoadOutName>, pcb_side: PcbSide) -> anyhow::Result<()> {
+    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: LoadOutName, pcb_side: PcbSide) -> anyhow::Result<()> {
 
         match self.phases.entry(reference.clone()) {
             Entry::Vacant(entry) => {
@@ -128,9 +128,7 @@ pub struct Phase {
     pub reference: Reference,
     pub process: Process,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
-    pub load_out: Option<LoadOutName>,
+    pub load_out: LoadOutName,
     
     // TODO consider adding PCB unit + SIDE assignments to the phase instead of just a single side
     pub pcb_side: PcbSide,
