@@ -3,7 +3,8 @@ use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
-use clap::{Parser, Subcommand, ValueEnum};
+use anyhow::bail;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -16,7 +17,6 @@ use makerpnp::pnp::load_out_item::LoadOutItem;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
 use makerpnp::pnp::placement::Placement;
-use crate::LoadOutError::{UnableToLoadItems, UnableToStoreItems};
 
 #[derive(Parser)]
 #[command(name = "planner")]
@@ -24,7 +24,7 @@ use crate::LoadOutError::{UnableToLoadItems, UnableToStoreItems};
 #[command(version, about, long_about = None)]
 struct Opts {
     #[command(subcommand)]
-    command: Option<Command>,
+    command: Command,
 
     /// Trace log file
     #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
@@ -34,9 +34,17 @@ struct Opts {
     #[arg(long, require_equals = true, default_value = ".")]
     path: PathBuf,
 
-    /// Job name
-    #[arg(long, require_equals = true)]
-    name: String,
+    // FUTURE find a way to define that project args are required when using a project specific sub-command
+    //        without excessive code duplication
+    #[command(flatten)]
+    project_args: Option<ProjectArgs>,
+}
+
+#[derive(Args)]
+struct ProjectArgs {
+    /// Project name
+    #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
+    project: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -100,7 +108,25 @@ enum Command {
         /// Placements pattern (regexp)
         #[arg(long, require_equals = true)]
         placements: Regex,
-    }
+    },
+    /// Assign feeder to load-out item
+    AssignFeederToLoadOutItem {
+        /// Load-out source (e.g. 'load_out_1')
+        #[arg(long, require_equals = true)]
+        load_out: LoadOutSource,
+
+        /// Feeder reference (e.g. 'FEEDER_1')
+        #[arg(long, require_equals = true)]
+        feeder_reference: Reference,
+
+        /// Manufacturer pattern (regexp)
+        #[arg(long, require_equals = true)]
+        manufacturer: Regex,
+
+        /// Manufacturer part number (regexp)
+        #[arg(long, require_equals = true)]
+        mpn: Regex,
+    },
 }
 
 #[derive(ValueEnum, Clone)]
@@ -127,61 +153,81 @@ fn main() -> anyhow::Result<()>{
 
     cli::tracing::configure_tracing(opts.trace)?;
 
-    let project_file_path = build_project_file_path(&opts.name, &opts.path);
+    match &opts.project_args {
+        Some(ProjectArgs { project: name } ) if name.is_some() => {
+            let name = name.as_ref().unwrap();
+            let project_file_path = build_project_file_path(&name, &opts.path) ;
 
-    // TODO print help if no command specified, currently this panics
-    match opts.command.unwrap() {
-        Command::Create {} => {
-            let project = Project::new(opts.name.to_string());
-            project_save(&project, &project_file_path)?;
+            match opts.command {
+                Command::Create {} => {
+                    let project = Project::new(name.to_string());
+                    project_save(&project, &project_file_path)?;
 
-            info!("Created job: {}", project.name);
+                    info!("Created job: {}", project.name);
+                },
+                Command::AssignVariantToUnit { design, variant, unit } => {
+                    let mut project = project_load(&project_file_path)?;
+
+                    project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
+
+                    project_refresh_from_design_variants(&mut project, &opts.path)?;
+
+                    project_save(&project, &project_file_path)?;
+                },
+                Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
+                    let mut project = project_load(&project_file_path)?;
+
+                    // TODO validate that process is a process used by the project
+
+                    let all_parts = project_refresh_from_design_variants(&mut project, &opts.path)?;
+
+                    project_update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
+
+                    project_save(&project, &project_file_path)?;
+                },
+                Command::CreatePhase { process, reference, load_out, pcb_side: pcb_side_arg } => {
+                    let mut project = project_load(&project_file_path)?;
+
+                    let pcb_side = pcb_side_arg.into();
+
+                    project.update_phase(reference, process, load_out, pcb_side)?;
+
+                    project_save(&project, &project_file_path)?;
+                },
+                Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
+                    let mut project = project_load(&project_file_path)?;
+
+                    project_refresh_from_design_variants(&mut project, &opts.path)?;
+
+                    let phase = match project.phases.get(&reference) {
+                        Some(phase) => Ok(phase),
+                        None => Err(PlacementAssignmentError::UnknownPhase(reference.clone())),
+                    }?.clone();
+
+                    let parts = assign_placements_to_phase(&mut project, &phase, placements_pattern);
+                    trace!("Required load_out parts: {:?}", parts);
+
+                    add_parts_to_phase_load_out(&phase, parts)?;
+
+                    project_save(&project, &project_file_path)?;
+                },
+                _ => {
+                    bail!("invalid argument 'name'");
+                }
+            }
         },
-        Command::AssignVariantToUnit { design, variant, unit } => {
-            let mut project = project_load(&project_file_path)?;
-            
-            project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
-
-            project_refresh_from_design_variants(&mut project, &opts.path)?;
-
-            project_save(&project, &project_file_path)?;
+        None => {
+            match opts.command {
+                Command::AssignFeederToLoadOutItem { load_out, feeder_reference, manufacturer, mpn } => {
+                    assign_feeder_to_load_out_item(load_out, feeder_reference, manufacturer, mpn)?;
+                }
+                _ => {
+                    bail!("using a 'name' argument implies a project specific command should be used");
+                }
+            }
         },
-        Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
-            let mut project = project_load(&project_file_path)?;
-
-            // TODO validate that process is a process used by the project
-
-            let all_parts = project_refresh_from_design_variants(&mut project, &opts.path)?;
-
-            project_update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
-
-            project_save(&project, &project_file_path)?;
-        },
-        Command::CreatePhase { process, reference, load_out , pcb_side: pcb_side_arg } => {
-            let mut project = project_load(&project_file_path)?;
-
-            let pcb_side = pcb_side_arg.into();
-
-            project.update_phase(reference, process, load_out, pcb_side)?;
-
-            project_save(&project, &project_file_path)?;
-        },
-        Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
-            let mut project = project_load(&project_file_path)?;
-
-            project_refresh_from_design_variants(&mut project, &opts.path)?;
-
-            let phase = match project.phases.get(&reference) {
-                Some(phase) => Ok(phase),
-                None => Err(PlacementAssignmentError::UnknownPhase(reference.clone())),
-            }?.clone();
-
-            let parts = assign_placements_to_phase(&mut project, &phase, placements_pattern);
-            trace!("Required load_out parts: {:?}", parts);
-            
-            add_parts_to_phase_load_out(&phase, parts)?;
-
-            project_save(&project, &project_file_path)?;
+        Some(_project_args) => {
+            bail!("invalid arguments");
         }
     }
 
@@ -195,13 +241,19 @@ pub enum LoadOutError {
     
     #[error("Unable to store items. source: {load_out_source}, error: {reason}")]
     UnableToStoreItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+
+    #[error("No matching part; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
+    NoMatchingPart { manufacturer: Regex, mpn: Regex },
+
+    #[error("Multiple matching parts; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
+    MultipleMatchingParts { manufacturer: Regex, mpn: Regex },
 }
 
 fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutError> {
     info!("Loading load-out. source: '{}'", phase.load_out);
 
     let mut load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
-        UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
+        LoadOutError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
     })?;
     
     for part in parts.iter() {
@@ -228,9 +280,43 @@ fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(
     info!("Storing load-out. source: '{}'", phase.load_out);
 
     load_out::store_items(&phase.load_out, &load_out_items).map_err(|err|{
-        UnableToStoreItems { load_out_source: phase.load_out.clone(), reason: err }
+        LoadOutError::UnableToStoreItems { load_out_source: phase.load_out.clone(), reason: err }
     })?;
  
+    Ok(())
+}
+
+fn assign_feeder_to_load_out_item(load_out: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutError> {
+    info!("Loading load-out. source: '{}'", load_out);
+
+    let mut load_out_items = load_out::load_items(&load_out).map_err(|err|{
+        LoadOutError::UnableToLoadItems { load_out_source: load_out.clone(), reason: err }
+    })?;
+
+    let mut items: Vec<_> = load_out_items.iter_mut().filter(|item|{
+        manufacturer.is_match(&item.manufacturer)
+            && mpn.is_match(&item.mpn)
+    }).collect();
+
+    match items.len() {
+        0 => Err(LoadOutError::NoMatchingPart { manufacturer, mpn }),
+        1 => Ok(()),
+        _ => Err(LoadOutError::MultipleMatchingParts { manufacturer, mpn }),
+    }?;
+
+    let item = items.pop().unwrap();
+    item.reference = feeder_reference.to_string();
+
+    let part = Part { manufacturer: item.manufacturer.to_string(), mpn: item.mpn.to_string() };
+
+    info!("Storing load-out. source: '{}'", load_out);
+
+    load_out::store_items(&load_out, &load_out_items).map_err(|err|{
+        LoadOutError::UnableToStoreItems { load_out_source: load_out.clone(), reason: err }
+    })?;
+
+    info!("Assigned feeder to load-out item. feeder: {}, part: {:?}", feeder_reference, part);
+
     Ok(())
 }
 

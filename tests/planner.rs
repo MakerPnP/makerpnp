@@ -34,7 +34,7 @@ mod operation_sequence_1 {
 
             pub trace_log_arg: String,
             pub path_arg: String,
-            pub name_arg: String,
+            pub project_arg: String,
             pub test_trace_log_path: PathBuf,
             pub test_project_path: PathBuf,
             pub phase_1_load_out_path: PathBuf,
@@ -51,19 +51,19 @@ mod operation_sequence_1 {
 
                 let (test_project_path, _test_project_file_name) = build_temp_file(&temp_dir, "project-job1", "mpnp.json");
 
-                let name_arg = "--name=job1".to_string();
+                let project_arg = "--project=job1".to_string();
 
-                let mut phase_1_load_out = PathBuf::from(temp_dir.path());
-                phase_1_load_out.push("phase_1_load_out_1.csv");
+                let mut phase_1_load_out_path = PathBuf::from(temp_dir.path());
+                phase_1_load_out_path.push("phase_1_load_out_1.csv");
 
                 Context {
                     temp_dir,
                     path_arg,
-                    name_arg,
+                    project_arg,
                     trace_log_arg,
                     test_trace_log_path,
                     test_project_path,
-                    phase_1_load_out_path: phase_1_load_out,
+                    phase_1_load_out_path,
                 }
             }
         }
@@ -119,7 +119,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            ctx.name_arg.as_str(),
+            ctx.project_arg.as_str(),
             "create",
         ];
         println!("args: {:?}", args);
@@ -223,7 +223,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            ctx.name_arg.as_str(),
+            ctx.project_arg.as_str(),
             "assign-variant-to-unit",
             "--design=design_a",
             "--variant=variant_a",
@@ -342,7 +342,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            ctx.name_arg.as_str(),
+            ctx.project_arg.as_str(),
             "assign-process-to-parts",
             "--process=pnp",
             "--manufacturer=.*",
@@ -455,7 +455,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            ctx.name_arg.as_str(),
+            ctx.project_arg.as_str(),
             "create-phase",
             "--reference=top_1",
             "--process=pnp",
@@ -563,7 +563,7 @@ mod operation_sequence_1 {
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
-            ctx.name_arg.as_str(),
+            ctx.project_arg.as_str(),
             "assign-placements-to-phase",
             "--phase=top_1",
 
@@ -630,8 +630,63 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_6_cleanup() {
+    fn sequence_6_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
+        // given
         let mut ctx_guard = context::aquire(6);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        
+        // and
+        let load_out_arg = format!("--load-out={}", ctx.phase_1_load_out_path.to_str().unwrap());
+        
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            "assign-feeder-to-load-out-item",
+            load_out_arg.as_str(),
+            "--feeder-reference=FEEDER_1",
+            "--manufacturer=.*",
+            "--mpn=RES1",
+        ];
+
+        let expected_phase_1_load_out_content = LoadOutCSVBuilder::new()
+            .with_items(&[
+                TestLoadOutRecord { reference: "FEEDER_1".to_string(), manufacturer: "RES_MFR1".to_string(), mpn: "RES1".to_string() },
+                TestLoadOutRecord { reference: "".to_string(), manufacturer: "RES_MFR2".to_string(), mpn: "RES2".to_string() },
+            ])
+            .as_string();
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            r#"Assigned feeder to load-out item. feeder: FEEDER_1, part: Part { manufacturer: "RES_MFR1", mpn: "RES1" }"#,
+        ]);
+
+        // and
+        let phase_1_load_out_content: String = read_to_string(ctx.phase_1_load_out_path.clone())?;
+        println!("actual:\n{}", phase_1_load_out_content);
+        println!("expected:\n{}", expected_phase_1_load_out_content);
+
+        assert_eq!(phase_1_load_out_content, expected_phase_1_load_out_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sequence_7_cleanup() {
+        let mut ctx_guard = context::aquire(7);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -644,6 +699,9 @@ mod help {
     use predicates::prelude::{predicate, PredicateBooleanExt};
     use crate::int_test::print;
 
+    // FUTURE ideally we want to require the 'project' argument for project-specific sub-commands
+    //        but without excessive code duplication.
+
     #[test]
     fn no_args() {
         // given
@@ -651,22 +709,23 @@ mod help {
 
         // and
         let expected_output = indoc! {"
-            Usage: planner [OPTIONS] --name=<NAME> [COMMAND]
+            Usage: planner [OPTIONS] <COMMAND>
 
             Commands:
-              create                      Create a new job
-              assign-variant-to-unit      Assign a design variant to a PCB unit
-              assign-process-to-parts     Assign a process to parts
-              create-phase                Create a phase
-              assign-placements-to-phase  Assign placements to a phase
-              help                        Print this message or the help of the given subcommand(s)
+              create                          Create a new job
+              assign-variant-to-unit          Assign a design variant to a PCB unit
+              assign-process-to-parts         Assign a process to parts
+              create-phase                    Create a phase
+              assign-placements-to-phase      Assign placements to a phase
+              assign-feeder-to-load-out-item  Assign feeder to load-out item
+              help                            Print this message or the help of the given subcommand(s)
 
             Options:
-                  --trace[=<TRACE>]  Trace log file
-                  --path=<PATH>      Path [default: .]
-                  --name=<NAME>      Job name
-              -h, --help             Print help
-              -V, --version          Print version
+                  --trace[=<TRACE>]         Trace log file
+                  --path=<PATH>             Path [default: .]
+                  --project=<PROJECT_NAME>  Project name
+              -h, --help                    Print help
+              -V, --version                 Print version
         "};
 
         // when
@@ -687,7 +746,7 @@ mod help {
         let expected_output = indoc! {"
             Create a new job
 
-            Usage: planner --name=<NAME> create
+            Usage: planner create
 
             Options:
               -h, --help  Print help
@@ -712,7 +771,7 @@ mod help {
         let expected_output = indoc! {"
             Assign a design variant to a PCB unit
 
-            Usage: planner --name=<NAME> assign-variant-to-unit --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<UNIT_PATH>
+            Usage: planner assign-variant-to-unit --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<UNIT_PATH>
 
             Options:
                   --design=<DESIGN_NAME>    Name of the design
@@ -739,7 +798,7 @@ mod help {
         let expected_output = indoc! {"
             Assign a process to parts
 
-            Usage: planner --name=<NAME> assign-process-to-parts --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+            Usage: planner assign-process-to-parts --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
 
             Options:
                   --process=<PROCESS>            Process name
@@ -766,7 +825,7 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner --name=<NAME> create-phase --process=<PROCESS> --reference=<REFERENCE> --load-out=<LOAD_OUT> --pcb-side=<PCB_SIDE>
+            Usage: planner create-phase --process=<PROCESS> --reference=<REFERENCE> --load-out=<LOAD_OUT> --pcb-side=<PCB_SIDE>
 
             Options:
                   --process=<PROCESS>      Process name
@@ -794,7 +853,7 @@ mod help {
         let expected_output = indoc! {"
             Assign placements to a phase
 
-            Usage: planner --name=<NAME> assign-placements-to-phase --phase=<PHASE> --placements=<PLACEMENTS>
+            Usage: planner assign-placements-to-phase --phase=<PHASE> --placements=<PLACEMENTS>
 
             Options:
                   --phase=<PHASE>            Phase reference (e.g. 'top_1')
@@ -804,6 +863,34 @@ mod help {
 
         // when
         cmd.args(["assign-placements-to-phase", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+    #[test]
+    fn help_for_assign_feeder_to_load_out_item() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Assign feeder to load-out item
+
+            Usage: planner assign-feeder-to-load-out-item --load-out=<LOAD_OUT> --feeder-reference=<FEEDER_REFERENCE> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+
+            Options:
+                  --load-out=<LOAD_OUT>                  Load-out source (e.g. 'load_out_1')
+                  --feeder-reference=<FEEDER_REFERENCE>  Feeder reference (e.g. 'FEEDER_1')
+                  --manufacturer=<MANUFACTURER>          Manufacturer pattern (regexp)
+                  --mpn=<MPN>                            Manufacturer part number (regexp)
+              -h, --help                                 Print help
+        "};
+
+        // when
+        cmd.args(["assign-feeder-to-load-out-item", "--help"])
             // then
             .assert()
             .success()
