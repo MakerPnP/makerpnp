@@ -200,7 +200,7 @@ pub enum LoadOutError {
 fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutError> {
     info!("Loading load-out. source: '{}'", phase.load_out);
 
-    let mut load_out_items = load_out::load_items(&phase.load_out.to_string()).map_err(|err|{
+    let mut load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
         UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
     })?;
     

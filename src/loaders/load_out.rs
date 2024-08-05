@@ -8,9 +8,8 @@ use crate::planning::LoadOutSource;
 use crate::pnp::load_out_item::LoadOutItem;
 
 #[tracing::instrument(level = Level::DEBUG)]
-// TODO use LoadOutSource instead of String
-pub fn load_items(load_out_source: &String) -> Result<Vec<LoadOutItem>, Error>  {
-    let load_out_path_buf = PathBuf::from(load_out_source);
+pub fn load_items(load_out_source: &LoadOutSource) -> Result<Vec<LoadOutItem>, Error>  {
+    let load_out_path_buf = PathBuf::from(load_out_source.to_string());
     let load_out_path = load_out_path_buf.as_path();
     let mut csv_reader = csv::ReaderBuilder::new().from_path(load_out_path)?;
 

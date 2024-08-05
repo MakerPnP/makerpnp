@@ -14,6 +14,7 @@ use makerpnp::eda::EdaTool;
 use makerpnp::loaders::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
 use makerpnp::loaders::placements::PlacementRecord;
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
+use makerpnp::planning::LoadOutSource;
 
 #[derive(Parser)]
 #[command(name = "variantbuilder")]
@@ -84,7 +85,7 @@ enum Command {
 
         /// Load-out source
         #[arg(long, value_name = "SOURCE")]
-        load_out: Option<String>,
+        load_out: Option<LoadOutSource>,
 
         /// Placements source
         #[arg(long, value_name = "SOURCE")]
@@ -153,7 +154,7 @@ fn build_assembly_variant(
     parts_source: &String,
     part_mappings_source: &String,
     eda_substitutions_sources: &[String],
-    load_out_source: &Option<String>,
+    load_out_source: &Option<LoadOutSource>,
     assembly_rules_source: &Option<String>,
     output: &String,
     ref_des_disable_list: &Vec<String>
