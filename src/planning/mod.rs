@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
 use std::fmt::{Display, Formatter};
+use std::fs::File;
+use std::path::PathBuf;
 use std::str::FromStr;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
@@ -87,8 +89,10 @@ impl Project {
         Ok(())
     }
 
-    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: LoadOutName, pcb_side: PcbSide) -> anyhow::Result<()> {
+    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: LoadOutSource, pcb_side: PcbSide) -> anyhow::Result<()> {
 
+        ensure_load_out(&load_out)?;
+        
         match self.phases.entry(reference.clone()) {
             Entry::Vacant(entry) => {
                 let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone() };
@@ -110,6 +114,17 @@ impl Project {
     }
 }
 
+fn ensure_load_out(load_out_source: &LoadOutSource) -> anyhow::Result<()> {
+    let load_out_path_buf = PathBuf::from(load_out_source.to_string());
+    let load_out_path = load_out_path_buf.as_path();
+    if !load_out_path.exists() {
+        File::create(&load_out_path)?;    
+        info!("Created load-out. source: '{}'", load_out_source);
+    }
+    
+    Ok(())
+}
+
 impl Default for Project {
     fn default() -> Self {
         Self {
@@ -128,7 +143,7 @@ pub struct Phase {
     pub reference: Reference,
     pub process: Process,
 
-    pub load_out: LoadOutName,
+    pub load_out: LoadOutSource,
     
     // TODO consider adding PCB unit + SIDE assignments to the phase instead of just a single side
     pub pcb_side: PcbSide,
@@ -148,7 +163,7 @@ pub enum PcbSide {
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct LoadOutName(String);
+pub struct LoadOutSource(String);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct DesignName(String);
@@ -165,11 +180,11 @@ pub struct Reference(String);
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Process(String);
 
-impl FromStr for LoadOutName {
+impl FromStr for LoadOutSource {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(LoadOutName(s.to_string()))
+        Ok(LoadOutSource(s.to_string()))
     }
 }
 
@@ -213,7 +228,7 @@ impl FromStr for Process {
     }
 }
 
-impl Display for LoadOutName {
+impl Display for LoadOutSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }

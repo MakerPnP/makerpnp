@@ -86,12 +86,12 @@ impl PartRecord {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all(deserialize = "PascalCase"))]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub struct LoadOutItemRecord {
-    reference: String,
-    manufacturer: String,
-    mpn: String,
+    pub reference: String,
+    pub manufacturer: String,
+    pub mpn: String,
 }
 
 impl LoadOutItemRecord {

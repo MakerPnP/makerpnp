@@ -19,6 +19,7 @@ mod tests {
     use tempfile::tempdir;
 
     use crate::int_test::{build_temp_csv_file, build_temp_file, print};
+    use crate::int_test::load_out_builder::TestLoadOutRecord;
 
     #[test]
     fn build() -> Result<(), std::io::Error> {
@@ -713,15 +714,7 @@ mod tests {
         manufacturer: String,
         mpn: String,
     }
-
-    #[derive(Debug, serde::Serialize)]
-    #[serde(rename_all(serialize = "PascalCase"))]
-    struct TestLoadOutRecord {
-        reference: String,
-        manufacturer: String,
-        mpn: String,
-    }
-
+    
     #[derive(Debug, serde::Serialize)]
     #[serde(rename_all(serialize = "PascalCase"))]
     struct TestAssemblyRuleRecord {

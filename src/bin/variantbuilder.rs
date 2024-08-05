@@ -244,7 +244,6 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
 
     let output_path = PathBuf::from(output_file_name);
 
-
     let mut writer = csv::WriterBuilder::new()
         .quote_style(QuoteStyle::Always)
         .from_path(output_path)?;

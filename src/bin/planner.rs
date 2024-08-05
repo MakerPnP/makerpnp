@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
@@ -9,11 +9,14 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use makerpnp::cli;
+use makerpnp::loaders::load_out;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutName, PcbSide, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, PcbSide, Phase, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::pnp::load_out_item::LoadOutItem;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
 use makerpnp::pnp::placement::Placement;
+use crate::LoadOutError::{UnableToLoadItems, UnableToStoreItems};
 
 #[derive(Parser)]
 #[command(name = "planner")]
@@ -80,9 +83,9 @@ enum Command {
         #[arg(long, require_equals = true)]
         reference: Reference,
         
-        /// Load-out name (e.g. 'load_out_1')
+        /// Load-out source (e.g. 'load_out_1')
         #[arg(long, require_equals = true)]
-        load_out: LoadOutName,
+        load_out: LoadOutSource,
 
         /// PCB side
         #[arg(long, require_equals = true)]
@@ -115,9 +118,9 @@ impl From<PcbSideArg> for PcbSide {
         }
     }
 }
+
 // FUTURE consider merging the AssignProcessToParts and AssignLoadOutToParts commands
 //        consider making a group for the criteria args (manufacturer/mpn/etc).
-
 
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
@@ -167,8 +170,16 @@ fn main() -> anyhow::Result<()>{
             let mut project = project_load(&project_file_path)?;
 
             project_refresh_from_design_variants(&mut project, &opts.path)?;
+
+            let phase = match project.phases.get(&reference) {
+                Some(phase) => Ok(phase),
+                None => Err(PlacementAssignmentError::UnknownPhase(reference.clone())),
+            }?.clone();
+
+            let parts = assign_placements_to_phase(&mut project, &phase, placements_pattern);
+            trace!("Required load_out parts: {:?}", parts);
             
-            assign_placements_to_phase(&mut project, &reference, placements_pattern)?;
+            add_parts_to_phase_load_out(&phase, parts)?;
 
             project_save(&project, &project_file_path)?;
         }
@@ -178,16 +189,59 @@ fn main() -> anyhow::Result<()>{
 }
 
 #[derive(Error, Debug)]
+pub enum LoadOutError {
+    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
+    UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+    
+    #[error("Unable to store items. source: {load_out_source}, error: {reason}")]
+    UnableToStoreItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+}
+
+fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutError> {
+    info!("Loading load-out. source: '{}'", phase.load_out);
+
+    let mut load_out_items = load_out::load_items(&phase.load_out.to_string()).map_err(|err|{
+        UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
+    })?;
+    
+    for part in parts.iter() {
+        trace!("Checking for part in load_out. part: {:?}", part);
+        
+        let matched = load_out_items.iter().find(|load_out_item|{
+            load_out_item.manufacturer.eq(&part.manufacturer)
+                && load_out_item.mpn.eq(&part.mpn)
+        });
+        
+        if matched.is_some() {
+            continue
+        }
+        
+        let load_out_item = LoadOutItem {
+            reference: "".to_string(),
+            manufacturer: part.manufacturer.clone(),
+            mpn: part.mpn.clone(),
+        };
+        
+        load_out_items.push(load_out_item)
+    }
+
+    info!("Storing load-out. source: '{}'", phase.load_out);
+
+    load_out::store_items(&phase.load_out, &load_out_items).map_err(|err|{
+        UnableToStoreItems { load_out_source: phase.load_out.clone(), reason: err }
+    })?;
+ 
+    Ok(())
+}
+
+#[derive(Error, Debug)]
 pub enum PlacementAssignmentError {
     #[error("Unknown phase. phase: '{0:}'")]
     UnknownPhase(Reference)
 }
 
-fn assign_placements_to_phase(project: &mut Project, phase_reference: &Reference, placements_pattern: Regex) -> Result<(), PlacementAssignmentError> {
-    let phase = match project.phases.get(phase_reference) {
-        Some(phase) => Ok(phase),
-        None => Err(PlacementAssignmentError::UnknownPhase(phase_reference.clone())),
-    }?;
+fn assign_placements_to_phase(project: &mut Project, phase: &Phase, placements_pattern: Regex) -> BTreeSet<Part> {
+    let mut unique_assigned_parts= BTreeSet::new();
 
     for (placement_path, state) in project.placements.iter_mut().filter(|(path, state)| {
         let path_str = format!("{}", path);
@@ -195,11 +249,20 @@ fn assign_placements_to_phase(project: &mut Project, phase_reference: &Reference
         placements_pattern.is_match(&path_str) &&
             state.placement.pcb_side.eq(&phase.pcb_side)
     }) {
-        info!("Assigning placement to phase. phase: {}, placement_path: {}", phase_reference, placement_path);
-        state.phase = Some(phase_reference.clone());
+        let should_assign = match &state.phase {
+            Some(other) if !other.eq(&phase.reference) => true,
+            None => true,
+            _ => false,
+        };
+
+        if should_assign {
+            info!("Assigning placement to phase. phase: {}, placement_path: {}", phase.reference, placement_path);
+            state.phase = Some(phase.reference.clone());
+            let _inserted = unique_assigned_parts.insert(state.placement.part.clone());
+        }
     }
 
-    Ok(())
+    unique_assigned_parts
 }
 
 fn project_refresh_from_design_variants(project: &mut Project, path: &PathBuf) -> anyhow::Result<Vec<Part>> {
