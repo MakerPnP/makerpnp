@@ -409,7 +409,7 @@ mod operation_sequence_1 {
             ])
             .with_phases(
                 &[
-                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top")
+                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[])
                 ]
             )
             .with_placements(&[
@@ -520,7 +520,7 @@ mod operation_sequence_1 {
             ])
             .with_phases(
                 &[
-                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top")
+                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[])
                 ]
             )
             .with_placements(&[
@@ -657,7 +657,7 @@ mod operation_sequence_1 {
                 TestLoadOutRecord { reference: "".to_string(), manufacturer: "RES_MFR2".to_string(), mpn: "RES2".to_string() },
             ])
             .as_string();
-
+        
         // when
         cmd.args(args)
             // then
@@ -685,8 +685,121 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_7_cleanup() {
+    fn sequence_7_set_placement_ordering() -> Result<(), anyhow::Error> {
+        // given
         let mut ctx_guard = context::aquire(7);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = TestProjectBuilder::new()
+            .with_name("job1")
+            .with_unit_assignments(&[
+                (
+                    "panel=1::unit=1",
+                    BTreeMap::from([
+                        ("design_name", "design_a"),
+                        ("variant_name", "variant_a"),
+                    ])
+                )
+            ])
+            .with_processes(&["pnp", "manual"])
+            .with_part_states(&[
+                (("CONN_MFR1", "CONN1"), &["pnp"]),
+                (("RES_MFR1", "RES1"), &["pnp"]),
+                (("RES_MFR2", "RES2"), &["pnp"]),
+            ])
+            .with_phases(
+                &[(
+                    "top_1",
+                    "pnp",
+                    ctx.phase_1_load_out_path.to_str().unwrap(),
+                    "top",
+                    &[("PcbUnit", "Asc"),("FeederReference", "Asc")],
+                )]
+            )
+            .with_placements(&[
+                (
+                    "panel=1::unit=1::ref_des=C1",
+                    "panel=1::unit=1",
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom"),
+                    false,
+                    "Unknown",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=J1",
+                    "panel=1::unit=1",
+                    ("J1", "CONN_MFR1", "CONN1", true, "top"),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R1",
+                    "panel=1::unit=1",
+                    ("R1", "RES_MFR1", "RES1", true, "top"),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R2",
+                    "panel=1::unit=1",
+                    ("R2", "RES_MFR2", "RES2", true, "top"),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+            ])
+            .content();
+
+
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "set-placement-ordering",
+            "--phase=top_1",
+            "--orderings=PCB_UNIT:ASC,FEEDER_REFERENCE:ASC",
+            
+            // example for PnP machine placement
+            //"--orderings=PCB_UNIT:ASC,COST:ASC,AREA:ASC,HEIGHT;ASC,FEEDER_REFERENCE:ASC",
+            // example for manual placement
+            //"--orderings=COST:ASC,AREA:ASC,HEIGHT;ASC,PART:ASC,PCB_UNIT:ASC",
+        ];
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "Phase orderings set. phase: 'top_1', orderings: [PCB_UNIT:ASC, FEEDER_REFERENCE:ASC]",
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+    
+    #[test]
+    fn sequence_8_cleanup() {
+        let mut ctx_guard = context::aquire(8);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -718,6 +831,7 @@ mod help {
               create-phase                    Create a phase
               assign-placements-to-phase      Assign placements to a phase
               assign-feeder-to-load-out-item  Assign feeder to load-out item
+              set-placement-ordering          Set placement ordering for a phase
               help                            Print this message or the help of the given subcommand(s)
 
             Options:
@@ -897,6 +1011,32 @@ mod help {
             .stderr(print("stderr"))
             .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
+
+    #[test]
+    fn help_for_set_placement_ordering() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Set placement ordering for a phase
+
+            Usage: planner set-placement-ordering [OPTIONS] --phase=<PHASE>
+
+            Options:
+                  --phase=<PHASE>               Phase reference (e.g. 'top_1')
+                  --orderings[=<ORDERINGS>...]  Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
+              -h, --help                        Print help
+        "};
+
+        // when
+        cmd.args(["set-placement-ordering", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
 }
 
 #[derive(Default)]
@@ -910,7 +1050,7 @@ struct TestProjectBuilder<'a> {
             &'a str, &'a str, &'a str, bool, &'a str
         ), bool, &'a str, Option<&'a str>)
     ]>,
-    phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str)]>,
+    phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]>,
 }
 
 impl<'a> TestProjectBuilder<'a> {
@@ -970,13 +1110,22 @@ impl<'a> TestProjectBuilder<'a> {
         }
         
         if let Some(phases) = self.phases {
-            let values: Vec<Value> = phases.iter().map(|(reference, process, load_out_source, pcb_side)|{
-                
+            let values: Vec<Value> = phases.iter().map(|(reference, process, load_out_source, pcb_side, sort_orderings)| {
                 let mut phase_map = Map::new();
                 phase_map.insert("reference".to_string(), Value::String(reference.to_string()));
                 phase_map.insert("process".to_string(), Value::String(process.to_string()));
                 phase_map.insert("load_out".to_string(), Value::String(load_out_source.to_string()));
                 phase_map.insert("pcb_side".to_string(), Value::String(pcb_side.to_string()));
+
+                if !sort_orderings.is_empty() {
+                    let sort_orderings_values: Vec<Value> = sort_orderings.iter().map(|(mode, sort_order)| {
+                        let mut ordering_map= Map::new();
+                        ordering_map.insert("mode".to_string(), Value::String(mode.to_string()));
+                        ordering_map.insert("sort_order".to_string(), Value::String(sort_order.to_string()));
+                        Value::Object(ordering_map)
+                    }).collect();
+                    phase_map.insert("sort_orderings".to_string(), Value::Array(sort_orderings_values));
+                }
                 
                 Value::Array(vec![
                     Value::String(reference.to_string()),
@@ -1039,7 +1188,7 @@ impl<'a> TestProjectBuilder<'a> {
         content
     }
 
-    pub fn with_phases(mut self, phases: &'a [(&'a str, &'a str, &'a str, &'a str)]) -> Self {
+    pub fn with_phases(mut self, phases: &'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]) -> Self {
         self.phases = Some(phases);
         self
     }

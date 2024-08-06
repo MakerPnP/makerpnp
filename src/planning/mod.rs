@@ -1,11 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
+use std::ffi::{OsStr, OsString};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
+use clap::{Arg, Command, Error, value_parser, ValueEnum};
+use clap::builder::TypedValueParser;
+use clap::error::ErrorKind;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
+use thiserror::Error;
 use tracing::info;
 use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
@@ -95,7 +100,7 @@ impl Project {
         
         match self.phases.entry(reference.clone()) {
             Entry::Vacant(entry) => {
-                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone() };
+                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), sort_orderings: vec![] };
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
             }
@@ -147,6 +152,10 @@ pub struct Phase {
     
     // TODO consider adding PCB unit + SIDE assignments to the phase instead of just a single side
     pub pcb_side: PcbSide,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub sort_orderings: Vec<PlacementSortingItem>
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -268,4 +277,93 @@ impl Display for DesignVariant {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}-{}", self.design_name, self.variant_name)
     }
+}
+
+// FUTURE consider introducing SortOrderArg to decouple serialization and clap usage.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(ValueEnum)]
+#[value(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum SortOrder {
+    Asc,
+    Desc,
+}
+
+impl Display for SortOrder {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Asc=> write!(f, "Asc"),
+            Self::Desc=> write!(f, "Desc"),
+        }
+    }
+}
+
+// FUTURE consider introducing PlacementSortingModeArg to decouple serialization and clap usage.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(ValueEnum)]
+#[value(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PlacementSortingMode {
+    FeederReference,
+    PcbUnit,
+
+    // FUTURE add other modes, such as COST, PART, AREA, HEIGHT, REFDES, ANGLE, DESIGN_X, DESIGN_Y, PANEL_X, PANEL_Y, DESCRIPTION
+}
+
+impl Display for PlacementSortingMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::FeederReference => write!(f, "FeederReference"),
+            Self::PcbUnit => write!(f, "PcbUnit"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PlacementSortingItem {
+    pub mode: PlacementSortingMode,
+    pub sort_order: SortOrder
+}
+
+// FUTURE consider moving this out of here and into a 'cli' or 'clap' mod.
+#[derive(Clone, Default)]
+pub struct PlacementSortingItemParser {}
+
+impl TypedValueParser for PlacementSortingItemParser {
+    type Value = PlacementSortingItem;
+
+    /// Parses a value in the format '<MODE>:<SORT_ORDER>' with values in SCREAMING_SNAKE_CASE, e.g. 'FEEDER_REFERENCE:ASC'
+    fn parse_ref(&self, cmd: &Command, _arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
+
+        let chunks_str = match value.to_str() {
+            Some(str) => Ok(str),
+            // TODO create a test for this edge case, how to invoke this code path, is the message helpful to the user, how is it displayed by clap?
+            None => Err(Error::raw(ErrorKind::InvalidValue, "Invalid argument encoding")),
+        }?;
+
+        let mut chunks: Vec<_> = chunks_str.split(':').collect();
+        if chunks.len() != 2 {
+            return Err(Error::raw(ErrorKind::InvalidValue, format!("Invalid argument. Required format: '<MODE>:<SORT_ORDER>', found: '{}'", chunks_str)))
+        }
+
+        let sort_order_str = chunks.pop().unwrap();
+        let mode_str = chunks.pop().unwrap();
+
+        let mode_parser = value_parser!(PlacementSortingMode);
+        let mode_os_str = OsString::from(mode_str);
+        let mode = mode_parser.parse_ref(cmd, None, &mode_os_str)?;
+
+        let sort_order_parser = value_parser!(SortOrder);
+        let sort_order_os_str = OsString::from(sort_order_str);
+        let sort_order = sort_order_parser.parse_ref(cmd, None, &sort_order_os_str)?;
+
+        Ok(PlacementSortingItem {
+            mode,
+            sort_order,
+        })
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum PlacementSortingError {
+    #[error("Invalid placement sorting path. value: '{0:}'")]
+    Invalid(String)
 }

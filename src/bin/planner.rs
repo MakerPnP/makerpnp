@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::bail;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use heck::ToShoutySnakeCase;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -12,7 +13,7 @@ use tracing::{debug, info, trace};
 use makerpnp::cli;
 use makerpnp::loaders::load_out;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, PcbSide, Phase, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, PcbSide, Phase, PlacementSortingItem, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
 use makerpnp::pnp::load_out_item::LoadOutItem;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
@@ -127,6 +128,16 @@ enum Command {
         #[arg(long, require_equals = true)]
         mpn: Regex,
     },
+    /// Set placement ordering for a phase
+    SetPlacementOrdering {
+        /// Phase reference (e.g. 'top_1')
+        #[arg(long, require_equals = true)]
+        phase: Reference,
+
+        /// Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
+        #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::planning::PlacementSortingItemParser::default())]
+        orderings: Vec<PlacementSortingItem>
+    }
 }
 
 #[derive(ValueEnum, Clone)]
@@ -208,6 +219,27 @@ fn main() -> anyhow::Result<()>{
                     trace!("Required load_out parts: {:?}", parts);
 
                     add_parts_to_phase_load_out(&phase, parts)?;
+
+                    project_save(&project, &project_file_path)?;
+                },
+                Command::SetPlacementOrdering { phase: reference, orderings: sort_orderings } => {
+                    let mut project = project_load(&project_file_path)?;
+
+                    project_refresh_from_design_variants(&mut project, &opts.path)?;
+
+                    let phase = match project.phases.get_mut(&reference) {
+                        Some(phase) => Ok(phase),
+                        None => Err(PlacementAssignmentError::UnknownPhase(reference.clone())),
+                    }?;
+
+                    phase.sort_orderings.clone_from(&sort_orderings);
+
+                    trace!("Phase orderings set. phase: '{}', orderings: [{}]", reference, sort_orderings.iter().map(|item|{
+                        format!("{}:{}",
+                            item.mode.to_string().to_shouty_snake_case(),
+                            item.sort_order.to_string().to_shouty_snake_case()
+                        )
+                    }).collect::<Vec<_>>().join(", "));
 
                     project_save(&project, &project_file_path)?;
                 },
