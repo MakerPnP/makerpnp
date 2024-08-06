@@ -212,7 +212,7 @@ fn main() -> anyhow::Result<()>{
                     project_save(&project, &project_file_path)?;
                 },
                 _ => {
-                    bail!("invalid argument 'name'");
+                    bail!("invalid argument 'project'");
                 }
             }
         },
@@ -222,7 +222,7 @@ fn main() -> anyhow::Result<()>{
                     assign_feeder_to_load_out_item(load_out, feeder_reference, manufacturer, mpn)?;
                 }
                 _ => {
-                    bail!("using a 'name' argument implies a project specific command should be used");
+                    bail!("using a 'project' argument implies a project specific command should be used");
                 }
             }
         },
