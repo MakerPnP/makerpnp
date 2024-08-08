@@ -1,13 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::collections::btree_map::Entry;
-use std::ffi::{OsStr, OsString};
 use std::fmt::{Display, Formatter};
 use std::fs::File;
 use std::path::PathBuf;
 use std::str::FromStr;
-use clap::{Arg, Command, Error, value_parser, ValueEnum};
-use clap::builder::TypedValueParser;
-use clap::error::ErrorKind;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use thiserror::Error;
@@ -279,10 +275,7 @@ impl Display for DesignVariant {
     }
 }
 
-// FUTURE consider introducing SortOrderArg to decouple serialization and clap usage.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[derive(ValueEnum)]
-#[value(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum SortOrder {
     Asc,
     Desc,
@@ -297,10 +290,7 @@ impl Display for SortOrder {
     }
 }
 
-// FUTURE consider introducing PlacementSortingModeArg to decouple serialization and clap usage.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-#[derive(ValueEnum)]
-#[value(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum PlacementSortingMode {
     FeederReference,
     PcbUnit,
@@ -321,45 +311,6 @@ impl Display for PlacementSortingMode {
 pub struct PlacementSortingItem {
     pub mode: PlacementSortingMode,
     pub sort_order: SortOrder
-}
-
-// FUTURE consider moving this out of here and into a 'cli' or 'clap' mod.
-#[derive(Clone, Default)]
-pub struct PlacementSortingItemParser {}
-
-impl TypedValueParser for PlacementSortingItemParser {
-    type Value = PlacementSortingItem;
-
-    /// Parses a value in the format '<MODE>:<SORT_ORDER>' with values in SCREAMING_SNAKE_CASE, e.g. 'FEEDER_REFERENCE:ASC'
-    fn parse_ref(&self, cmd: &Command, _arg: Option<&Arg>, value: &OsStr) -> Result<Self::Value, Error> {
-
-        let chunks_str = match value.to_str() {
-            Some(str) => Ok(str),
-            // TODO create a test for this edge case, how to invoke this code path, is the message helpful to the user, how is it displayed by clap?
-            None => Err(Error::raw(ErrorKind::InvalidValue, "Invalid argument encoding")),
-        }?;
-
-        let mut chunks: Vec<_> = chunks_str.split(':').collect();
-        if chunks.len() != 2 {
-            return Err(Error::raw(ErrorKind::InvalidValue, format!("Invalid argument. Required format: '<MODE>:<SORT_ORDER>', found: '{}'", chunks_str)))
-        }
-
-        let sort_order_str = chunks.pop().unwrap();
-        let mode_str = chunks.pop().unwrap();
-
-        let mode_parser = value_parser!(PlacementSortingMode);
-        let mode_os_str = OsString::from(mode_str);
-        let mode = mode_parser.parse_ref(cmd, None, &mode_os_str)?;
-
-        let sort_order_parser = value_parser!(SortOrder);
-        let sort_order_os_str = OsString::from(sort_order_str);
-        let sort_order = sort_order_parser.parse_ref(cmd, None, &sort_order_os_str)?;
-
-        Ok(PlacementSortingItem {
-            mode,
-            sort_order,
-        })
-    }
 }
 
 #[derive(Error, Debug)]

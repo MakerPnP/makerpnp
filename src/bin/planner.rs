@@ -139,7 +139,7 @@ enum Command {
         phase: Reference,
 
         /// Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
-        #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::planning::PlacementSortingItemParser::default())]
+        #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::cli::parsers::PlacementSortingItemParser::default())]
         orderings: Vec<PlacementSortingItem>
     },
     /// Generate artifacts
