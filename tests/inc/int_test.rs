@@ -5,6 +5,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 pub mod load_out_builder;
+pub mod phase_placement_builder;
 
 pub fn print(message: &str) -> FnPredicate<fn(&str) -> bool, str> {
     println!("{}:", message);

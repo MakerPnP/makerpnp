@@ -19,6 +19,7 @@ mod operation_sequence_1 {
     use tempfile::tempdir;
     use crate::int_test::{build_temp_file, print};
     use crate::int_test::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
+    use crate::int_test::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::TestProjectBuilder;
 
     /// A context, which will be dropped when the tests are completed.
@@ -796,10 +797,72 @@ mod operation_sequence_1 {
 
         Ok(())
     }
+
+    #[test]
+    fn sequence_8_generate_artifacts() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::aquire(8);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_phase_1_placements_content = PhasePlacementsCSVBuilder::new()
+            .with_items(&[
+                TestPhasePlacementRecord {
+                    object_path: "panel=1::unit=1::ref_des=R2".to_string(),
+                    feeder_reference: "".to_string(),
+                    manufacturer: "RES_MFR2".to_string(),
+                    mpn: "RES2".to_string(),
+                },
+                TestPhasePlacementRecord {
+                    object_path: "panel=1::unit=1::ref_des=R1".to_string(),
+                    feeder_reference: "FEEDER_1".to_string(),
+                    manufacturer: "RES_MFR1".to_string(),
+                    mpn: "RES1".to_string(),
+                },
+            ])
+            .as_string();
+        
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "generate-artifacts",
+        ];
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "Generated artifacts.\n",
+        ]);
+        
+        // and
+        let mut phase_1_placements_file_path = PathBuf::from(ctx.temp_dir.path());
+        phase_1_placements_file_path.push("top_1_placements.csv");
+
+        let phase_1_placements_content: String = read_to_string(phase_1_placements_file_path)?;
+        println!("{}", phase_1_placements_content);
+
+        assert_eq!(phase_1_placements_content, expected_phase_1_placements_content);
+
+        Ok(())
+    }
     
     #[test]
-    fn sequence_8_cleanup() {
-        let mut ctx_guard = context::aquire(8);
+    fn sequence_9_cleanup() {
+        let mut ctx_guard = context::aquire(9);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -832,6 +895,7 @@ mod help {
               assign-placements-to-phase      Assign placements to a phase
               assign-feeder-to-load-out-item  Assign feeder to load-out item
               set-placement-ordering          Set placement ordering for a phase
+              generate-artifacts              Generate artifacts
               help                            Print this message or the help of the given subcommand(s)
 
             Options:
@@ -1031,6 +1095,31 @@ mod help {
 
         // when
         cmd.args(["set-placement-ordering", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+
+    #[test]
+    fn help_for_generate_artifacts() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Generate artifacts
+
+            Usage: planner generate-artifacts
+
+            Options:
+              -h, --help  Print help
+        "};
+
+        // when
+        cmd.args(["generate-artifacts", "--help"])
             // then
             .assert()
             .success()

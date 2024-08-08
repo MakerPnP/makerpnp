@@ -1,19 +1,22 @@
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::str::FromStr;
-use anyhow::bail;
+use anyhow::{bail, Error};
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use csv::QuoteStyle;
 use heck::ToShoutySnakeCase;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use makerpnp::cli;
 use makerpnp::loaders::load_out;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, PcbSide, Phase, PlacementSortingItem, PlacementState, PlacementStatus, Process, Project, Reference, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, PcbSide, Phase, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus, Process, Project, Reference, SortOrder, UnitPath, VariantName};
 use makerpnp::pnp::load_out_item::LoadOutItem;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
@@ -137,6 +140,9 @@ enum Command {
         /// Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
         #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::planning::PlacementSortingItemParser::default())]
         orderings: Vec<PlacementSortingItem>
+    },
+    /// Generate artifacts
+    GenerateArtifacts {
     }
 }
 
@@ -243,6 +249,11 @@ fn main() -> anyhow::Result<()>{
 
                     project_save(&project, &project_file_path)?;
                 },
+                Command::GenerateArtifacts { } => {
+                    let project = project_load(&project_file_path)?;
+
+                    project_generate_artifacts(&project, &opts.path)?;
+                },
                 _ => {
                     bail!("invalid argument 'project'");
                 }
@@ -267,6 +278,128 @@ fn main() -> anyhow::Result<()>{
 }
 
 #[derive(Error, Debug)]
+pub enum ArtifactGenerationError {
+    #[error("Unable to generate phase placements. cause: {0:}")]
+    PhasePlacementsGenerationError(Error),
+
+    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
+    UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+}
+
+fn project_generate_artifacts(project: &Project, path: &PathBuf) -> Result<(), ArtifactGenerationError> {
+    for (_reference, phase) in project.phases.iter() {
+        generate_phase_artifacts(project, phase, path)?;
+    }
+    
+    info!("Generated artifacts.");
+    
+    Ok(())
+}
+
+fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf) -> Result<(), ArtifactGenerationError> {
+    let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
+        ArtifactGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
+    })?;
+
+    let mut placement_states: Vec<(&ObjectPath, &PlacementState)> = project.placements.iter().filter_map(|(object_path, state)|{
+        match &state.phase {
+            Some(placement_phase) if placement_phase.eq(&phase.reference) => Some((object_path, state)),
+            _ => None
+        }
+    }).collect();
+    
+    placement_states.sort_by(|(object_path_a, placement_state_a), (object_path_b, placement_state_b)|{
+        phase.sort_orderings.iter().fold( Ordering::Equal, | mut acc, sort_ordering | {
+            if !matches!(acc, Ordering::Equal) {
+                return acc
+            }
+            acc = match sort_ordering.mode {
+                PlacementSortingMode::FeederReference => {
+                    let feeder_reference_a = match find_load_out_item_by_part(&load_out_items, &placement_state_a.placement.part) {
+                        Some(load_out_item) => load_out_item.reference.clone(),
+                        _ => "".to_string(),
+                    };
+                    let feeder_reference_b = match find_load_out_item_by_part(&load_out_items, &placement_state_b.placement.part) {
+                        Some(load_out_item) => load_out_item.reference.clone(),
+                        _ => "".to_string(),
+                    };
+
+                    trace!("Comparing feeder references. feeder_reference_a: '{}' feeder_reference_a: '{}'", feeder_reference_a, feeder_reference_b);
+                    feeder_reference_a.cmp(&feeder_reference_b)
+                },
+                PlacementSortingMode::PcbUnit => {
+                   
+                    let pcb_unit_a = object_path_a.pcb_unit();
+                    let pcb_unit_b = object_path_b.pcb_unit();
+                    
+                    trace!("Comparing pcb units, pcb_unit_a: '{}', pcb_unit_b: '{}'", pcb_unit_a, pcb_unit_b);
+                    pcb_unit_a.cmp(&pcb_unit_b)
+                },
+            };
+            
+            match sort_ordering.sort_order {
+                SortOrder::Asc => acc,
+                SortOrder::Desc => {
+                    acc.reverse()
+                },
+            }
+        })
+    });
+
+    let mut phase_placements_path = PathBuf::from(path);
+    phase_placements_path.push(format!("{}_placements.csv", phase.reference));
+
+    store_phase_placements_as_csv(&phase_placements_path, &placement_states, load_out_items.as_slice()).map_err(|e|{
+        ArtifactGenerationError::PhasePlacementsGenerationError(e)
+    })?;
+    
+    Ok(())
+}
+
+#[serde_as]
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all(serialize = "PascalCase"))]
+pub struct PhasePlacementRecord {
+
+    #[serde_as(as = "DisplayFromStr")]
+    pub object_path: ObjectPath,
+    
+    pub feeder_reference: String,
+    pub manufacturer: String,
+    pub mpn: String,
+}
+
+pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[(&ObjectPath, &PlacementState)], load_out_items: &[LoadOutItem]) -> Result<(), Error> {
+    
+    trace!("Writing phase placements. output_path: {:?}", output_path);
+
+    let mut writer = csv::WriterBuilder::new()
+        .quote_style(QuoteStyle::Always)
+        .from_path(output_path)?;
+
+    for (object_path, placement_state) in placement_states.iter() {
+        
+        let feeder_reference = match find_load_out_item_by_part(&load_out_items, &placement_state.placement.part) {
+            Some(load_out_item) => load_out_item.reference.clone(),
+            _ => "".to_string(),
+        };
+        
+        writer.serialize(
+            PhasePlacementRecord {
+                object_path: (*object_path).clone(),
+                feeder_reference,
+                manufacturer: placement_state.placement.part.manufacturer.to_string(),
+                mpn: placement_state.placement.part.mpn.to_string(),
+            }
+        )?;
+    }
+
+    writer.flush()?;
+
+    Ok(())
+}
+
+#[derive(Error, Debug)]
 pub enum LoadOutError {
     #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
     UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
@@ -282,19 +415,14 @@ pub enum LoadOutError {
 }
 
 fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutError> {
-    info!("Loading load-out. source: '{}'", phase.load_out);
-
     let mut load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
         LoadOutError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
     })?;
     
     for part in parts.iter() {
         trace!("Checking for part in load_out. part: {:?}", part);
-        
-        let matched = load_out_items.iter().find(|load_out_item|{
-            load_out_item.manufacturer.eq(&part.manufacturer)
-                && load_out_item.mpn.eq(&part.mpn)
-        });
+
+        let matched = find_load_out_item_by_part(&load_out_items, part);
         
         if matched.is_some() {
             continue
@@ -318,9 +446,15 @@ fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(
     Ok(())
 }
 
-fn assign_feeder_to_load_out_item(load_out: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutError> {
-    info!("Loading load-out. source: '{}'", load_out);
+fn find_load_out_item_by_part<'load_out>(load_out_items: &'load_out [LoadOutItem], part: &Part) -> Option<&'load_out LoadOutItem> {
+    let matched_item = load_out_items.iter().find(|&load_out_item| {
+        load_out_item.manufacturer.eq(&part.manufacturer)
+            && load_out_item.mpn.eq(&part.mpn)
+    });
+    matched_item
+}
 
+fn assign_feeder_to_load_out_item(load_out: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutError> {
     let mut load_out_items = load_out::load_items(&load_out).map_err(|err|{
         LoadOutError::UnableToLoadItems { load_out_source: load_out.clone(), reason: err }
     })?;
@@ -400,8 +534,7 @@ fn project_refresh_placements(project: &mut Project, design_variant_placement_ma
     let changes: Vec<(Change, UnitPath, Placement)> = find_placement_changes(project, design_variant_placement_map);
 
     for (change, unit_path, placement) in changes.iter() {
-        let mut path: ObjectPath = ObjectPath::from_str(&unit_path.to_string()).expect("always ok");
-        path.push("ref_des".to_string(), placement.ref_des.clone());
+        let path: ObjectPath = ObjectPath::try_from_unit_path_and_refdes(&unit_path, &placement.ref_des).expect("always ok");
 
         let placement_state_entry = project.placements.entry(path);
 
@@ -448,8 +581,7 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
             }
 
             for placement in placements {
-                let mut path: ObjectPath = ObjectPath::from_str(&unit_path.to_string()).expect("always ok");
-                path.push("ref_des".to_string(), placement.ref_des.clone());
+                let path: ObjectPath = ObjectPath::try_from_unit_path_and_refdes(&unit_path, &placement.ref_des).expect("always ok");
 
                 // look for a placement state for the placement for this object path
 
