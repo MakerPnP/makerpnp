@@ -134,17 +134,17 @@ impl EdaSubstitutor {
 pub mod eda_substitutor_tests {
     use crate::eda::placement::{EdaPlacement, EdaPlacementField };
     use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, EdaSubstitutionRuleCriteriaItem, EdaSubstitutionRuleTransformItem};
-    use crate::planning::PcbSide;
 
     #[test]
     pub fn substitute_one_diptrace_placement_using_a_chain() {
         // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+        let eda_placement1 = EdaPlacement {
+            ref_des: "R1".to_string(),
             fields: vec![
                 EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
                 EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
             ],
-            pcb_side: PcbSide::Top,
+            ..EdaPlacement::default()
         };
         let eda_placements= vec![eda_placement1];
 
@@ -177,12 +177,13 @@ pub mod eda_substitutor_tests {
         let expected_results = vec![
             EdaSubstitutionResult {
                 original_placement: &eda_placements[0],
-                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true,
+                resulting_placement: EdaPlacement {
+                    ref_des: "R1".to_string(),
                     fields: vec![
                         EdaPlacementField::new("name".to_string(), "SUBSTITUTED_NAME1".to_string()),
                         EdaPlacementField::new("value".to_string(), "SUBSTITUTED_VALUE1".to_string()),
                     ],
-                    pcb_side: PcbSide::Top,
+                    ..EdaPlacement::default()
                 },
                 chain: vec![
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[1] },
@@ -204,12 +205,13 @@ pub mod eda_substitutor_tests {
     #[test]
     pub fn substitute_one_kicad_placement_using_a_chain() {
         // // given
-        let eda_placement1 = EdaPlacement { ref_des: "R1".to_string(), place: true,
+        let eda_placement1 = EdaPlacement { 
+            ref_des: "R1".to_string(), 
             fields: vec![
                 EdaPlacementField::new("package".to_string(), "PACKAGE1".to_string()),
                 EdaPlacementField::new("val".to_string(), "VAL1".to_string()),
             ],
-            pcb_side: PcbSide::Top,
+            ..EdaPlacement::default()
         };
         let eda_placements= vec![eda_placement1];
 
@@ -241,12 +243,13 @@ pub mod eda_substitutor_tests {
         let expected_results = vec![
             EdaSubstitutionResult {
                 original_placement: &eda_placements[0],
-                resulting_placement: EdaPlacement { ref_des: "R1".to_string(), place: true,
+                resulting_placement: EdaPlacement {
+                    ref_des: "R1".to_string(),
                     fields: vec![
                         EdaPlacementField::new("package".to_string(), "SUBSTITUTED_PACKAGE1".to_string()),
                         EdaPlacementField::new("val".to_string(), "SUBSTITUTED_VAL1".to_string()),
                     ],
-                    pcb_side: PcbSide::Top,
+                    ..EdaPlacement::default()
                 },
                 chain: vec![
                     EdaSubstitutionChainEntry { rule: &eda_substitutions[1] },

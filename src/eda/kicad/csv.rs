@@ -1,3 +1,4 @@
+use rust_decimal::Decimal;
 use thiserror::Error;
 use crate::eda::placement::{EdaPlacement, EdaPlacementField};
 use crate::planning::PcbSide;
@@ -16,6 +17,13 @@ pub struct KiCadPlacementRecord {
     package: String,
     val: String,
     side: KiCadPcbSide,
+    x: Decimal,
+    y: Decimal,
+    /// Positive values indicate anti-clockwise rotation
+    /// Range is >-180 to +180.
+    /// No rounding.
+    /// Values are truncated to 3 decimal places in the UI.
+    rotation: Decimal,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
@@ -44,6 +52,10 @@ impl KiCadPlacementRecord {
                 EdaPlacementField { name: "val".to_string(), value: self.val.to_string() },
             ],
             pcb_side: PcbSide::from(&self.side),
+            x: self.x,
+            y: self.y,
+            // TODO normalize rotation in case kicad uses values outside it's expected range.
+            rotation: self.rotation,
         })
 
         // _ => Err(KiCadPlacementRecordError::Unknown)

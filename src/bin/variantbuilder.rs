@@ -260,6 +260,9 @@ fn write_output_csv(output_file_name: &String, matched_mappings: &Vec<PlacementP
                     mpn: part.map_or_else(||empty_value.clone(),|part| part.mpn.clone()),
                     place: eda_placement.place,
                     pcb_side: (&eda_placement.pcb_side).into(),
+                    x: eda_placement.x,
+                    y: eda_placement.y,
+                    rotation: eda_placement.rotation,
                 };
 
                 writer.serialize(record)?;

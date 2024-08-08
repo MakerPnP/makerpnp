@@ -8,6 +8,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use csv::QuoteStyle;
 use heck::ToShoutySnakeCase;
 use regex::Regex;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
@@ -367,6 +368,9 @@ pub struct PhasePlacementRecord {
     pub feeder_reference: String,
     pub manufacturer: String,
     pub mpn: String,
+    pub x: Decimal,
+    pub y: Decimal,
+    pub rotation: Decimal,
 }
 
 pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[(&ObjectPath, &PlacementState)], load_out_items: &[LoadOutItem]) -> Result<(), Error> {
@@ -390,6 +394,9 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
                 feeder_reference,
                 manufacturer: placement_state.placement.part.manufacturer.to_string(),
                 mpn: placement_state.placement.part.mpn.to_string(),
+                x: placement_state.placement.x,
+                y: placement_state.placement.y,
+                rotation: placement_state.placement.rotation,
             }
         )?;
     }
@@ -540,7 +547,7 @@ fn project_refresh_placements(project: &mut Project, design_variant_placement_ma
 
         match (change, placement) {
             (Change::New, placement) => {
-                debug!("New placement. placement: {:?}", placement);
+                info!("New placement. placement: {:?}", placement);
 
                 let placement_state = PlacementState {
                     unit_path: unit_path.clone(),
@@ -554,11 +561,12 @@ fn project_refresh_placements(project: &mut Project, design_variant_placement_ma
             }
             (Change::Existing, _) => {
                 placement_state_entry.and_modify(|ps| {
+                    info!("Updating placement. old: {:?}, new: {:?}", ps.placement, placement);
                     ps.placement = placement.clone();
                 });
             }
             (Change::Unused, placement) => {
-                debug!("Marking placement as unused. placement: {:?}", placement);
+                info!("Marking placement as unused. placement: {:?}", placement);
 
                 placement_state_entry.and_modify(|ps|{
                     ps.status = PlacementStatus::Unknown;

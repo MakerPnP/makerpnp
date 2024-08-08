@@ -16,6 +16,8 @@ mod tests {
     use indoc::indoc;
     use predicates::prelude::*;
     use predicates_tree::CaseTreeExt;
+    use rust_decimal::Decimal;
+    use rust_decimal_macros::dec;
     use tempfile::tempdir;
 
     use crate::int_test::{build_temp_csv_file, build_temp_file, print};
@@ -41,54 +43,82 @@ mod tests {
             name: "RES_0402".to_string(),
             value: "330R".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(10),
+            y: Decimal::from(110),
+            rotation: Decimal::from(0),
+            
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R2".to_string(),
             name: "RES_0402".to_string(),
             value: "330R 1/16W 5%".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(20),
+            y: Decimal::from(120),
+            rotation: Decimal::from(90),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R3".to_string(),
             name: "RES_0402".to_string(),
             value: "470R 1/16W 5%".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(30),
+            y: Decimal::from(130),
+            rotation: Decimal::from(180),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R4".to_string(),
             name: "RES_0402".to_string(),
             value: "220R 1/16W 5%".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(40),
+            y: Decimal::from(140),
+            rotation: Decimal::from(270),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "D1".to_string(),
             name: "DIO_0603".to_string(),
             value: "1A 10V".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(50),
+            y: Decimal::from(150),
+            rotation: Decimal::from(45),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "C1".to_string(),
             name: "CAP_0402".to_string(),
             value: "10uF 6.3V 20%".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(60),
+            y: Decimal::from(160),
+            rotation: Decimal::from(135),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "J1".to_string(),
             name: "HEADER_2P".to_string(),
             value: "POWER".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(70),
+            y: Decimal::from(170),
+            rotation: Decimal::from(225),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "TP1".to_string(),
             name: "".to_string(),
             value: "".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(80),
+            y: Decimal::from(180),
+            rotation: Decimal::from(315),
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "TP2".to_string(),
             name: "".to_string(),
             value: "".to_string(),
             side: "Top".to_string(),
+            x: Decimal::from(90),
+            y: Decimal::from(190),
+            rotation: Decimal::from(5),
         })?;
 
         writer.flush()?;
@@ -359,17 +389,17 @@ mod tests {
         "};
 
         // and
-        let expected_csv_content = indoc! {"
-            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\",\"PcbSide\"
-            \"R1\",\"RES_MFR2\",\"RES2\",\"true\",\"Top\"
-            \"R3\",\"\",\"\",\"true\",\"Top\"
-            \"R4\",\"\",\"\",\"true\",\"Top\"
-            \"D1\",\"DIO_MFR2\",\"DIO2\",\"true\",\"Top\"
-            \"C1\",\"\",\"\",\"true\",\"Top\"
-            \"J1\",\"CONN_MFR1\",\"CONN1\",\"true\",\"Top\"
-            \"TP1\",\"\",\"\",\"false\",\"Top\"
-            \"TP2\",\"\",\"\",\"false\",\"Top\"
-        "}.to_string();
+        let expected_csv_content = indoc! {r#"
+            "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+            "R1","RES_MFR2","RES2","true","Top","10","110","0"
+            "R3","","","true","Top","30","130","180"
+            "R4","","","true","Top","40","140","-90"
+            "D1","DIO_MFR2","DIO2","true","Top","50","150","45"
+            "C1","","","true","Top","60","160","135"
+            "J1","CONN_MFR1","CONN1","true","Top","70","170","-135"
+            "TP1","","","false","Top","80","180","-45"
+            "TP2","","","false","Top","90","190","5"
+        "#}.to_string();
 
         let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
         let csv_output_arg = format!("--output={}", test_csv_output_file_name.to_str().unwrap());
@@ -459,6 +489,10 @@ mod tests {
             package: "R_0402_1005Metric".to_string(),
             val: "330R".to_string(),
             side: "top".to_string(),
+            x: Decimal::from(10),
+            y: Decimal::from(110),
+            rotation: dec!(-179.999),
+            
         })?;
 
         writer.flush()?;
@@ -539,10 +573,10 @@ mod tests {
         "};
 
         // and
-        let expected_csv_content = indoc! {"
-            \"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\",\"PcbSide\"
-            \"R1\",\"RES_MFR1\",\"RES1\",\"true\",\"Top\"
-        "}.to_string();
+        let expected_csv_content = indoc! {r#"
+            "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+            "R1","RES_MFR1","RES1","true","Top","10","110","-179.999"
+        "#}.to_string();
 
         // when
         cmd.args([
@@ -696,6 +730,12 @@ mod tests {
         name: String,
         value: String,
         side: String,
+        x: Decimal,
+        y: Decimal,
+        /// Positive values indicate anti-clockwise rotation
+        /// Range is 0 - < 360
+        /// Rounding occurs on the 3rd decimal, e.g. 359.991 rounds to 359.99, 359.995 rounds to 360, then gets converted to 0. 
+        rotation: Decimal,
     }
 
     #[derive(Debug, serde::Serialize)]
@@ -706,6 +746,13 @@ mod tests {
         package: String,
         val: String,
         side: String,
+        x: Decimal,
+        y: Decimal,
+        /// Positive values indicate anti-clockwise rotation
+        /// Range is >-180 to +180.
+        /// No rounding.
+        /// Values are truncated to 3 decimal places in the UI.
+        rotation: Decimal,
     }
 
     #[derive(Debug, serde::Serialize)]

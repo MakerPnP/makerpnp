@@ -2,6 +2,7 @@
 extern crate makerpnp;
 
 use std::collections::BTreeMap;
+use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 
@@ -16,6 +17,7 @@ mod operation_sequence_1 {
     use std::path::PathBuf;
     use assert_cmd::Command;
     use indoc::indoc;
+    use rust_decimal_macros::dec;
     use tempfile::tempdir;
     use crate::int_test::{build_temp_file, print};
     use crate::int_test::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
@@ -161,10 +163,10 @@ mod operation_sequence_1 {
 
         // and
         let design_a_variant_a_placements_csv_content = indoc! {r#"
-            "RefDes","Manufacturer","Mpn","Place","PcbSide"
-            "R1","RES_MFR1","RES1","true","Top"
-            "C1","CAP_MFR1","CAP1","true","Bottom"
-            "J1","CONN_MFR1","CONN1","true","Top"
+            "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+            "R1","RES_MFR1","RES1","true","Top","10","110","0"
+            "C1","CAP_MFR1","CAP1","true","Bottom","30","130","180"
+            "J1","CONN_MFR1","CONN1","true","Top","40","140","-90"
         "#};
 
         let mut placements_path = ctx.temp_dir.path().to_path_buf();
@@ -196,7 +198,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=C1",
                     "panel=1::unit=1",
-                    ("C1", "CAP_MFR1", "CAP1", true, "bottom"),
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
                     false,
                     "Known",
                     None,
@@ -204,7 +206,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top"),
+                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(40), dec!(140), dec!(-90)),
                     false,
                     "Known",
                     None,
@@ -212,7 +214,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R1",
                     "panel=1::unit=1",
-                    ("R1", "RES_MFR1", "RES1", true, "top"),
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(10), dec!(110), dec!(0)),
                     false,
                     "Known",
                     None,
@@ -248,9 +250,9 @@ mod operation_sequence_1 {
             "New part. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }\n",
             "New part. part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }\n",
             "New part. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }\n",
-            "New placement. placement: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top }\n",
-            "New placement. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom }\n",
-            "New placement. placement: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top }\n",
+            "New placement. placement: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 10, y: 110, rotation: 0 }\n",
+            "New placement. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom, x: 30, y: 130, rotation: 180 }\n",
+            "New placement. placement: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 40, y: 140, rotation: -90 }\n",
         ]);
 
         // and
@@ -272,10 +274,10 @@ mod operation_sequence_1 {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
 
         let design_a_variant_a_placements_csv_content = indoc! {r#"
-            "RefDes","Manufacturer","Mpn","Place","PcbSide"
-            "R1","RES_MFR1","RES1","true","Top"
-            "R2","RES_MFR2","RES2","true","Top"
-            "J1","CONN_MFR1","CONN1","true","Top"
+            "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+            "R1","RES_MFR1","RES1","true","Top","110","1110","1"
+            "R2","RES_MFR2","RES2","true","Top","120","1120","91"
+            "J1","CONN_MFR1","CONN1","true","Top","130","1130","-179"
         "#};
 
         let mut placements_path = ctx.temp_dir.path().to_path_buf();
@@ -307,7 +309,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=C1",
                     "panel=1::unit=1",
-                    ("C1", "CAP_MFR1", "CAP1", true, "bottom"),
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
                     false,
                     "Unknown",
                     None,
@@ -315,7 +317,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top"),
+                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -323,7 +325,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R1",
                     "panel=1::unit=1",
-                    ("R1", "RES_MFR1", "RES1", true, "top"),
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
                     false,
                     "Known",
                     None,
@@ -331,7 +333,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R2",
                     "panel=1::unit=1",
-                    ("R2", "RES_MFR2", "RES2", true, "top"),
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
                     false,
                     "Known",
                     None,
@@ -365,8 +367,10 @@ mod operation_sequence_1 {
         assert_contains_inorder!(trace_content, [
             "New part. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }\n",
             "Removing previously part. part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }\n",
-            "New placement. placement: Placement { ref_des: \"R2\", part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, place: true, pcb_side: Top }\n",
-            "Marking placement as unused. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom }\n",
+            "Updating placement. old: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 10, y: 110, rotation: 0 }, new: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 110, y: 1110, rotation: 1 }\n",
+            "New placement. placement: Placement { ref_des: \"R2\", part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, place: true, pcb_side: Top, x: 120, y: 1120, rotation: 91 }\n",
+            "Updating placement. old: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 40, y: 140, rotation: -90 }, new: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 130, y: 1130, rotation: -179 }\n",
+            "Marking placement as unused. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom, x: 30, y: 130, rotation: 180 }\n",
             "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: {Process(\"pnp\")}",
             "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: {Process(\"pnp\")}",
             "Added process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, applicable_processes: {Process(\"pnp\")}",
@@ -417,7 +421,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=C1",
                     "panel=1::unit=1",
-                    ("C1", "CAP_MFR1", "CAP1", true, "bottom"),
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
                     false,
                     "Unknown",
                     None,
@@ -425,7 +429,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top"),
+                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -433,7 +437,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R1",
                     "panel=1::unit=1",
-                    ("R1", "RES_MFR1", "RES1", true, "top"),
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
                     false,
                     "Known",
                     None,
@@ -441,7 +445,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R2",
                     "panel=1::unit=1",
-                    ("R2", "RES_MFR2", "RES2", true, "top"),
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
                     false,
                     "Known",
                     None,
@@ -528,7 +532,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=C1",
                     "panel=1::unit=1",
-                    ("C1", "CAP_MFR1", "CAP1", true, "bottom"),
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
                     false,
                     "Unknown",
                     None,
@@ -536,7 +540,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top"),
+                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -544,7 +548,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R1",
                     "panel=1::unit=1",
-                    ("R1", "RES_MFR1", "RES1", true, "top"),
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
                     false,
                     "Known",
                     Some("top_1"),
@@ -552,7 +556,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R2",
                     "panel=1::unit=1",
-                    ("R2", "RES_MFR2", "RES2", true, "top"),
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
                     false,
                     "Known",
                     Some("top_1"),
@@ -725,7 +729,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=C1",
                     "panel=1::unit=1",
-                    ("C1", "CAP_MFR1", "CAP1", true, "bottom"),
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
                     false,
                     "Unknown",
                     None,
@@ -733,7 +737,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top"),
+                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -741,7 +745,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R1",
                     "panel=1::unit=1",
-                    ("R1", "RES_MFR1", "RES1", true, "top"),
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
                     false,
                     "Known",
                     Some("top_1"),
@@ -749,7 +753,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=R2",
                     "panel=1::unit=1",
-                    ("R2", "RES_MFR2", "RES2", true, "top"),
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
                     false,
                     "Known",
                     Some("top_1"),
@@ -815,12 +819,18 @@ mod operation_sequence_1 {
                     feeder_reference: "".to_string(),
                     manufacturer: "RES_MFR2".to_string(),
                     mpn: "RES2".to_string(),
+                    x: dec!(120),
+                    y: dec!(1120),
+                    rotation: dec!(91),
                 },
                 TestPhasePlacementRecord {
                     object_path: "panel=1::unit=1::ref_des=R1".to_string(),
                     feeder_reference: "FEEDER_1".to_string(),
                     manufacturer: "RES_MFR1".to_string(),
                     mpn: "RES1".to_string(),
+                    x: dec!(110),
+                    y: dec!(1110),
+                    rotation: dec!(1),
                 },
             ])
             .as_string();
@@ -1136,7 +1146,7 @@ struct TestProjectBuilder<'a> {
     part_states: Option<&'a [((&'a str, &'a str), &'a [&'a str])]>,
     placements: Option<&'a [
         (&'a str, &'a str, (
-            &'a str, &'a str, &'a str, bool, &'a str
+            &'a str, &'a str, &'a str, bool, &'a str, Decimal, Decimal, Decimal
         ), bool, &'a str, Option<&'a str>)
     ]>,
     phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]>,
@@ -1229,7 +1239,7 @@ impl<'a> TestProjectBuilder<'a> {
             let values: Vec<Value> = placements.iter().map(|(
                 key,
                 unit_path, (
-                    ref_des, manufacturer, mpn, place, pcb_side
+                    ref_des, manufacturer, mpn, place, pcb_side, x, y , rotation
                 ),
                 placed,
                 status,
@@ -1245,6 +1255,9 @@ impl<'a> TestProjectBuilder<'a> {
                 placement_map.insert("part".to_string(), Value::Object(part_map));
                 placement_map.insert("place".to_string(), Value::Bool(*place));
                 placement_map.insert("pcb_side".to_string(), Value::String(pcb_side.to_string()));
+                placement_map.insert("x".to_string(), Value::String(x.to_string()));
+                placement_map.insert("y".to_string(), Value::String(y.to_string()));
+                placement_map.insert("rotation".to_string(), Value::String(rotation.to_string()));
 
                 let mut placement_state_map = Map::new();
                 placement_state_map.insert("unit_path".to_string(), Value::String(unit_path.to_string()));
@@ -1284,7 +1297,7 @@ impl<'a> TestProjectBuilder<'a> {
     
     pub fn with_placements(mut self, placements: &'a [
         (&'a str, &'a str, (
-            &'a str, &'a str, &'a str, bool, &'a str
+            &'a str, &'a str, &'a str, bool, &'a str, Decimal, Decimal, Decimal,
         ), bool, &'a str, Option<&'a str>)
     ]) -> Self {
         self.placements = Some(placements);

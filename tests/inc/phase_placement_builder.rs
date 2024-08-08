@@ -1,4 +1,5 @@
 use csv::QuoteStyle;
+use rust_decimal::Decimal;
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all(serialize = "PascalCase"))]
@@ -7,6 +8,9 @@ pub struct TestPhasePlacementRecord {
     pub feeder_reference: String,
     pub manufacturer: String,
     pub mpn: String,
+    pub x: Decimal,
+    pub y: Decimal,
+    pub rotation: Decimal,
 }
 
 #[derive(Default)]
