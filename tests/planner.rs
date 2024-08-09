@@ -18,6 +18,7 @@ mod operation_sequence_1 {
     use crate::int_test::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::int_test::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::int_test::project_builder::TestProjectBuilder;
+    use crate::int_test::project_report_builder::{ProjectReportBuilder, TestPhaseOverview};
 
     /// A context, which will be dropped when the tests are completed.
     mod context {
@@ -829,6 +830,13 @@ mod operation_sequence_1 {
                 },
             ])
             .as_string();
+
+        let expected_project_report_content = ProjectReportBuilder::default()
+            .with_name("job1")
+            .with_phases_overview(&[
+                TestPhaseOverview { phase_name: "top_1".to_string() },
+            ])
+            .as_string();
         
         // and
         let args = [
@@ -861,6 +869,17 @@ mod operation_sequence_1 {
         println!("{}", phase_1_placements_content);
 
         assert_eq!(phase_1_placements_content, expected_phase_1_placements_content);
+
+        // and
+        println!("expected:\n{}", expected_project_report_content);
+
+        let mut project_report_file_path = PathBuf::from(ctx.temp_dir.path());
+        project_report_file_path.push("job1_report.json");
+
+        let project_report_content: String = read_to_string(project_report_file_path)?;
+        println!("actual:\n{}", project_report_content);
+
+        assert_eq!(project_report_content, expected_project_report_content);
 
         Ok(())
     }

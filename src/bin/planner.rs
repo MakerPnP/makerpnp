@@ -253,7 +253,7 @@ fn main() -> anyhow::Result<()>{
                 Command::GenerateArtifacts { } => {
                     let project = project_load(&project_file_path)?;
 
-                    project_generate_artifacts(&project, &opts.path)?;
+                    project_generate_artifacts(&project, &opts.path, &name)?;
                 },
                 _ => {
                     bail!("invalid argument 'project'");
@@ -285,15 +285,75 @@ pub enum ArtifactGenerationError {
 
     #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
     UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+
+    #[error("Unable to generate report. error: {reason}")]
+    ReportGenerationError { reason: anyhow::Error },
 }
 
-fn project_generate_artifacts(project: &Project, path: &PathBuf) -> Result<(), ArtifactGenerationError> {
+fn project_generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> Result<(), ArtifactGenerationError> {
     for (_reference, phase) in project.phases.iter() {
         generate_phase_artifacts(project, phase, path)?;
     }
+        
+    project_generate_report(project, path, name).map_err(|err|{
+        ArtifactGenerationError::ReportGenerationError { reason: err.into() }
+    })?;
     
     info!("Generated artifacts.");
     
+    Ok(())
+}
+
+#[derive(Debug, Error)]
+enum ReportGenerationError {
+    #[error("Unable to save report. cause: {reason:}")]
+    UnableToSaveReport { reason: Error }
+}
+
+fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> Result<(), ReportGenerationError> {
+    
+    let mut report = ProjectReport::default();
+    
+    report.name.clone_from(&project.name);
+    report.phase_overviews.extend(project.phases.values().map(|phase|{
+        PhaseOverview { phase_name: phase.reference.to_string() }
+    }));
+
+    let report_file_path = build_report_file_path(&name, &path); 
+
+    project_report_save(&report, &report_file_path).map_err(|err|{
+        ReportGenerationError::UnableToSaveReport { reason: err }
+    })?;
+    
+    Ok(())
+}
+
+#[derive(serde::Serialize, Default)]
+pub struct ProjectReport {
+    pub name: String,
+    pub phase_overviews: Vec<PhaseOverview>
+}
+
+#[derive(serde::Serialize)]
+pub struct PhaseOverview {
+    pub phase_name: String,
+}
+
+fn build_report_file_path(name: &str, path: &PathBuf) -> PathBuf {
+    let mut report_file_path: PathBuf = path.clone();
+    report_file_path.push(format!("{}_report.json", name));
+    report_file_path
+}
+
+fn project_report_save(report: &ProjectReport, report_file_path: &PathBuf) -> anyhow::Result<()> {
+    let report_file = File::create(report_file_path)?;
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(report_file, formatter);
+    report.serialize(&mut ser)?;
+
+    let mut report_file = ser.into_inner();
+    report_file.write(b"\n")?;
+
     Ok(())
 }
 
