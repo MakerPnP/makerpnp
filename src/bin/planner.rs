@@ -380,10 +380,11 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
             let quantity = project.placements.iter()
                 .filter(|(_object_path, placement_state)| {
                     matches!(&placement_state.phase, Some(other_phase_reference) if phase.reference.eq(other_phase_reference))
+                        && placement_state.placement.place
                         && load_out_item.manufacturer.eq(&placement_state.placement.part.manufacturer)
                         && load_out_item.mpn.eq(&placement_state.placement.part.mpn)
                 })
-                .fold(0_u32, | quantity, placement_state | {
+                .fold(0_u32, | quantity, _placement_state | {
                     quantity + 1
                 });
 
