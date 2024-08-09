@@ -6,6 +6,13 @@ pub struct ProjectReportBuilder {
 }
 
 impl ProjectReportBuilder {
+    pub fn with_phase_specification(mut self, phase_specifications: &[TestPhaseSpecification]) -> Self {
+        self.report.phase_specifications = Some(Vec::from(phase_specifications));
+        self
+    }
+}
+
+impl ProjectReportBuilder {
     pub fn with_phases_overview(mut self, phase_overviews: &[TestPhaseOverview]) -> Self {
         self.report.phase_overviews = Some(Vec::from(phase_overviews));
         self
@@ -41,9 +48,25 @@ impl ProjectReportBuilder {
 pub struct TestProjectReport {
     name: Option<String>,
     phase_overviews: Option<Vec<TestPhaseOverview>>,
+    phase_specifications: Option<Vec<TestPhaseSpecification>>
 }
 
 #[derive(Clone, serde::Serialize)]
 pub struct TestPhaseOverview {
     pub phase_name: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TestPhaseSpecification {
+    pub phase_name: String,
+    pub load_out_assignments: Vec<TestPhaseLoadOutAssignmentItem>
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TestPhaseLoadOutAssignmentItem {
+    pub feeder_reference: String, 
+    pub manufacturer: String, 
+    pub mpn: String,
+    // FUTURE add quantity
+    // FUTURE maybe add list of object paths?
 }

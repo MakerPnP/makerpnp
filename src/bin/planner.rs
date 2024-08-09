@@ -307,7 +307,10 @@ fn project_generate_artifacts(project: &Project, path: &PathBuf, name: &String) 
 #[derive(Debug, Error)]
 enum ReportGenerationError {
     #[error("Unable to save report. cause: {reason:}")]
-    UnableToSaveReport { reason: Error }
+    UnableToSaveReport { reason: Error },
+    
+    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
+    UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
 }
 
 fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> Result<(), ReportGenerationError> {
@@ -318,6 +321,31 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
     report.phase_overviews.extend(project.phases.values().map(|phase|{
         PhaseOverview { phase_name: phase.reference.to_string() }
     }));
+    
+    let phase_specifications: Vec<PhaseSpecification>  = project.phases.values().try_fold(vec![], |mut results: Vec<PhaseSpecification>, phase | {
+        let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
+            ReportGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
+        })?;
+        
+        let load_out_assignments = load_out_items.iter().map(|load_out_item|{
+            PhaseLoadOutAssignmentItem {
+                feeder_reference: load_out_item.reference.clone(),
+                manufacturer: load_out_item.manufacturer.clone(),
+                mpn: load_out_item.mpn.clone(),
+                // FUTURE quantity, etc.
+            }
+        }).collect();
+
+        results.push(PhaseSpecification {
+            phase_name: phase.reference.to_string(),
+            load_out_assignments,
+        });
+            
+        Ok(results)        
+        
+    })?;
+    
+    report.phase_specifications.extend(phase_specifications);
 
     let report_file_path = build_report_file_path(&name, &path); 
 
@@ -331,13 +359,29 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
 #[derive(serde::Serialize, Default)]
 pub struct ProjectReport {
     pub name: String,
-    pub phase_overviews: Vec<PhaseOverview>
+    pub phase_overviews: Vec<PhaseOverview>,
+    pub phase_specifications: Vec<PhaseSpecification>,
 }
 
 #[derive(serde::Serialize)]
 pub struct PhaseOverview {
     pub phase_name: String,
 }
+
+
+#[derive(Clone, serde::Serialize)]
+pub struct PhaseSpecification {
+    pub phase_name: String,
+    pub load_out_assignments: Vec<PhaseLoadOutAssignmentItem>
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct PhaseLoadOutAssignmentItem {
+    pub feeder_reference: String,
+    pub manufacturer: String,
+    pub mpn: String,
+}
+
 
 fn build_report_file_path(name: &str, path: &PathBuf) -> PathBuf {
     let mut report_file_path: PathBuf = path.clone();
