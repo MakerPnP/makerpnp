@@ -59,7 +59,27 @@ pub struct TestPhaseOverview {
 #[derive(Clone, serde::Serialize)]
 pub struct TestPhaseSpecification {
     pub phase_name: String,
+    pub operations: Vec<TestPhaseOperation>,
     pub load_out_assignments: Vec<TestPhaseLoadOutAssignmentItem>
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum TestPhaseOperation {
+    PreparePcbs { pcbs: Vec<TestPcb> },
+    // FUTURE add `LoadFeeders {...}`
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum TestPcb {
+    Single { name: String, unit_assignment: TestPcbUnitAssignment },
+    Panel { name: String, unit_assignments: Vec<TestPcbUnitAssignment> },
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TestPcbUnitAssignment {
+    pub unit_path: String,
+    pub design_name: String,
+    pub variant_name: String,
 }
 
 #[derive(Clone, serde::Serialize)]

@@ -7,6 +7,7 @@ use serde_json::{json, Map, Value};
 pub struct TestProjectBuilder<'a> {
     name: Option<&'a str>,
     processes: Option<&'a [&'a str]>,
+    pcbs: Option<&'a [(&'a str, &'a str)]>,
     unit_assignments: Option<&'a[(&'a str, BTreeMap<&'a str, &'a str>)]>,
     part_states: Option<&'a [((&'a str, &'a str), &'a [&'a str])]>,
     placements: Option<&'a [
@@ -25,6 +26,25 @@ impl<'a> TestProjectBuilder<'a> {
             root["name"] = Value::String(name.to_string());
         }
 
+        if let Some(processes) = self.processes {
+            root["processes"] = Value::Array(processes
+                .to_vec().iter()
+                .map(|process|Value::String(process.to_string())).collect()
+            );
+        }
+
+        if let Some(pcbs) = self.pcbs {
+            root["pcbs"] = Value::Array(pcbs
+                .to_vec().iter()
+                .map(|(kind, name)| {
+                    let mut pcb_map = Map::new();
+                    pcb_map.insert("kind".to_string(), Value::String(kind.to_string()));
+                    pcb_map.insert("name".to_string(), Value::String(name.to_string()));
+                    Value::Object(pcb_map)
+                }).collect()
+            );
+        }
+
         if let Some(unit_assignments) = self.unit_assignments {
 
             let values: Vec<Value> = unit_assignments.iter().map(|(key, values)|{
@@ -39,13 +59,6 @@ impl<'a> TestProjectBuilder<'a> {
             }).collect();
 
             root["unit_assignments"] = Value::Array(values);
-        }
-
-        if let Some(processes) = self.processes {
-            root["processes"] = Value::Array(processes
-                .to_vec().iter()
-                .map(|process|Value::String(process.to_string())).collect()
-            );
         }
 
         if let Some(part_states) = self.part_states {
@@ -153,6 +166,11 @@ impl<'a> TestProjectBuilder<'a> {
         content.push('\n');
 
         content
+    }
+
+    pub fn with_pcbs(mut self, pcbs: &'a [(&'a str, &'a str)]) -> Self {
+        self.pcbs = Some(pcbs);
+        self
     }
 
     pub fn with_phases(mut self, phases: &'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]) -> Self {

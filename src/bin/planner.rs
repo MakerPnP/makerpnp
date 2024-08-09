@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
+use std::str::FromStr;
 use anyhow::{bail, Error};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use csv::QuoteStyle;
@@ -17,7 +18,7 @@ use tracing::{debug, info, trace};
 use makerpnp::cli;
 use makerpnp::loaders::load_out;
 use makerpnp::loaders::placements::PlacementRecord;
-use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, PcbSide, Phase, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus, Process, Project, Reference, SortOrder, UnitPath, VariantName};
+use makerpnp::planning::{DesignName, DesignVariant, LoadOutSource, Pcb, PcbKind, PcbSide, Phase, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus, Process, Project, Reference, SortOrder, UnitPath, VariantName};
 use makerpnp::pnp::load_out_item::LoadOutItem;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::pnp::part::Part;
@@ -57,6 +58,16 @@ struct ProjectArgs {
 enum Command {
     /// Create a new job
     Create {
+    },
+    /// Add a PCB
+    AddPcb {
+        /// PCB kind
+        #[arg(long, require_equals = true)]
+        kind: PcbKindArg,
+        
+        /// Name of the PCB, e.g. 'panel_1'
+        #[arg(long, require_equals = true)]
+        name: String,
     },
     /// Assign a design variant to a PCB unit
     AssignVariantToUnit {
@@ -163,6 +174,22 @@ impl From<PcbSideArg> for PcbSide {
     }
 }
 
+#[derive(ValueEnum, Clone)]
+#[value(rename_all = "lower")]
+enum PcbKindArg {
+    Single,
+    Panel,
+}
+
+impl From<PcbKindArg> for PcbKind {
+    fn from(value: PcbKindArg) -> Self {
+        match value {
+            PcbKindArg::Single => Self::Single,
+            PcbKindArg::Panel => Self::Panel,
+        }
+    }
+}
+
 // FUTURE consider merging the AssignProcessToParts and AssignLoadOutToParts commands
 //        consider making a group for the criteria args (manufacturer/mpn/etc).
 
@@ -183,6 +210,13 @@ fn main() -> anyhow::Result<()>{
 
                     info!("Created job: {}", project.name);
                 },
+                Command::AddPcb { kind, name } => {
+                    let mut project = project_load(&project_file_path)?;
+
+                    project_add_pcb(&mut project, kind, name)?;
+                    
+                    project_save(&project, &project_file_path)?;
+                }
                 Command::AssignVariantToUnit { design, variant, unit } => {
                     let mut project = project_load(&project_file_path)?;
 
@@ -279,6 +313,20 @@ fn main() -> anyhow::Result<()>{
 }
 
 #[derive(Error, Debug)]
+pub enum PcbOperationError {
+}
+
+fn project_add_pcb(project: &mut Project, kind: PcbKindArg, name: String) -> Result<(), PcbOperationError> {
+    project.pcbs.push(Pcb { kind: kind.clone().into(), name: name.clone() });
+    
+    match kind {
+        PcbKindArg::Single =>  trace!("Added single PCB. name: '{}'", name),
+        PcbKindArg::Panel => trace!("Added panel PCB. name: '{}'", name),
+    }
+    Ok(())
+}
+
+#[derive(Error, Debug)]
 pub enum ArtifactGenerationError {
     #[error("Unable to generate phase placements. cause: {0:}")]
     PhasePlacementsGenerationError(Error),
@@ -347,8 +395,62 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
             }
         }).collect();
 
+        let unit_paths_with_placements = project.placements.iter().fold(BTreeSet::<ObjectPath>::new(), |mut acc, (object_path, placement_state)|{
+            if placement_state.placement.place {
+                let pcb_unit = object_path.pcb_unit();
+                if acc.insert(pcb_unit) {
+                    trace!("Phase pcb unit found.  object_path: {}", object_path);
+                }
+            }
+            acc 
+        });
+        
+        let mut operations = vec![];
+        if !unit_paths_with_placements.is_empty() {
+            let pcbs: Vec<PcbReportItem> = unit_paths_with_placements.iter().find_map(|unit_path|{
+                if let Some((key, index)) = unit_path.get(0) {
+                    
+                    let mut index: usize = index.parse().expect("valid index");
+                    // TODO consider if unit paths should use zero-based index (probably!)
+                    index -= 1; 
+                    
+                    // Note: the user may not have made any unit assignments yet.
+                    let mut unit_assignments = find_unit_assignments(project, unit_path);
+
+                    match PcbKind::try_from(key) {
+                        Ok(PcbKind::Panel) => {
+                            let pcb = project.pcbs.get(index).unwrap();
+
+                            
+                            Some(PcbReportItem::Panel {
+                                name: pcb.name.clone(),
+                                unit_assignments,
+                            })
+                        },
+                        Ok(PcbKind::Single) => {
+                            let pcb = project.pcbs.get(index).unwrap();
+                            
+                            assert!(unit_assignments.len() <= 1);
+                            
+                            Some(PcbReportItem::Single {
+                                name: pcb.name.clone(),
+                                unit_assignment: unit_assignments.pop()
+                            })
+                        },
+                        _ => None,
+                    }
+                } else {
+                    None
+                }
+            }).into_iter().collect();
+
+            let operation = PhaseOperation::PreparePcbs { pcbs };
+            operations.push(operation);    
+        }
+        
         results.push(PhaseSpecification {
             phase_name: phase.reference.to_string(),
+            operations,
             load_out_assignments,
         });
             
@@ -367,6 +469,25 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
     Ok(())
 }
 
+fn find_unit_assignments(project: &Project, unit_path: &ObjectPath) -> Vec<PcbUnitAssignmentItem> {
+    let unit_assignments = project.unit_assignments.iter().filter_map(|(assignment_unit_path, DesignVariant { design_name, variant_name })| {
+        let mut result = None;
+
+        if let Ok(this_unit_path) = &UnitPath::from_str(&unit_path.to_string()) {
+            if assignment_unit_path.eq(this_unit_path) {
+                result = Some(PcbUnitAssignmentItem {
+                    unit_path: unit_path.clone(),
+                    design_name: design_name.clone(),
+                    variant_name: variant_name.clone(),
+                })
+            }
+        }
+        result
+    }).collect();
+    
+    unit_assignments
+}
+
 #[derive(serde::Serialize, Default)]
 pub struct ProjectReport {
     pub name: String,
@@ -383,7 +504,30 @@ pub struct PhaseOverview {
 #[derive(Clone, serde::Serialize)]
 pub struct PhaseSpecification {
     pub phase_name: String,
+    pub operations: Vec<PhaseOperation>,
     pub load_out_assignments: Vec<PhaseLoadOutAssignmentItem>
+}
+
+#[serde_as]
+#[derive(Clone, serde::Serialize)]
+pub struct PcbUnitAssignmentItem {
+    #[serde_as(as = "DisplayFromStr")]
+    unit_path: ObjectPath,
+    design_name: DesignName,
+    variant_name: VariantName,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum PcbReportItem {
+    // there should be one or more assignments, but the assignment might not have been made yet.
+    Panel { name: String, unit_assignments: Vec<PcbUnitAssignmentItem> },
+    // there should be exactly one assignment, but the assignment might not have been made yet.
+    Single { name: String, unit_assignment: Option<PcbUnitAssignmentItem> },
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum PhaseOperation {
+    PreparePcbs{ pcbs: Vec<PcbReportItem>}
 }
 
 #[derive(Clone, serde::Serialize)]

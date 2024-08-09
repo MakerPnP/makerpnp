@@ -18,11 +18,17 @@ use crate::pnp::placement::Placement;
 pub struct Project {
     pub name: String,
 
+    pub processes: Vec<Process>,
+
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub pcbs: Vec<Pcb>,
+
+    // TODO consider using ObjectPath instead of UnitPath here?
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     pub unit_assignments: BTreeMap<UnitPath, DesignVariant>,
-    pub processes: Vec<Process>,
 
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -130,8 +136,9 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             name: "Unnamed".to_string(),
-            unit_assignments: Default::default(),
             processes: vec![Process("pnp".to_string()), Process("manual".to_string())],
+            pcbs: vec![],
+            unit_assignments: Default::default(),
             part_states: Default::default(),
             phases: Default::default(),
             placements: Default::default(),
@@ -165,6 +172,31 @@ pub struct DesignVariant {
 pub enum PcbSide {
     Top,
     Bottom,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "lowercase")]
+pub enum PcbKind {
+    Single,
+    Panel,
+}
+
+impl TryFrom<&String> for PcbKind {
+    type Error = ();
+
+    fn try_from(value: &String) -> Result<Self, Self::Error> {
+        match value.to_lowercase().as_str() {
+            "single" => Ok(PcbKind::Single),
+            "panel" => Ok(PcbKind::Panel),
+            _ => Err(())
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Pcb {
+    pub kind: PcbKind,
+    pub name: String,
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]

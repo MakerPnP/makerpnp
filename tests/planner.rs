@@ -18,7 +18,7 @@ mod operation_sequence_1 {
     use crate::int_test::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::int_test::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::int_test::project_builder::TestProjectBuilder;
-    use crate::int_test::project_report_builder::{ProjectReportBuilder, TestPhaseLoadOutAssignmentItem, TestPhaseOverview, TestPhaseSpecification};
+    use crate::int_test::project_report_builder::{ProjectReportBuilder, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOverview, TestPhaseSpecification};
 
     /// A context, which will be dropped when the tests are completed.
     mod context {
@@ -100,7 +100,7 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_1_create_job() -> Result<(), anyhow::Error> {
+    fn sequence_01_create_job() -> Result<(), anyhow::Error> {
         // given
         let mut ctx_guard = context::aquire(1);
         let ctx = ctx_guard.1.as_mut().unwrap();
@@ -149,9 +149,63 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_2_assign_variant_to_unit() -> Result<(), anyhow::Error> {
+    fn sequence_02_add_pcb() -> Result<(), anyhow::Error> {
         // given
         let mut ctx_guard = context::aquire(2);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = TestProjectBuilder::new()
+            .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
+            .content();
+
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "add-pcb",
+            "--kind=panel",
+            "--name=panel_a",
+        ];
+        println!("args: {:?}", args);
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "Added panel PCB. name: 'panel_a'\n",
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sequence_03_assign_variant_to_unit() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::aquire(3);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -175,6 +229,10 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
             .with_unit_assignments(&[
                 (
                     "panel=1::unit=1",
@@ -184,7 +242,6 @@ mod operation_sequence_1 {
                     ])
                 )
             ])
-            .with_processes(&["pnp", "manual"])
             .with_part_states(&[
                 (("CAP_MFR1", "CAP1"), &[]),
                 (("CONN_MFR1", "CONN1"), &[]),
@@ -261,9 +318,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_3_assign_process_to_parts() -> Result<(), anyhow::Error> {
+    fn sequence_04_assign_process_to_parts() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(3);
+        let mut ctx_guard = context::aquire(4);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -286,6 +343,10 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
             .with_unit_assignments(&[
                 (
                     "panel=1::unit=1",
@@ -295,7 +356,6 @@ mod operation_sequence_1 {
                     ])
                 )
             ])
-            .with_processes(&["pnp", "manual"])
             .with_part_states(&[
                 (("CONN_MFR1", "CONN1"), &["pnp"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
@@ -382,9 +442,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_4_create_phase() -> Result<(), anyhow::Error> {
+    fn sequence_05_create_phase() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(4);
+        let mut ctx_guard = context::aquire(5);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -393,6 +453,10 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
             .with_unit_assignments(&[
                 (
                     "panel=1::unit=1",
@@ -402,7 +466,6 @@ mod operation_sequence_1 {
                     ])
                 )
             ])
-            .with_processes(&["pnp", "manual"])
             .with_part_states(&[
                 (("CONN_MFR1", "CONN1"), &["pnp"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
@@ -493,9 +556,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_5_assign_placements_to_phase() -> Result<(), anyhow::Error> {
+    fn sequence_06_assign_placements_to_phase() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(5);
+        let mut ctx_guard = context::aquire(6);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -504,6 +567,10 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
             .with_unit_assignments(&[
                 (
                     "panel=1::unit=1",
@@ -513,7 +580,6 @@ mod operation_sequence_1 {
                     ])
                 )
             ])
-            .with_processes(&["pnp", "manual"])
             .with_part_states(&[
                 (("CONN_MFR1", "CONN1"), &["pnp"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
@@ -631,9 +697,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_6_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
+    fn sequence_07_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(6);
+        let mut ctx_guard = context::aquire(7);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -686,9 +752,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_7_set_placement_ordering() -> Result<(), anyhow::Error> {
+    fn sequence_08_set_placement_ordering() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(7);
+        let mut ctx_guard = context::aquire(8);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -697,6 +763,10 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
             .with_unit_assignments(&[
                 (
                     "panel=1::unit=1",
@@ -706,7 +776,6 @@ mod operation_sequence_1 {
                     ])
                 )
             ])
-            .with_processes(&["pnp", "manual"])
             .with_part_states(&[
                 (("CONN_MFR1", "CONN1"), &["pnp"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
@@ -799,9 +868,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_8_generate_artifacts() -> Result<(), anyhow::Error> {
+    fn sequence_09_generate_artifacts() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(8);
+        let mut ctx_guard = context::aquire(9);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -839,6 +908,18 @@ mod operation_sequence_1 {
             .with_phase_specification(&[
                 TestPhaseSpecification {
                     phase_name: "top_1".to_string(),
+                    operations: vec![
+                        TestPhaseOperation::PreparePcbs { pcbs: vec![
+                            TestPcb::Panel { 
+                                name: "panel_a".to_string(),
+                                unit_assignments: vec![TestPcbUnitAssignment {
+                                    unit_path: "panel=1::unit=1".to_string(),
+                                    design_name: "design_a".to_string(),
+                                    variant_name: "variant_a".to_string(),
+                                }]
+                            }
+                        ] }
+                    ],
                     load_out_assignments: vec![
                         TestPhaseLoadOutAssignmentItem { 
                             feeder_reference: "FEEDER_1".to_string(),
@@ -904,8 +985,8 @@ mod operation_sequence_1 {
     }
     
     #[test]
-    fn sequence_9_cleanup() {
-        let mut ctx_guard = context::aquire(9);
+    fn sequence_10_cleanup() {
+        let mut ctx_guard = context::aquire(10);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -932,6 +1013,7 @@ mod help {
 
             Commands:
               create                          Create a new job
+              add-pcb                         Add a PCB
               assign-variant-to-unit          Assign a design variant to a PCB unit
               assign-process-to-parts         Assign a process to parts
               create-phase                    Create a phase
@@ -982,6 +1064,31 @@ mod help {
             .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
 
+    #[test]
+    fn help_for_add_pcb() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Add a PCB
+
+            Usage: planner add-pcb --kind=<KIND> --name=<NAME>
+
+            Options:
+                  --kind=<KIND>  PCB kind [possible values: single, panel]
+                  --name=<NAME>  Name of the PCB, e.g. 'panel_1'
+              -h, --help         Print help
+        "};
+
+        // when
+        cmd.args(["add-pcb", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
 
     #[test]
     fn help_for_assign_variant_to_unit() {

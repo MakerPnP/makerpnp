@@ -20,9 +20,9 @@ impl ObjectPath {
         Ok(path)
     }
 
-    // TODO only works for panel units right now, add support for single pcbs.
     pub fn pcb_unit(&self) -> ObjectPath {
-        const PCB_UNIT_KEYS: [&str; 2] = ["panel", "unit"];
+        // TODO consider replacing 'panel' and 'single' with just 'pcb', since the pcb defines the kind now.
+        const PCB_UNIT_KEYS: [&str; 3] = ["panel", "single", "unit"];
         
         self.elements.iter().fold(ObjectPath::default(), | mut object_path, (key, value) | {
 
@@ -32,6 +32,10 @@ impl ObjectPath {
             
             object_path  
         })
+    }
+    
+    pub fn get(&self, index: usize) -> Option<&(String, String)> {
+        self.elements.get(index)
     }
 }
  
