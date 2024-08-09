@@ -67,6 +67,6 @@ pub struct TestPhaseLoadOutAssignmentItem {
     pub feeder_reference: String, 
     pub manufacturer: String, 
     pub mpn: String,
-    // FUTURE add quantity
+    pub quantity: u32,
     // FUTURE maybe add list of object paths?
 }

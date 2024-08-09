@@ -840,8 +840,18 @@ mod operation_sequence_1 {
                 TestPhaseSpecification {
                     phase_name: "top_1".to_string(),
                     load_out_assignments: vec![
-                        TestPhaseLoadOutAssignmentItem { feeder_reference: "FEEDER_1".to_string(), manufacturer: "RES_MFR1".to_string(), mpn: "RES1".to_string() },
-                        TestPhaseLoadOutAssignmentItem { feeder_reference: "".to_string(), manufacturer: "RES_MFR2".to_string(), mpn: "RES2".to_string() },
+                        TestPhaseLoadOutAssignmentItem { 
+                            feeder_reference: "FEEDER_1".to_string(),
+                            manufacturer: "RES_MFR1".to_string(),
+                            mpn: "RES1".to_string(),
+                            quantity: 1,
+                        },
+                        TestPhaseLoadOutAssignmentItem {
+                            feeder_reference: "".to_string(),
+                            manufacturer: "RES_MFR2".to_string(),
+                            mpn: "RES2".to_string(),
+                            quantity: 1,
+                        },
                     ]
                 }                
             ])

@@ -328,11 +328,22 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
         })?;
         
         let load_out_assignments = load_out_items.iter().map(|load_out_item|{
+
+            let quantity = project.placements.iter()
+                .filter(|(_object_path, placement_state)| {
+                    matches!(&placement_state.phase, Some(other_phase_reference) if phase.reference.eq(other_phase_reference))
+                        && load_out_item.manufacturer.eq(&placement_state.placement.part.manufacturer)
+                        && load_out_item.mpn.eq(&placement_state.placement.part.mpn)
+                })
+                .fold(0_u32, | quantity, placement_state | {
+                    quantity + 1
+                });
+
             PhaseLoadOutAssignmentItem {
                 feeder_reference: load_out_item.reference.clone(),
                 manufacturer: load_out_item.manufacturer.clone(),
                 mpn: load_out_item.mpn.clone(),
-                // FUTURE quantity, etc.
+                quantity,
             }
         }).collect();
 
@@ -380,6 +391,7 @@ pub struct PhaseLoadOutAssignmentItem {
     pub feeder_reference: String,
     pub manufacturer: String,
     pub mpn: String,
+    pub quantity: u32,
 }
 
 
