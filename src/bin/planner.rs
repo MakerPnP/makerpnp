@@ -159,50 +159,50 @@ fn main() -> anyhow::Result<()>{
             match opts.command {
                 Command::Create {} => {
                     let project = Project::new(name.to_string());
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
 
                     info!("Created job: {}", project.name);
                 },
                 Command::AddPcb { kind, name } => {
-                    let mut project = project::project_load(&project_file_path)?;
+                    let mut project = project::load(&project_file_path)?;
 
-                    project::project_add_pcb(&mut project, kind.clone().into(), name)?;
+                    project::add_pcb(&mut project, kind.clone().into(), name)?;
                     
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
                 }
                 Command::AssignVariantToUnit { design, variant, unit } => {
-                    let mut project = project::project_load(&project_file_path)?;
+                    let mut project = project::load(&project_file_path)?;
 
                     project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
 
-                    project::project_refresh_from_design_variants(&mut project, &opts.path)?;
+                    project::refresh_from_design_variants(&mut project, &opts.path)?;
 
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
                 },
                 Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
-                    let mut project = project::project_load(&project_file_path)?;
+                    let mut project = project::load(&project_file_path)?;
 
                     // TODO validate that process is a process used by the project
 
-                    let all_parts = project::project_refresh_from_design_variants(&mut project, &opts.path)?;
+                    let all_parts = project::refresh_from_design_variants(&mut project, &opts.path)?;
 
-                    project::project_update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
+                    project::update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
 
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
                 },
                 Command::CreatePhase { process, reference, load_out, pcb_side: pcb_side_arg } => {
-                    let mut project = project::project_load(&project_file_path)?;
+                    let mut project = project::load(&project_file_path)?;
 
                     let pcb_side = pcb_side_arg.into();
 
                     project.update_phase(reference, process, load_out, pcb_side)?;
 
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
                 },
                 Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
-                    let mut project = project::project_load(&project_file_path)?;
+                    let mut project = project::load(&project_file_path)?;
 
-                    project::project_refresh_from_design_variants(&mut project, &opts.path)?;
+                    project::refresh_from_design_variants(&mut project, &opts.path)?;
 
                     let phase = match project.phases.get(&reference) {
                         Some(phase) => Ok(phase),
@@ -214,12 +214,12 @@ fn main() -> anyhow::Result<()>{
 
                     planning::load_out::add_parts_to_load_out(&phase.load_out, parts)?;
 
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
                 },
                 Command::SetPlacementOrdering { phase: reference, orderings: sort_orderings } => {
-                    let mut project = project::project_load(&project_file_path)?;
+                    let mut project = project::load(&project_file_path)?;
 
-                    project::project_refresh_from_design_variants(&mut project, &opts.path)?;
+                    project::refresh_from_design_variants(&mut project, &opts.path)?;
 
                     let phase = match project.phases.get_mut(&reference) {
                         Some(phase) => Ok(phase),
@@ -235,12 +235,12 @@ fn main() -> anyhow::Result<()>{
                         )
                     }).collect::<Vec<_>>().join(", "));
 
-                    project::project_save(&project, &project_file_path)?;
+                    project::save(&project, &project_file_path)?;
                 },
                 Command::GenerateArtifacts { } => {
-                    let project = project::project_load(&project_file_path)?;
+                    let project = project::load(&project_file_path)?;
 
-                    project::project_generate_artifacts(&project, &opts.path, &name)?;
+                    project::generate_artifacts(&project, &opts.path, &name)?;
                 },
                 _ => {
                     bail!("invalid argument 'project'");

@@ -132,7 +132,7 @@ impl Default for Project {
 pub enum PcbOperationError {
 }
 
-pub fn project_add_pcb(project: &mut Project, kind: PcbKind, name: String) -> Result<(), PcbOperationError> {
+pub fn add_pcb(project: &mut Project, kind: PcbKind, name: String) -> Result<(), PcbOperationError> {
     project.pcbs.push(Pcb { kind: kind.clone(), name: name.clone() });
     
     match kind {
@@ -154,7 +154,7 @@ pub enum ArtifactGenerationError {
     ReportGenerationError { reason: anyhow::Error },
 }
 
-pub fn project_generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> Result<(), ArtifactGenerationError> {
+pub fn generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> Result<(), ArtifactGenerationError> {
     
     let mut issues: Vec<ProjectReportIssue> = vec![];
     
@@ -328,20 +328,20 @@ pub fn assign_placements_to_phase(project: &mut Project, phase: &Phase, placemen
     unique_assigned_parts
 }
 
-pub fn project_refresh_from_design_variants(project: &mut Project, path: &PathBuf) -> anyhow::Result<Vec<Part>> {
+pub fn refresh_from_design_variants(project: &mut Project, path: &PathBuf) -> anyhow::Result<Vec<Part>> {
     let unique_design_variants = build_unique_design_variants(project);
     let design_variant_placement_map = placement::load_all_placements(unique_design_variants.as_slice(), path)?;
 
     let unique_parts = placement::build_unique_parts(&design_variant_placement_map);
 
-    project_refresh_parts(project, unique_parts.as_slice());
+    refresh_parts(project, unique_parts.as_slice());
 
-    project_refresh_placements(project, &design_variant_placement_map);
+    refresh_placements(project, &design_variant_placement_map);
 
     Ok(unique_parts)
 }
 
-fn project_refresh_placements(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) {
+fn refresh_placements(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) {
     let changes: Vec<(Change, UnitPath, Placement)> = find_placement_changes(project, design_variant_placement_map);
 
     for (change, unit_path, placement) in changes.iter() {
@@ -447,7 +447,7 @@ enum Change {
     Unused,
 }
 
-fn project_refresh_parts(project: &mut Project, all_parts: &[Part]) {
+fn refresh_parts(project: &mut Project, all_parts: &[Part]) {
     let changes = find_part_changes(project, all_parts);
 
     for change_item in changes.iter() {
@@ -487,7 +487,7 @@ fn find_part_changes(project: &mut Project, all_parts: &[Part]) -> Vec<(Change, 
 }
 
 // TODO currently only supports adding a process, add support for removing a process too.
-pub fn project_update_applicable_processes(project: &mut Project, all_parts: &[Part], process: Process, manufacturer_pattern: Regex, mpn_pattern: Regex) {
+pub fn update_applicable_processes(project: &mut Project, all_parts: &[Part], process: Process, manufacturer_pattern: Regex, mpn_pattern: Regex) {
 
     let changes = find_part_changes(project, all_parts);
 
@@ -531,14 +531,14 @@ pub fn build_project_file_path(name: &str, path: &PathBuf) -> PathBuf {
     project_file_path
 }
 
-pub fn project_load(project_file_path: &PathBuf) -> anyhow::Result<Project> {
+pub fn load(project_file_path: &PathBuf) -> anyhow::Result<Project> {
     let project_file = File::open(project_file_path.clone())?;
     let mut de = serde_json::Deserializer::from_reader(project_file);
     let project = Project::deserialize(&mut de)?;
     Ok(project)
 }
 
-pub fn project_save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()> {
+pub fn save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()> {
     let project_file = File::create(project_file_path)?;
     let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
     let mut ser = serde_json::Serializer::with_formatter(project_file, formatter);
