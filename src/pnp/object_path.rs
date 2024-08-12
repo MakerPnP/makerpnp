@@ -75,21 +75,15 @@ impl FromStr for ObjectPath {
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         value.split("::")
-            .fold(Ok(ObjectPath::default()), |mut acc, chunk| {
-                match &mut acc {
-                    Ok(object_path) => {
-                        let parts: Vec<&str> = chunk.split('=').collect();
-                        if parts.len() == 2 {
-                            let pair = (parts[0].to_string(), parts[1].to_string());
-                            object_path.elements.push(pair);
-                        } else {
-                            acc = Err(ObjectPathError::Invalid(value.to_string()))
-                        }
-                    },
-                    _ => ()
+            .try_fold(ObjectPath::default(), |mut object_path: ObjectPath, chunk| {
+                let parts: Vec<&str> = chunk.split('=').collect();
+                if parts.len() == 2 {
+                    let pair = (parts[0].to_string(), parts[1].to_string());
+                    object_path.elements.push(pair);
+                    Ok(object_path)
+                } else {
+                    Err(ObjectPathError::Invalid(value.to_string()))
                 }
-
-                acc
             })
     }
 }
