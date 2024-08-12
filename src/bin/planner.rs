@@ -16,6 +16,7 @@ use serde_with::DisplayFromStr;
 use thiserror::Error;
 use tracing::{debug, info, trace};
 use makerpnp::cli;
+use makerpnp::cli::args::{PcbKindArg, PcbSideArg, ProjectArgs};
 use makerpnp::stores::load_out;
 use makerpnp::stores::placements::PlacementRecord;
 use makerpnp::stores::load_out::LoadOutSource;
@@ -53,13 +54,6 @@ struct Opts {
     //        without excessive code duplication
     #[command(flatten)]
     project_args: Option<ProjectArgs>,
-}
-
-#[derive(Args)]
-struct ProjectArgs {
-    /// Project name
-    #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
-    project: Option<String>,
 }
 
 #[derive(Subcommand)]
@@ -164,38 +158,6 @@ enum Command {
     },
     /// Generate artifacts
     GenerateArtifacts {
-    }
-}
-
-#[derive(ValueEnum, Clone)]
-#[value(rename_all = "lower")]
-enum PcbSideArg {
-    Top,
-    Bottom,
-}
-
-impl From<PcbSideArg> for PcbSide {
-    fn from(value: PcbSideArg) -> Self {
-        match value {
-            PcbSideArg::Top => Self::Top,
-            PcbSideArg::Bottom => Self::Bottom,
-        }
-    }
-}
-
-#[derive(ValueEnum, Clone)]
-#[value(rename_all = "lower")]
-enum PcbKindArg {
-    Single,
-    Panel,
-}
-
-impl From<PcbKindArg> for PcbKind {
-    fn from(value: PcbKindArg) -> Self {
-        match value {
-            PcbKindArg::Single => Self::Single,
-            PcbKindArg::Panel => Self::Panel,
-        }
     }
 }
 

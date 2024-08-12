@@ -1,4 +1,5 @@
-use clap::ValueEnum;
+use clap::{Args, ValueEnum};
+use crate::planning::pcb::{PcbKind, PcbSide};
 use crate::util::sorting::SortOrder;
 use crate::planning::placement::PlacementSortingMode;
 
@@ -36,6 +37,45 @@ impl PlacementSortingModeArg {
         match self {
             PlacementSortingModeArg::FeederReference => PlacementSortingMode::FeederReference,
             PlacementSortingModeArg::PcbUnit => PlacementSortingMode::PcbUnit,
+        }
+    }
+}
+
+#[derive(Args)]
+pub struct ProjectArgs {
+    /// Project name
+    #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
+    pub project: Option<String>,
+}
+
+#[derive(ValueEnum, Clone)]
+#[value(rename_all = "lower")]
+pub enum PcbSideArg {
+    Top,
+    Bottom,
+}
+
+impl From<PcbSideArg> for PcbSide {
+    fn from(value: PcbSideArg) -> Self {
+        match value {
+            PcbSideArg::Top => Self::Top,
+            PcbSideArg::Bottom => Self::Bottom,
+        }
+    }
+}
+
+#[derive(ValueEnum, Clone)]
+#[value(rename_all = "lower")]
+pub enum PcbKindArg {
+    Single,
+    Panel,
+}
+
+impl From<PcbKindArg> for PcbKind {
+    fn from(value: PcbKindArg) -> Self {
+        match value {
+            PcbKindArg::Single => Self::Single,
+            PcbKindArg::Panel => Self::Panel,
         }
     }
 }
