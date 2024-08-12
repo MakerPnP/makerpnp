@@ -1,9 +1,10 @@
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use std::path::PathBuf;
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use tracing::trace;
 use std::cmp::Ordering;
+use std::collections::hash_map::Entry;
 use std::fs::File;
 use thiserror::Error;
 use anyhow::Error;
@@ -18,6 +19,7 @@ use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
 use crate::stores::load_out;
 use crate::stores::load_out::LoadOutSource;
+use crate::util::sorting::SortOrder;
 
 #[derive(Debug, Error)]
 pub enum ReportGenerationError {
@@ -34,9 +36,65 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
 
     report.name.clone_from(&project.name);
     report.issues = issues;
-    report.phase_overviews.extend(project.phases.values().map(|phase|{
-        PhaseOverview { phase_name: phase.reference.to_string() }
-    }));
+    if project.pcbs.is_empty() {
+        report.issues.push(ProjectReportIssue {
+            message: "No PCBs have been assigned to the project.".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPcbsAssigned,
+        })
+    }
+
+    if project.phases.len() > 0 {
+        report.phase_overviews.extend(project.phases.values().map(|phase| {
+            PhaseOverview { phase_name: phase.reference.to_string() }
+        }));
+    } else {
+        report.issues.push(ProjectReportIssue {
+            message: "No phases have been created.".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPhasesCreated,
+        })
+    }
+
+    // generate issues for invalid unit assignments
+    for (object_path, _design_variant) in project.unit_assignments.iter() {
+
+        let mut pcb_kind_counts: HashMap<PcbKind, usize> = Default::default();
+        for pcb in project.pcbs.iter() {
+            pcb_kind_counts.entry(pcb.kind.clone())
+                .and_modify(|e| { *e += 1 })
+                .or_insert(1);       
+        }
+
+        if let Some((pcb_kind, index)) = object_path.pcb_kind_and_index() {
+
+            let issue = match pcb_kind_counts.entry(pcb_kind.clone()) {
+                Entry::Occupied(entry) => {
+                    let count = *entry.get();
+                    if index > count {
+                        Some(ProjectReportIssue {
+                            message: "Invalid unit assignment, index out of range.".to_string(),
+                            severity: IssueSeverity::Severe,
+                            kind: IssueKind::InvalidUnitAssignment { object_path: object_path.clone() },
+                        })           
+                    } else {
+                        None
+                    }
+                    
+                }
+                Entry::Vacant(_) => Some(ProjectReportIssue {
+                    message: "Invalid unit assignment, no pcbs match the assignment.".to_string(),
+                    severity: IssueSeverity::Severe,
+                    kind: IssueKind::InvalidUnitAssignment { object_path: object_path.clone() },
+                })
+            };
+            
+            if let Some(issue) = issue {
+                report.issues.push(issue);
+            }
+        }
+    }
+
 
     let phase_specifications: Vec<PhaseSpecification>  = project.phases.values().try_fold(vec![], |mut results: Vec<PhaseSpecification>, phase | {
         let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
@@ -130,7 +188,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     let placement_issues = project_report_find_placement_issues(project);
     report.issues.extend(placement_issues);
 
-    project_report_sort_issues(&mut report);
+    project_report_sort_issues(&mut report.issues);
 
     let report_file_path = build_report_file_path(name, path);
 
@@ -155,14 +213,254 @@ fn project_report_find_placement_issues(project: &Project) -> Vec<ProjectReportI
     placement_issues
 }
 
-fn project_report_sort_issues(report: &mut ProjectReport) {
-    report.issues.sort_by(|a, b| {
-        match (&a.kind, &b.kind) {
-            (IssueKind::UnassignedPlacement { .. }, IssueKind::UnassignedPlacement { .. }) => Ordering::Equal,
-            (IssueKind::UnassignedPlacement { .. }, _) => Ordering::Less,
-            (IssueKind::UnassignedPartFeeder { .. }, _) => Ordering::Greater,
-        }
+fn project_report_sort_issues(issues: &mut [ProjectReportIssue]) {
+    issues.sort_by(|a, b| {
+
+        let sort_orderings = &[("severity", SortOrder::Desc), ("kind", SortOrder::Asc), ("message", SortOrder::Asc)];
+        
+        sort_orderings.iter().fold( Ordering::Equal, | mut acc, (&ref mode, sort_order) | {
+            if !matches!(acc, Ordering::Equal) {
+                return acc
+            }
+
+            fn kind_ordinal(kind: &IssueKind) -> usize {
+                match kind {
+                    IssueKind::NoPcbsAssigned => 0,
+                    IssueKind::NoPhasesCreated => 1,
+                    IssueKind::InvalidUnitAssignment { .. } => 2,
+                    IssueKind::UnassignedPlacement { .. } => 3,
+                    IssueKind::UnassignedPartFeeder { .. } => 4,
+                }   
+            }
+            fn severity_ordinal(severity: &IssueSeverity) -> usize {
+                match severity {
+                    IssueSeverity::Warning => 0,
+                    IssueSeverity::Severe => 1,
+                }   
+            }
+            
+            acc = match mode {
+                "kind" => {
+                    let a_ordinal = kind_ordinal(&a.kind); 
+                    let b_ordinal = kind_ordinal(&b.kind);
+                    let ordinal_ordering = a_ordinal.cmp(&b_ordinal);
+                    
+                    match ordinal_ordering {
+                        Ordering::Less => ordinal_ordering,
+                        Ordering::Equal => {
+                            match (&a.kind, &b.kind) {
+                                (IssueKind::InvalidUnitAssignment { object_path: object_path_a }, IssueKind::InvalidUnitAssignment { object_path: object_path_b }) =>
+                                    object_path_a.cmp(object_path_b),
+                                (IssueKind::UnassignedPlacement { object_path: object_path_a }, IssueKind::UnassignedPlacement { object_path: object_path_b }) =>
+                                    object_path_a.cmp(object_path_b),
+                                (IssueKind::UnassignedPartFeeder { part: part_a }, IssueKind::UnassignedPartFeeder { part: part_b}) =>
+                                    part_a.cmp(part_b),
+                                _ => ordinal_ordering,
+                            }
+                        }
+                        Ordering::Greater => ordinal_ordering,
+                    }
+                },
+                "message" => a.message.cmp(&b.message),
+                "severity" => {
+                    let a_ordinal = severity_ordinal(&a.severity);
+                    let b_ordinal = severity_ordinal(&b.severity);
+                    let ordinal_ordering = a_ordinal.cmp(&b_ordinal);
+                    ordinal_ordering
+                },
+                _ => unreachable!()
+            };
+
+            match sort_order {
+                SortOrder::Asc => acc,
+                SortOrder::Desc => {
+                    acc.reverse()
+                },
+            }
+        })
     });
+}
+
+#[cfg(test)]
+mod report_issue_sorting {
+    use std::str::FromStr;
+    use crate::planning::report::{IssueKind, IssueSeverity, project_report_sort_issues, ProjectReportIssue};
+    use crate::pnp::object_path::ObjectPath;
+    use crate::pnp::part::Part;
+
+    #[test]
+    pub fn sort_by_severity_with_equal_message_and_kind() {
+        // given 
+        let issue1 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+        let issue2 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Warning,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+
+        let mut issues: Vec<ProjectReportIssue> = vec![
+            issue2.clone(), issue1.clone(),
+        ];
+        let expected_issues: Vec<ProjectReportIssue> = vec![
+            issue1.clone(), issue2.clone(),
+        ];
+
+        // when
+        project_report_sort_issues(&mut issues);
+
+        // then
+        assert_eq!(&issues, &expected_issues);
+    }
+
+    #[test]
+    pub fn sort_by_message_with_severity_and_kind() {
+        // given 
+        let issue1 = ProjectReportIssue {
+            message: "MESSAGE_1".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+        let issue2 = ProjectReportIssue {
+            message: "MESSAGE_2".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+
+        let mut issues: Vec<ProjectReportIssue> = vec![
+            issue2.clone(), issue1.clone(),
+        ];
+        let expected_issues: Vec<ProjectReportIssue> = vec![
+            issue1.clone(), issue2.clone(),
+        ];
+
+        // when
+        project_report_sort_issues(&mut issues);
+
+        // then
+        assert_eq!(&issues, &expected_issues);
+    }
+
+    #[test]
+    pub fn sort_by_kind_with_equal_message_and_severity() {
+        // given 
+        let issue1 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+        let issue2 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPhasesCreated,
+        };
+        let issue3 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::InvalidUnitAssignment { object_path: ObjectPath::from_str("panel=1").expect("always ok") },
+        };
+        let issue4 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::InvalidUnitAssignment { object_path: ObjectPath::from_str("panel=2").expect("always ok") },
+        };
+        let issue5 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::UnassignedPlacement { object_path: ObjectPath::from_str("panel=1::unit=1::ref_des=R1").expect("always ok") },
+        };
+        let issue6 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::UnassignedPlacement { object_path: ObjectPath::from_str("panel=1::unit=1::ref_des=R2").expect("always ok") },
+        };
+        let issue7 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::UnassignedPartFeeder { part: Part { manufacturer: "MFR1".to_string(), mpn: "MPN1".to_string() } },
+        };
+        let issue8 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::UnassignedPartFeeder { part: Part { manufacturer: "MFR1".to_string(), mpn: "MPN2".to_string() } },
+        };
+        let issue9 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::UnassignedPartFeeder { part: Part { manufacturer: "MFR2".to_string(), mpn: "MPN1".to_string() } },
+        };
+        
+        let mut issues: Vec<ProjectReportIssue> = vec![
+            issue9.clone(), issue8.clone(), issue7.clone(), 
+            issue6.clone(), issue5.clone(), issue4.clone(),
+            issue3.clone(), issue2.clone(), issue1.clone(),
+        ];
+        let expected_issues: Vec<ProjectReportIssue> = vec![
+            issue1.clone(), issue2.clone(), issue3.clone(),
+            issue4.clone(), issue5.clone(), issue6.clone(),
+            issue7.clone(), issue8.clone(), issue9.clone(),
+        ];
+        
+        // when
+        project_report_sort_issues(&mut issues);
+        
+        // then
+        assert_eq!(&issues, &expected_issues);
+    }
+
+    #[test]
+    pub fn sort_by_severity_kind_and_message() {
+        // given 
+        let issue1 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+        let issue2 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Warning,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+        let issue3 = ProjectReportIssue {
+            message: "DIFFERENT".to_string(),
+            severity: IssueSeverity::Warning,
+            kind: IssueKind::NoPcbsAssigned,
+        };
+        
+        let issue4 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Severe,
+            kind: IssueKind::NoPhasesCreated,
+        };
+        let issue5 = ProjectReportIssue {
+            message: "EQUAL".to_string(),
+            severity: IssueSeverity::Warning,
+            kind: IssueKind::NoPhasesCreated,
+        };
+        let issue6 = ProjectReportIssue {
+            message: "DIFFERENT".to_string(),
+            severity: IssueSeverity::Warning,
+            kind: IssueKind::NoPhasesCreated,
+        };
+
+        let mut issues: Vec<ProjectReportIssue> = vec![
+            issue1.clone(), issue2.clone(), issue3.clone(),
+            issue4.clone(), issue5.clone(), issue6.clone(),
+        ];
+        let expected_issues: Vec<ProjectReportIssue> = vec![
+            issue1.clone(), issue4.clone(), issue3.clone(),
+            issue2.clone(), issue6.clone(), issue5.clone(),
+        ];
+
+        // when
+        project_report_sort_issues(&mut issues);
+
+        // then
+        assert_eq!(&issues, &expected_issues);
+    }
 }
 
 fn find_unit_assignments(project: &Project, unit_path: &ObjectPath) -> Vec<PcbUnitAssignmentItem> {
@@ -232,22 +530,28 @@ pub struct PhaseLoadOutAssignmentItem {
     pub quantity: u32,
 }
 
-#[derive(Clone, serde::Serialize, Debug)]
+#[derive(Clone, serde::Serialize, Debug, PartialEq)]
 pub struct ProjectReportIssue {
     pub message: String,
     pub severity: IssueSeverity,
     pub kind: IssueKind,
 }
 
-#[derive(Clone, serde::Serialize, Debug)]
+#[derive(Clone, serde::Serialize, Debug, PartialEq)]
 pub enum IssueSeverity {
     Severe,
     Warning,
 }
 
 #[serde_as]
-#[derive(Clone, serde::Serialize, Debug)]
+#[derive(Clone, serde::Serialize, Debug, PartialEq)]
 pub enum IssueKind {
+    NoPcbsAssigned,
+    NoPhasesCreated,
+    InvalidUnitAssignment {
+        #[serde_as(as = "DisplayFromStr")]
+        object_path: ObjectPath
+    },
     UnassignedPlacement {
         #[serde_as(as = "DisplayFromStr")]
         object_path: ObjectPath
