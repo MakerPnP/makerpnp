@@ -1,4 +1,5 @@
 use clap::{Args, ValueEnum};
+use crate::eda::EdaTool;
 use crate::planning::pcb::{PcbKind, PcbSide};
 use crate::util::sorting::SortOrder;
 use crate::planning::placement::PlacementSortingMode;
@@ -76,6 +77,24 @@ impl From<PcbKindArg> for PcbKind {
         match value {
             PcbKindArg::Single => Self::Single,
             PcbKindArg::Panel => Self::Panel,
+        }
+    }
+}
+
+#[derive(Clone)]
+#[derive(ValueEnum)]
+pub enum EdaToolArg {
+    #[value(name("diptrace"))]
+    DipTrace,
+    #[value(name("kicad"))]
+    KiCad,
+}
+
+impl EdaToolArg {
+    pub fn build(&self) -> EdaTool {
+        match self {
+            EdaToolArg::DipTrace => EdaTool::DipTrace,
+            EdaToolArg::KiCad => EdaTool::KiCad,
         }
     }
 }

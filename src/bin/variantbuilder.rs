@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use anyhow::Error;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand};
 use csv::QuoteStyle;
 use termtree::Tree;
 use thiserror::Error;
@@ -8,6 +8,7 @@ use tracing::{error, info, Level, trace};
 use makerpnp::assembly::AssemblyVariantProcessor;
 use makerpnp::assembly::assembly_variant::AssemblyVariant;
 use makerpnp::cli;
+use makerpnp::cli::args::EdaToolArg;
 use makerpnp::eda::placement::{EdaPlacement, EdaPlacementField};
 use makerpnp::eda::substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::eda::EdaTool;
@@ -53,24 +54,6 @@ impl AssemblyVariantArgs {
             self.name.clone(),
             self.ref_des_list.clone(),
         ))
-    }
-}
-
-#[derive(Clone)]
-#[derive(ValueEnum)]
-pub enum EdaToolArg {
-    #[value(name("diptrace"))]
-    DipTrace,
-    #[value(name("kicad"))]
-    KiCad,
-}
-
-impl EdaToolArg {
-    pub fn build(&self) -> EdaTool {
-        match self {
-            EdaToolArg::DipTrace => EdaTool::DipTrace,
-            EdaToolArg::KiCad => EdaTool::KiCad,
-        }
     }
 }
 
