@@ -6,6 +6,7 @@ use tracing::trace;
 use std::fs::File;
 use std::str::FromStr;
 use std::fmt::{Display, Formatter};
+use thiserror::Error;
 use crate::stores::csv::LoadOutItemRecord;
 use crate::pnp::load_out::LoadOutItem;
 
@@ -33,6 +34,7 @@ pub fn load_items(load_out_source: &LoadOutSource) -> Result<Vec<LoadOutItem>, E
 }
 
 pub fn store_items(load_out_source: &LoadOutSource, items: &[LoadOutItem]) -> Result<(), Error> {
+    info!("Storing load-out. source: '{}'", load_out_source);
 
     let output_path = PathBuf::from(load_out_source.to_string());
 
@@ -81,4 +83,35 @@ impl Display for LoadOutSource {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum LoadOutOperationError<E> {
+    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
+    UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+
+    #[error("Unable to store items. source: {load_out_source}, error: {reason}")]
+    UnableToStoreItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+
+    #[error("Load-out operation error. source: {load_out_source}, error: {reason}")]
+    OperationError { load_out_source: LoadOutSource, reason: E },
+}
+
+pub fn perform_load_out_operation<F, R, E>(source: &LoadOutSource, mut f: F) -> Result<R, LoadOutOperationError<E>> 
+where
+    F: FnMut(&mut Vec<LoadOutItem>) -> Result<R, E>
+{
+    let mut load_out_items = load_items(source).map_err(|err|{
+        LoadOutOperationError::UnableToLoadItems { load_out_source: source.clone(), reason: err }
+    })?;
+
+    let result = f(&mut load_out_items).map_err(|err|{
+        LoadOutOperationError::OperationError { load_out_source: source.clone(), reason: err }
+    })?;
+    
+    store_items(source, &load_out_items).map_err(|err|{
+        LoadOutOperationError::UnableToStoreItems { load_out_source: source.clone(), reason: err }
+    })?;
+
+    Ok(result)
 }

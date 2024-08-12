@@ -5,7 +5,7 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::{bail, Error};
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use csv::QuoteStyle;
 use heck::ToShoutySnakeCase;
 use regex::Regex;
@@ -15,14 +15,14 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use thiserror::Error;
 use tracing::{debug, info, trace};
-use makerpnp::cli;
+use makerpnp::{cli, pnp};
 use makerpnp::cli::args::{PcbKindArg, PcbSideArg, ProjectArgs};
 use makerpnp::stores::load_out;
 use makerpnp::stores::placements::PlacementRecord;
-use makerpnp::stores::load_out::LoadOutSource;
+use makerpnp::stores::load_out::{LoadOutOperationError, LoadOutSource};
 use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
-use makerpnp::planning::pcb::{Pcb, PcbKind, PcbSide};
+use makerpnp::planning::pcb::{Pcb, PcbKind};
 use makerpnp::planning::phase::Phase;
 use makerpnp::planning::placement::{PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
 use makerpnp::planning::process::Process;
@@ -604,11 +604,11 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, is
             }
             acc = match sort_ordering.mode {
                 PlacementSortingMode::FeederReference => {
-                    let feeder_reference_a = match find_load_out_item_by_part(&load_out_items, &placement_state_a.placement.part) {
+                    let feeder_reference_a = match pnp::load_out::find_load_out_item_by_part(&load_out_items, &placement_state_a.placement.part) {
                         Some(load_out_item) => load_out_item.reference.clone(),
                         _ => "".to_string(),
                     };
-                    let feeder_reference_b = match find_load_out_item_by_part(&load_out_items, &placement_state_b.placement.part) {
+                    let feeder_reference_b = match pnp::load_out::find_load_out_item_by_part(&load_out_items, &placement_state_b.placement.part) {
                         Some(load_out_item) => load_out_item.reference.clone(),
                         _ => "".to_string(),
                     };
@@ -636,7 +636,7 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, is
     });
 
     for (_object_path, placement_state) in placement_states.iter() {
-        let feeder_reference = match find_load_out_item_by_part(&load_out_items, &placement_state.placement.part) {
+        let feeder_reference = match pnp::load_out::find_load_out_item_by_part(&load_out_items, &placement_state.placement.part) {
             Some(load_out_item) => load_out_item.reference.clone(),
             _ => "".to_string(),
         };
@@ -688,7 +688,7 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
 
     for (object_path, placement_state) in placement_states.iter() {
         
-        let feeder_reference = match find_load_out_item_by_part(&load_out_items, &placement_state.placement.part) {
+        let feeder_reference = match pnp::load_out::find_load_out_item_by_part(&load_out_items, &placement_state.placement.part) {
             Some(load_out_item) => load_out_item.reference.clone(),
             _ => "".to_string(),
         };
@@ -711,14 +711,34 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
     Ok(())
 }
 
-#[derive(Error, Debug)]
-pub enum LoadOutError {
-    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
-    UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutOperationError<anyhow::Error>> {
     
-    #[error("Unable to store items. source: {load_out_source}, error: {reason}")]
-    UnableToStoreItems { load_out_source: LoadOutSource, reason: anyhow::Error },
+    load_out::perform_load_out_operation(&phase.load_out, |load_out_items| {
+        for part in parts.iter() {
+            trace!("Checking for part in load_out. part: {:?}", part);
+    
+            let matched = pnp::load_out::find_load_out_item_by_part(load_out_items, part);
+            
+            if matched.is_some() {
+                continue
+            }
+            
+            let load_out_item = LoadOutItem {
+                reference: "".to_string(),
+                manufacturer: part.manufacturer.clone(),
+                mpn: part.mpn.clone(),
+            };
 
+            info!("Adding part to load_out. part: {:?}", part);
+            load_out_items.push(load_out_item)
+        }
+        
+        Ok(())
+    })
+}
+
+#[derive(Error, Debug)]
+pub enum FeederAssignmentError {
     #[error("No matching part; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
     NoMatchingPart { manufacturer: Regex, mpn: Regex },
 
@@ -726,73 +746,28 @@ pub enum LoadOutError {
     MultipleMatchingParts { manufacturer: Regex, mpn: Regex },
 }
 
-fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutError> {
-    let mut load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
-        LoadOutError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
+fn assign_feeder_to_load_out_item(load_out: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutOperationError<FeederAssignmentError>> {
+
+    let part = load_out::perform_load_out_operation(&load_out, |load_out_items| {
+        let mut items: Vec<_> = load_out_items.iter_mut().filter(|item| {
+            manufacturer.is_match(&item.manufacturer)
+                && mpn.is_match(&item.mpn)
+        }).collect();
+
+        match items.len() {
+            0 => Err(FeederAssignmentError::NoMatchingPart { manufacturer: manufacturer.clone(), mpn: mpn.clone() }),
+            1 => Ok(()),
+            _ => Err(FeederAssignmentError::MultipleMatchingParts { manufacturer: manufacturer.clone(), mpn: mpn.clone() }),
+        }?;
+
+        let item = items.pop().unwrap();
+        item.reference = feeder_reference.to_string();
+
+        let part = Part { manufacturer: item.manufacturer.to_string(), mpn: item.mpn.to_string() };
+        Ok(part)
+        
     })?;
     
-    for part in parts.iter() {
-        trace!("Checking for part in load_out. part: {:?}", part);
-
-        let matched = find_load_out_item_by_part(&load_out_items, part);
-        
-        if matched.is_some() {
-            continue
-        }
-        
-        let load_out_item = LoadOutItem {
-            reference: "".to_string(),
-            manufacturer: part.manufacturer.clone(),
-            mpn: part.mpn.clone(),
-        };
-        
-        load_out_items.push(load_out_item)
-    }
-
-    info!("Storing load-out. source: '{}'", phase.load_out);
-
-    load_out::store_items(&phase.load_out, &load_out_items).map_err(|err|{
-        LoadOutError::UnableToStoreItems { load_out_source: phase.load_out.clone(), reason: err }
-    })?;
- 
-    Ok(())
-}
-
-fn find_load_out_item_by_part<'load_out>(load_out_items: &'load_out [LoadOutItem], part: &Part) -> Option<&'load_out LoadOutItem> {
-    let matched_item = load_out_items.iter().find(|&load_out_item| {
-        load_out_item.manufacturer.eq(&part.manufacturer)
-            && load_out_item.mpn.eq(&part.mpn)
-    });
-    matched_item
-}
-
-fn assign_feeder_to_load_out_item(load_out: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutError> {
-    let mut load_out_items = load_out::load_items(&load_out).map_err(|err|{
-        LoadOutError::UnableToLoadItems { load_out_source: load_out.clone(), reason: err }
-    })?;
-
-    let mut items: Vec<_> = load_out_items.iter_mut().filter(|item|{
-        manufacturer.is_match(&item.manufacturer)
-            && mpn.is_match(&item.mpn)
-    }).collect();
-
-    match items.len() {
-        0 => Err(LoadOutError::NoMatchingPart { manufacturer, mpn }),
-        1 => Ok(()),
-        _ => Err(LoadOutError::MultipleMatchingParts { manufacturer, mpn }),
-    }?;
-
-    let item = items.pop().unwrap();
-    item.reference = feeder_reference.to_string();
-
-    let part = Part { manufacturer: item.manufacturer.to_string(), mpn: item.mpn.to_string() };
-
-    info!("Storing load-out. source: '{}'", load_out);
-
-    load_out::store_items(&load_out, &load_out_items).map_err(|err|{
-        LoadOutError::UnableToStoreItems { load_out_source: load_out.clone(), reason: err }
-    })?;
-
     info!("Assigned feeder to load-out item. feeder: {}, part: {:?}", feeder_reference, part);
 
     Ok(())
