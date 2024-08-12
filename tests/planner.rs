@@ -993,6 +993,13 @@ mod operation_sequence_1 {
             ])
             .with_issues(&[
                 TestIssue {
+                    message: "A placement has not been assigned to a phase".to_string(),
+                    severity: TestIssueSeverity::Warning,
+                    kind: TestIssueKind::UnassignedPlacement {
+                        object_path: "panel=1::unit=1::ref_des=J1".to_string(),
+                    },
+                },
+                TestIssue {
                     message: "A part has not been assigned to a feeder".to_string(),
                     severity: TestIssueSeverity::Warning,
                     kind: TestIssueKind::UnassignedPartFeeder {

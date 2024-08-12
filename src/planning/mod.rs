@@ -66,7 +66,7 @@ pub struct PlacementState {
     pub phase: Option<Reference>
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub enum PlacementStatus {
     Known,
     Unknown,

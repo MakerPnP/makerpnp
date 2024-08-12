@@ -369,6 +369,7 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String, iss
     let mut report = ProjectReport::default();
     
     report.name.clone_from(&project.name);
+    report.issues = issues;
     report.phase_overviews.extend(project.phases.values().map(|phase|{
         PhaseOverview { phase_name: phase.reference.to_string() }
     }));
@@ -463,15 +464,43 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String, iss
     })?;
     
     report.phase_specifications.extend(phase_specifications);
-    report.issues = issues;
 
-    let report_file_path = build_report_file_path(&name, &path); 
+    let placement_issues = project_report_find_placement_issues(project);
+    report.issues.extend(placement_issues);
+
+    project_report_sort_issues(&mut report);
+    
+    let report_file_path = build_report_file_path(name, path); 
 
     project_report_save(&report, &report_file_path).map_err(|err|{
         ReportGenerationError::UnableToSaveReport { reason: err }
     })?;
     
     Ok(())
+}
+
+fn project_report_find_placement_issues(project: &Project) -> Vec<ProjectReportIssue> {
+    let placement_issues: Vec<ProjectReportIssue> = project.placements.iter().filter_map(|(object_path, placement_state)| {
+        match placement_state.phase {
+            None if placement_state.status == PlacementStatus::Known => Some(ProjectReportIssue {
+                message: "A placement has not been assigned to a phase".to_string(),
+                severity: IssueSeverity::Warning,
+                kind: IssueKind::UnassignedPlacement { object_path: object_path.clone() },
+            }),
+            _ => None,
+        }
+    }).collect();
+    placement_issues
+}
+
+fn project_report_sort_issues(report: &mut ProjectReport) {
+    report.issues.sort_by(|a, b| {
+        match (&a.kind, &b.kind) {
+            (IssueKind::UnassignedPlacement { .. }, IssueKind::UnassignedPlacement { .. }) => Ordering::Equal,
+            (IssueKind::UnassignedPlacement { .. }, _) => Ordering::Less,
+            (IssueKind::UnassignedPartFeeder { .. }, _) => Ordering::Greater,
+        }
+    });
 }
 
 fn find_unit_assignments(project: &Project, unit_path: &ObjectPath) -> Vec<PcbUnitAssignmentItem> {
@@ -557,8 +586,13 @@ pub enum IssueSeverity {
     Warning,
 }
 
+#[serde_as]
 #[derive(Clone, serde::Serialize, Debug)]
 pub enum IssueKind {
+    UnassignedPlacement {
+        #[serde_as(as = "DisplayFromStr")]
+        object_path: ObjectPath
+    },
     UnassignedPartFeeder { part: Part },
 }
 
