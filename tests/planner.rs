@@ -1173,12 +1173,12 @@ mod help {
         let expected_output = indoc! {"
             Assign a design variant to a PCB unit
 
-            Usage: planner assign-variant-to-unit --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<UNIT_PATH>
+            Usage: planner assign-variant-to-unit --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<OBJECT_PATH>
 
             Options:
                   --design=<DESIGN_NAME>    Name of the design
                   --variant=<VARIANT_NAME>  Variant of the design
-                  --unit=<UNIT_PATH>        PCB unit path
+                  --unit=<OBJECT_PATH>      PCB unit path
               -h, --help                    Print help
         "};
 

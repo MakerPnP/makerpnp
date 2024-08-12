@@ -13,7 +13,7 @@ use makerpnp::planning::process::Process;
 use makerpnp::planning::project::{PlacementAssignmentError, Project};
 use makerpnp::planning::project;
 use makerpnp::planning::variant::VariantName;
-use makerpnp::pnp::object_path::UnitPath;
+use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::stores::load_out::LoadOutSource;
 
 #[derive(Parser)]
@@ -65,8 +65,8 @@ enum Command {
         variant: VariantName,
 
         /// PCB unit path
-        #[arg(long, require_equals = true, value_parser = clap::value_parser!(UnitPath), value_name = "UNIT_PATH")]
-        unit: UnitPath,
+        #[arg(long, require_equals = true, value_parser = clap::value_parser!(ObjectPath), value_name = "OBJECT_PATH")]
+        unit: ObjectPath,
     },
     /// Assign a process to parts
     AssignProcessToParts {

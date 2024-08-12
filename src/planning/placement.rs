@@ -2,18 +2,23 @@ use thiserror::Error;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::collections::BTreeMap;
+use serde_with::serde_as;
+use serde_with::DisplayFromStr;
 use tracing::trace;
 use crate::planning::design::DesignVariant;
 use crate::util::sorting::SortOrder;
 use crate::planning::reference::Reference;
-use crate::pnp::object_path::UnitPath;
+use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
 use crate::pnp::placement::Placement;
 use crate::stores::placements::PlacementRecord;
 
+#[serde_as]
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
 pub struct PlacementState {
-    pub unit_path: UnitPath,
+
+    #[serde_as(as = "DisplayFromStr")]
+    pub unit_path: ObjectPath,
     pub placement: Placement,
     pub placed: bool,
     pub status: PlacementStatus,

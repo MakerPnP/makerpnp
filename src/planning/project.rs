@@ -26,7 +26,7 @@ use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
 use crate::pnp::load_out::LoadOutItem;
-use crate::pnp::object_path::{ObjectPath, UnitPath};
+use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
 use crate::pnp::placement::Placement;
 use crate::util::sorting::SortOrder;
@@ -43,11 +43,10 @@ pub struct Project {
     #[serde(default)]
     pub pcbs: Vec<Pcb>,
 
-    // TODO consider using ObjectPath instead of UnitPath here?
-    #[serde_as(as = "Vec<(_, _)>")]
+    #[serde_as(as = "Vec<(DisplayFromStr, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    pub unit_assignments: BTreeMap<UnitPath, DesignVariant>,
+    pub unit_assignments: BTreeMap<ObjectPath, DesignVariant>,
 
     #[serde_as(as = "Vec<(_, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -74,15 +73,15 @@ impl Project {
     }
 
 
-    pub fn update_assignment(&mut self, unit_path: UnitPath, design_variant: DesignVariant) -> anyhow::Result<()> {
-        match self.unit_assignments.entry(unit_path.clone()) {
+    pub fn update_assignment(&mut self, object_path: ObjectPath, design_variant: DesignVariant) -> anyhow::Result<()> {
+        match self.unit_assignments.entry(object_path.clone()) {
             Entry::Vacant(entry) => {
                 entry.insert(design_variant.clone());
-                info!("Unit assignment added. unit: '{}', design_variant: {}", unit_path, design_variant )
+                info!("Unit assignment added. unit: '{}', design_variant: {}", object_path, design_variant )
             }
             Entry::Occupied(mut entry) => {
                 let old_value = entry.insert(design_variant.clone());
-                info!("Unit assignment updated. unit: '{}', old: {}, new: {}", unit_path, old_value, design_variant )
+                info!("Unit assignment updated. unit: '{}', old: {}, new: {}", object_path, old_value, design_variant )
             }
         }
 
@@ -342,10 +341,11 @@ pub fn refresh_from_design_variants(project: &mut Project, path: &PathBuf) -> an
 }
 
 fn refresh_placements(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) {
-    let changes: Vec<(Change, UnitPath, Placement)> = find_placement_changes(project, design_variant_placement_map);
+    let changes: Vec<(Change, ObjectPath, Placement)> = find_placement_changes(project, design_variant_placement_map);
 
     for (change, unit_path, placement) in changes.iter() {
-        let path: ObjectPath = ObjectPath::try_from_unit_path_and_refdes(&unit_path, &placement.ref_des).expect("always ok");
+        let mut path: ObjectPath = unit_path.clone();
+        path.set_ref_des(placement.ref_des.clone());
 
         let placement_state_entry = project.placements.entry(path);
 
@@ -380,8 +380,8 @@ fn refresh_placements(project: &mut Project, design_variant_placement_map: &BTre
     }
 }
 
-fn find_placement_changes(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) -> Vec<(Change, UnitPath, Placement)> {
-    let mut changes: Vec<(Change, UnitPath, Placement)> = vec![];
+fn find_placement_changes(project: &mut Project, design_variant_placement_map: &BTreeMap<DesignVariant, Vec<Placement>>) -> Vec<(Change, ObjectPath, Placement)> {
+    let mut changes: Vec<(Change, ObjectPath, Placement)> = vec![];
 
     // find new or existing placements that are in the updated design_variant_placement_map
 
@@ -393,7 +393,8 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
             }
 
             for placement in placements {
-                let path: ObjectPath = ObjectPath::try_from_unit_path_and_refdes(&unit_path, &placement.ref_des).expect("always ok");
+                let mut path: ObjectPath = unit_path.clone();
+                path.set_ref_des(placement.ref_des.clone());
 
                 // look for a placement state for the placement for this object path
 

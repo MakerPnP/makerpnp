@@ -7,7 +7,6 @@ use std::cmp::Ordering;
 use std::fs::File;
 use thiserror::Error;
 use anyhow::Error;
-use std::str::FromStr;
 use serde::Serialize;
 use std::io::Write;
 use crate::planning::design::{DesignName, DesignVariant};
@@ -15,7 +14,7 @@ use crate::planning::pcb::PcbKind;
 use crate::planning::placement::PlacementStatus;
 use crate::planning::project::Project;
 use crate::planning::variant::VariantName;
-use crate::pnp::object_path::{ObjectPath, UnitPath};
+use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
 use crate::stores::load_out;
 use crate::stores::load_out::LoadOutSource;
@@ -78,17 +77,16 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
         let mut operations = vec![];
         if !unit_paths_with_placements.is_empty() {
             let pcbs: Vec<PcbReportItem> = unit_paths_with_placements.iter().find_map(|unit_path|{
-                if let Some((key, index)) = unit_path.get(0) {
+                if let Some((kind, mut index)) = unit_path.pcb_kind_and_index() {
 
-                    let mut index: usize = index.parse().expect("valid index");
-                    // TODO consider if unit paths should use zero-based index (probably!)
+                    // TODO consider if unit paths should use zero-based index
                     index -= 1;
 
                     // Note: the user may not have made any unit assignments yet.
                     let mut unit_assignments = find_unit_assignments(project, unit_path);
 
-                    match PcbKind::try_from(key) {
-                        Ok(PcbKind::Panel) => {
+                    match kind {
+                        PcbKind::Panel => {
                             let pcb = project.pcbs.get(index).unwrap();
 
 
@@ -97,7 +95,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
                                 unit_assignments,
                             })
                         },
-                        Ok(PcbKind::Single) => {
+                        PcbKind::Single => {
                             let pcb = project.pcbs.get(index).unwrap();
 
                             assert!(unit_assignments.len() <= 1);
@@ -107,7 +105,6 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
                                 unit_assignment: unit_assignments.pop()
                             })
                         },
-                        _ => None,
                     }
                 } else {
                     None
@@ -172,14 +169,12 @@ fn find_unit_assignments(project: &Project, unit_path: &ObjectPath) -> Vec<PcbUn
     let unit_assignments = project.unit_assignments.iter().filter_map(|(assignment_unit_path, DesignVariant { design_name, variant_name })| {
         let mut result = None;
 
-        if let Ok(this_unit_path) = &UnitPath::from_str(&unit_path.to_string()) {
-            if assignment_unit_path.eq(this_unit_path) {
-                result = Some(PcbUnitAssignmentItem {
-                    unit_path: unit_path.clone(),
-                    design_name: design_name.clone(),
-                    variant_name: variant_name.clone(),
-                })
-            }
+        if assignment_unit_path.eq(unit_path) {
+            result = Some(PcbUnitAssignmentItem {
+                unit_path: unit_path.clone(),
+                design_name: design_name.clone(),
+                variant_name: variant_name.clone(),
+            })
         }
         result
     }).collect();
