@@ -10,23 +10,22 @@ impl ProjectReportBuilder {
         self.report.phase_specifications = Some(Vec::from(phase_specifications));
         self
     }
-}
 
-impl ProjectReportBuilder {
+    pub fn with_issues(mut self, issues: &[TestIssue]) -> Self {
+        self.report.issues = Some(Vec::from(issues));
+        self
+    }
+
     pub fn with_phases_overview(mut self, phase_overviews: &[TestPhaseOverview]) -> Self {
         self.report.phase_overviews = Some(Vec::from(phase_overviews));
         self
     }
-}
 
-impl ProjectReportBuilder {
     pub fn with_name(mut self, name: &str) -> Self {
         self.report.name = Some(name.to_string());
         self
     }
-}
 
-impl ProjectReportBuilder {
     pub fn as_string(&mut self) -> String {
         
         
@@ -48,7 +47,8 @@ impl ProjectReportBuilder {
 pub struct TestProjectReport {
     name: Option<String>,
     phase_overviews: Option<Vec<TestPhaseOverview>>,
-    phase_specifications: Option<Vec<TestPhaseSpecification>>
+    phase_specifications: Option<Vec<TestPhaseSpecification>>,
+    issues: Option<Vec<TestIssue>>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -89,4 +89,28 @@ pub struct TestPhaseLoadOutAssignmentItem {
     pub mpn: String,
     pub quantity: u32,
     // FUTURE maybe add list of object paths?
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum TestIssueSeverity {
+    Warning
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum TestIssueKind {
+    UnassignedPlacement { object_path: String },
+    UnassignedPartFeeder { part: TestPart },
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TestPart {
+    pub manufacturer: String,
+    pub mpn: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TestIssue {
+    pub message: String, 
+    pub severity: TestIssueSeverity,
+    pub kind: TestIssueKind,
 }

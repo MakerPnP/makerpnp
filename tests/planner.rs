@@ -18,7 +18,7 @@ mod operation_sequence_1 {
     use crate::int_test::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::int_test::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::int_test::project_builder::TestProjectBuilder;
-    use crate::int_test::project_report_builder::{ProjectReportBuilder, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOverview, TestPhaseSpecification};
+    use crate::int_test::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOverview, TestPhaseSpecification};
 
     /// A context, which will be dropped when the tests are completed.
     mod context {
@@ -990,6 +990,18 @@ mod operation_sequence_1 {
                         },
                     ]
                 }
+            ])
+            .with_issues(&[
+                TestIssue {
+                    message: "A part has not been assigned to a feeder".to_string(),
+                    severity: TestIssueSeverity::Warning,
+                    kind: TestIssueKind::UnassignedPartFeeder {
+                        part: TestPart {
+                            manufacturer: "RES_MFR2".to_string(),
+                            mpn: "RES2".to_string(),
+                        }
+                    }
+                },
             ])
             .as_string();
         

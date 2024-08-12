@@ -339,11 +339,14 @@ pub enum ArtifactGenerationError {
 }
 
 fn project_generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> Result<(), ArtifactGenerationError> {
+    
+    let mut issues: Vec<ProjectReportIssue> = vec![];
+    
     for (_reference, phase) in project.phases.iter() {
-        generate_phase_artifacts(project, phase, path)?;
+        generate_phase_artifacts(project, phase, path, &mut issues)?;
     }
         
-    project_generate_report(project, path, name).map_err(|err|{
+    project_generate_report(project, path, name, issues).map_err(|err|{
         ArtifactGenerationError::ReportGenerationError { reason: err.into() }
     })?;
     
@@ -361,7 +364,7 @@ enum ReportGenerationError {
     UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
 }
 
-fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> Result<(), ReportGenerationError> {
+fn project_generate_report(project: &Project, path: &PathBuf, name: &String, issues: Vec<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
     
     let mut report = ProjectReport::default();
     
@@ -460,6 +463,7 @@ fn project_generate_report(project: &Project, path: &PathBuf, name: &String) -> 
     })?;
     
     report.phase_specifications.extend(phase_specifications);
+    report.issues = issues;
 
     let report_file_path = build_report_file_path(&name, &path); 
 
@@ -494,6 +498,7 @@ pub struct ProjectReport {
     pub name: String,
     pub phase_overviews: Vec<PhaseOverview>,
     pub phase_specifications: Vec<PhaseSpecification>,
+    pub issues: Vec<ProjectReportIssue>,
 }
 
 #[derive(serde::Serialize)]
@@ -539,6 +544,23 @@ pub struct PhaseLoadOutAssignmentItem {
     pub quantity: u32,
 }
 
+#[derive(Clone, serde::Serialize, Debug)]
+pub struct ProjectReportIssue {
+    pub message: String,
+    pub severity: IssueSeverity,
+    pub kind: IssueKind,
+}
+
+#[derive(Clone, serde::Serialize, Debug)]
+pub enum IssueSeverity {
+    Severe,
+    Warning,
+}
+
+#[derive(Clone, serde::Serialize, Debug)]
+pub enum IssueKind {
+    UnassignedPartFeeder { part: Part },
+}
 
 fn build_report_file_path(name: &str, path: &PathBuf) -> PathBuf {
     let mut report_file_path: PathBuf = path.clone();
@@ -558,7 +580,7 @@ fn project_report_save(report: &ProjectReport, report_file_path: &PathBuf) -> an
     Ok(())
 }
 
-fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf) -> Result<(), ArtifactGenerationError> {
+fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, issues: &mut Vec<ProjectReportIssue>) -> Result<(), ArtifactGenerationError> {
     let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
         ArtifactGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
     })?;
@@ -607,6 +629,23 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf) ->
             }
         })
     });
+
+    for (_object_path, placement_state) in placement_states.iter() {
+        let feeder_reference = match find_load_out_item_by_part(&load_out_items, &placement_state.placement.part) {
+            Some(load_out_item) => load_out_item.reference.clone(),
+            _ => "".to_string(),
+        };
+        
+        if feeder_reference.is_empty() {
+            let issue = ProjectReportIssue {
+                message: "A part has not been assigned to a feeder".to_string(),
+                severity: IssueSeverity::Warning,
+                kind: IssueKind::UnassignedPartFeeder { part: placement_state.placement.part.clone() },
+            };
+            info!("Issue detected. issue: {:?}", issue);
+            issues.push(issue);
+        };
+    }
 
     let mut phase_placements_path = PathBuf::from(path);
     phase_placements_path.push(format!("{}_placements.csv", phase.reference));
