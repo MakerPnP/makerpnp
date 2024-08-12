@@ -11,10 +11,10 @@ use makerpnp::cli;
 use makerpnp::eda::placement::{EdaPlacement, EdaPlacementField};
 use makerpnp::eda::substitution::{EdaSubstitutionResult, EdaSubstitutionRule, EdaSubstitutor};
 use makerpnp::eda::EdaTool;
-use makerpnp::loaders::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
-use makerpnp::loaders::placements::PlacementRecord;
+use makerpnp::stores::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
+use makerpnp::stores::placements::PlacementRecord;
 use makerpnp::part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
-use makerpnp::planning::LoadOutSource;
+use makerpnp::stores::load_out::LoadOutSource;
 
 #[derive(Parser)]
 #[command(name = "variantbuilder")]

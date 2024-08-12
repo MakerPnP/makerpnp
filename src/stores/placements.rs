@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use crate::planning::PcbSide;
+use crate::planning::pcb::PcbSide;
 use crate::pnp::part::Part;
 use crate::pnp::placement::Placement;
 

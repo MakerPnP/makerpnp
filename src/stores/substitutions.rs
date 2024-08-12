@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
 use crate::eda::substitution::EdaSubstitutionRule;
-use crate::loaders::csv::SubstitutionRecord;
+use crate::stores::csv::SubstitutionRecord;
 
 #[tracing::instrument(level = Level::DEBUG)]
 pub fn load_eda_substitutions(substitutions_source: &String) -> Result<Vec<EdaSubstitutionRule>, Error> {

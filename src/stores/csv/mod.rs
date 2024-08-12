@@ -7,7 +7,7 @@ use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransform
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::part::Part;
-use crate::pnp::load_out_item::LoadOutItem;
+use crate::pnp::load_out::LoadOutItem;
 
 #[derive(Debug, serde::Deserialize)]
 enum CSVEdaToolValue {

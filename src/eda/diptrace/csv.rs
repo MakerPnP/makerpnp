@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use thiserror::Error;
 use crate::eda::placement::{EdaPlacement, EdaPlacementField};
-use crate::planning::PcbSide;
+use crate::planning::pcb::PcbSide;
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]

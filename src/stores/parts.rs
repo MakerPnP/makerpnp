@@ -2,7 +2,7 @@ use tracing::Level;
 use anyhow::{bail, Error};
 use std::path::PathBuf;
 use tracing::trace;
-use crate::loaders::csv::PartRecord;
+use crate::stores::csv::PartRecord;
 use crate::pnp::part::Part;
 
 #[tracing::instrument(level = Level::DEBUG)]

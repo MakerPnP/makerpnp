@@ -6,7 +6,7 @@ use crate::assembly::rules::AssemblyRule;
 use crate::eda::placement::EdaPlacement;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::part_mapper::PartMappingError::{ConflictingRules, NoRulesApplied};
-use crate::pnp::load_out_item::LoadOutItem;
+use crate::pnp::load_out::LoadOutItem;
 use crate::pnp::part::Part;
 
 pub struct PartMapper {}
@@ -156,7 +156,7 @@ mod tests {
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::part_mapping::PartMapping;
     use crate::part_mapper::{AppliedMappingRule, PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
-    use crate::pnp::load_out_item::LoadOutItem;
+    use crate::pnp::load_out::LoadOutItem;
 
     #[test]
     fn map_parts() {

@@ -3,7 +3,7 @@ use clap::builder::TypedValueParser;
 use clap::{Arg, Command, Error, value_parser};
 use clap::error::ErrorKind;
 use crate::cli::args::{PlacementSortingModeArg, SortOrderArg};
-use crate::planning::PlacementSortingItem;
+use crate::planning::placement::PlacementSortingItem;
 
 #[derive(Clone, Default)]
 pub struct PlacementSortingItemParser {}

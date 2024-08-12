@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Error};
 use tracing::trace;
 use crate::assembly::rules::AssemblyRule;
-use crate::loaders::csv::AssemblyRuleRecord;
+use crate::stores::csv::AssemblyRuleRecord;
 
 #[tracing::instrument(level = Level::DEBUG)]
 pub fn load(assembly_rule_source: &String) -> Result<Vec<AssemblyRule>, Error>  {

@@ -2,7 +2,7 @@ use tracing::Level;
 use anyhow::{bail, Error};
 use std::path::PathBuf;
 use tracing::trace;
-use crate::loaders::csv::PartMappingRecord;
+use crate::stores::csv::PartMappingRecord;
 use crate::pnp::part::Part;
 use crate::part_mapper::part_mapping::PartMapping;
 

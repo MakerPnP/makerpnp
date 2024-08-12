@@ -1,5 +1,6 @@
 use clap::ValueEnum;
-use crate::planning::{PlacementSortingMode, SortOrder};
+use crate::util::sorting::SortOrder;
+use crate::planning::placement::PlacementSortingMode;
 
 /// Args decouple of CLI arg handling requirements from the internal data structures
 

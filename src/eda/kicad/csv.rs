@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use thiserror::Error;
 use crate::eda::placement::{EdaPlacement, EdaPlacementField};
-use crate::planning::PcbSide;
+use crate::planning::pcb::PcbSide;
 
 #[derive(Error, Debug)]
 pub enum KiCadPlacementRecordError {

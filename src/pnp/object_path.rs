@@ -1,7 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 use thiserror::Error;
-use crate::planning::UnitPath;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Ord, PartialOrd, Eq, PartialEq, Default)]
 pub struct ObjectPath {
@@ -99,4 +98,21 @@ impl FromStr for ObjectPath {
 pub enum ObjectPathError {
     #[error("Invalid object path. value: '{0:}'")]
     Invalid(String)
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct UnitPath(String);
+
+impl FromStr for UnitPath {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(UnitPath(s.to_string()))
+    }
+}
+
+impl Display for UnitPath {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0.as_str())
+    }
 }

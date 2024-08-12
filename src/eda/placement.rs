@@ -1,5 +1,5 @@
 use rust_decimal::Decimal;
-use crate::planning::PcbSide;
+use crate::planning::pcb::PcbSide;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaPlacementField {
