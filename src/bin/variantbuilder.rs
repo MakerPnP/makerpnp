@@ -99,7 +99,7 @@ enum Command {
         output: String,
 
         #[command(flatten)]
-        assembly_variant: Option<AssemblyVariantArgs>
+        assembly_variant_args: Option<AssemblyVariantArgs>
     },
 }
 
@@ -112,7 +112,7 @@ fn main() -> anyhow::Result<()>{
         Command::Build {
             eda,
             placements,
-            assembly_variant,
+            assembly_variant_args,
             parts,
             part_mappings,
             substitutions,
@@ -122,6 +122,10 @@ fn main() -> anyhow::Result<()>{
             ref_des_disable_list,
         } => {
             let eda_tool= eda.build();
+            let assembly_variant = assembly_variant_args.as_ref().map_or_else(|| Ok(AssemblyVariant::default()), | args | {
+                args.build_assembly_variant()
+            })?;
+
             build_assembly_variant(eda_tool, placements, assembly_variant, parts, part_mappings, substitutions, load_out, assembly_rules, output, ref_des_disable_list)?;
         },
     }
@@ -133,7 +137,7 @@ fn main() -> anyhow::Result<()>{
 fn build_assembly_variant(
     eda_tool: EdaTool,
     placements_source: &String,
-    assembly_variant_args: &Option<AssemblyVariantArgs>,
+    assembly_variant: AssemblyVariant,
     parts_source: &String,
     part_mappings_source: &String,
     eda_substitutions_sources: &[String],
@@ -146,7 +150,7 @@ fn build_assembly_variant(
     let mut original_eda_placements = eda_placements::load_eda_placements(eda_tool, placements_source)?;
     info!("Loaded {} placements", original_eda_placements.len());
 
-    let eda_substitution_rules = eda_substitutions_sources.iter().try_fold(vec![], | mut rules, source | {
+    let eda_substitution_rules = eda_substitutions_sources.iter().try_fold(vec![], |mut rules, source| {
         let source_rules = substitutions::load_eda_substitutions(source)?;
         info!("Loaded {} substitution rules from {}", source_rules.len(), source);
         rules.extend(source_rules);
@@ -158,7 +162,7 @@ fn build_assembly_variant(
     trace!("eda_substitution_results: {:?}", eda_substitution_results);
 
     info!("disabling placements: {:?}", ref_des_disable_list);
-    let mut eda_placements: Vec<EdaPlacement> = eda_substitution_results.iter().map(|esr|esr.resulting_placement.clone()).collect();
+    let mut eda_placements: Vec<EdaPlacement> = eda_substitution_results.iter().map(|esr| esr.resulting_placement.clone()).collect();
 
     for eda_placement in eda_placements.iter_mut() {
         if ref_des_disable_list.contains(&eda_placement.ref_des) {
@@ -184,10 +188,6 @@ fn build_assembly_variant(
         None => Ok(vec![]),
     }?;
     info!("Loaded {} assembly rules", assembly_rules.len());
-
-    let assembly_variant = assembly_variant_args.as_ref().map_or_else(|| Ok(AssemblyVariant::default()), | args | {
-        args.build_assembly_variant()
-    })?;
 
     info!("Assembly variant: {}", assembly_variant.name);
     info!("Ref_des list: {}", assembly_variant.ref_des_list.join(", "));
