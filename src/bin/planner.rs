@@ -15,11 +15,8 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use thiserror::Error;
 use tracing::{debug, info, trace};
-use makerpnp::{cli, pnp};
+use makerpnp::{cli, planning, pnp};
 use makerpnp::cli::args::{PcbKindArg, PcbSideArg, ProjectArgs};
-use makerpnp::stores::load_out;
-use makerpnp::stores::placements::PlacementRecord;
-use makerpnp::stores::load_out::{LoadOutOperationError, LoadOutSource};
 use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
 use makerpnp::planning::pcb::{Pcb, PcbKind};
@@ -27,12 +24,15 @@ use makerpnp::planning::phase::Phase;
 use makerpnp::planning::placement::{PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
 use makerpnp::planning::process::Process;
 use makerpnp::planning::project::Project;
-use makerpnp::util::sorting::SortOrder;
 use makerpnp::planning::variant::VariantName;
 use makerpnp::pnp::load_out::LoadOutItem;
 use makerpnp::pnp::object_path::{ObjectPath, UnitPath};
 use makerpnp::pnp::part::Part;
 use makerpnp::pnp::placement::Placement;
+use makerpnp::stores::load_out;
+use makerpnp::stores::placements::PlacementRecord;
+use makerpnp::stores::load_out::LoadOutSource;
+use makerpnp::util::sorting::SortOrder;
 
 #[derive(Parser)]
 #[command(name = "planner")]
@@ -230,7 +230,7 @@ fn main() -> anyhow::Result<()>{
                     let parts = assign_placements_to_phase(&mut project, &phase, placements_pattern);
                     trace!("Required load_out parts: {:?}", parts);
 
-                    add_parts_to_phase_load_out(&phase, parts)?;
+                    planning::load_out::add_parts_to_load_out(&phase.load_out, parts)?;
 
                     project_save(&project, &project_file_path)?;
                 },
@@ -268,7 +268,7 @@ fn main() -> anyhow::Result<()>{
         None => {
             match opts.command {
                 Command::AssignFeederToLoadOutItem { load_out, feeder_reference, manufacturer, mpn } => {
-                    assign_feeder_to_load_out_item(load_out, feeder_reference, manufacturer, mpn)?;
+                    planning::load_out::assign_feeder_to_load_out_item(load_out, feeder_reference, manufacturer, mpn)?;
                 }
                 _ => {
                     bail!("using a 'project' argument implies a project specific command should be used");
@@ -707,68 +707,6 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
     }
 
     writer.flush()?;
-
-    Ok(())
-}
-
-fn add_parts_to_phase_load_out(phase: &Phase, parts: BTreeSet<Part>) -> Result<(), LoadOutOperationError<anyhow::Error>> {
-    
-    load_out::perform_load_out_operation(&phase.load_out, |load_out_items| {
-        for part in parts.iter() {
-            trace!("Checking for part in load_out. part: {:?}", part);
-    
-            let matched = pnp::load_out::find_load_out_item_by_part(load_out_items, part);
-            
-            if matched.is_some() {
-                continue
-            }
-            
-            let load_out_item = LoadOutItem {
-                reference: "".to_string(),
-                manufacturer: part.manufacturer.clone(),
-                mpn: part.mpn.clone(),
-            };
-
-            info!("Adding part to load_out. part: {:?}", part);
-            load_out_items.push(load_out_item)
-        }
-        
-        Ok(())
-    })
-}
-
-#[derive(Error, Debug)]
-pub enum FeederAssignmentError {
-    #[error("No matching part; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
-    NoMatchingPart { manufacturer: Regex, mpn: Regex },
-
-    #[error("Multiple matching parts; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
-    MultipleMatchingParts { manufacturer: Regex, mpn: Regex },
-}
-
-fn assign_feeder_to_load_out_item(load_out: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutOperationError<FeederAssignmentError>> {
-
-    let part = load_out::perform_load_out_operation(&load_out, |load_out_items| {
-        let mut items: Vec<_> = load_out_items.iter_mut().filter(|item| {
-            manufacturer.is_match(&item.manufacturer)
-                && mpn.is_match(&item.mpn)
-        }).collect();
-
-        match items.len() {
-            0 => Err(FeederAssignmentError::NoMatchingPart { manufacturer: manufacturer.clone(), mpn: mpn.clone() }),
-            1 => Ok(()),
-            _ => Err(FeederAssignmentError::MultipleMatchingParts { manufacturer: manufacturer.clone(), mpn: mpn.clone() }),
-        }?;
-
-        let item = items.pop().unwrap();
-        item.reference = feeder_reference.to_string();
-
-        let part = Part { manufacturer: item.manufacturer.to_string(), mpn: item.mpn.to_string() };
-        Ok(part)
-        
-    })?;
-    
-    info!("Assigned feeder to load-out item. feeder: {}, part: {:?}", feeder_reference, part);
 
     Ok(())
 }
