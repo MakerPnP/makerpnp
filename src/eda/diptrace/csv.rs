@@ -5,6 +5,8 @@ use thiserror::Error;
 use crate::eda::placement::{EdaPlacement, EdaPlacementField};
 use crate::planning::pcb::PcbSide;
 
+// TODO add tests for aliases
+
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
 pub struct DiptracePlacementRecord {
@@ -12,7 +14,9 @@ pub struct DiptracePlacementRecord {
     name: String,
     value: String,
     side: DipTracePcbSide,
+    #[serde(alias = "Center X (mm)")]
     x: Decimal,
+    #[serde(alias = "Center Y (mm)")]
     y: Decimal,
     /// Positive values indicate anti-clockwise rotation
     /// Range is 0 - < 360
