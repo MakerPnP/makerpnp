@@ -78,7 +78,7 @@ pub struct PartRecord {
 }
 
 impl PartRecord {
-    pub fn build_part(&self) -> Result<Part, ()> {
+    pub fn build_part(&self) -> Result<Part, anyhow::Error> {
         Ok(Part {
             manufacturer: self.manufacturer.clone(),
             mpn: self.mpn.clone(),
@@ -95,7 +95,7 @@ pub struct LoadOutItemRecord {
 }
 
 impl LoadOutItemRecord {
-    pub fn build_load_out_item(&self) -> Result<LoadOutItem, ()> {
+    pub fn build_load_out_item(&self) -> Result<LoadOutItem, anyhow::Error> {
         Ok(LoadOutItem {
             reference: self.reference.clone(),
             manufacturer: self.manufacturer.clone(),
@@ -167,7 +167,7 @@ pub struct AssemblyRuleRecord {
 }
 
 impl AssemblyRuleRecord {
-    pub fn build_assembly_rule(&self) -> Result<AssemblyRule, ()> {
+    pub fn build_assembly_rule(&self) -> Result<AssemblyRule, anyhow::Error> {
         Ok(AssemblyRule {
             ref_des: self.ref_des.clone(),
             manufacturer: self.manufacturer.clone(),

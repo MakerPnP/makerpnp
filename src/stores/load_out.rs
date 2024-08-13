@@ -1,6 +1,6 @@
 use tracing::{info, Level};
 use std::path::PathBuf;
-use anyhow::{bail, Error};
+use anyhow::{Context, Error};
 use csv::QuoteStyle;
 use tracing::trace;
 use std::fs::File;
@@ -16,19 +16,22 @@ pub fn load_items(load_out_source: &LoadOutSource) -> Result<Vec<LoadOutItem>, E
     
     let load_out_path_buf = PathBuf::from(load_out_source.to_string());
     let load_out_path = load_out_path_buf.as_path();
-    let mut csv_reader = csv::ReaderBuilder::new().from_path(load_out_path)?;
-
+    let mut csv_reader = csv::ReaderBuilder::new()
+        .from_path(load_out_path)
+        .with_context(|| format!("Error reading load-out. file: {}", load_out_path.to_str().unwrap()))?;
+   
     let mut items: Vec<LoadOutItem> = vec![];
 
     for result in csv_reader.deserialize() {
-        let record: LoadOutItemRecord = result?;
+        let record: LoadOutItemRecord = result
+            .with_context(|| "Deserializing load-out record".to_string())?;
+        
         trace!("{:?}", record);
 
-        if let Ok(load_out_item) = record.build_load_out_item() {
-            items.push(load_out_item);
-        } else {
-            bail!("todo")
-        }
+        let load_out_item = record.build_load_out_item()
+            .with_context(|| format!("Building load-out from record. record: {:?}", record))?;
+
+        items.push(load_out_item);
     }
     Ok(items)
 }
