@@ -3,6 +3,7 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use heck::ToShoutySnakeCase;
 use regex::Regex;
+use thiserror::Error;
 use tracing::{info, trace};
 use makerpnp::{cli, planning};
 use makerpnp::cli::args::{PcbKindArg, PcbSideArg, ProjectArgs};
@@ -11,7 +12,7 @@ use makerpnp::planning::reference::Reference;
 use makerpnp::planning::placement::PlacementSortingItem;
 use makerpnp::planning::process::Process;
 use makerpnp::planning::project::{PlacementAssignmentError, Project};
-use makerpnp::planning::project;
+use makerpnp::planning::{process, project};
 use makerpnp::planning::variant::VariantName;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::stores::load_out::LoadOutSource;
@@ -182,7 +183,7 @@ fn main() -> anyhow::Result<()>{
                 Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
                     let mut project = project::load(&project_file_path)?;
 
-                    // TODO validate that process is a process used by the project
+                    process::assert_process(&process, &project.processes)?;
 
                     let all_parts = project::refresh_from_design_variants(&mut project, &opts.path)?;
 
@@ -194,6 +195,8 @@ fn main() -> anyhow::Result<()>{
                     let mut project = project::load(&project_file_path)?;
 
                     let pcb_side = pcb_side_arg.into();
+                    
+                    project.ensure_process(&process)?;
 
                     project.update_phase(reference, process, load_out, pcb_side)?;
 
@@ -202,6 +205,8 @@ fn main() -> anyhow::Result<()>{
                 Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
                     let mut project = project::load(&project_file_path)?;
 
+                    // TODO the placement's part must have a process that is suitable for the phase
+                    
                     project::refresh_from_design_variants(&mut project, &opts.path)?;
 
                     let phase = match project.phases.get(&reference) {

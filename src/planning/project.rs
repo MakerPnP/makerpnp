@@ -72,6 +72,13 @@ impl Project {
         }
     }
 
+    pub fn ensure_process(&mut self, process: &Process) -> anyhow::Result<()> {
+        if !self.processes.contains(process) {
+            info!("Adding process to project.  process: '{process:}'");
+            self.processes.push(process.clone())
+        }
+        Ok(())
+    }
 
     pub fn update_assignment(&mut self, object_path: ObjectPath, design_variant: DesignVariant) -> anyhow::Result<()> {
         match self.unit_assignments.entry(object_path.clone()) {
@@ -497,12 +504,12 @@ pub fn update_applicable_processes(project: &mut Project, all_parts: &[Part], pr
             (Change::Existing, part) => {
                 if manufacturer_pattern.is_match(part.manufacturer.as_str()) && mpn_pattern.is_match(part.mpn.as_str()) {
                     project.part_states.entry(part.clone())
-                        .and_modify(|v| {
+                        .and_modify(|part_state| {
 
-                            let inserted = v.applicable_processes.insert(process.clone());
+                            let inserted = part_state.applicable_processes.insert(process.clone());
 
                             if inserted {
-                                info!("Added process. part: {:?}, applicable_processes: {:?}", part, v.applicable_processes);
+                                info!("Added process. part: {:?}, applicable_processes: {:?}", part, part_state.applicable_processes);
                             }
                         });
                 }

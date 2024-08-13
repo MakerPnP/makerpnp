@@ -1,5 +1,6 @@
 use std::str::FromStr;
 use std::fmt::{Display, Formatter};
+use thiserror::Error;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Process(String);
@@ -21,5 +22,19 @@ impl FromStr for Process {
 impl Display for Process {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum ProcessError {
+    #[error("Unused process. processes: {:?}, process: '{}'", processes, process)]
+    UnusedProcessError { processes: Vec<Process>, process: Process }
+}
+
+pub fn assert_process(process: &Process, processes: &[Process]) -> Result<(), ProcessError> {
+    if !processes.contains(&process) {
+        Err(ProcessError::UnusedProcessError { processes: Vec::from(processes), process: process.clone() })
+    } else {
+        Ok(())
     }
 }
