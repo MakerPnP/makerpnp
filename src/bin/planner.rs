@@ -3,10 +3,9 @@ use anyhow::bail;
 use clap::{Parser, Subcommand};
 use heck::ToShoutySnakeCase;
 use regex::Regex;
-use thiserror::Error;
 use tracing::{info, trace};
 use makerpnp::{cli, planning};
-use makerpnp::cli::args::{PcbKindArg, PcbSideArg, ProjectArgs};
+use makerpnp::cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg, ProjectArgs};
 use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
 use makerpnp::planning::placement::PlacementSortingItem;
@@ -141,6 +140,16 @@ enum Command {
     },
     /// Generate artifacts
     GenerateArtifacts {
+    },
+    /// Record placements operation
+    RecordPlacementsOperation {
+        /// List of reference designators to apply the operation to
+        #[arg(long, num_args = 0.., value_delimiter = ',')]
+        ref_des: Vec<String>,
+        
+        /// The completed operation to apply
+        #[arg(long, require_equals = true)]
+        operation: PlacementOperationArg,
     }
 }
 
@@ -247,6 +256,13 @@ fn main() -> anyhow::Result<()>{
 
                     project::generate_artifacts(&project, &opts.path, &name)?;
                 },
+                Command::RecordPlacementsOperation { ref_des: ref_des_list, operation } => {
+                    let mut project = project::load(&project_file_path)?;
+                    
+                    project::update_placements_operation(&mut project, ref_des_list, operation.into())?;
+                    
+                    project::save(&project, &project_file_path)?;
+                }
                 _ => {
                     bail!("invalid argument 'project'");
                 }

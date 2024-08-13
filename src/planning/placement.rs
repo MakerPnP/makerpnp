@@ -112,3 +112,7 @@ pub fn build_unique_parts(design_variant_placement_map: &BTreeMap<DesignVariant,
 
     unique_parts
 }
+
+pub enum PlacementOperation {
+    Placed
+}

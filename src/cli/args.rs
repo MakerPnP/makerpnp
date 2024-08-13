@@ -2,7 +2,7 @@ use clap::{Args, ValueEnum};
 use crate::eda::EdaTool;
 use crate::planning::pcb::{PcbKind, PcbSide};
 use crate::util::sorting::SortOrder;
-use crate::planning::placement::PlacementSortingMode;
+use crate::planning::placement::{PlacementOperation, PlacementSortingMode};
 
 /// Args decouple of CLI arg handling requirements from the internal data structures
 
@@ -95,6 +95,21 @@ impl EdaToolArg {
         match self {
             EdaToolArg::DipTrace => EdaTool::DipTrace,
             EdaToolArg::KiCad => EdaTool::KiCad,
+        }
+    }
+}
+
+#[derive(Clone)]
+#[derive(ValueEnum)]
+pub enum PlacementOperationArg {
+    #[value(name("placed"))]
+    Placed,
+}
+
+impl From<PlacementOperationArg> for PlacementOperation {
+    fn from(value: PlacementOperationArg) -> Self {
+        match value {
+            PlacementOperationArg::Placed => Self::Placed,
         }
     }
 }

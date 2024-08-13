@@ -1,5 +1,5 @@
 use std::collections::btree_map::Entry;
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use std::collections::{BTreeMap, BTreeSet};
@@ -20,7 +20,7 @@ use crate::planning::reference::Reference;
 use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::Phase;
-use crate::planning::placement::{PlacementSortingMode, PlacementState, PlacementStatus};
+use crate::planning::placement::{PlacementOperation, PlacementSortingMode, PlacementState, PlacementStatus};
 use crate::planning::process::Process;
 use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
@@ -555,5 +555,32 @@ pub fn save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()
     let mut project_file = ser.into_inner();
     project_file.write(b"\n")?;
 
+    Ok(())
+}
+
+pub fn update_placements_operation(project: &mut Project, ref_des_list: Vec<String>, operation: PlacementOperation) -> anyhow::Result<()> {
+
+    for ref_des in ref_des_list.iter() {
+        let placement = project.placements.iter_mut().find(|(_object_path, placement_state)|{
+            placement_state.placement.ref_des.eq(ref_des)
+        });
+        
+        match placement {
+            Some((_object_path, placement_state)) => {
+                match operation {
+                    PlacementOperation::Placed => {
+                        if !placement_state.placed {
+                            info!("Setting placed flag. ref_des: {}", ref_des);
+                            placement_state.placed = true
+                        }
+                    }
+                }
+            },
+            None => {
+                warn!("Unknown ref_des specified. ref_des: {}", ref_des)
+            }
+        }
+    }
+    
     Ok(())
 }

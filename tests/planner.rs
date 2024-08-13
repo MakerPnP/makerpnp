@@ -1057,10 +1057,129 @@ mod operation_sequence_1 {
 
         Ok(())
     }
-    
+
     #[test]
-    fn sequence_10_cleanup() {
+    fn sequence_10_record_placements_operation() -> Result<(), anyhow::Error> {
+        // given
         let mut ctx_guard = context::aquire(10);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = TestProjectBuilder::new()
+            .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
+            .with_unit_assignments(&[
+                (
+                    "panel=1::unit=1",
+                    BTreeMap::from([
+                        ("design_name", "design_a"),
+                        ("variant_name", "variant_a"),
+                    ])
+                )
+            ])
+            .with_part_states(&[
+                (("CONN_MFR1", "CONN1"), &["pnp"]),
+                (("RES_MFR1", "RES1"), &["pnp"]),
+                (("RES_MFR2", "RES2"), &["pnp"]),
+            ])
+            .with_phases(
+                &[(
+                    "top_1",
+                    "pnp",
+                    ctx.phase_1_load_out_path.to_str().unwrap(),
+                    "top",
+                    &[("PcbUnit", "Asc"),("FeederReference", "Asc")],
+                )]
+            )
+            .with_placements(&[
+                (
+                    "panel=1::unit=1::ref_des=C1",
+                    "panel=1::unit=1",
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
+                    false,
+                    "Unknown",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=J1",
+                    "panel=1::unit=1",
+                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R1",
+                    "panel=1::unit=1",
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
+                    true,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R2",
+                    "panel=1::unit=1",
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R3",
+                    "panel=1::unit=1",
+                    ("R3", "RES_MFR1", "RES1", true, "top", dec!(105), dec!(1105), dec!(91)),
+                    true,
+                    "Known",
+                    Some("top_1"),
+                ),
+            ])
+            .content();
+        
+        
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "record-placements-operation",
+            "--ref-des=R1,X1,R3",
+            "--operation=placed",
+        ];
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "Setting placed flag. ref_des: R1\n",
+            "Unknown ref_des specified. ref_des: X1\n",
+            "Setting placed flag. ref_des: R3\n",
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+    #[test]
+    fn sequence_11_cleanup() {
+        let mut ctx_guard = context::aquire(11);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -1095,6 +1214,7 @@ mod help {
               assign-feeder-to-load-out-item  Assign feeder to load-out item
               set-placement-ordering          Set placement ordering for a phase
               generate-artifacts              Generate artifacts
+              record-placements-operation     Record placements operation
               help                            Print this message or the help of the given subcommand(s)
 
             Options:
@@ -1344,6 +1464,32 @@ mod help {
 
         // when
         cmd.args(["generate-artifacts", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+    #[test]
+    fn help_for_record_placements_operation() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Record placements operation
+
+            Usage: planner record-placements-operation [OPTIONS] --operation=<OPERATION>
+
+            Options:
+                  --ref-des [<REF_DES>...]  List of reference designators to apply the operation to
+                  --operation=<OPERATION>   The completed operation to apply [possible values: placed]
+              -h, --help                    Print help
+        "};
+
+        // when
+        cmd.args(["record-placements-operation", "--help"])
             // then
             .assert()
             .success()
