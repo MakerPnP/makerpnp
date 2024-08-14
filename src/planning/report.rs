@@ -2,7 +2,7 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use std::path::PathBuf;
 use std::collections::{BTreeSet, HashMap};
-use tracing::trace;
+use tracing::{info, trace};
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
 use std::fs::File;
@@ -30,30 +30,32 @@ pub enum ReportGenerationError {
     UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
 }
 
-pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String, issues: Vec<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
+// FUTURE add a test to ensure that duplicate issues are not added to the report.
+//        currently a BTreeSet is used to prevent duplicate issues.
+
+pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
 
     let mut report = ProjectReport::default();
 
     report.name.clone_from(&project.name);
-    report.issues = issues;
     if project.pcbs.is_empty() {
-        report.issues.push(ProjectReportIssue {
+        issues.insert(ProjectReportIssue {
             message: "No PCBs have been assigned to the project.".to_string(),
             severity: IssueSeverity::Severe,
             kind: IssueKind::NoPcbsAssigned,
-        })
+        });
     }
 
-    if project.phases.len() > 0 {
+    if !project.phases.is_empty() {
         report.phase_overviews.extend(project.phases.values().map(|phase| {
             PhaseOverview { phase_name: phase.reference.to_string() }
         }));
     } else {
-        report.issues.push(ProjectReportIssue {
+        issues.insert(ProjectReportIssue {
             message: "No phases have been created.".to_string(),
             severity: IssueSeverity::Severe,
             kind: IssueKind::NoPhasesCreated,
-        })
+        });
     }
 
     // generate issues for invalid unit assignments
@@ -90,7 +92,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
             };
             
             if let Some(issue) = issue {
-                report.issues.push(issue);
+                issues.insert(issue);
             }
         }
     }
@@ -185,10 +187,16 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
 
     report.phase_specifications.extend(phase_specifications);
 
-    let placement_issues = project_report_find_placement_issues(project);
-    report.issues.extend(placement_issues);
+    project_report_add_placement_issues(project, issues);
+    let mut issues: Vec<ProjectReportIssue> = issues.iter().cloned().collect();
 
-    project_report_sort_issues(&mut report.issues);
+    project_report_sort_issues(&mut issues);
+    
+    for issue in issues.iter() {
+        info!("Issue detected. issue: {:?}", issue);
+    }
+    
+    report.issues = issues;
 
     let report_file_path = build_report_file_path(name, path);
 
@@ -199,18 +207,16 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     Ok(())
 }
 
-fn project_report_find_placement_issues(project: &Project) -> Vec<ProjectReportIssue> {
-    let placement_issues: Vec<ProjectReportIssue> = project.placements.iter().filter_map(|(object_path, placement_state)| {
-        match placement_state.phase {
-            None if placement_state.status == PlacementStatus::Known => Some(ProjectReportIssue {
-                message: "A placement has not been assigned to a phase".to_string(),
-                severity: IssueSeverity::Warning,
-                kind: IssueKind::UnassignedPlacement { object_path: object_path.clone() },
-            }),
-            _ => None,
-        }
-    }).collect();
-    placement_issues
+fn project_report_add_placement_issues(project: &Project, issues: &mut BTreeSet<ProjectReportIssue>) {
+    for (object_path, _placement_state) in project.placements.iter().filter(|(_object_path, placement_state)| {
+        placement_state.phase.is_none() && placement_state.status == PlacementStatus::Known
+    }) {
+        issues.insert(ProjectReportIssue {
+            message: "A placement has not been assigned to a phase".to_string(),
+            severity: IssueSeverity::Warning,
+            kind: IssueKind::UnassignedPlacement { object_path: object_path.clone() },
+        });
+    }
 }
 
 fn project_report_sort_issues(issues: &mut [ProjectReportIssue]) {
@@ -485,6 +491,8 @@ pub struct ProjectReport {
     pub name: String,
     pub phase_overviews: Vec<PhaseOverview>,
     pub phase_specifications: Vec<PhaseSpecification>,
+    /// A list of unique issues.
+    /// Note: Using a Vec doesn't prevent duplicates, duplicates must be filtered before adding them.
     pub issues: Vec<ProjectReportIssue>,
 }
 
@@ -530,21 +538,21 @@ pub struct PhaseLoadOutAssignmentItem {
     pub quantity: u32,
 }
 
-#[derive(Clone, serde::Serialize, Debug, PartialEq)]
+#[derive(Clone, serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProjectReportIssue {
     pub message: String,
     pub severity: IssueSeverity,
     pub kind: IssueKind,
 }
 
-#[derive(Clone, serde::Serialize, Debug, PartialEq)]
+#[derive(Clone, serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IssueSeverity {
     Severe,
     Warning,
 }
 
 #[serde_as]
-#[derive(Clone, serde::Serialize, Debug, PartialEq)]
+#[derive(Clone, serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum IssueKind {
     NoPcbsAssigned,
     NoPhasesCreated,

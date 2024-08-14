@@ -162,13 +162,13 @@ pub enum ArtifactGenerationError {
 
 pub fn generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> Result<(), ArtifactGenerationError> {
     
-    let mut issues: Vec<ProjectReportIssue> = vec![];
+    let mut issues: BTreeSet<ProjectReportIssue> = BTreeSet::new();
     
     for (_reference, phase) in project.phases.iter() {
         generate_phase_artifacts(project, phase, path, &mut issues)?;
     }
         
-    report::project_generate_report(project, path, name, issues).map_err(|err|{
+    report::project_generate_report(project, path, name, &mut issues).map_err(|err|{
         ArtifactGenerationError::ReportGenerationError { reason: err.into() }
     })?;
     
@@ -177,7 +177,7 @@ pub fn generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> R
     Ok(())
 }
 
-fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, issues: &mut Vec<ProjectReportIssue>) -> Result<(), ArtifactGenerationError> {
+fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ArtifactGenerationError> {
     let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
         ArtifactGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
     })?;
@@ -239,8 +239,7 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, is
                 severity: IssueSeverity::Warning,
                 kind: IssueKind::UnassignedPartFeeder { part: placement_state.placement.part.clone() },
             };
-            info!("Issue detected. issue: {:?}", issue);
-            issues.push(issue);
+            issues.insert(issue);
         };
     }
 
