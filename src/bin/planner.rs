@@ -106,7 +106,7 @@ enum Command {
         #[arg(long, require_equals = true)]
         phase: Reference,
 
-        /// Placements pattern (regexp)
+        /// Placements object path pattern (regexp)
         #[arg(long, require_equals = true)]
         placements: Regex,
     },

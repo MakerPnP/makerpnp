@@ -1379,7 +1379,7 @@ mod help {
 
             Options:
                   --phase=<PHASE>            Phase reference (e.g. 'top_1')
-                  --placements=<PLACEMENTS>  Placements pattern (regexp)
+                  --placements=<PLACEMENTS>  Placements object path pattern (regexp)
               -h, --help                     Print help
         "};
 
