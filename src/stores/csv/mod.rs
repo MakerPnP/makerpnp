@@ -37,18 +37,18 @@ pub enum PartMappingRecordError {
 
 impl PartMappingRecord {
     pub fn build_part_mapping<'part>(&self, parts: &'part [Part]) -> Result<PartMapping<'part>, PartMappingRecordError> {
-        
-        // NOTE: Initially the PartMappingRecord had more properties and was using serde flatten on the fields but there was a bug; 
+
+        // NOTE: Initially the PartMappingRecord had more properties and was using serde flatten on the fields but there was a bug;
         //       so we have to do some deserialization manually instead.
         //       See https://github.com/BurntSushi/rust-csv/issues/344#issuecomment-2286126491
-        
+
         let eda = self.0.get("Eda")
             .ok_or(PartMappingRecordError::MissingField{ field: "Eda".to_string() })?;
         let manufacturer = self.0.get("Manufacturer")
             .ok_or(PartMappingRecordError::MissingField{ field: "Manufacturer".to_string() })?;
         let mpn = self.0.get("Mpn")
             .ok_or(PartMappingRecordError::MissingField{ field: "Mpn".to_string() })?;
-        
+
         let eda = if eda.to_upper_camel_case().eq("DipTrace") {
             Ok(EdaTool::DipTrace)
         } else if eda.to_upper_camel_case().eq("KiCad") {
