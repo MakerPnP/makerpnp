@@ -3,6 +3,7 @@ use thiserror::Error;
 use heck::ToUpperCamelCase;
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
+use crate::eda::EdaTool;
 use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
@@ -17,15 +18,7 @@ enum CSVEdaToolValue {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
-pub struct PartMappingRecord {
-    eda: CSVEdaToolValue,
-
-    manufacturer: String,
-    mpn: String,
-
-    #[serde(flatten)]
-    fields: HashMap<String, String>,
-}
+pub struct PartMappingRecord(HashMap<String, String>);
 
 #[derive(Error, Debug)]
 pub enum PartMappingRecordError {
@@ -34,12 +27,43 @@ pub enum PartMappingRecordError {
 
     #[error("No matching part, criteria: {criteria:?}")]
     NoMatchingPart { criteria: Part },
+
+    #[error("Unknown EDA. value: {eda:?}")]
+    UnknownEda { eda: String },
+
+    #[error("Missing field. field: {field:?}")]
+    MissingField { field: String },
 }
 
 impl PartMappingRecord {
     pub fn build_part_mapping<'part>(&self, parts: &'part [Part]) -> Result<PartMapping<'part>, PartMappingRecordError> {
+        
+        // NOTE: Initially the PartMappingRecord had more properties and was using serde flatten on the fields but there was a bug; 
+        //       so we have to do some deserialization manually instead.
+        //       See https://github.com/BurntSushi/rust-csv/issues/344#issuecomment-2286126491
+        
+        let eda = self.0.get("Eda")
+            .ok_or(PartMappingRecordError::MissingField{ field: "Eda".to_string() })?;
+        let manufacturer = self.0.get("Manufacturer")
+            .ok_or(PartMappingRecordError::MissingField{ field: "Manufacturer".to_string() })?;
+        let mpn = self.0.get("Mpn")
+            .ok_or(PartMappingRecordError::MissingField{ field: "Mpn".to_string() })?;
+        
+        let eda = if eda.to_upper_camel_case().eq("DipTrace") {
+            Ok(EdaTool::DipTrace)
+        } else if eda.to_upper_camel_case().eq("KiCad") {
+            Ok(EdaTool::KiCad)
+        } else {
+            Err(PartMappingRecordError::UnknownEda { eda: eda.clone() })
+        }?;
 
-        let part_criteria: Part = Part { manufacturer: self.manufacturer.clone(), mpn: self.mpn.clone() };
+        let mut fields = self.0.clone();
+        fields.remove("EdaTool");
+        fields.remove("Manufacturer");
+        fields.remove("Mpn");
+
+
+        let part_criteria: Part = Part { manufacturer: manufacturer.clone(), mpn: mpn.clone() };
 
         let matched_part_ref = parts.iter().find(|&part| {
             part.eq(&part_criteria)
@@ -52,10 +76,10 @@ impl PartMappingRecord {
 
         let mut mapping_criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
 
-        let criteria_fields = self.fields.iter().filter(|(key, _value)|{
-            match self.eda {
-                CSVEdaToolValue::DipTrace => ["name", "value"].contains(&key.to_lowercase().as_str()),
-                CSVEdaToolValue::KiCad => ["package", "val"].contains(&key.to_lowercase().as_str()),
+        let criteria_fields = fields.iter().filter(|(key, _value)|{
+            match eda {
+                EdaTool::DipTrace => ["name", "value"].contains(&key.to_lowercase().as_str()),
+                EdaTool::KiCad => ["package", "val"].contains(&key.to_lowercase().as_str()),
             }
         }).map(|(key,value)| {
             GenericCriteriaItem::new(key.to_lowercase(), value.clone())
