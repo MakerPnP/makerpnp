@@ -193,7 +193,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     project_report_sort_issues(&mut issues);
     
     for issue in issues.iter() {
-        info!("Issue detected. issue: {:?}", issue);
+        info!("Issue detected. severity: {:?}, message: '{}', kind: {:?}", issue.severity, issue.message, issue.kind );
     }
     
     report.issues = issues;
@@ -538,6 +538,7 @@ pub struct PhaseLoadOutAssignmentItem {
     pub quantity: u32,
 }
 
+// FUTURE implement `Display` and improve info logging
 #[derive(Clone, serde::Serialize, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProjectReportIssue {
     pub message: String,
