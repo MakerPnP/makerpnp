@@ -95,11 +95,15 @@ pub mod test {
         pub eda: String,
 
         // DipTrace specific
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub name: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub value: Option<String>,
 
         // KiCad specific
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub package: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         pub val: Option<String>,
 
         //
