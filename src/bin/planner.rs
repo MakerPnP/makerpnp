@@ -145,7 +145,7 @@ enum Command {
     RecordPlacementsOperation {
         /// List of reference designators to apply the operation to
         #[arg(long, num_args = 0.., value_delimiter = ',')]
-        ref_des: Vec<String>,
+        object_path_patterns: Vec<Regex>,
         
         /// The completed operation to apply
         #[arg(long, require_equals = true)]
@@ -256,10 +256,10 @@ fn main() -> anyhow::Result<()>{
 
                     project::generate_artifacts(&project, &opts.path, &name)?;
                 },
-                Command::RecordPlacementsOperation { ref_des: ref_des_list, operation } => {
+                Command::RecordPlacementsOperation { object_path_patterns, operation } => {
                     let mut project = project::load(&project_file_path)?;
                     
-                    project::update_placements_operation(&mut project, ref_des_list, operation.into())?;
+                    project::update_placements_operation(&mut project, object_path_patterns, operation.into())?;
                     
                     project::save(&project, &project_file_path)?;
                 }

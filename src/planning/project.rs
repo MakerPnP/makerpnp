@@ -558,26 +558,26 @@ pub fn save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()
     Ok(())
 }
 
-pub fn update_placements_operation(project: &mut Project, ref_des_list: Vec<String>, operation: PlacementOperation) -> anyhow::Result<()> {
+pub fn update_placements_operation(project: &mut Project, object_path_patterns: Vec<Regex>, operation: PlacementOperation) -> anyhow::Result<()> {
 
-    for ref_des in ref_des_list.iter() {
-        let placement = project.placements.iter_mut().find(|(_object_path, placement_state)|{
-            placement_state.placement.ref_des.eq(ref_des)
+    for object_path_pattern in object_path_patterns.iter() {
+        let placement = project.placements.iter_mut().find(|(object_path, _placement_state)|{
+            object_path_pattern.is_match(&object_path.to_string())
         });
         
         match placement {
-            Some((_object_path, placement_state)) => {
+            Some((object_path, placement_state)) => {
                 match operation {
                     PlacementOperation::Placed => {
                         if !placement_state.placed {
-                            info!("Setting placed flag. ref_des: {}", ref_des);
+                            info!("Setting placed flag. object_path: {}", object_path);
                             placement_state.placed = true
                         }
                     }
                 }
             },
             None => {
-                warn!("Unknown ref_des specified. ref_des: {}", ref_des)
+                warn!("Unmatched object path pattern. object_path_pattern: {}", object_path_pattern)
             }
         }
     }

@@ -1148,7 +1148,7 @@ mod operation_sequence_1 {
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "record-placements-operation",
-            "--ref-des=R1,X1,R3",
+            "--object-path-patterns=panel=1::unit=1::ref_des=R([1-2])?,panel=1::unit=2::ref_des=.*,panel=1::unit=1::ref_des=R3",
             "--operation=placed",
         ];
         // when
@@ -1164,9 +1164,9 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Setting placed flag. ref_des: R1\n",
-            "Unknown ref_des specified. ref_des: X1\n",
-            "Setting placed flag. ref_des: R3\n",
+            "Setting placed flag. object_path: panel=1::unit=1::ref_des=R1\n",
+            "Unmatched object path pattern. object_path_pattern: panel=1::unit=2::ref_des=.*\n",
+            "Setting placed flag. object_path: panel=1::unit=1::ref_des=R3\n",
         ]);
 
         // and
@@ -1483,9 +1483,12 @@ mod help {
             Usage: planner record-placements-operation [OPTIONS] --operation=<OPERATION>
 
             Options:
-                  --ref-des [<REF_DES>...]  List of reference designators to apply the operation to
-                  --operation=<OPERATION>   The completed operation to apply [possible values: placed]
-              -h, --help                    Print help
+                  --object-path-patterns [<OBJECT_PATH_PATTERNS>...]
+                      List of reference designators to apply the operation to
+                  --operation=<OPERATION>
+                      The completed operation to apply [possible values: placed]
+              -h, --help
+                      Print help
         "};
 
         // when
