@@ -7,7 +7,7 @@ extern crate makerpnp;
 #[path = "inc/int_test.rs"]
 pub mod int_test;
 
-#[cfg(feature="cli")]
+#[cfg(all(test,feature="cli"))]
 mod tests {
     use std::fs::read_to_string;
     use std::process::Command;
@@ -19,7 +19,7 @@ mod tests {
     use rust_decimal::Decimal;
     use rust_decimal_macros::dec;
     use tempfile::tempdir;
-
+    use makerpnp::stores::part_mappings::test::TestPartMappingRecord;
     use crate::int_test::{build_temp_csv_file, build_temp_file, print};
     use crate::int_test::load_out_builder::TestLoadOutRecord;
 
@@ -768,60 +768,6 @@ mod tests {
         ref_des: String,
         manufacturer: String,
         mpn: String,
-    }
-
-    #[derive(Debug, serde::Serialize)]
-    #[serde(rename_all(serialize = "PascalCase"))]
-    struct TestPartMappingRecord {
-        //
-        // From
-        //
-
-        eda: String,
-
-        // DipTrace specific
-        name: Option<String>,
-        value: Option<String>,
-
-        // KiCad specific
-        package: Option<String>,
-        val: Option<String>,
-
-        //
-        // To
-        //
-        manufacturer: String,
-        mpn: String,
-    }
-
-    impl TestPartMappingRecord {
-        pub fn diptrace_defaults() -> TestPartMappingRecord {
-            TestPartMappingRecord {
-                eda: "DipTrace".to_string(),
-                ..Default::default()
-            }
-        }
-
-        pub fn kicad_defaults() -> TestPartMappingRecord {
-            TestPartMappingRecord {
-                eda: "KiCad".to_string(),
-                ..Default::default()
-            }
-        }
-    }
-
-    impl Default for TestPartMappingRecord {
-        fn default() -> Self {
-            Self {
-                eda: "".to_string(),
-                name: None,
-                value: None,
-                package: None,
-                val: None,
-                manufacturer: "".to_string(),
-                mpn: "".to_string(),
-            }
-        }
     }
 
     #[derive(Debug, serde::Serialize)]
