@@ -128,12 +128,12 @@ impl LoadOutItemRecord {
     }
 }
 
-
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
 pub struct SubstitutionRecord {
     eda: CSVEdaToolValue,
 
+    // FIXME this is broken for fields that only contain numbers
     #[serde(flatten)]
     fields: HashMap<String, String>,
 }
