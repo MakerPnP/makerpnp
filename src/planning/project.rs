@@ -443,7 +443,7 @@ fn find_placement_changes(project: &mut Project, design_variant_placement_map: &
         }
     }
 
-    info!("placement changes:\n{:?}", changes);
+    debug!("placement changes:\n{:?}", changes);
 
     changes
 }
@@ -489,7 +489,7 @@ fn find_part_changes(project: &mut Project, all_parts: &[Part]) -> Vec<(Change, 
         }
     }
 
-    info!("part changes:\n{:?}", changes);
+    debug!("part changes:\n{:?}", changes);
 
     changes
 }
