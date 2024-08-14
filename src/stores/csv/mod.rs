@@ -42,26 +42,17 @@ impl PartMappingRecord {
         //       so we have to do some deserialization manually instead.
         //       See https://github.com/BurntSushi/rust-csv/issues/344#issuecomment-2286126491
 
-        let eda = self.0.get("Eda")
+        let fields = &self.0;
+
+        let eda = fields.get("Eda")
             .ok_or(PartMappingRecordError::MissingField{ field: "Eda".to_string() })?;
-        let manufacturer = self.0.get("Manufacturer")
+        let manufacturer = fields.get("Manufacturer")
             .ok_or(PartMappingRecordError::MissingField{ field: "Manufacturer".to_string() })?;
-        let mpn = self.0.get("Mpn")
+        let mpn = fields.get("Mpn")
             .ok_or(PartMappingRecordError::MissingField{ field: "Mpn".to_string() })?;
 
-        let eda = if eda.to_upper_camel_case().eq("DipTrace") {
-            Ok(EdaTool::DipTrace)
-        } else if eda.to_upper_camel_case().eq("KiCad") {
-            Ok(EdaTool::KiCad)
-        } else {
-            Err(PartMappingRecordError::UnknownEda { eda: eda.clone() })
-        }?;
-
-        let mut fields = self.0.clone();
-        fields.remove("EdaTool");
-        fields.remove("Manufacturer");
-        fields.remove("Mpn");
-
+        let eda = csv_eda_tool_value_to_eda_tool(eda).ok_or(PartMappingRecordError::UnknownEda { eda: eda.clone() })?;
+        
 
         let part_criteria: Part = Part { manufacturer: manufacturer.clone(), mpn: mpn.clone() };
 
@@ -74,13 +65,12 @@ impl PartMappingRecord {
             _ => Err(PartMappingRecordError::NoMatchingPart { criteria: part_criteria })
         }?;
 
+        let fields_names = eda_fields_names(&eda);
+
         let mut mapping_criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
 
         let criteria_fields = fields.iter().filter(|(key, _value)|{
-            match eda {
-                EdaTool::DipTrace => ["name", "value"].contains(&key.to_lowercase().as_str()),
-                EdaTool::KiCad => ["package", "val"].contains(&key.to_lowercase().as_str()),
-            }
+            fields_names.contains(&key.to_lowercase().as_str())
         }).map(|(key,value)| {
             GenericCriteriaItem::new(key.to_lowercase(), value.clone())
         }).collect();
@@ -130,27 +120,35 @@ impl LoadOutItemRecord {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all(deserialize = "PascalCase"))]
-pub struct SubstitutionRecord {
-    eda: CSVEdaToolValue,
-
-    // FIXME this is broken for fields that only contain numbers
-    #[serde(flatten)]
-    fields: HashMap<String, String>,
-}
+pub struct SubstitutionRecord(HashMap<String, String>);
 
 #[derive(Error, Debug)]
 pub enum SubstitutionRecordError {
     #[error("Field mismatch, expected: {0:?}")]
-    FieldMismatch(Vec<String>)
+    FieldMismatch(Vec<String>),
+
+    #[error("Unknown EDA. value: {eda:?}")]
+    UnknownEda { eda: String },
+    
+    #[error("Missing field. field: {field:?}")]
+    MissingField { field: String },
 }
 
 impl SubstitutionRecord {
-    pub fn build_eda_substitution(&self) -> Result<EdaSubstitutionRule, SubstitutionRecordError> {
+    pub fn build_eda_substitution(&self) -> anyhow::Result<EdaSubstitutionRule, SubstitutionRecordError> {
 
-        let fields_names = match self.eda {
-            CSVEdaToolValue::DipTrace => ["name","value"],
-            CSVEdaToolValue::KiCad => ["package","val"],
-        };
+        // NOTE: Initially the SubstitutionRecord had more properties and was using serde flatten on the fields but there was a bug;
+        //       so we have to do some deserialization manually instead.
+        //       See https://github.com/BurntSushi/rust-csv/issues/344#issuecomment-2286126491
+
+        let fields = &self.0;
+
+        let eda = fields.get("Eda")
+            .ok_or(SubstitutionRecordError::MissingField{ field: "Eda".to_string() })?;
+
+        let eda = csv_eda_tool_value_to_eda_tool(eda).ok_or(SubstitutionRecordError::UnknownEda { eda: eda.clone() })?;
+
+        let fields_names = eda_fields_names(&eda);
 
         let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
         let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
@@ -163,7 +161,7 @@ impl SubstitutionRecord {
             let name_field = field_name.to_upper_camel_case();
             let pattern_field = format!("{}_pattern", field_name).to_upper_camel_case();
 
-            match (self.fields.get(&name_field), self.fields.get(&pattern_field)) {
+            match (fields.get(&name_field), fields.get(&pattern_field)) {
                 (Some(field_name_value), Some(pattern_value)) => {
                     criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: field_name.to_string(), field_pattern: pattern_value.to_string() } );
                     transforms.push(EdaSubstitutionRuleTransformItem { field_name: field_name.to_string(), field_value: field_name_value.to_string() } );
@@ -173,6 +171,23 @@ impl SubstitutionRecord {
         }
 
         Ok(EdaSubstitutionRule { criteria, transforms })
+    }
+}
+
+fn eda_fields_names(eda: &EdaTool) -> &'static [&'static str] {
+    match eda {
+        EdaTool::DipTrace => &["name", "value"],
+        EdaTool::KiCad => &["package", "val"],
+    }
+}
+
+fn csv_eda_tool_value_to_eda_tool(eda: &String) -> Option<EdaTool> {
+    if eda.to_upper_camel_case().eq("DipTrace") {
+        Some(EdaTool::DipTrace)
+    } else if eda.to_upper_camel_case().eq("KiCad") {
+        Some(EdaTool::KiCad)
+    } else {
+        None
     }
 }
 
