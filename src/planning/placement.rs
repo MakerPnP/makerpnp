@@ -2,6 +2,7 @@ use thiserror::Error;
 use std::fmt::{Display, Formatter};
 use std::path::PathBuf;
 use std::collections::BTreeMap;
+use anyhow::Context;
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use tracing::trace;
@@ -63,10 +64,12 @@ pub enum PlacementSortingError {
     Invalid(String)
 }
 
-pub fn load_placements(placements_path: PathBuf) -> Result<Vec<Placement>, csv::Error>{
-    let mut csv_reader = csv::ReaderBuilder::new().from_path(placements_path)?;
+pub fn load_placements(placements_path: PathBuf) -> Result<Vec<Placement>, anyhow::Error>{
+    let mut csv_reader = csv::ReaderBuilder::new()
+        .from_path(placements_path.clone())
+        .with_context(|| format!("Error placements. file: {}", placements_path.to_str().unwrap()))?;
 
-    let records = csv_reader.deserialize().into_iter()
+    let records = csv_reader.deserialize()
         .inspect(|record| {
             trace!("{:?}", record);
         })
