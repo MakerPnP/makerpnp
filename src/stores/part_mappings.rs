@@ -34,6 +34,9 @@ pub fn load_part_mappings<'part>(parts: &'part Vec<Part>, part_mappings_source: 
 pub mod csv_loading_tests {
     use assert_fs::TempDir;
     use csv::QuoteStyle;
+    use regex::Regex;
+    use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria, RegexMatchCriterion};
+    use crate::part_mapper::part_mapping::PartMapping;
     use crate::pnp::part::Part;
     use crate::stores::part_mappings::load_part_mappings;
     use crate::stores::part_mappings::test::TestPartMappingRecord;
@@ -44,7 +47,7 @@ pub mod csv_loading_tests {
     pub fn ensure_fields_containing_integers_can_be_loaded() -> anyhow::Result<()>{
         // given
         let parts: Vec<Part> = vec![Part{ manufacturer: "424242".to_string(), mpn: "696969".to_string() }];
-        
+
         // and
         let temp_dir = TempDir::new()?;
         let mut test_part_mappings_path = temp_dir.path().to_path_buf();
@@ -55,7 +58,6 @@ pub mod csv_loading_tests {
             .quote_style(QuoteStyle::Always)
             .from_path(test_part_mappings_path)?;
 
-        // and a mapping for a resistor
         writer.serialize(TestPartMappingRecord {
             name: Some("12345".to_string()),
             value: Some("54321".to_string()),
@@ -66,16 +68,79 @@ pub mod csv_loading_tests {
         })?;
 
         writer.flush()?;
-        
+
         let csv_content = std::fs::read_to_string(test_part_mappings_source.clone())?;
         println!("{csv_content:}");
 
         // when
         let result = load_part_mappings(&parts, &test_part_mappings_source);
-        
+
         // then
         assert!(result.is_ok());
+
+        Ok(())
+    }
+
+    #[test]
+    pub fn use_exact_match_and_regex_match_criterion() -> anyhow::Result<()>{
+        // given
+        let parts: Vec<Part> = vec![Part{ manufacturer: "424242".to_string(), mpn: "696969".to_string() }];
+
+        // and
+        let temp_dir = TempDir::new()?;
+        let mut test_part_mappings_path = temp_dir.path().to_path_buf();
+        test_part_mappings_path.push("part-mappings.csv");
+        let test_part_mappings_source = test_part_mappings_path.to_str().unwrap().to_string();
+
+        let mut writer = csv::WriterBuilder::new()
+            .quote_style(QuoteStyle::Always)
+            .from_path(test_part_mappings_path)?;
+
+        writer.serialize(TestPartMappingRecord {
+            name: Some("12345".to_string()),
+            value: Some("54321".to_string()),
+            // maps to
+            manufacturer: "424242".to_string(),
+            mpn: "696969".to_string(),
+            ..TestPartMappingRecord::diptrace_defaults()
+        })?;
+
+        writer.serialize(TestPartMappingRecord {
+            name: Some("12345".to_string()),
+            value: Some("/.*/".to_string()),
+            // maps to
+            manufacturer: "424242".to_string(),
+            mpn: "696969".to_string(),
+            ..TestPartMappingRecord::diptrace_defaults()
+        })?;
+
+        writer.flush()?;
+
+        // and
+        let expected_result: Vec<PartMapping> = vec![
+            PartMapping { part: parts.get(0).unwrap(), criteria: vec![
+                Box::new(GenericCriteria { criteria: vec![
+                    Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "12345".to_string() }),
+                    Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "54321".to_string() }),
+                ] })
+            ] },
+            PartMapping { part: parts.get(0).unwrap(), criteria: vec![
+                Box::new(GenericCriteria { criteria: vec![
+                    Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "12345".to_string() }),
+                    Box::new(RegexMatchCriterion { field_name: "value".to_string(), field_pattern: Regex::new(".*").unwrap() }),
+                ] })
+            ] },
+        ];
         
+        let csv_content = std::fs::read_to_string(test_part_mappings_source.clone())?;
+        println!("{csv_content:}");
+
+        // when
+        let result = load_part_mappings(&parts, &test_part_mappings_source)?;
+
+        // then
+        assert_eq!(result, expected_result);
+
         Ok(())
     }
 }

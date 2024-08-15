@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use thiserror::Error;
 use heck::ToUpperCamelCase;
+use regex::Regex;
 use crate::assembly::rules::AssemblyRule;
-use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
+use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria, RegexMatchCriterion};
 use crate::eda::EdaTool;
 use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
@@ -34,6 +35,9 @@ pub enum PartMappingRecordError {
 
     #[error("Missing field. field: {field:?}")]
     MissingField { field: String },
+
+    #[error("Invalid regular expression. reason: {error:?}")]
+    InvalidRegex { error: regex::Error }
 }
 
 impl PartMappingRecord {
@@ -70,14 +74,35 @@ impl PartMappingRecord {
 
         let mut mapping_criteria: Vec<Box<dyn PlacementMappingCriteria>> = vec![];
 
-        let criteria_fields = fields.iter().filter(|(key, _value)|{
-            fields_names.contains(&key.to_lowercase().as_str())
-        }).map(|(key,value)| {
-            let criterion = ExactMatchCriterion::new(key.to_lowercase(), value.clone());
-            let boxed: Box<dyn FieldCriterion> = Box::new(criterion);
+        let mut matched_fields: Vec<(&String, &String)> = fields.iter().filter_map(|(key, value)|{
+            match fields_names.contains(&key.to_lowercase().as_str()) {
+                true => Some((key, value)),
+                false => None,
+            }
+        }).collect();
+        
+        matched_fields.sort();
+
+        let criteria_fields: Vec<Box<dyn FieldCriterion>> = matched_fields.iter().try_fold(vec![], |mut acc, (&ref key, &ref value)| {
+            let boxed: Result<Box<dyn FieldCriterion>, PartMappingRecordError> = if value.starts_with('/') && value.ends_with('/') {
+                
+                let (_prefix, remainder) = value.split_at(1);
+                let mut value = remainder.to_string();
+                value.pop();
+                
+                let regex = Regex::new(&value)
+                    .map_err(|error| PartMappingRecordError::InvalidRegex { error })?;
+                
+                Ok(Box::new(RegexMatchCriterion::new(key.to_lowercase(), regex)))
+            } else {
+                Ok(Box::new(ExactMatchCriterion::new(key.to_lowercase(), value.clone())))
+            };
             
-            boxed
-        }).collect::<Vec<Box<dyn FieldCriterion>>>();
+            boxed.map(|criterion|{
+                acc.push(criterion);
+                acc       
+            })
+        })?;
         let criteria = GenericCriteria { criteria: criteria_fields };
 
         mapping_criteria.push(Box::new(criteria));
