@@ -164,11 +164,19 @@ pub fn generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> R
     
     let mut issues: BTreeSet<ProjectReportIssue> = BTreeSet::new();
     
-    for (_reference, phase) in project.phases.iter() {
-        generate_phase_artifacts(project, phase, path, &mut issues)?;
+    let mut phase_load_out_items_map: BTreeMap<Reference, Vec<LoadOutItem>> = BTreeMap::new();
+    
+    for (reference, phase) in project.phases.iter() {
+        let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
+            ArtifactGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
+        })?;
+        
+        generate_phase_artifacts(project, phase, load_out_items.as_slice(), path, &mut issues)?;
+        
+        phase_load_out_items_map.insert(reference.clone(), load_out_items);
     }
         
-    report::project_generate_report(project, path, name, &mut issues).map_err(|err|{
+    report::project_generate_report(project, path, name, &phase_load_out_items_map, &mut issues).map_err(|err|{
         ArtifactGenerationError::ReportGenerationError { reason: err.into() }
     })?;
     
@@ -177,11 +185,7 @@ pub fn generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> R
     Ok(())
 }
 
-fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ArtifactGenerationError> {
-    let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
-        ArtifactGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
-    })?;
-
+fn generate_phase_artifacts(project: &Project, phase: &Phase, load_out_items: &[LoadOutItem], path: &PathBuf, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ArtifactGenerationError> {
     let mut placement_states: Vec<(&ObjectPath, &PlacementState)> = project.placements.iter().filter_map(|(object_path, state)|{
         match &state.phase {
             Some(placement_phase) if placement_phase.eq(&phase.reference) => Some((object_path, state)),
@@ -246,7 +250,7 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, path: &PathBuf, is
     let mut phase_placements_path = PathBuf::from(path);
     phase_placements_path.push(format!("{}_placements.csv", phase.reference));
 
-    store_phase_placements_as_csv(&phase_placements_path, &placement_states, load_out_items.as_slice()).map_err(|e|{
+    store_phase_placements_as_csv(&phase_placements_path, &placement_states, load_out_items).map_err(|e|{
         ArtifactGenerationError::PhasePlacementsGenerationError(e)
     })?;
     

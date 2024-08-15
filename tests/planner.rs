@@ -1030,6 +1030,15 @@ mod operation_sequence_1 {
         let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
+        let load_out_message_1 = format!("Loading load-out. source: '{}'", ctx.phase_1_load_out_path.to_str().unwrap());
+
+        assert_eq!(trace_content.clone().split('\n').collect::<Vec<&str>>().iter().fold(0, |mut count,&line|{
+            if line.contains(&load_out_message_1) {
+                count += 1;
+            }
+            count
+        }), 1);
+
         assert_contains_inorder!(trace_content, [
             "Generated artifacts.\n",
         ]);

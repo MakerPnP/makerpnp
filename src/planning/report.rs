@@ -1,7 +1,7 @@
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use std::path::PathBuf;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::{info, trace};
 use std::cmp::Ordering;
 use std::collections::hash_map::Entry;
@@ -14,26 +14,23 @@ use crate::planning::design::{DesignName, DesignVariant};
 use crate::planning::pcb::PcbKind;
 use crate::planning::placement::PlacementStatus;
 use crate::planning::project::Project;
+use crate::planning::reference::Reference;
 use crate::planning::variant::VariantName;
+use crate::pnp::load_out::LoadOutItem;
 use crate::pnp::object_path::ObjectPath;
 use crate::pnp::part::Part;
-use crate::stores::load_out;
-use crate::stores::load_out::LoadOutSource;
 use crate::util::sorting::SortOrder;
 
 #[derive(Debug, Error)]
 pub enum ReportGenerationError {
     #[error("Unable to save report. cause: {reason:}")]
     UnableToSaveReport { reason: Error },
-
-    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
-    UnableToLoadItems { load_out_source: LoadOutSource, reason: anyhow::Error },
 }
 
 // FUTURE add a test to ensure that duplicate issues are not added to the report.
 //        currently a BTreeSet is used to prevent duplicate issues.
 
-pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
+pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String, phase_load_out_items_map: &BTreeMap<Reference, Vec<LoadOutItem>>, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
 
     let mut report = ProjectReport::default();
 
@@ -97,11 +94,8 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
         }
     }
 
-
-    let phase_specifications: Vec<PhaseSpecification>  = project.phases.values().try_fold(vec![], |mut results: Vec<PhaseSpecification>, phase | {
-        let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
-            ReportGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
-        })?;
+    let phase_specifications: Vec<PhaseSpecification>  = project.phases.iter().try_fold(vec![], |mut results: Vec<PhaseSpecification>, (reference, phase) | {
+        let load_out_items = phase_load_out_items_map.get(reference).unwrap();
 
         let load_out_assignments = load_out_items.iter().map(|load_out_item|{
 
