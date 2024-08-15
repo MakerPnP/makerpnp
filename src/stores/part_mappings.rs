@@ -150,7 +150,7 @@ pub mod csv_loading_tests {
 //        just `#[cfg(test)]`
 #[cfg(any(test, feature="cli"))]
 pub mod test {
-    #[derive(Debug, serde::Serialize)]
+    #[derive(Debug, Default, serde::Serialize)]
     #[serde(rename_all(serialize = "PascalCase"))]
     pub struct TestPartMappingRecord {
         //
@@ -190,20 +190,6 @@ pub mod test {
             TestPartMappingRecord {
                 eda: "KiCad".to_string(),
                 ..Default::default()
-            }
-        }
-    }
-
-    impl Default for TestPartMappingRecord {
-        fn default() -> Self {
-            Self {
-                eda: "".to_string(),
-                name: None,
-                value: None,
-                package: None,
-                val: None,
-                manufacturer: "".to_string(),
-                mpn: "".to_string(),
             }
         }
     }

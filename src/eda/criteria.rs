@@ -1,4 +1,4 @@
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 use regex::Regex;
 use crate::eda::placement::{EdaPlacement};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
@@ -17,6 +17,12 @@ impl ExactMatchCriterion {
             field_name,
             field_pattern
         }
+    }
+}
+
+impl Display for ExactMatchCriterion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}_pattern: '{}'", self.field_name, self.field_pattern)
     }
 }
 
@@ -66,6 +72,12 @@ impl RegexMatchCriterion {
     }
 }
 
+impl Display for RegexMatchCriterion {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}_pattern: '{}'", self.field_name, self.field_pattern)
+    }
+}
+
 impl FieldCriterion for RegexMatchCriterion {
     fn matches(&self, name: &str, value: &str) -> bool {
         self.field_name.eq(name) &&
@@ -95,8 +107,7 @@ impl PartialEq for dyn FieldCriterion
     }
 }
 
-
-pub trait FieldCriterion: Debug + AsAny + DynamicEq {
+pub trait FieldCriterion: Display + Debug + AsAny + DynamicEq {
     fn matches(&self, name: &str, value: &str) -> bool;
 }
 

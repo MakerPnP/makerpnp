@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use thiserror::Error;
 use heck::ToUpperCamelCase;
-use regex::Regex;
+use regex::{Error, Regex};
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria, RegexMatchCriterion};
 use crate::eda::EdaTool;
@@ -84,24 +84,17 @@ impl PartMappingRecord {
         matched_fields.sort();
 
         let criteria_fields: Vec<Box<dyn FieldCriterion>> = matched_fields.iter().try_fold(vec![], |mut acc, (&ref key, &ref value)| {
-            let boxed: Result<Box<dyn FieldCriterion>, PartMappingRecordError> = if value.starts_with('/') && value.ends_with('/') {
-                
-                let (_prefix, remainder) = value.split_at(1);
-                let mut value = remainder.to_string();
-                value.pop();
-                
-                let regex = Regex::new(&value)
-                    .map_err(|error| PartMappingRecordError::InvalidRegex { error })?;
-                
-                Ok(Box::new(RegexMatchCriterion::new(key.to_lowercase(), regex)))
-            } else {
-                Ok(Box::new(ExactMatchCriterion::new(key.to_lowercase(), value.clone())))
+            let value_kind = build_value_kind(&value)
+                .map_err(|error| PartMappingRecordError::InvalidRegex { error })?;
+
+            let boxed_criterion: Box<dyn FieldCriterion> = match value_kind {
+                ValueKind::Regex(regex) => 
+                    Box::new(RegexMatchCriterion::new(key.to_lowercase(), regex)),
+                ValueKind::ExactMatch(value) => 
+                    Box::new(ExactMatchCriterion::new(key.to_lowercase(), value)),
             };
-            
-            boxed.map(|criterion|{
-                acc.push(criterion);
-                acc       
-            })
+            acc.push(boxed_criterion);
+            Ok(acc)
         })?;
         let criteria = GenericCriteria { criteria: criteria_fields };
 
@@ -110,6 +103,25 @@ impl PartMappingRecord {
         let part_mapping = PartMapping::new(part_ref, mapping_criteria);
 
         Ok(part_mapping)
+    }
+}
+
+pub enum ValueKind {
+    Regex(Regex),
+    ExactMatch(String)
+}
+
+pub fn build_value_kind(value: &str) -> Result<ValueKind, Error> {
+    if value.starts_with('/') && value.ends_with('/') {
+        let (_prefix, remainder) = value.split_at(1);
+        let mut value = remainder.to_string();
+        value.pop();
+
+        let regex = Regex::new(&value)?;
+
+        Ok(ValueKind::Regex(regex))
+    } else {
+        Ok(ValueKind::ExactMatch(value.to_string()))
     }
 }
 
@@ -161,6 +173,9 @@ pub enum SubstitutionRecordError {
 
     #[error("Missing field. field: {field:?}")]
     MissingField { field: String },
+
+    #[error("Invalid regular expression. reason: {error:?}")]
+    InvalidRegex { error: regex::Error }
 }
 
 impl SubstitutionRecord {
@@ -179,7 +194,7 @@ impl SubstitutionRecord {
 
         let fields_names = eda_fields_names(&eda);
 
-        let mut criteria: Vec<ExactMatchCriterion> = vec![];
+        let mut criteria: Vec<Box<dyn FieldCriterion>> = vec![];
         let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
 
         for &field_name in fields_names.iter() {
@@ -192,7 +207,17 @@ impl SubstitutionRecord {
 
             match (fields.get(&name_field), fields.get(&pattern_field)) {
                 (Some(field_name_value), Some(pattern_value)) => {
-                    criteria.push(ExactMatchCriterion { field_name: field_name.to_string(), field_pattern: pattern_value.to_string() } );
+
+                    let value_kind = build_value_kind(&pattern_value)
+                        .map_err(|error| SubstitutionRecordError::InvalidRegex { error })?;
+
+                    let boxed_criterion: Box<dyn FieldCriterion> = match value_kind {
+                        ValueKind::Regex(regex) =>
+                            Box::new(RegexMatchCriterion { field_name: field_name.to_string(), field_pattern: regex }),
+                        ValueKind::ExactMatch(value) =>
+                            Box::new(ExactMatchCriterion { field_name: field_name.to_string(), field_pattern: value }),
+                    };
+                    criteria.push(boxed_criterion);
                     transforms.push(EdaSubstitutionRuleTransformItem { field_name: field_name.to_string(), field_value: field_name_value.to_string() } );
                 },
                 _ => return Err(SubstitutionRecordError::FieldMismatch(vec![name_field, pattern_field])),
