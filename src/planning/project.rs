@@ -554,8 +554,10 @@ pub fn save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()
     Ok(())
 }
 
-pub fn update_placements_operation(project: &mut Project, object_path_patterns: Vec<Regex>, operation: PlacementOperation) -> anyhow::Result<()> {
+pub fn update_placements_operation(project: &mut Project, object_path_patterns: Vec<Regex>, operation: PlacementOperation) -> anyhow::Result<bool> {
 
+    let mut modified = false;
+    
     for object_path_pattern in object_path_patterns.iter() {
         let placement = project.placements.iter_mut().find(|(object_path, _placement_state)|{
             object_path_pattern.is_match(&object_path.to_string())
@@ -565,20 +567,23 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
             Some((object_path, placement_state)) => {
                 match operation {
                     PlacementOperation::Placed => {
-                        if !placement_state.placed {
+                        if placement_state.placed {
+                            warn!("Placed flag already set. object_path: {}", object_path);
+                        } else {
                             info!("Setting placed flag. object_path: {}", object_path);
-                            placement_state.placed = true
+                            placement_state.placed = true;
+                            modified = true;
                         }
                     }
                 }
             },
             None => {
-                warn!("Unmatched object path pattern. object_path_pattern: {}", object_path_pattern)
+                warn!("Unmatched object path pattern. object_path_pattern: {}", object_path_pattern);
             }
         }
     }
     
-    Ok(())
+    Ok(modified)
 }
 
 #[derive(Error, Debug)]

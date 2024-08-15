@@ -257,9 +257,11 @@ fn main() -> anyhow::Result<()>{
             Command::RecordPlacementsOperation { object_path_patterns, operation } => {
                 let mut project = project::load(&project_file_path)?;
 
-                project::update_placements_operation(&mut project, object_path_patterns, operation.into())?;
+                let modified = project::update_placements_operation(&mut project, object_path_patterns, operation.into())?;
 
-                project::save(&project, &project_file_path)?;
+                if modified {
+                    project::save(&project, &project_file_path)?;
+                }
             }
             Command::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
                 let project = project::load(&project_file_path)?;
