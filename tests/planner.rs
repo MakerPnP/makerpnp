@@ -1,8 +1,7 @@
 #[cfg_attr(feature = "cli",macro_use)]
 extern crate makerpnp;
 
-#[path = "inc/int_test.rs"]
-pub mod int_test;
+pub mod common;
 
 #[cfg(feature="cli")]
 mod operation_sequence_1 {
@@ -14,11 +13,11 @@ mod operation_sequence_1 {
     use indoc::indoc;
     use rust_decimal_macros::dec;
     use tempfile::tempdir;
-    use crate::int_test::{build_temp_file, print};
-    use crate::int_test::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
-    use crate::int_test::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
-    use crate::int_test::project_builder::TestProjectBuilder;
-    use crate::int_test::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOverview, TestPhaseSpecification};
+    use crate::common::{build_temp_file, print};
+    use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
+    use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
+    use crate::common::project_builder::TestProjectBuilder;
+    use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOverview, TestPhaseSpecification};
 
     /// A context, which will be dropped when the tests are completed.
     mod context {
@@ -1198,7 +1197,7 @@ mod help {
     use assert_cmd::Command;
     use indoc::indoc;
     use predicates::prelude::{predicate, PredicateBooleanExt};
-    use crate::int_test::print;
+    use crate::common::print;
 
     // FUTURE ideally we want to require the 'project' argument for project-specific sub-commands
     //        but without excessive code duplication.

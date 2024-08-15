@@ -4,8 +4,7 @@
 #[cfg_attr(feature = "cli",macro_use)]
 extern crate makerpnp;
 
-#[path = "inc/int_test.rs"]
-pub mod int_test;
+pub mod common;
 
 #[cfg(all(test,feature="cli"))]
 mod tests {
@@ -21,8 +20,8 @@ mod tests {
     use rust_decimal_macros::dec;
     use tempfile::tempdir;
     use makerpnp::stores::part_mappings::test::TestPartMappingRecord;
-    use crate::int_test::{build_temp_csv_file, build_temp_file, print};
-    use crate::int_test::load_out_builder::TestLoadOutRecord;
+    use crate::common::{build_temp_csv_file, build_temp_file, print};
+    use crate::common::load_out_builder::TestLoadOutRecord;
 
     #[test]
     fn build() -> Result<(), std::io::Error> {
