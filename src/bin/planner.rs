@@ -143,7 +143,7 @@ enum Command {
     /// Record placements operation
     RecordPlacementsOperation {
         /// List of reference designators to apply the operation to
-        #[arg(long, num_args = 0.., value_delimiter = ',')]
+        #[arg(long, required = true, num_args = 1.., value_delimiter = ',')]
         object_path_patterns: Vec<Regex>,
         
         /// The completed operation to apply

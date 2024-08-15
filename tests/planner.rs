@@ -1479,10 +1479,10 @@ mod help {
         let expected_output = indoc! {"
             Record placements operation
 
-            Usage: planner record-placements-operation [OPTIONS] --operation=<OPERATION>
+            Usage: planner record-placements-operation --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation=<OPERATION>
 
             Options:
-                  --object-path-patterns [<OBJECT_PATH_PATTERNS>...]
+                  --object-path-patterns <OBJECT_PATH_PATTERNS>...
                       List of reference designators to apply the operation to
                   --operation=<OPERATION>
                       The completed operation to apply [possible values: placed]
