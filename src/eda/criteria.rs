@@ -1,4 +1,5 @@
 use std::fmt::Debug;
+use regex::Regex;
 use crate::eda::placement::{EdaPlacement};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::util::dynamic::as_any::AsAny;
@@ -37,6 +38,53 @@ mod exact_match_criterion_tests {
 
         // expect
         assert!(criterion.matches("name", "NAME1"))
+    }
+}
+
+
+#[derive(Clone, Debug)]
+pub struct RegexMatchCriterion {
+    pub field_name: String,
+    pub field_pattern: Regex,
+}
+
+impl Eq for RegexMatchCriterion {}
+
+impl PartialEq for RegexMatchCriterion {
+    fn eq(&self, other: &Self) -> bool {
+        self.field_name.eq(&other.field_name) &&
+            self.field_pattern.to_string().eq(&other.field_pattern.to_string())
+    }
+}
+
+impl RegexMatchCriterion {
+    pub fn new(field_name: String, field_pattern: Regex) -> Self {
+        Self {
+            field_name,
+            field_pattern
+        }
+    }
+}
+
+impl FieldCriterion for RegexMatchCriterion {
+    fn matches(&self, name: &str, value: &str) -> bool {
+        self.field_name.eq(name) &&
+            self.field_pattern.is_match(value)
+    }
+}
+
+#[cfg(test)]
+mod regex_match_criterion_tests {
+    use regex::Regex;
+    use crate::eda::criteria::{RegexMatchCriterion, FieldCriterion};
+
+    #[test]
+    pub fn matches() {
+        // given
+        let criterion = RegexMatchCriterion { field_name: "name".to_string(), field_pattern: Regex::new(".*").unwrap() };
+
+        // expect
+        assert!(criterion.matches("name", "ANTHING"))
     }
 }
 
@@ -86,7 +134,8 @@ impl PlacementMappingCriteria for GenericCriteria {
 
 #[cfg(test)]
 mod generic_criteria_tests {
-    use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
+    use regex::Regex;
+    use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria, RegexMatchCriterion};
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::criteria::PlacementMappingCriteria;
 
@@ -95,7 +144,7 @@ mod generic_criteria_tests {
         // given
         let criteria = GenericCriteria { criteria: vec![
             Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
-            Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }),
+            Box::new(RegexMatchCriterion { field_name: "value".to_string(), field_pattern: Regex::new(".*").unwrap() }),
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -115,7 +164,7 @@ mod generic_criteria_tests {
         // given
         let criteria = GenericCriteria { criteria: vec![
             Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
-            Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }),
+            Box::new(RegexMatchCriterion { field_name: "value".to_string(), field_pattern: Regex::new(".*").unwrap() }),
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -135,7 +184,7 @@ mod generic_criteria_tests {
         // given
         let criteria = GenericCriteria { criteria: vec![
             Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
-            Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }),
+            Box::new(RegexMatchCriterion { field_name: "value".to_string(), field_pattern: Regex::new("(VALUE1)").unwrap() }),
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
