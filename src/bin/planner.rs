@@ -9,7 +9,7 @@ use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
 use makerpnp::planning::placement::PlacementSortingItem;
 use makerpnp::planning::process::Process;
-use makerpnp::planning::project::Project;
+use makerpnp::planning::project::{PartStateError, Project};
 use makerpnp::planning::{process, project};
 use makerpnp::planning::phase::PhaseError;
 use makerpnp::planning::variant::VariantName;
@@ -211,8 +211,6 @@ fn main() -> anyhow::Result<()>{
             Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
                 let mut project = project::load(&project_file_path)?;
 
-                // TODO the placement's part must have a process that is suitable for the phase
-
                 project::refresh_from_design_variants(&mut project, &opts.path)?;
 
                 let phase = project.phases.get(&reference)
@@ -220,6 +218,13 @@ fn main() -> anyhow::Result<()>{
 
                 let parts = project::assign_placements_to_phase(&mut project, &phase, placements_pattern);
                 trace!("Required load_out parts: {:?}", parts);
+
+                for part in parts.iter() {
+                    let part_state = project.part_states.get_mut(&part)
+                        .ok_or_else(|| PartStateError::NoPartStateFound { part: part.clone() })?;
+
+                    project::add_process_to_part(part_state, part, phase.process.clone());
+                }
 
                 planning::load_out::add_parts_to_load_out(&phase.load_out, parts)?;
 
@@ -260,11 +265,9 @@ fn main() -> anyhow::Result<()>{
                 let project = project::load(&project_file_path)?;
 
                 let phase = project.phases.get(&reference)
-                    .ok_or(PhaseError::UnknownPhase(reference))?;
+                    .ok_or(PhaseError::UnknownPhase(reference))?.clone();
 
-                planning::load_out::assign_feeder_to_load_out_item(&phase.load_out, feeder_reference, manufacturer, mpn)?;
-
-                project::save(&project, &project_file_path)?;
+                planning::load_out::assign_feeder_to_load_out_item(&phase, &feeder_reference, manufacturer, mpn)?;
             }
         }
     }

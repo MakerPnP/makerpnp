@@ -1,7 +1,9 @@
-use regex::Regex;
 use tracing::{info, trace};
-use thiserror::Error;
 use std::collections::BTreeSet;
+use regex::Regex;
+use thiserror::Error;
+use crate::planning::phase::Phase;
+use crate::planning::process::Process;
 use crate::planning::reference::Reference;
 use crate::pnp;
 use crate::pnp::load_out::LoadOutItem;
@@ -35,38 +37,48 @@ pub fn add_parts_to_load_out(load_out_source: &LoadOutSource, parts: BTreeSet<Pa
     })
 }
 
+
 #[derive(Error, Debug)]
 pub enum FeederAssignmentError {
     #[error("No matching part; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
     NoMatchingPart { manufacturer: Regex, mpn: Regex },
 
-    #[error("Multiple matching parts; patterns must match exactly one part. manufacturer: {manufacturer}, mpn: {mpn}")]
-    MultipleMatchingParts { manufacturer: Regex, mpn: Regex },
+    #[error("Multiple matching parts; patterns must match exactly one part for the process. process: {process}, manufacturer: {manufacturer}, mpn: {mpn}")]
+    MultipleMatchingParts { process: Process, manufacturer: Regex, mpn: Regex },
 }
 
-pub fn assign_feeder_to_load_out_item(load_out_source: &LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutOperationError<FeederAssignmentError>> {
+pub fn assign_feeder_to_load_out_item(phase: &Phase, feeder_reference: &Reference, manufacturer: Regex, mpn: Regex) -> anyhow::Result<Vec<Part>> {
 
-    let part = load_out::perform_load_out_operation(load_out_source, | load_out_items| {
+    let mut parts: Vec<Part> = vec![];
+
+    load_out::perform_load_out_operation(&phase.load_out, | load_out_items| {
         let mut items: Vec<_> = load_out_items.iter_mut().filter(|item| {
             manufacturer.is_match(&item.manufacturer)
                 && mpn.is_match(&item.mpn)
         }).collect();
 
-        match items.len() {
-            0 => Err(FeederAssignmentError::NoMatchingPart { manufacturer: manufacturer.clone(), mpn: mpn.clone() }),
-            1 => Ok(()),
-            _ => Err(FeederAssignmentError::MultipleMatchingParts { manufacturer: manufacturer.clone(), mpn: mpn.clone() }),
-        }?;
+        if items.is_empty() {
+            return Err(FeederAssignmentError::NoMatchingPart { manufacturer: manufacturer.clone(), mpn: mpn.clone() })
+        }
 
-        let item = items.pop().unwrap();
-        item.reference = feeder_reference.to_string();
+        if phase.process.is_pnp() && items.len() > 1 {
+            return Err(FeederAssignmentError::MultipleMatchingParts { process: phase.process.clone(), manufacturer: manufacturer.clone(), mpn: mpn.clone() })
+        }
 
-        let part = Part { manufacturer: item.manufacturer.to_string(), mpn: item.mpn.to_string() };
-        Ok(part)
-        
+        for item in items.iter_mut() {
+            let part = Part { manufacturer: item.manufacturer.clone(), mpn: item.mpn.clone() };
+
+            item.reference = feeder_reference.to_string();
+
+            parts.push(part);
+        }
+
+        Ok(())
     })?;
-    
-    info!("Assigned feeder to load-out item. feeder: {}, part: {:?}", feeder_reference, part);
 
-    Ok(())
+    for part in parts.iter() {
+        info!("Assigned feeder to load-out item. feeder: {}, part: {:?}", feeder_reference, part);
+    }
+    
+    Ok(parts)
 }

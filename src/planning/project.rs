@@ -303,7 +303,7 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
 }
 
 pub fn assign_placements_to_phase(project: &mut Project, phase: &Phase, placements_pattern: Regex) -> BTreeSet<Part> {
-    let mut unique_assigned_parts= BTreeSet::new();
+    let mut required_load_out_parts = BTreeSet::new();
 
     for (placement_path, state) in project.placements.iter_mut().filter(|(path, state)| {
         let path_str = format!("{}", path);
@@ -320,11 +320,11 @@ pub fn assign_placements_to_phase(project: &mut Project, phase: &Phase, placemen
         if should_assign {
             info!("Assigning placement to phase. phase: {}, placement_path: {}", phase.reference, placement_path);
             state.phase = Some(phase.reference.clone());
-            let _inserted = unique_assigned_parts.insert(state.placement.part.clone());
         }
+        let _inserted = required_load_out_parts.insert(state.placement.part.clone());
     }
 
-    unique_assigned_parts
+    required_load_out_parts
 }
 
 pub fn refresh_from_design_variants(project: &mut Project, path: &PathBuf) -> anyhow::Result<Vec<Part>> {
@@ -498,12 +498,7 @@ pub fn update_applicable_processes(project: &mut Project, all_parts: &[Part], pr
                 if manufacturer_pattern.is_match(part.manufacturer.as_str()) && mpn_pattern.is_match(part.mpn.as_str()) {
                     project.part_states.entry(part.clone())
                         .and_modify(|part_state| {
-
-                            let inserted = part_state.applicable_processes.insert(process.clone());
-
-                            if inserted {
-                                info!("Added process. part: {:?}, applicable_processes: {:?}", part, part_state.applicable_processes);
-                            }
+                            add_process_to_part(part_state, part, process.clone());
                         });
                 }
             },
@@ -511,6 +506,14 @@ pub fn update_applicable_processes(project: &mut Project, all_parts: &[Part], pr
                 panic!("unexpected change. change: {:?}", change);
             }
         }
+    }
+}
+
+pub fn add_process_to_part(part_state: &mut PartState, part: &Part, process: Process) {
+    let inserted = part_state.applicable_processes.insert(process);
+
+    if inserted {
+        info!("Added process. part: {:?}, applicable_processes: {:?}", part, part_state.applicable_processes);
     }
 }
 
@@ -576,4 +579,10 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
     }
     
     Ok(())
+}
+
+#[derive(Error, Debug)]
+pub enum PartStateError {
+    #[error("No part state found. manufacturer: {}, mpn: {}", part.manufacturer, part.mpn)]
+    NoPartStateFound { part: Part }
 }

@@ -9,6 +9,10 @@ impl Process {
     pub fn new(name: &str) -> Self {
         Self(name.to_string())
     }
+    
+    pub fn is_pnp(&self) -> bool {
+        self.0.to_lowercase().eq("pnp")
+    }
 }
 
 impl FromStr for Process {

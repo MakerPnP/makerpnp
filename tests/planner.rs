@@ -369,9 +369,9 @@ mod operation_sequence_1 {
                 )
             ])
             .with_part_states(&[
-                (("CONN_MFR1", "CONN1"), &["pnp"]),
-                (("RES_MFR1", "RES1"), &["pnp"]),
-                (("RES_MFR2", "RES2"), &["pnp"]),
+                (("CONN_MFR1", "CONN1"), &["manual"]),
+                (("RES_MFR1", "RES1"), &[]),
+                (("RES_MFR2", "RES2"), &[]),
             ])
             .with_placements(&[
                 (
@@ -423,8 +423,8 @@ mod operation_sequence_1 {
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "assign-process-to-parts",
-            "--process=pnp",
-            "--manufacturer=.*",
+            "--process=manual",
+            "--manufacturer=CONN_MFR.*",
             "--mpn=.*",
         ];
 
@@ -448,9 +448,7 @@ mod operation_sequence_1 {
             "Updating placement. old: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 40, y: 140, rotation: -90 }, new: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 130, y: 1130, rotation: -179 }\n",
             "Updating placement. old: Placement { ref_des: \"R3\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 5, y: 105, rotation: 90 }, new: Placement { ref_des: \"R3\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 105, y: 1105, rotation: 91 }\n",
             "Marking placement as unused. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom, x: 30, y: 130, rotation: 180 }\n",
-            "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: {Process(\"pnp\")}",
-            "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: {Process(\"pnp\")}",
-            "Added process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, applicable_processes: {Process(\"pnp\")}",
+            "Added process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, applicable_processes: {Process(\"manual\")}",
         ]);
 
         // and
@@ -488,9 +486,9 @@ mod operation_sequence_1 {
                 )
             ])
             .with_part_states(&[
-                (("CONN_MFR1", "CONN1"), &["pnp"]),
-                (("RES_MFR1", "RES1"), &["pnp"]),
-                (("RES_MFR2", "RES2"), &["pnp"]),
+                (("CONN_MFR1", "CONN1"), &["manual"]),
+                (("RES_MFR1", "RES1"), &[]),
+                (("RES_MFR2", "RES2"), &[]),
             ])
             .with_phases(
                 &[
@@ -610,7 +608,7 @@ mod operation_sequence_1 {
                 )
             ])
             .with_part_states(&[
-                (("CONN_MFR1", "CONN1"), &["pnp"]),
+                (("CONN_MFR1", "CONN1"), &["manual"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
                 (("RES_MFR2", "RES2"), &["pnp"]),
             ])
@@ -712,6 +710,8 @@ mod operation_sequence_1 {
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R1",
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R2",
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R3",
+            "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: {Process(\"pnp\")}",
+            "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: {Process(\"pnp\")}",
             &loading_load_out_message,
             r#"Checking for part in load_out. part: Part { manufacturer: "RES_MFR1", mpn: "RES1" }"#,
             r#"Checking for part in load_out. part: Part { manufacturer: "RES_MFR2", mpn: "RES2" }"#,
@@ -814,7 +814,7 @@ mod operation_sequence_1 {
                 )
             ])
             .with_part_states(&[
-                (("CONN_MFR1", "CONN1"), &["pnp"]),
+                (("CONN_MFR1", "CONN1"), &["manual"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
                 (("RES_MFR2", "RES2"), &["pnp"]),
             ])
@@ -1083,7 +1083,7 @@ mod operation_sequence_1 {
                 )
             ])
             .with_part_states(&[
-                (("CONN_MFR1", "CONN1"), &["pnp"]),
+                (("CONN_MFR1", "CONN1"), &["manual"]),
                 (("RES_MFR1", "RES1"), &["pnp"]),
                 (("RES_MFR2", "RES2"), &["pnp"]),
             ])
