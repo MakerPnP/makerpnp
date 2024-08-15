@@ -87,7 +87,9 @@ impl Project {
                 info!("Unit assignment added. unit: '{}', design_variant: {}", object_path, design_variant )
             }
             Entry::Occupied(mut entry) => {
-                if !entry.get().eq(&design_variant) {
+                if entry.get().eq(&design_variant) {
+                    info!("Unit assignment unchanged.")
+                } else {
                     let old_value = entry.insert(design_variant.clone());
                     info!("Unit assignment updated. unit: '{}', old: {}, new: {}", object_path, old_value, design_variant )
                 }
