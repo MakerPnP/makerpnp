@@ -93,17 +93,22 @@ impl EdaSubstitutor {
             let mut eda_placement = original_eda_placement.clone();
             let mut chain = vec![];
 
-            // FIXME if the rule makes no modification to the placement, then it will match again on the next iteration causing an infinite loop
-            //       consider filtering out invalid rules at the source instead of handling this situation here (where it is too late to do anything about)
             loop {
                 let mut applied_rule_count_this_pass = 0;
 
                 for rule in eda_substitution_rules.iter() {
                     if rule.matches(&eda_placement) {
-                        applied_rule_count_this_pass+= 1;
-                        eda_placement = rule.apply(&eda_placement);
+                        let original_eda_placement = eda_placement.clone();
+                        eda_placement = rule.apply(&original_eda_placement);
 
-                        chain.push(EdaSubstitutionChainEntry { rule });
+                        // if the rule makes no modification to the placement, then it will match again on the next iteration causing an infinite loop which we must avoid
+                        // a perfectly valid scenario is where the value matches any value the value is transformed to an empty value
+                        // e.g. name_pattern="SOME_MPN", name="SOME_MPN", value_pattern=/.*/, value="" 
+
+                        if eda_placement.ne(&original_eda_placement) {
+                            applied_rule_count_this_pass += 1;
+                            chain.push(EdaSubstitutionChainEntry { rule });
+                        }
                     }
                 }
 
@@ -258,6 +263,62 @@ pub mod eda_substitutor_tests {
         let results = EdaSubstitutor::substitute(
             eda_placements.as_slice(),
             eda_substitutions.as_slice()
+        );
+
+        // then
+        assert_eq!(results, expected_results);
+    }
+
+    #[test]
+    pub fn substitute_using_rule_that_always_matches() {
+        // given
+        let eda_placement1 = EdaPlacement {
+            ref_des: "R1".to_string(),
+            fields: vec![
+                EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                EdaPlacementField::new("value".to_string(), "VALUE1".to_string()),
+            ],
+            ..EdaPlacement::default()
+        };
+        let eda_placements= vec![eda_placement1];
+        
+        // Note: The 'name' pattern and 'value' patterns must always match even after the transforms are applied.
+        let eda_substitution_rule = EdaSubstitutionRule {
+            criteria: vec![
+                Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
+                Box::new(RegexMatchCriterion { field_name: "value".to_string(), field_pattern: Regex::new(".*").unwrap() }),
+            ],
+            transforms: vec![
+                EdaSubstitutionRuleTransformItem { field_name: "name".to_string(), field_value: "NAME1".to_string() },
+                EdaSubstitutionRuleTransformItem { field_name: "value".to_string(), field_value: "SUBSTITUTED_VALUE1".to_string() }
+            ],
+        };
+        // and a list of rules, that are out-of-order (i.e. eda_substitution1 must be applied first)
+        let eda_substitution_rules = vec![eda_substitution_rule];
+        println!("{:?}", eda_substitution_rules);
+
+        // and
+        let expected_results = vec![
+            EdaSubstitutionResult {
+                original_placement: &eda_placements[0],
+                resulting_placement: EdaPlacement {
+                    ref_des: "R1".to_string(),
+                    fields: vec![
+                        EdaPlacementField::new("name".to_string(), "NAME1".to_string()),
+                        EdaPlacementField::new("value".to_string(), "SUBSTITUTED_VALUE1".to_string()),
+                    ],
+                    ..EdaPlacement::default()
+                },
+                chain: vec![
+                    EdaSubstitutionChainEntry { rule: &eda_substitution_rules[0] },
+                ],
+            }
+        ];
+
+        // when
+        let results = EdaSubstitutor::substitute(
+            eda_placements.as_slice(),
+            eda_substitution_rules.as_slice()
         );
 
         // then
