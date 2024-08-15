@@ -744,13 +744,12 @@ mod operation_sequence_1 {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
         
         // and
-        let load_out_arg = format!("--load-out={}", ctx.phase_1_load_out_path.to_str().unwrap());
-        
         let args = [
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
             "assign-feeder-to-load-out-item",
-            load_out_arg.as_str(),
+            "--phase=top_1",
             "--feeder-reference=FEEDER_1",
             "--manufacturer=.*",
             "--mpn=RES1",
@@ -1401,10 +1400,10 @@ mod help {
         let expected_output = indoc! {"
             Assign feeder to load-out item
 
-            Usage: planner assign-feeder-to-load-out-item --load-out=<LOAD_OUT> --feeder-reference=<FEEDER_REFERENCE> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+            Usage: planner assign-feeder-to-load-out-item --phase=<PHASE> --feeder-reference=<FEEDER_REFERENCE> --manufacturer=<MANUFACTURER> --mpn=<MPN>
 
             Options:
-                  --load-out=<LOAD_OUT>                  Load-out source (e.g. 'load_out_1')
+                  --phase=<PHASE>                        Phase reference (e.g. 'top_1')
                   --feeder-reference=<FEEDER_REFERENCE>  Feeder reference (e.g. 'FEEDER_1')
                   --manufacturer=<MANUFACTURER>          Manufacturer pattern (regexp)
                   --mpn=<MPN>                            Manufacturer part number (regexp)

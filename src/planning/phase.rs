@@ -1,3 +1,4 @@
+use thiserror::Error;
 use crate::stores::load_out::LoadOutSource;
 use crate::planning::reference::Reference;
 use crate::planning::pcb::PcbSide;
@@ -17,4 +18,10 @@ pub struct Phase {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub sort_orderings: Vec<PlacementSortingItem>
+}
+
+#[derive(Error, Debug)]
+pub enum PhaseError {
+    #[error("Unknown phase. phase: '{0:}'")]
+    UnknownPhase(Reference)
 }

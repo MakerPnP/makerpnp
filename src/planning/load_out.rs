@@ -44,9 +44,9 @@ pub enum FeederAssignmentError {
     MultipleMatchingParts { manufacturer: Regex, mpn: Regex },
 }
 
-pub fn assign_feeder_to_load_out_item(load_out_source: LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutOperationError<FeederAssignmentError>> {
+pub fn assign_feeder_to_load_out_item(load_out_source: &LoadOutSource, feeder_reference: Reference, manufacturer: Regex, mpn: Regex) -> Result<(), LoadOutOperationError<FeederAssignmentError>> {
 
-    let part = load_out::perform_load_out_operation(&load_out_source, | load_out_items| {
+    let part = load_out::perform_load_out_operation(load_out_source, | load_out_items| {
         let mut items: Vec<_> = load_out_items.iter_mut().filter(|item| {
             manufacturer.is_match(&item.manufacturer)
                 && mpn.is_match(&item.mpn)

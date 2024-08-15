@@ -1,4 +1,4 @@
-use clap::{Args, ValueEnum};
+use clap::ValueEnum;
 use crate::eda::EdaTool;
 use crate::planning::pcb::{PcbKind, PcbSide};
 use crate::util::sorting::SortOrder;
@@ -40,13 +40,6 @@ impl PlacementSortingModeArg {
             PlacementSortingModeArg::PcbUnit => PlacementSortingMode::PcbUnit,
         }
     }
-}
-
-#[derive(Args)]
-pub struct ProjectArgs {
-    /// Project name
-    #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
-    pub project: Option<String>,
 }
 
 #[derive(ValueEnum, Clone)]

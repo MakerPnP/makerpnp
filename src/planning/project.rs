@@ -302,12 +302,6 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
     Ok(())
 }
 
-#[derive(Error, Debug)]
-pub enum PlacementAssignmentError {
-    #[error("Unknown phase. phase: '{0:}'")]
-    UnknownPhase(Reference)
-}
-
 pub fn assign_placements_to_phase(project: &mut Project, phase: &Phase, placements_pattern: Regex) -> BTreeSet<Part> {
     let mut unique_assigned_parts= BTreeSet::new();
 
