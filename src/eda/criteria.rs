@@ -26,6 +26,20 @@ impl FieldCriterion for ExactMatchCriterion {
     }
 }
 
+#[cfg(test)]
+mod exact_match_criterion_tests {
+    use crate::eda::criteria::{ExactMatchCriterion, FieldCriterion};
+
+    #[test]
+    pub fn matches() {
+        // given
+        let criterion = ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() };
+
+        // expect
+        assert!(criterion.matches("name", "NAME1"))
+    }
+}
+
 impl PartialEq for dyn FieldCriterion
 {
     fn eq(&self, other: &Self) -> bool {
