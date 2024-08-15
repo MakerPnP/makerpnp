@@ -71,7 +71,7 @@ impl PlacementMappingCriteria for GenericCriteria {
 }
 
 #[cfg(test)]
-mod exact_match_critera_tests {
+mod generic_criteria_tests {
     use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::criteria::PlacementMappingCriteria;
