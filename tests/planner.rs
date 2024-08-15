@@ -1,4 +1,4 @@
-#[macro_use]
+#[cfg_attr(feature = "cli",macro_use)]
 extern crate makerpnp;
 
 #[path = "inc/int_test.rs"]

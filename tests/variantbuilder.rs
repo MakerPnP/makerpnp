@@ -1,7 +1,7 @@
 // Run tests as follows:
 // `cargo test --features="cli"`
 
-#[macro_use]
+#[cfg_attr(feature = "cli",macro_use)]
 extern crate makerpnp;
 
 #[path = "inc/int_test.rs"]
@@ -9,6 +9,7 @@ pub mod int_test;
 
 #[cfg(all(test,feature="cli"))]
 mod tests {
+    
     use std::fs::read_to_string;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;

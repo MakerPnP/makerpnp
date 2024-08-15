@@ -1,5 +1,4 @@
 #[macro_use]
-#[allow(unused_macros)]
 pub mod ordered {
     #[macro_export]
     macro_rules! assert_contains_inorder {
