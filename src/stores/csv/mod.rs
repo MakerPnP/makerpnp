@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use heck::ToUpperCamelCase;
 use crate::assembly::rules::AssemblyRule;
-use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
+use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
 use crate::eda::EdaTool;
 use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
@@ -52,7 +52,7 @@ impl PartMappingRecord {
             .ok_or(PartMappingRecordError::MissingField{ field: "Mpn".to_string() })?;
 
         let eda = csv_eda_tool_value_to_eda_tool(eda).ok_or(PartMappingRecordError::UnknownEda { eda: eda.clone() })?;
-        
+
 
         let part_criteria: Part = Part { manufacturer: manufacturer.clone(), mpn: mpn.clone() };
 
@@ -72,9 +72,9 @@ impl PartMappingRecord {
         let criteria_fields = fields.iter().filter(|(key, _value)|{
             fields_names.contains(&key.to_lowercase().as_str())
         }).map(|(key,value)| {
-            GenericCriteriaItem::new(key.to_lowercase(), value.clone())
+            ExactMatchCriterion::new(key.to_lowercase(), value.clone())
         }).collect();
-        let criteria = GenericExactMatchCriteria { criteria: criteria_fields };
+        let criteria = GenericCriteria { criteria: criteria_fields };
 
         mapping_criteria.push(Box::new(criteria));
 
@@ -129,7 +129,7 @@ pub enum SubstitutionRecordError {
 
     #[error("Unknown EDA. value: {eda:?}")]
     UnknownEda { eda: String },
-    
+
     #[error("Missing field. field: {field:?}")]
     MissingField { field: String },
 }

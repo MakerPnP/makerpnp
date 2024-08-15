@@ -151,7 +151,7 @@ pub struct PlacementPartMappingResult<'placement, 'mapping> {
 #[cfg(test)]
 mod tests {
     use crate::assembly::rules::AssemblyRule;
-    use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
+    use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
     use crate::pnp::part::Part;
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::part_mapping::PartMapping;
@@ -196,19 +196,19 @@ mod tests {
         let parts = [part1, part2, part3];
 
         // and
-        let criteria1 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria1 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME2".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE2".to_string() ),
+        let criteria2 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME2".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE2".to_string() ),
         ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
-        let criteria3 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME3".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE3".to_string() ),
+        let criteria3 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME3".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE3".to_string() ),
         ]};
         let part_mapping3 = PartMapping::new(&parts[3 - 1], vec![Box::new(criteria3)]);
 
@@ -249,14 +249,14 @@ mod tests {
         let parts = [part1, part2];
 
         // and
-        let criteria1 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria1 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria2 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
@@ -335,14 +335,14 @@ mod tests {
         let parts = [part1, part2, part3];
 
         // and
-        let criteria1 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria1 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria2 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
@@ -395,14 +395,14 @@ mod tests {
         let parts = [part1, part2, part3];
 
         // and
-        let criteria1 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria1 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria2 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 
@@ -461,14 +461,14 @@ mod tests {
         let parts = [part1, part2];
 
         // and
-        let criteria1 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria1 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping1 = PartMapping::new(&parts[1 - 1], vec![Box::new(criteria1)]);
-        let criteria2 = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem::new("name".to_string(), "NAME1".to_string() ),
-            GenericCriteriaItem::new("value".to_string(), "VALUE1".to_string() ),
+        let criteria2 = GenericCriteria { criteria: vec![
+            ExactMatchCriterion::new("name".to_string(), "NAME1".to_string() ),
+            ExactMatchCriterion::new("value".to_string(), "VALUE1".to_string() ),
         ]};
         let part_mapping2 = PartMapping::new(&parts[2 - 1], vec![Box::new(criteria2)]);
 

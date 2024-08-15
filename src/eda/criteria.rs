@@ -2,34 +2,37 @@ use crate::eda::placement::{EdaPlacement};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GenericCriteriaItem {
+pub struct ExactMatchCriterion {
     pub field_name: String,
-    // TODO replace with exact-match/regexp-match/etc, for now exact-match only.
     pub field_pattern: String,
 }
 
-impl GenericCriteriaItem {
+impl ExactMatchCriterion {
     pub fn new(field_name: String, field_pattern: String) -> Self {
         Self {
             field_name,
             field_pattern
         }
     }
+    
+    pub fn matches(&self, name: &str, value: &str) -> bool {
+        self.field_name.eq(name) &&
+            self.field_pattern.eq(value) 
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GenericExactMatchCriteria {
-    pub criteria: Vec<GenericCriteriaItem>,
+pub struct GenericCriteria {
+    pub criteria: Vec<ExactMatchCriterion>,
 }
 
-impl PlacementMappingCriteria for GenericExactMatchCriteria {
+impl PlacementMappingCriteria for GenericCriteria {
 
     fn matches(&self, eda_placement: &EdaPlacement) -> bool {
 
         let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, criterion| {
             let matched_field = eda_placement.fields.iter().find(|field | {
-                criterion.field_name.eq(field.name.as_str()) &&
-                    criterion.field_pattern.eq(field.value.as_str())
+                criterion.matches(field.name.as_str(), field.value.as_str())
             });
 
             match (&mut matched, matched_field) {
@@ -52,16 +55,16 @@ impl PlacementMappingCriteria for GenericExactMatchCriteria {
 
 #[cfg(test)]
 mod exact_match_critera_tests {
-    use crate::eda::criteria::{GenericCriteriaItem, GenericExactMatchCriteria};
+    use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
     use crate::eda::placement::{EdaPlacement, EdaPlacementField};
     use crate::part_mapper::criteria::PlacementMappingCriteria;
 
     #[test]
     fn matches() {
         // given
-        let criteria = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-            GenericCriteriaItem { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
+        let criteria = GenericCriteria { criteria: vec![
+            ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
+            ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -79,9 +82,9 @@ mod exact_match_critera_tests {
     #[test]
     fn does_not_match_due_to_name() {
         // given
-        let criteria = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-            GenericCriteriaItem { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
+        let criteria = GenericCriteria { criteria: vec![
+            ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
+            ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -99,9 +102,9 @@ mod exact_match_critera_tests {
     #[test]
     fn does_not_match_due_to_value() {
         // given
-        let criteria = GenericExactMatchCriteria { criteria: vec![
-            GenericCriteriaItem { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-            GenericCriteriaItem { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
+        let criteria = GenericCriteria { criteria: vec![
+            ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
+            ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
