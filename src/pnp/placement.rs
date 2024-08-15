@@ -4,8 +4,7 @@ use crate::pnp::part::Part;
 
 /// Uses right-handed cartesian coordinate system
 /// See https://en.wikipedia.org/wiki/Cartesian_coordinate_system
-#[cfg_attr(test, derive(PartialEq))]
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct Placement {
     pub ref_des: String,
     pub part: Part,

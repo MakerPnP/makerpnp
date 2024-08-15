@@ -371,8 +371,10 @@ fn refresh_placements(project: &mut Project, design_variant_placement_map: &BTre
             }
             (Change::Existing, _) => {
                 placement_state_entry.and_modify(|ps| {
-                    info!("Updating placement. old: {:?}, new: {:?}", ps.placement, placement);
-                    ps.placement = placement.clone();
+                    if !ps.placement.eq(placement) {
+                        info!("Updating placement. old: {:?}, new: {:?}", ps.placement, placement);
+                        ps.placement = placement.clone();
+                    }
                 });
             }
             (Change::Unused, placement) => {
