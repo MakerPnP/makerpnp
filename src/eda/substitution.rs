@@ -1,5 +1,6 @@
 use crate::eda::criteria::ExactMatchCriterion;
 use crate::eda::placement::EdaPlacement;
+use crate::eda::criteria::FieldCriterion;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRuleTransformItem {
@@ -36,7 +37,7 @@ impl EdaSubstitutionRule {
 
         let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, criterion| {
             let matched_field = eda_placement.fields.iter().find(|field | {
-                criterion.matches(field.name.as_str(), field.value.as_str())
+                (*criterion).matches(field.name.as_str(), field.value.as_str())
             });
 
             match (&mut matched, matched_field) {

@@ -1,5 +1,8 @@
+use std::fmt::Debug;
 use crate::eda::placement::{EdaPlacement};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
+use crate::util::dynamic::as_any::AsAny;
+use crate::util::dynamic::dynamic_eq::DynamicEq;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExactMatchCriterion {
@@ -14,16 +17,30 @@ impl ExactMatchCriterion {
             field_pattern
         }
     }
-    
-    pub fn matches(&self, name: &str, value: &str) -> bool {
+}
+
+impl FieldCriterion for ExactMatchCriterion {
+    fn matches(&self, name: &str, value: &str) -> bool {
         self.field_name.eq(name) &&
             self.field_pattern.eq(value) 
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+impl PartialEq for dyn FieldCriterion
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.dynamic_eq(other.as_any())
+    }
+}
+
+
+pub trait FieldCriterion: Debug + AsAny + DynamicEq {
+    fn matches(&self, name: &str, value: &str) -> bool;
+}
+
+#[derive(Debug, PartialEq)]
 pub struct GenericCriteria {
-    pub criteria: Vec<ExactMatchCriterion>,
+    pub criteria: Vec<Box<dyn FieldCriterion>>,
 }
 
 impl PlacementMappingCriteria for GenericCriteria {
@@ -63,8 +80,8 @@ mod exact_match_critera_tests {
     fn matches() {
         // given
         let criteria = GenericCriteria { criteria: vec![
-            ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-            ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
+            Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
+            Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }),
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -83,8 +100,8 @@ mod exact_match_critera_tests {
     fn does_not_match_due_to_name() {
         // given
         let criteria = GenericCriteria { criteria: vec![
-            ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-            ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
+            Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
+            Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }),
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),
@@ -103,8 +120,8 @@ mod exact_match_critera_tests {
     fn does_not_match_due_to_value() {
         // given
         let criteria = GenericCriteria { criteria: vec![
-            ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-            ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() },
+            Box::new(ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() }),
+            Box::new(ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }),
         ]};
         let placement = EdaPlacement {
             ref_des: "R1".to_string(),

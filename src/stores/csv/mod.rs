@@ -9,6 +9,7 @@ use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::part::Part;
 use crate::pnp::load_out::LoadOutItem;
+use crate::eda::criteria::FieldCriterion;
 
 #[derive(Debug, serde::Deserialize)]
 enum CSVEdaToolValue {
@@ -72,8 +73,11 @@ impl PartMappingRecord {
         let criteria_fields = fields.iter().filter(|(key, _value)|{
             fields_names.contains(&key.to_lowercase().as_str())
         }).map(|(key,value)| {
-            ExactMatchCriterion::new(key.to_lowercase(), value.clone())
-        }).collect();
+            let criterion = ExactMatchCriterion::new(key.to_lowercase(), value.clone());
+            let boxed: Box<dyn FieldCriterion> = Box::new(criterion);
+            
+            boxed
+        }).collect::<Vec<Box<dyn FieldCriterion>>>();
         let criteria = GenericCriteria { criteria: criteria_fields };
 
         mapping_criteria.push(Box::new(criteria));
