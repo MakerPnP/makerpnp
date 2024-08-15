@@ -4,7 +4,7 @@ use heck::ToUpperCamelCase;
 use crate::assembly::rules::AssemblyRule;
 use crate::eda::criteria::{ExactMatchCriterion, GenericCriteria};
 use crate::eda::EdaTool;
-use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem, EdaSubstitutionRuleCriteriaItem};
+use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleTransformItem};
 use crate::part_mapper::criteria::PlacementMappingCriteria;
 use crate::part_mapper::part_mapping::PartMapping;
 use crate::pnp::part::Part;
@@ -150,7 +150,7 @@ impl SubstitutionRecord {
 
         let fields_names = eda_fields_names(&eda);
 
-        let mut criteria: Vec<EdaSubstitutionRuleCriteriaItem> = vec![];
+        let mut criteria: Vec<ExactMatchCriterion> = vec![];
         let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
 
         for &field_name in fields_names.iter() {
@@ -163,7 +163,7 @@ impl SubstitutionRecord {
 
             match (fields.get(&name_field), fields.get(&pattern_field)) {
                 (Some(field_name_value), Some(pattern_value)) => {
-                    criteria.push(EdaSubstitutionRuleCriteriaItem { field_name: field_name.to_string(), field_pattern: pattern_value.to_string() } );
+                    criteria.push(ExactMatchCriterion { field_name: field_name.to_string(), field_pattern: pattern_value.to_string() } );
                     transforms.push(EdaSubstitutionRuleTransformItem { field_name: field_name.to_string(), field_value: field_name_value.to_string() } );
                 },
                 _ => return Err(SubstitutionRecordError::FieldMismatch(vec![name_field, pattern_field])),

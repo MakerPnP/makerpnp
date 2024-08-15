@@ -1,11 +1,5 @@
+use crate::eda::criteria::ExactMatchCriterion;
 use crate::eda::placement::EdaPlacement;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EdaSubstitutionRuleCriteriaItem {
-    pub field_name: String,
-    // TODO replace with exact-match/regexp-match/etc, for now exact-match only.
-    pub field_pattern: String,
-}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRuleTransformItem {
@@ -15,7 +9,7 @@ pub struct EdaSubstitutionRuleTransformItem {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRule {
-    pub criteria: Vec<EdaSubstitutionRuleCriteriaItem>,
+    pub criteria: Vec<ExactMatchCriterion>,
     pub transforms: Vec<EdaSubstitutionRuleTransformItem>,
 }
 
@@ -42,8 +36,7 @@ impl EdaSubstitutionRule {
 
         let result: Option<bool> = self.criteria.iter().fold(None, |mut matched, criterion| {
             let matched_field = eda_placement.fields.iter().find(|field | {
-                criterion.field_name.eq(field.name.as_str()) &&
-                    criterion.field_pattern.eq(field.value.as_str())
+                criterion.matches(field.name.as_str(), field.value.as_str())
             });
 
             match (&mut matched, matched_field) {
@@ -133,7 +126,7 @@ impl EdaSubstitutor {
 #[cfg(test)]
 pub mod eda_substitutor_tests {
     use crate::eda::placement::{EdaPlacement, EdaPlacementField };
-    use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, EdaSubstitutionRuleCriteriaItem, EdaSubstitutionRuleTransformItem};
+    use crate::eda::substitution::{EdaSubstitutionRule, EdaSubstitutionResult, EdaSubstitutor, EdaSubstitutionChainEntry, ExactMatchCriterion, EdaSubstitutionRuleTransformItem};
 
     #[test]
     pub fn substitute_one_diptrace_placement_using_a_chain() {
@@ -152,8 +145,8 @@ pub mod eda_substitutor_tests {
 
         let first_eda_substitution = EdaSubstitutionRule {
             criteria: vec![
-                EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
-                EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }
+                ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "NAME1".to_string() },
+                ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "VALUE1".to_string() }
             ],
             transforms: vec![
                 EdaSubstitutionRuleTransformItem { field_name: "name".to_string(), field_value: "INTERMEDIATE_NAME1".to_string() },
@@ -162,8 +155,8 @@ pub mod eda_substitutor_tests {
         };
         let second_eda_substitution = EdaSubstitutionRule {
             criteria: vec![
-                EdaSubstitutionRuleCriteriaItem { field_name: "name".to_string(), field_pattern: "INTERMEDIATE_NAME1".to_string() },
-                EdaSubstitutionRuleCriteriaItem { field_name: "value".to_string(), field_pattern: "INTERMEDIATE_VALUE1".to_string() }
+                ExactMatchCriterion { field_name: "name".to_string(), field_pattern: "INTERMEDIATE_NAME1".to_string() },
+                ExactMatchCriterion { field_name: "value".to_string(), field_pattern: "INTERMEDIATE_VALUE1".to_string() }
             ],
             transforms: vec![
                 EdaSubstitutionRuleTransformItem { field_name: "name".to_string(), field_value: "SUBSTITUTED_NAME1".to_string() },
@@ -218,8 +211,8 @@ pub mod eda_substitutor_tests {
         // and two substitution rules that must be applied
         let first_eda_substitution = EdaSubstitutionRule {
             criteria: vec![
-                EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: "PACKAGE1".to_string() },
-                EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: "VAL1".to_string() }
+                ExactMatchCriterion { field_name: "package".to_string(), field_pattern: "PACKAGE1".to_string() },
+                ExactMatchCriterion { field_name: "val".to_string(), field_pattern: "VAL1".to_string() }
             ],
             transforms: vec![
                 EdaSubstitutionRuleTransformItem { field_name: "package".to_string(), field_value: "INTERMEDIATE_PACKAGE1".to_string() },
@@ -228,8 +221,8 @@ pub mod eda_substitutor_tests {
         };
         let second_eda_substitution = EdaSubstitutionRule {
             criteria: vec![
-                EdaSubstitutionRuleCriteriaItem { field_name: "package".to_string(), field_pattern: "INTERMEDIATE_PACKAGE1".to_string() },
-                EdaSubstitutionRuleCriteriaItem { field_name: "val".to_string(), field_pattern: "INTERMEDIATE_VAL1".to_string() }
+                ExactMatchCriterion { field_name: "package".to_string(), field_pattern: "INTERMEDIATE_PACKAGE1".to_string() },
+                ExactMatchCriterion { field_name: "val".to_string(), field_pattern: "INTERMEDIATE_VAL1".to_string() }
             ],
             transforms: vec![
                 EdaSubstitutionRuleTransformItem { field_name: "package".to_string(), field_value: "SUBSTITUTED_PACKAGE1".to_string() },
