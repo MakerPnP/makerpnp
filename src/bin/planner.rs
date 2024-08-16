@@ -1,5 +1,6 @@
 use std::path::PathBuf;
-use clap::{Parser, Subcommand};
+use anyhow::bail;
+use clap::{Parser, Subcommand, CommandFactory};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use heck::ToShoutySnakeCase;
 use regex::Regex;
@@ -33,6 +34,7 @@ struct Opts {
     #[arg(long, require_equals = true, default_value = ".")]
     path: PathBuf,
 
+    // See also "Reference: CLAP-1" below. 
     /// Project name
     #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
     pub project: Option<String>,
@@ -284,6 +286,12 @@ fn main() -> anyhow::Result<()>{
                 planning::load_out::assign_feeder_to_load_out_item(&phase, &feeder_reference, manufacturer, mpn)?;
             }
         }
+    } else {
+        let mut cmd = Opts::command();
+        cmd.print_help()?;
+        
+        // FUTURE somehow use clap to enforce this, without adding 'project' to each command and without excessive code duplication. (Reference: CLAP-1)
+        bail!("All project commands require need the 'project' option.");
     }
 
     Ok(())
