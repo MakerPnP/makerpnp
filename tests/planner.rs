@@ -36,6 +36,7 @@ mod operation_sequence_1 {
             pub test_trace_log_path: PathBuf,
             pub test_project_path: PathBuf,
             pub phase_1_load_out_path: PathBuf,
+            pub phase_2_load_out_path: PathBuf,
         }
 
         impl Context {
@@ -53,6 +54,9 @@ mod operation_sequence_1 {
 
                 let mut phase_1_load_out_path = PathBuf::from(temp_dir.path());
                 phase_1_load_out_path.push("phase_1_load_out_1.csv");
+                
+                let mut phase_2_load_out_path = PathBuf::from(temp_dir.path());
+                phase_2_load_out_path.push("phase_2_load_out_1.csv");
 
                 Context {
                     temp_dir,
@@ -62,6 +66,7 @@ mod operation_sequence_1 {
                     test_trace_log_path,
                     test_project_path,
                     phase_1_load_out_path,
+                    phase_2_load_out_path,
                 }
             }
         }
@@ -215,7 +220,7 @@ mod operation_sequence_1 {
             "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
             "R1","RES_MFR1","RES1","true","Top","10","110","0"
             "C1","CAP_MFR1","CAP1","true","Bottom","30","130","180"
-            "J1","CONN_MFR1","CONN1","true","Top","40","140","-90"
+            "J1","CONN_MFR1","CONN1","true","Bottom","40","140","-90"
             "R3","RES_MFR1","RES1","true","Top","5","105","90"
         "#};
         // two refdes on the same side should use the same part (R1, R3)
@@ -260,7 +265,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(40), dec!(140), dec!(-90)),
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(40), dec!(140), dec!(-90)),
                     false,
                     "Known",
                     None,
@@ -314,7 +319,7 @@ mod operation_sequence_1 {
             "New part. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }\n",
             "New placement. placement: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 10, y: 110, rotation: 0 }\n",
             "New placement. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom, x: 30, y: 130, rotation: 180 }\n",
-            "New placement. placement: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 40, y: 140, rotation: -90 }\n",
+            "New placement. placement: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Bottom, x: 40, y: 140, rotation: -90 }\n",
             "New placement. placement: Placement { ref_des: \"R3\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 5, y: 105, rotation: 90 }\n",
         ]);
 
@@ -340,7 +345,7 @@ mod operation_sequence_1 {
             "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
             "R1","RES_MFR1","RES1","true","Top","110","1110","1"
             "R2","RES_MFR2","RES2","true","Top","120","1120","91"
-            "J1","CONN_MFR1","CONN1","true","Top","130","1130","-179"
+            "J1","CONN_MFR1","CONN1","true","Bottom","130","1130","-179"
             "R3","RES_MFR1","RES1","true","Top","105","1105","91"
         "#};
 
@@ -384,7 +389,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -444,7 +449,7 @@ mod operation_sequence_1 {
             "Removing previously part. part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }\n",
             "Updating placement. old: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 10, y: 110, rotation: 0 }, new: Placement { ref_des: \"R1\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 110, y: 1110, rotation: 1 }\n",
             "New placement. placement: Placement { ref_des: \"R2\", part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, place: true, pcb_side: Top, x: 120, y: 1120, rotation: 91 }\n",
-            "Updating placement. old: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 40, y: 140, rotation: -90 }, new: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Top, x: 130, y: 1130, rotation: -179 }\n",
+            "Updating placement. old: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Bottom, x: 40, y: 140, rotation: -90 }, new: Placement { ref_des: \"J1\", part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, place: true, pcb_side: Bottom, x: 130, y: 1130, rotation: -179 }\n",
             "Updating placement. old: Placement { ref_des: \"R3\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 5, y: 105, rotation: 90 }, new: Placement { ref_des: \"R3\", part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, place: true, pcb_side: Top, x: 105, y: 1105, rotation: 91 }\n",
             "Marking placement as unused. placement: Placement { ref_des: \"C1\", part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }, place: true, pcb_side: Bottom, x: 30, y: 130, rotation: 180 }\n",
             "Added process. part: Part { manufacturer: \"CONN_MFR1\", mpn: \"CONN1\" }, applicable_processes: {Process(\"manual\")}",
@@ -460,7 +465,7 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_05_create_phase() -> Result<(), anyhow::Error> {
+    fn sequence_05_create_phase_top() -> Result<(), anyhow::Error> {
         // given
         let mut ctx_guard = context::aquire(5);
         let ctx = ctx_guard.1.as_mut().unwrap();
@@ -506,7 +511,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -581,10 +586,134 @@ mod operation_sequence_1 {
         Ok(())
     }
 
+
     #[test]
-    fn sequence_06_assign_placements_to_phase() -> Result<(), anyhow::Error> {
+    fn sequence_06_create_phase_bottom() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(6);
+        let mut ctx_guard = context::aquire( 6);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = TestProjectBuilder::new()
+            .with_name("job1")
+            .with_processes(&["pnp", "manual"])
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
+            .with_unit_assignments(&[
+                (
+                    "panel=1::unit=1",
+                    BTreeMap::from([
+                        ("design_name", "design_a"),
+                        ("variant_name", "variant_a"),
+                    ])
+                )
+            ])
+            .with_part_states(&[
+                (("CONN_MFR1", "CONN1"), &["manual"]),
+                (("RES_MFR1", "RES1"), &[]),
+                (("RES_MFR2", "RES2"), &[]),
+            ])
+            .with_phases(
+                &[
+                    ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
+                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[]),
+                ]
+            )
+            .with_placements(&[
+                (
+                    "panel=1::unit=1::ref_des=C1",
+                    "panel=1::unit=1",
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
+                    false,
+                    "Unknown",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=J1",
+                    "panel=1::unit=1",
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R1",
+                    "panel=1::unit=1",
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R2",
+                    "panel=1::unit=1",
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R3",
+                    "panel=1::unit=1",
+                    ("R3", "RES_MFR1", "RES1", true, "top", dec!(105), dec!(1105), dec!(91)),
+                    false,
+                    "Known",
+                    None,
+                ),
+            ])
+            .content();
+
+        // and
+        let phase_2_load_out_arg = format!("--load-out={}", ctx.phase_2_load_out_path.to_str().unwrap());
+
+        // and
+        let args = [
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "create-phase",
+            "--reference=bottom_1",
+            "--process=manual",
+            &phase_2_load_out_arg,
+            "--pcb-side=bottom",
+        ];
+
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        let load_out_creation_message = format!("Created load-out. source: '{}'", ctx.phase_2_load_out_path.to_str().unwrap());
+
+        assert_contains_inorder!(trace_content, [
+            &load_out_creation_message,
+            "Created phase. reference: 'bottom_1', process: manual",
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sequence_07_assign_placements_to_phase() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::aquire(7);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -613,7 +742,8 @@ mod operation_sequence_1 {
             ])
             .with_phases(
                 &[
-                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[])
+                    ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
+                    ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[]),
                 ]
             )
             .with_placements(&[
@@ -628,7 +758,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -734,9 +864,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_07_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
+    fn sequence_08_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(7);
+        let mut ctx_guard = context::aquire(8);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -788,9 +918,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_08_set_placement_ordering() -> Result<(), anyhow::Error> {
+    fn sequence_09_set_placement_ordering() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(8);
+        let mut ctx_guard = context::aquire(9);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -817,15 +947,10 @@ mod operation_sequence_1 {
                 (("RES_MFR1", "RES1"), &["pnp"]),
                 (("RES_MFR2", "RES2"), &["pnp"]),
             ])
-            .with_phases(
-                &[(
-                    "top_1",
-                    "pnp",
-                    ctx.phase_1_load_out_path.to_str().unwrap(),
-                    "top",
-                    &[("PcbUnit", "Asc"),("FeederReference", "Asc")],
-                )]
-            )
+            .with_phases(&[
+                ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
+                ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[("PcbUnit", "Asc"),("FeederReference", "Asc")]),
+            ])
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -838,7 +963,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -912,9 +1037,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_09_generate_artifacts() -> Result<(), anyhow::Error> {
+    fn sequence_10_generate_artifacts() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(9);
+        let mut ctx_guard = context::aquire(10);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -956,9 +1081,27 @@ mod operation_sequence_1 {
         let expected_project_report_content = ProjectReportBuilder::default()
             .with_name("job1")
             .with_phases_overview(&[
+                TestPhaseOverview { phase_name: "bottom_1".to_string() },
                 TestPhaseOverview { phase_name: "top_1".to_string() },
             ])
             .with_phase_specification(&[
+                TestPhaseSpecification {
+                    phase_name: "bottom_1".to_string(),
+                    operations: vec![
+                        TestPhaseOperation::PreparePcbs { pcbs: vec![
+                            TestPcb::Panel {
+                                name: "panel_a".to_string(),
+                                unit_assignments: vec![TestPcbUnitAssignment {
+                                    unit_path: "panel=1::unit=1".to_string(),
+                                    design_name: "design_a".to_string(),
+                                    variant_name: "variant_a".to_string(),
+                                }]
+                            }
+                        ] }
+                    ],
+                    load_out_assignments: vec![
+                    ]
+                },
                 TestPhaseSpecification {
                     phase_name: "top_1".to_string(),
                     operations: vec![
@@ -987,7 +1130,7 @@ mod operation_sequence_1 {
                             quantity: 1,
                         },
                     ]
-                }
+                },
             ])
             .with_issues(&[
                 TestIssue {
@@ -1066,9 +1209,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_10_record_placements_operation() -> Result<(), anyhow::Error> {
+    fn sequence_11_record_placements_operation() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::aquire(10);
+        let mut ctx_guard = context::aquire(11);
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
@@ -1095,15 +1238,10 @@ mod operation_sequence_1 {
                 (("RES_MFR1", "RES1"), &["pnp"]),
                 (("RES_MFR2", "RES2"), &["pnp"]),
             ])
-            .with_phases(
-                &[(
-                    "top_1",
-                    "pnp",
-                    ctx.phase_1_load_out_path.to_str().unwrap(),
-                    "top",
-                    &[("PcbUnit", "Asc"),("FeederReference", "Asc")],
-                )]
-            )
+            .with_phases(&[
+                ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
+                ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[("PcbUnit", "Asc"),("FeederReference", "Asc")]),
+            ])
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -1116,7 +1254,7 @@ mod operation_sequence_1 {
                 (
                     "panel=1::unit=1::ref_des=J1",
                     "panel=1::unit=1",
-                    ("J1", "CONN_MFR1", "CONN1", true, "top", dec!(130), dec!(1130), dec!(-179)),
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
                     false,
                     "Known",
                     None,
@@ -1185,8 +1323,8 @@ mod operation_sequence_1 {
         Ok(())
     }
     #[test]
-    fn sequence_11_cleanup() {
-        let mut ctx_guard = context::aquire(11);
+    fn sequence_12_cleanup() {
+        let mut ctx_guard = context::aquire(12);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
