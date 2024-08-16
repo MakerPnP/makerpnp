@@ -17,7 +17,7 @@ pub struct Phase {
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
-    pub sort_orderings: Vec<PlacementSortingItem>
+    pub placement_orderings: Vec<PlacementSortingItem>
 }
 
 #[derive(Error, Debug)]

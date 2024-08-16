@@ -135,7 +135,7 @@ enum Command {
 
         /// Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
         #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::cli::parsers::PlacementSortingItemParser::default())]
-        orderings: Vec<PlacementSortingItem>
+        placement_orderings: Vec<PlacementSortingItem>
     },
     /// Generate artifacts
     GenerateArtifacts {
@@ -230,7 +230,7 @@ fn main() -> anyhow::Result<()>{
 
                 project::save(&project, &project_file_path)?;
             },
-            Command::SetPlacementOrdering { phase: reference, orderings: sort_orderings } => {
+            Command::SetPlacementOrdering { phase: reference, placement_orderings } => {
                 let mut project = project::load(&project_file_path)?;
 
                 project::refresh_from_design_variants(&mut project, &opts.path)?;
@@ -238,9 +238,9 @@ fn main() -> anyhow::Result<()>{
                 let phase = project.phases.get_mut(&reference)
                     .ok_or(PhaseError::UnknownPhase(reference.clone()))?;
 
-                phase.sort_orderings.clone_from(&sort_orderings);
+                phase.placement_orderings.clone_from(&placement_orderings);
 
-                trace!("Phase orderings set. phase: '{}', orderings: [{}]", reference, sort_orderings.iter().map(|item|{
+                trace!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings.iter().map(|item|{
                     format!("{}:{}",
                         item.mode.to_string().to_shouty_snake_case(),
                         item.sort_order.to_string().to_shouty_snake_case()
@@ -248,7 +248,7 @@ fn main() -> anyhow::Result<()>{
                 }).collect::<Vec<_>>().join(", "));
 
                 project::save(&project, &project_file_path)?;
-            },
+            }
             Command::GenerateArtifacts { } => {
                 let project = project::load(&project_file_path)?;
 

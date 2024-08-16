@@ -101,7 +101,7 @@ impl<'a> TestProjectBuilder<'a> {
                         ordering_map.insert("sort_order".to_string(), Value::String(sort_order.to_string()));
                         Value::Object(ordering_map)
                     }).collect();
-                    phase_map.insert("sort_orderings".to_string(), Value::Array(sort_orderings_values));
+                    phase_map.insert("placement_orderings".to_string(), Value::Array(sort_orderings_values));
                 }
 
                 Value::Array(vec![

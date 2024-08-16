@@ -878,7 +878,7 @@ mod operation_sequence_1 {
             ctx.project_arg.as_str(),
             "set-placement-ordering",
             "--phase=top_1",
-            "--orderings=PCB_UNIT:ASC,FEEDER_REFERENCE:ASC",
+            "--placement-orderings=PCB_UNIT:ASC,FEEDER_REFERENCE:ASC",
             
             // example for PnP machine placement
             //"--orderings=PCB_UNIT:ASC,COST:ASC,AREA:ASC,HEIGHT;ASC,FEEDER_REFERENCE:ASC",
@@ -899,7 +899,7 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Phase orderings set. phase: 'top_1', orderings: [PCB_UNIT:ASC, FEEDER_REFERENCE:ASC]",
+            "Phase placement orderings set. phase: 'top_1', orderings: [PCB_UNIT:ASC, FEEDER_REFERENCE:ASC]",
         ]);
 
         // and
@@ -1439,9 +1439,12 @@ mod help {
             Usage: planner set-placement-ordering [OPTIONS] --phase=<PHASE>
 
             Options:
-                  --phase=<PHASE>               Phase reference (e.g. 'top_1')
-                  --orderings[=<ORDERINGS>...]  Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
-              -h, --help                        Print help
+                  --phase=<PHASE>
+                      Phase reference (e.g. 'top_1')
+                  --placement-orderings[=<PLACEMENT_ORDERINGS>...]
+                      Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
+              -h, --help
+                      Print help
         "};
 
         // when

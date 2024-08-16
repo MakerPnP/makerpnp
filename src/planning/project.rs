@@ -105,7 +105,7 @@ impl Project {
         
         match self.phases.entry(reference.clone()) {
             Entry::Vacant(entry) => {
-                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), sort_orderings: vec![] };
+                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), placement_orderings: vec![] };
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
             }
@@ -198,7 +198,7 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, load_out_items: &[
     }).collect();
     
     placement_states.sort_by(|(object_path_a, placement_state_a), (object_path_b, placement_state_b)|{
-        phase.sort_orderings.iter().fold( Ordering::Equal, | mut acc, sort_ordering | {
+        phase.placement_orderings.iter().fold(Ordering::Equal, |mut acc, sort_ordering | {
             if !matches!(acc, Ordering::Equal) {
                 return acc
             }
