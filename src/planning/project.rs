@@ -20,7 +20,7 @@ use crate::planning::design::DesignVariant;
 use crate::planning::reference::Reference;
 use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
-use crate::planning::phase::Phase;
+use crate::planning::phase::{Phase, PhaseOrderings};
 use crate::planning::placement::{PlacementOperation, PlacementSortingMode, PlacementState, PlacementStatus};
 use crate::planning::process::Process;
 use crate::planning::{placement, report};
@@ -114,7 +114,7 @@ impl Project {
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
                 self.phase_orderings.insert(reference);
-                info!("Phase ordering: ['{}']", self.phase_orderings.iter().map(Reference::to_string).collect::<Vec<String>>().join("', '"));
+                info!("Phase ordering: {}", PhaseOrderings(&self.phase_orderings));
             }
             Entry::Occupied(mut entry) => {
                 let existing_phase = entry.get_mut();

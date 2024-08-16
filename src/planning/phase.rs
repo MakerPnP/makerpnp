@@ -1,3 +1,5 @@
+use std::fmt::{Display, Formatter};
+use indexmap::IndexSet;
 use thiserror::Error;
 use crate::stores::load_out::LoadOutSource;
 use crate::planning::reference::Reference;
@@ -24,4 +26,12 @@ pub struct Phase {
 pub enum PhaseError {
     #[error("Unknown phase. phase: '{0:}'")]
     UnknownPhase(Reference)
+}
+
+pub struct PhaseOrderings<'a>(pub &'a IndexSet<Reference>);
+
+impl<'a> Display for PhaseOrderings<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "['{}']", self.0.iter().map(Reference::to_string).collect::<Vec<String>>().join("', '"))
+    }
 }
