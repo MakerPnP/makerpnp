@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use anyhow::Error;
 use clap::{Args, Parser, Subcommand};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use csv::QuoteStyle;
 use termtree::Tree;
 use thiserror::Error;
@@ -28,6 +29,9 @@ struct Opts {
     /// Trace log file
     #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
     trace: Option<PathBuf>,
+
+    #[command(flatten)]
+    verbose: Verbosity<InfoLevel>,
 }
 
 #[derive(Args, Clone, Debug)]
@@ -106,7 +110,7 @@ enum Command {
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
-    cli::tracing::configure_tracing(opts.trace)?;
+    cli::tracing::configure_tracing(opts.trace, opts.verbose)?;
 
     match &opts.command.unwrap() {
         Command::Build {

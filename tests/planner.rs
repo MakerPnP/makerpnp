@@ -806,6 +806,7 @@ mod operation_sequence_1 {
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
+            "-vv",
             "assign-placements-to-phase",
             "--phase=top_1",
 
@@ -1383,6 +1384,8 @@ mod help {
                   --trace[=<TRACE>]         Trace log file
                   --path=<PATH>             Path [default: .]
                   --project=<PROJECT_NAME>  Project name
+              -v, --verbose...              Increase logging verbosity
+              -q, --quiet...                Decrease logging verbosity
               -h, --help                    Print help
               -V, --version                 Print version
         "};
@@ -1405,10 +1408,12 @@ mod help {
         let expected_output = indoc! {"
             Create a new job
 
-            Usage: planner create
+            Usage: planner create [OPTIONS]
 
             Options:
-              -h, --help  Print help
+              -v, --verbose...  Increase logging verbosity
+              -q, --quiet...    Decrease logging verbosity
+              -h, --help        Print help
         "};
 
         // when
@@ -1429,11 +1434,13 @@ mod help {
         let expected_output = indoc! {"
             Add a PCB
 
-            Usage: planner add-pcb --kind=<KIND> --name=<NAME>
+            Usage: planner add-pcb [OPTIONS] --kind=<KIND> --name=<NAME>
 
             Options:
                   --kind=<KIND>  PCB kind [possible values: single, panel]
                   --name=<NAME>  Name of the PCB, e.g. 'panel_1'
+              -v, --verbose...   Increase logging verbosity
+              -q, --quiet...     Decrease logging verbosity
               -h, --help         Print help
         "};
 
@@ -1455,12 +1462,14 @@ mod help {
         let expected_output = indoc! {"
             Assign a design variant to a PCB unit
 
-            Usage: planner assign-variant-to-unit --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<OBJECT_PATH>
+            Usage: planner assign-variant-to-unit [OPTIONS] --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<OBJECT_PATH>
 
             Options:
                   --design=<DESIGN_NAME>    Name of the design
                   --variant=<VARIANT_NAME>  Variant of the design
                   --unit=<OBJECT_PATH>      PCB unit path
+              -v, --verbose...              Increase logging verbosity
+              -q, --quiet...                Decrease logging verbosity
               -h, --help                    Print help
         "};
 
@@ -1482,12 +1491,14 @@ mod help {
         let expected_output = indoc! {"
             Assign a process to parts
 
-            Usage: planner assign-process-to-parts --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+            Usage: planner assign-process-to-parts [OPTIONS] --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
 
             Options:
                   --process=<PROCESS>            Process name
                   --manufacturer=<MANUFACTURER>  Manufacturer pattern (regexp)
                   --mpn=<MPN>                    Manufacturer part number (regexp)
+              -v, --verbose...                   Increase logging verbosity
+              -q, --quiet...                     Decrease logging verbosity
               -h, --help                         Print help
         "};
 
@@ -1509,13 +1520,15 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner create-phase --process=<PROCESS> --reference=<REFERENCE> --load-out=<LOAD_OUT> --pcb-side=<PCB_SIDE>
+            Usage: planner create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE> --load-out=<LOAD_OUT> --pcb-side=<PCB_SIDE>
 
             Options:
                   --process=<PROCESS>      Process name
                   --reference=<REFERENCE>  Phase reference (e.g. 'top_1')
                   --load-out=<LOAD_OUT>    Load-out source (e.g. 'load_out_1')
                   --pcb-side=<PCB_SIDE>    PCB side [possible values: top, bottom]
+              -v, --verbose...             Increase logging verbosity
+              -q, --quiet...               Decrease logging verbosity
               -h, --help                   Print help
         "};
 
@@ -1537,11 +1550,13 @@ mod help {
         let expected_output = indoc! {"
             Assign placements to a phase
 
-            Usage: planner assign-placements-to-phase --phase=<PHASE> --placements=<PLACEMENTS>
+            Usage: planner assign-placements-to-phase [OPTIONS] --phase=<PHASE> --placements=<PLACEMENTS>
 
             Options:
                   --phase=<PHASE>            Phase reference (e.g. 'top_1')
                   --placements=<PLACEMENTS>  Placements object path pattern (regexp)
+              -v, --verbose...               Increase logging verbosity
+              -q, --quiet...                 Decrease logging verbosity
               -h, --help                     Print help
         "};
 
@@ -1563,13 +1578,15 @@ mod help {
         let expected_output = indoc! {"
             Assign feeder to load-out item
 
-            Usage: planner assign-feeder-to-load-out-item --phase=<PHASE> --feeder-reference=<FEEDER_REFERENCE> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+            Usage: planner assign-feeder-to-load-out-item [OPTIONS] --phase=<PHASE> --feeder-reference=<FEEDER_REFERENCE> --manufacturer=<MANUFACTURER> --mpn=<MPN>
 
             Options:
                   --phase=<PHASE>                        Phase reference (e.g. 'top_1')
                   --feeder-reference=<FEEDER_REFERENCE>  Feeder reference (e.g. 'FEEDER_1')
                   --manufacturer=<MANUFACTURER>          Manufacturer pattern (regexp)
                   --mpn=<MPN>                            Manufacturer part number (regexp)
+              -v, --verbose...                           Increase logging verbosity
+              -q, --quiet...                             Decrease logging verbosity
               -h, --help                                 Print help
         "};
 
@@ -1598,6 +1615,10 @@ mod help {
                       Phase reference (e.g. 'top_1')
                   --placement-orderings[=<PLACEMENT_ORDERINGS>...]
                       Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
+              -v, --verbose...
+                      Increase logging verbosity
+              -q, --quiet...
+                      Decrease logging verbosity
               -h, --help
                       Print help
         "};
@@ -1621,10 +1642,12 @@ mod help {
         let expected_output = indoc! {"
             Generate artifacts
 
-            Usage: planner generate-artifacts
+            Usage: planner generate-artifacts [OPTIONS]
 
             Options:
-              -h, --help  Print help
+              -v, --verbose...  Increase logging verbosity
+              -q, --quiet...    Decrease logging verbosity
+              -h, --help        Print help
         "};
 
         // when
@@ -1645,13 +1668,17 @@ mod help {
         let expected_output = indoc! {"
             Record placements operation
 
-            Usage: planner record-placements-operation --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation=<OPERATION>
+            Usage: planner record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation=<OPERATION>
 
             Options:
                   --object-path-patterns <OBJECT_PATH_PATTERNS>...
                       List of reference designators to apply the operation to
                   --operation=<OPERATION>
                       The completed operation to apply [possible values: placed]
+              -v, --verbose...
+                      Increase logging verbosity
+              -q, --quiet...
+                      Decrease logging verbosity
               -h, --help
                       Print help
         "};

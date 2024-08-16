@@ -154,8 +154,8 @@ pub fn add_pcb(project: &mut Project, kind: PcbKind, name: String) -> Result<(),
     project.pcbs.push(Pcb { kind: kind.clone(), name: name.clone() });
     
     match kind {
-        PcbKind::Single =>  trace!("Added single PCB. name: '{}'", name),
-        PcbKind::Panel => trace!("Added panel PCB. name: '{}'", name),
+        PcbKind::Single => info!("Added single PCB. name: '{}'", name),
+        PcbKind::Panel => info!("Added panel PCB. name: '{}'", name),
     }
     Ok(())
 }
@@ -472,12 +472,12 @@ fn refresh_parts(project: &mut Project, all_parts: &[Part]) {
     for change_item in changes.iter() {
         match change_item {
             (Change::New, part) => {
-                debug!("New part. part: {:?}", part);
+                info!("New part. part: {:?}", part);
                 let _ = project.part_states.entry(part.clone()).or_default();
             }
             (Change::Existing, _) => {}
             (Change::Unused, part) => {
-                debug!("Removing previously part. part: {:?}", part);
+                info!("Removing previously part. part: {:?}", part);
                 let _ = project.part_states.remove(&part);
             }
         }

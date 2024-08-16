@@ -8,7 +8,6 @@ pub mod common;
 
 #[cfg(all(test,feature="cli"))]
 mod tests {
-    
     use std::fs::read_to_string;
     use std::process::Command;
     use assert_cmd::prelude::OutputAssertExt;
@@ -46,7 +45,7 @@ mod tests {
             x: Decimal::from(10),
             y: Decimal::from(110),
             rotation: Decimal::from(0),
-            
+
         })?;
         writer.serialize(TestDiptracePlacementRecord {
             ref_des: "R2".to_string(),
@@ -167,8 +166,8 @@ mod tests {
         writer.flush()?;
 
         let substitutions_arg = format!("--substitutions={},{}",
-            test_assembly_substitutions_file_name.to_str().unwrap(),
-            test_global_substitutions_file_name.to_str().unwrap(),
+                                        test_assembly_substitutions_file_name.to_str().unwrap(),
+                                        test_global_substitutions_file_name.to_str().unwrap(),
         );
 
         // and load-out
@@ -492,7 +491,7 @@ mod tests {
             x: Decimal::from(10),
             y: Decimal::from(110),
             rotation: dec!(-179.999),
-            
+
         })?;
 
         writer.flush()?;
@@ -517,7 +516,7 @@ mod tests {
         writer.flush()?;
 
         let substitutions_arg = format!("--substitutions={}",
-            test_global_substitutions_file_name.to_str().unwrap(),
+                                        test_global_substitutions_file_name.to_str().unwrap(),
         );
 
         // and parts
@@ -635,94 +634,6 @@ mod tests {
             .stdout(print("stdout").and(predicate::str::diff("variantbuilder 0.1.0\n")));
     }
 
-    #[test]
-    fn no_args() {
-        // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder"));
-
-        // and
-        let expected_output = indoc! {"
-            Usage: variantbuilder [OPTIONS] [COMMAND]
-
-            Commands:
-              build  Build variant
-              help   Print this message or the help of the given subcommand(s)
-
-            Options:
-                  --trace[=<TRACE>]  Trace log file
-              -h, --help             Print help
-              -V, --version          Print version
-        "};
-
-        // TODO report issues with predicate::str::diff and clap
-        //      * diff - if the only difference is trailing whitespace, diff fails, without showing a difference.
-        //               steps to repeat: place closing quote for `indoc!` call on last line, instead of on a new line.
-        //      * clap - if the argument has no comment, the argument details are display and trailing whitespace follows it,
-        //               however, the trailing whitespace should not be in the output.
-        //               steps to repeat: remove comment on `Opts::version`, run test.
-
-        // when
-        cmd
-            // then
-            .assert()
-            .failure()
-            .stderr(print("stderr").and(predicate::str::diff(expected_output)))
-            .stdout(print("stdout"));
-    }
-
-    #[test]
-    fn help_for_build_subcommand() {
-        // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder"));
-
-        // and
-        let expected_output = indoc! {"
-            Build variant
-
-            Usage: variantbuilder build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE>
-
-            Options:
-                  --eda <EDA>
-                      EDA tool [possible values: diptrace, kicad]
-                  --load-out <SOURCE>
-                      Load-out source
-                  --placements <SOURCE>
-                      Placements source
-                  --parts <SOURCE>
-                      Parts source
-                  --part-mappings <SOURCE>
-                      Part-mappings source
-                  --substitutions[=<SOURCE>...]
-                      Substitution sources
-                  --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
-                      List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
-                  --assembly-rules <SOURCE>
-                      Assembly rules source
-                  --output <FILE>
-                      Output CSV file
-                  --name <NAME>
-                      Name of assembly variant [default: Default]
-                  --ref-des-list [<REF_DES_LIST>...]
-                      List of reference designators
-              -h, --help
-                      Print help
-        "};
-
-        // TODO report issues with clap
-        //      * clap - unable to find clap derive documentation for `value_delimiter`
-        //               a big gotcha was that it's not possible to use a STRING for the delimiter and
-        //               only a CHARACTER is acceptable, i.e. use single quotes around a character.
-        //               the error was: '^^^ the trait `IntoResettable<char>` is not implemented for `&str`'
-
-        // when
-        cmd.args(["build", "--help"])
-            // then
-            .assert()
-            .success()
-            .stderr(print("stderr"))
-            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
-    }
-
     #[derive(Debug, serde::Serialize)]
     #[serde(rename_all(serialize = "PascalCase"))]
     struct TestDiptracePlacementRecord {
@@ -761,7 +672,7 @@ mod tests {
         manufacturer: String,
         mpn: String,
     }
-    
+
     #[derive(Debug, serde::Serialize)]
     #[serde(rename_all(serialize = "PascalCase"))]
     struct TestAssemblyRuleRecord {
@@ -788,5 +699,108 @@ mod tests {
         val_pattern: String,
         package: String,
         val: String,
+    }
+}
+
+#[cfg(feature="cli")]
+mod help {
+    use std::process::Command;
+    use assert_cmd::prelude::OutputAssertExt;
+    use indoc::indoc;
+    use predicates::prelude::*;
+    use crate::common::print;
+
+    #[test]
+    fn no_args() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder"));
+
+        // and
+        let expected_output = indoc! {"
+            Usage: variantbuilder [OPTIONS] [COMMAND]
+
+            Commands:
+              build  Build variant
+              help   Print this message or the help of the given subcommand(s)
+
+            Options:
+                  --trace[=<TRACE>]  Trace log file
+              -v, --verbose...       Increase logging verbosity
+              -q, --quiet...         Decrease logging verbosity
+              -h, --help             Print help
+              -V, --version          Print version
+        "};
+
+        // TODO report issues with predicate::str::diff and clap
+        //      * diff - if the only difference is trailing whitespace, diff fails, without showing a difference.
+        //               steps to repeat: place closing quote for `indoc!` call on last line, instead of on a new line.
+        //      * clap - if the argument has no comment, the argument details are display and trailing whitespace follows it,
+        //               however, the trailing whitespace should not be in the output.
+        //               steps to repeat: remove comment on `Opts::version`, run test.
+
+        // when
+        cmd
+            // then
+            .assert()
+            .failure()
+            .stderr(print("stderr").and(predicate::str::diff(expected_output)))
+            .stdout(print("stdout"));
+    }
+
+    #[test]
+    fn help_for_build_subcommand() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder"));
+
+        // and
+        let expected_output = indoc! {"
+            Build variant
+
+            Usage: variantbuilder build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE>
+
+            Options:
+                  --eda <EDA>
+                      EDA tool [possible values: diptrace, kicad]
+                  --load-out <SOURCE>
+                      Load-out source
+                  --placements <SOURCE>
+                      Placements source
+              -v, --verbose...
+                      Increase logging verbosity
+                  --parts <SOURCE>
+                      Parts source
+              -q, --quiet...
+                      Decrease logging verbosity
+                  --part-mappings <SOURCE>
+                      Part-mappings source
+                  --substitutions[=<SOURCE>...]
+                      Substitution sources
+                  --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
+                      List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
+                  --assembly-rules <SOURCE>
+                      Assembly rules source
+                  --output <FILE>
+                      Output CSV file
+                  --name <NAME>
+                      Name of assembly variant [default: Default]
+                  --ref-des-list [<REF_DES_LIST>...]
+                      List of reference designators
+              -h, --help
+                      Print help
+        "};
+
+        // TODO report issues with clap
+        //      * clap - unable to find clap derive documentation for `value_delimiter`
+        //               a big gotcha was that it's not possible to use a STRING for the delimiter and
+        //               only a CHARACTER is acceptable, i.e. use single quotes around a character.
+        //               the error was: '^^^ the trait `IntoResettable<char>` is not implemented for `&str`'
+
+        // when
+        cmd.args(["build", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
 }

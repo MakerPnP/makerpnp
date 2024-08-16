@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand};
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use heck::ToShoutySnakeCase;
 use regex::Regex;
 use tracing::{info, trace};
@@ -35,6 +36,9 @@ struct Opts {
     /// Project name
     #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
     pub project: Option<String>,
+
+    #[command(flatten)]
+    verbose: Verbosity<InfoLevel>,
 }
 
 #[derive(Subcommand)]
@@ -161,7 +165,7 @@ enum Command {
 fn main() -> anyhow::Result<()>{
     let opts = Opts::parse();
 
-    cli::tracing::configure_tracing(opts.trace)?;
+    cli::tracing::configure_tracing(opts.trace, opts.verbose)?;
 
     if let Some(project_name) = &opts.project {
         let project_file_path = project::build_project_file_path(&project_name, &opts.path);
@@ -243,7 +247,7 @@ fn main() -> anyhow::Result<()>{
 
                 phase.placement_orderings.clone_from(&placement_orderings);
 
-                trace!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings.iter().map(|item|{
+                info!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings.iter().map(|item|{
                     format!("{}:{}",
                         item.mode.to_string().to_shouty_snake_case(),
                         item.sort_order.to_string().to_shouty_snake_case()
