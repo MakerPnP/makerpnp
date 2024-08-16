@@ -27,16 +27,16 @@ struct Opts {
     command: Command,
 
     /// Trace log file
-    #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
+    #[arg(long, num_args = 0..=1, default_missing_value = "trace.log")]
     trace: Option<PathBuf>,
 
     /// Path
-    #[arg(long, require_equals = true, default_value = ".")]
+    #[arg(long, default_value = ".")]
     path: PathBuf,
 
     // See also "Reference: CLAP-1" below. 
     /// Project name
-    #[arg(long, require_equals = true, value_name = "PROJECT_NAME")]
+    #[arg(long, value_name = "PROJECT_NAME")]
     pub project: Option<String>,
 
     #[command(flatten)]
@@ -52,95 +52,95 @@ enum Command {
     /// Add a PCB
     AddPcb {
         /// PCB kind
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         kind: PcbKindArg,
         
         /// Name of the PCB, e.g. 'panel_1'
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         name: String,
     },
     /// Assign a design variant to a PCB unit
     AssignVariantToUnit {
         /// Name of the design
-        #[arg(long, require_equals = true, value_parser = clap::value_parser!(DesignName), value_name = "DESIGN_NAME")]
+        #[arg(long, value_parser = clap::value_parser!(DesignName), value_name = "DESIGN_NAME")]
         design: DesignName,
 
         /// Variant of the design
-        #[arg(long, require_equals = true, value_parser = clap::value_parser!(VariantName), value_name = "VARIANT_NAME")]
+        #[arg(long, value_parser = clap::value_parser!(VariantName), value_name = "VARIANT_NAME")]
         variant: VariantName,
 
         /// PCB unit path
-        #[arg(long, require_equals = true, value_parser = clap::value_parser!(ObjectPath), value_name = "OBJECT_PATH")]
+        #[arg(long, value_parser = clap::value_parser!(ObjectPath), value_name = "OBJECT_PATH")]
         unit: ObjectPath,
     },
     /// Assign a process to parts
     AssignProcessToParts {
         /// Process name
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         process: Process,
 
         /// Manufacturer pattern (regexp)
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         manufacturer: Regex,
 
         /// Manufacturer part number (regexp)
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         mpn: Regex,
     },
     /// Create a phase
     CreatePhase {
         /// Process name
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         process: Process,
         
         /// Phase reference (e.g. 'top_1')
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         reference: Reference,
         
         /// Load-out source (e.g. 'load_out_1')
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         load_out: LoadOutSource,
 
         /// PCB side
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         pcb_side: PcbSideArg,
     },
     /// Assign placements to a phase
     AssignPlacementsToPhase {
         /// Phase reference (e.g. 'top_1')
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         phase: Reference,
 
         /// Placements object path pattern (regexp)
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         placements: Regex,
     },
     /// Assign feeder to load-out item
     AssignFeederToLoadOutItem {
         /// Phase reference (e.g. 'top_1')
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         phase: Reference,
 
         /// Feeder reference (e.g. 'FEEDER_1')
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         feeder_reference: Reference,
 
         /// Manufacturer pattern (regexp)
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         manufacturer: Regex,
 
         /// Manufacturer part number (regexp)
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         mpn: Regex,
     },
     /// Set placement ordering for a phase
     SetPlacementOrdering {
         /// Phase reference (e.g. 'top_1')
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         phase: Reference,
 
         /// Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
-        #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::cli::parsers::PlacementSortingItemParser::default())]
+        #[arg(long, num_args = 0.., value_delimiter = ',', value_parser = makerpnp::cli::parsers::PlacementSortingItemParser::default())]
         placement_orderings: Vec<PlacementSortingItem>
     },
     
@@ -156,7 +156,7 @@ enum Command {
         object_path_patterns: Vec<Regex>,
         
         /// The completed operation to apply
-        #[arg(long, require_equals = true)]
+        #[arg(long)]
         operation: PlacementOperationArg,
     }
 }

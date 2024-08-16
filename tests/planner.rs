@@ -13,7 +13,7 @@ mod operation_sequence_1 {
     use indoc::indoc;
     use rust_decimal_macros::dec;
     use tempfile::tempdir;
-    use crate::common::{build_temp_file, print};
+    use crate::common::{build_temp_file, prepare_args, print};
     use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::common::project_builder::TestProjectBuilder;
@@ -43,14 +43,14 @@ mod operation_sequence_1 {
             pub fn new() -> Self {
                 let temp_dir = tempdir().unwrap();
 
-                let path_arg = format!("--path={}", temp_dir.path().to_str().unwrap());
+                let path_arg = format!("--path {}", temp_dir.path().to_str().unwrap());
 
                 let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
-                let trace_log_arg = format!("--trace={}", test_trace_log_file_name.to_str().unwrap());
+                let trace_log_arg = format!("--trace {}", test_trace_log_file_name.to_str().unwrap());
 
                 let (test_project_path, _test_project_file_name) = build_temp_file(&temp_dir, "project-job1", "mpnp.json");
 
-                let project_arg = "--project=job1".to_string();
+                let project_arg = "--project job1".to_string();
 
                 let mut phase_1_load_out_path = PathBuf::from(temp_dir.path());
                 phase_1_load_out_path.push("phase_1_top_1_load_out.csv");
@@ -119,12 +119,12 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "create",
-        ];
+        ]);
         println!("args: {:?}", args);
 
         // when
@@ -151,7 +151,7 @@ mod operation_sequence_1 {
 
         Ok(())
     }
-
+    
     #[test]
     fn sequence_02_add_pcb() -> Result<(), anyhow::Error> {
         // given
@@ -171,14 +171,14 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "add-pcb",
-            "--kind=panel",
-            "--name=panel_a",
-        ];
+            "--kind panel",
+            "--name panel_a",
+        ]);
         println!("args: {:?}", args);
 
         // when
@@ -290,15 +290,15 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "assign-variant-to-unit",
-            "--design=design_a",
-            "--variant=variant_a",
-            "--unit=panel=1::unit=1",
-        ];
+            "--design design_a",
+            "--variant variant_a",
+            "--unit panel=1::unit=1",
+        ]);
 
         // when
         cmd.args(args)
@@ -422,15 +422,15 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "assign-process-to-parts",
-            "--process=manual",
-            "--manufacturer=CONN_MFR.*",
-            "--mpn=.*",
-        ];
+            "--process manual",
+            "--manufacturer CONN_MFR.*",
+            "--mpn .*",
+        ]);
 
         // when
         cmd.args(args)
@@ -547,19 +547,19 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let phase_1_load_out_arg = format!("--load-out={}", ctx.phase_1_load_out_path.to_str().unwrap());
+        let phase_1_load_out_arg = format!("--load-out {}", ctx.phase_1_load_out_path.to_str().unwrap());
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "create-phase",
-            "--reference=top_1",
-            "--process=pnp",
+            "--reference top_1",
+            "--process pnp",
             &phase_1_load_out_arg,
-            "--pcb-side=top",
-        ];
+            "--pcb-side top",
+        ]);
 
         // when
         cmd.args(args)
@@ -675,19 +675,19 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let phase_2_load_out_arg = format!("--load-out={}", ctx.phase_2_load_out_path.to_str().unwrap());
+        let phase_2_load_out_arg = format!("--load-out {}", ctx.phase_2_load_out_path.to_str().unwrap());
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "create-phase",
-            "--reference=bottom_1",
-            "--process=manual",
+            "--reference bottom_1",
+            "--process manual",
             &phase_2_load_out_arg,
-            "--pcb-side=bottom",
-        ];
+            "--pcb-side bottom",
+        ]);
 
         // when
         cmd.args(args)
@@ -802,27 +802,27 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "-vv",
             "assign-placements-to-phase",
-            "--phase=top_1",
+            "--phase top_1",
 
             // By placement path pattern
-            //"--placements=panel=1::unit=1::ref_des=R1"
-            "--placements=panel=1::unit=1::ref_des=R.*",
-            //"--placements=panel=1::unit=1::ref_des=J1",
-            //"--placements=panel=.*::unit=.*::ref_des=R1"
-            //"--placements=panel=1::unit=.*::ref_des=.*"
-            //"--placements=.*::ref_des=R.*"
-            //"--placements=.*",
+            //"--placements panel=1::unit=1::ref_des=R1"
+            "--placements panel=1::unit=1::ref_des=R.*",
+            //"--placements panel=1::unit=1::ref_des=J1",
+            //"--placements panel=.*::unit=.*::ref_des=R1"
+            //"--placements panel=1::unit=.*::ref_des=.*"
+            //"--placements .*::ref_des=R.*"
+            //"--placements .*",
 
             // FUTURE By manufacturer and mpn
-            // "--manufacturer=RES_MFR.*",
-            // "--mpn=.*"
-        ];
+            // "--manufacturer RES_MFR.*",
+            // "--mpn .*"
+        ]);
         
         // and
         let expected_phase_1_load_out_content = LoadOutCSVBuilder::new()
@@ -885,16 +885,16 @@ mod operation_sequence_1 {
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
         
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "assign-feeder-to-load-out-item",
-            "--phase=top_1",
-            "--feeder-reference=FEEDER_1",
-            "--manufacturer=.*",
-            "--mpn=RES1",
-        ];
+            "--phase top_1",
+            "--feeder-reference FEEDER_1",
+            "--manufacturer .*",
+            "--mpn RES1",
+        ]);
 
         let expected_phase_1_load_out_content = LoadOutCSVBuilder::new()
             .with_items(&[
@@ -1012,19 +1012,19 @@ mod operation_sequence_1 {
 
 
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "set-placement-ordering",
-            "--phase=top_1",
-            "--placement-orderings=PCB_UNIT:ASC,FEEDER_REFERENCE:ASC",
+            "--phase top_1",
+            "--placement-orderings PCB_UNIT:ASC,FEEDER_REFERENCE:ASC",
             
             // example for PnP machine placement
-            //"--orderings=PCB_UNIT:ASC,COST:ASC,AREA:ASC,HEIGHT;ASC,FEEDER_REFERENCE:ASC",
+            //"--orderings PCB_UNIT:ASC,COST:ASC,AREA:ASC,HEIGHT;ASC,FEEDER_REFERENCE:ASC",
             // example for manual placement
-            //"--orderings=COST:ASC,AREA:ASC,HEIGHT;ASC,PART:ASC,PCB_UNIT:ASC",
-        ];
+            //"--orderings COST:ASC,AREA:ASC,HEIGHT;ASC,PART:ASC,PCB_UNIT:ASC",
+        ]);
 
         // when
         cmd.args(args)
@@ -1169,12 +1169,12 @@ mod operation_sequence_1 {
             .as_string();
         
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "generate-artifacts",
-        ];
+        ]);
         // when
         cmd.args(args)
             // then
@@ -1316,14 +1316,14 @@ mod operation_sequence_1 {
         
         
         // and
-        let args = [
+        let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "record-placements-operation",
-            "--object-path-patterns=panel=1::unit=1::ref_des=R([1-2])?,panel=1::unit=2::ref_des=.*,panel=1::unit=1::ref_des=R3",
-            "--operation=placed",
-        ];
+            "--object-path-patterns panel=1::unit=1::ref_des=R([1-2])?,panel=1::unit=2::ref_des=.*,panel=1::unit=1::ref_des=R3",
+            "--operation placed",
+        ]);
         // when
         cmd.args(args)
             // then
@@ -1391,9 +1391,9 @@ mod help {
               help                            Print this message or the help of the given subcommand(s)
 
             Options:
-                  --trace[=<TRACE>]         Trace log file
-                  --path=<PATH>             Path [default: .]
-                  --project=<PROJECT_NAME>  Project name
+                  --trace [<TRACE>]         Trace log file
+                  --path <PATH>             Path [default: .]
+                  --project <PROJECT_NAME>  Project name
               -v, --verbose...              Increase logging verbosity
               -q, --quiet...                Decrease logging verbosity
               -h, --help                    Print help
@@ -1444,11 +1444,11 @@ mod help {
         let expected_output = indoc! {"
             Add a PCB
 
-            Usage: planner add-pcb [OPTIONS] --kind=<KIND> --name=<NAME>
+            Usage: planner add-pcb [OPTIONS] --kind <KIND> --name <NAME>
 
             Options:
-                  --kind=<KIND>  PCB kind [possible values: single, panel]
-                  --name=<NAME>  Name of the PCB, e.g. 'panel_1'
+                  --kind <KIND>  PCB kind [possible values: single, panel]
+                  --name <NAME>  Name of the PCB, e.g. 'panel_1'
               -v, --verbose...   Increase logging verbosity
               -q, --quiet...     Decrease logging verbosity
               -h, --help         Print help
@@ -1472,12 +1472,12 @@ mod help {
         let expected_output = indoc! {"
             Assign a design variant to a PCB unit
 
-            Usage: planner assign-variant-to-unit [OPTIONS] --design=<DESIGN_NAME> --variant=<VARIANT_NAME> --unit=<OBJECT_PATH>
+            Usage: planner assign-variant-to-unit [OPTIONS] --design <DESIGN_NAME> --variant <VARIANT_NAME> --unit <OBJECT_PATH>
 
             Options:
-                  --design=<DESIGN_NAME>    Name of the design
-                  --variant=<VARIANT_NAME>  Variant of the design
-                  --unit=<OBJECT_PATH>      PCB unit path
+                  --design <DESIGN_NAME>    Name of the design
+                  --variant <VARIANT_NAME>  Variant of the design
+                  --unit <OBJECT_PATH>      PCB unit path
               -v, --verbose...              Increase logging verbosity
               -q, --quiet...                Decrease logging verbosity
               -h, --help                    Print help
@@ -1501,12 +1501,12 @@ mod help {
         let expected_output = indoc! {"
             Assign a process to parts
 
-            Usage: planner assign-process-to-parts [OPTIONS] --process=<PROCESS> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+            Usage: planner assign-process-to-parts [OPTIONS] --process <PROCESS> --manufacturer <MANUFACTURER> --mpn <MPN>
 
             Options:
-                  --process=<PROCESS>            Process name
-                  --manufacturer=<MANUFACTURER>  Manufacturer pattern (regexp)
-                  --mpn=<MPN>                    Manufacturer part number (regexp)
+                  --process <PROCESS>            Process name
+                  --manufacturer <MANUFACTURER>  Manufacturer pattern (regexp)
+                  --mpn <MPN>                    Manufacturer part number (regexp)
               -v, --verbose...                   Increase logging verbosity
               -q, --quiet...                     Decrease logging verbosity
               -h, --help                         Print help
@@ -1530,13 +1530,13 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner create-phase [OPTIONS] --process=<PROCESS> --reference=<REFERENCE> --load-out=<LOAD_OUT> --pcb-side=<PCB_SIDE>
+            Usage: planner create-phase [OPTIONS] --process <PROCESS> --reference <REFERENCE> --load-out <LOAD_OUT> --pcb-side <PCB_SIDE>
 
             Options:
-                  --process=<PROCESS>      Process name
-                  --reference=<REFERENCE>  Phase reference (e.g. 'top_1')
-                  --load-out=<LOAD_OUT>    Load-out source (e.g. 'load_out_1')
-                  --pcb-side=<PCB_SIDE>    PCB side [possible values: top, bottom]
+                  --process <PROCESS>      Process name
+                  --reference <REFERENCE>  Phase reference (e.g. 'top_1')
+                  --load-out <LOAD_OUT>    Load-out source (e.g. 'load_out_1')
+                  --pcb-side <PCB_SIDE>    PCB side [possible values: top, bottom]
               -v, --verbose...             Increase logging verbosity
               -q, --quiet...               Decrease logging verbosity
               -h, --help                   Print help
@@ -1560,11 +1560,11 @@ mod help {
         let expected_output = indoc! {"
             Assign placements to a phase
 
-            Usage: planner assign-placements-to-phase [OPTIONS] --phase=<PHASE> --placements=<PLACEMENTS>
+            Usage: planner assign-placements-to-phase [OPTIONS] --phase <PHASE> --placements <PLACEMENTS>
 
             Options:
-                  --phase=<PHASE>            Phase reference (e.g. 'top_1')
-                  --placements=<PLACEMENTS>  Placements object path pattern (regexp)
+                  --phase <PHASE>            Phase reference (e.g. 'top_1')
+                  --placements <PLACEMENTS>  Placements object path pattern (regexp)
               -v, --verbose...               Increase logging verbosity
               -q, --quiet...                 Decrease logging verbosity
               -h, --help                     Print help
@@ -1588,13 +1588,13 @@ mod help {
         let expected_output = indoc! {"
             Assign feeder to load-out item
 
-            Usage: planner assign-feeder-to-load-out-item [OPTIONS] --phase=<PHASE> --feeder-reference=<FEEDER_REFERENCE> --manufacturer=<MANUFACTURER> --mpn=<MPN>
+            Usage: planner assign-feeder-to-load-out-item [OPTIONS] --phase <PHASE> --feeder-reference <FEEDER_REFERENCE> --manufacturer <MANUFACTURER> --mpn <MPN>
 
             Options:
-                  --phase=<PHASE>                        Phase reference (e.g. 'top_1')
-                  --feeder-reference=<FEEDER_REFERENCE>  Feeder reference (e.g. 'FEEDER_1')
-                  --manufacturer=<MANUFACTURER>          Manufacturer pattern (regexp)
-                  --mpn=<MPN>                            Manufacturer part number (regexp)
+                  --phase <PHASE>                        Phase reference (e.g. 'top_1')
+                  --feeder-reference <FEEDER_REFERENCE>  Feeder reference (e.g. 'FEEDER_1')
+                  --manufacturer <MANUFACTURER>          Manufacturer pattern (regexp)
+                  --mpn <MPN>                            Manufacturer part number (regexp)
               -v, --verbose...                           Increase logging verbosity
               -q, --quiet...                             Decrease logging verbosity
               -h, --help                                 Print help
@@ -1618,12 +1618,12 @@ mod help {
         let expected_output = indoc! {"
             Set placement ordering for a phase
 
-            Usage: planner set-placement-ordering [OPTIONS] --phase=<PHASE>
+            Usage: planner set-placement-ordering [OPTIONS] --phase <PHASE>
 
             Options:
-                  --phase=<PHASE>
+                  --phase <PHASE>
                       Phase reference (e.g. 'top_1')
-                  --placement-orderings[=<PLACEMENT_ORDERINGS>...]
+                  --placement-orderings [<PLACEMENT_ORDERINGS>...]
                       Orderings (e.g. 'PCB_UNIT:ASC,FEEDER_REFERENCE:ASC')
               -v, --verbose...
                       Increase logging verbosity
@@ -1678,12 +1678,12 @@ mod help {
         let expected_output = indoc! {"
             Record placements operation
 
-            Usage: planner record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation=<OPERATION>
+            Usage: planner record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation <OPERATION>
 
             Options:
                   --object-path-patterns <OBJECT_PATH_PATTERNS>...
                       List of reference designators to apply the operation to
-                  --operation=<OPERATION>
+                  --operation <OPERATION>
                       The completed operation to apply [possible values: placed]
               -v, --verbose...
                       Increase logging verbosity

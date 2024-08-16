@@ -19,7 +19,7 @@ mod tests {
     use rust_decimal_macros::dec;
     use tempfile::tempdir;
     use makerpnp::stores::part_mappings::test::TestPartMappingRecord;
-    use crate::common::{build_temp_csv_file, build_temp_file, print};
+    use crate::common::{build_temp_csv_file, build_temp_file, prepare_args, print};
     use crate::common::load_out_builder::TestLoadOutRecord;
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
 
         writer.flush()?;
 
-        let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
+        let placements_arg = format!("--placements {}", test_placements_file_name.to_str().unwrap());
 
         // and per-assembly-variant substitutions
         let (test_assembly_substitutions_path, test_assembly_substitutions_file_name) = build_temp_csv_file(&temp_dir, "assembly-substitutions");
@@ -165,7 +165,7 @@ mod tests {
 
         writer.flush()?;
 
-        let substitutions_arg = format!("--substitutions={},{}",
+        let substitutions_arg = format!("--substitutions {},{}",
                                         test_assembly_substitutions_file_name.to_str().unwrap(),
                                         test_global_substitutions_file_name.to_str().unwrap(),
         );
@@ -197,7 +197,7 @@ mod tests {
 
         writer.flush()?;
 
-        let load_out_arg = format!("--load-out={}", test_load_out_file_name.to_str().unwrap());
+        let load_out_arg = format!("--load-out {}", test_load_out_file_name.to_str().unwrap());
 
         // and parts
         let (test_parts_path, test_parts_file_name) = build_temp_csv_file(&temp_dir, "parts");
@@ -245,7 +245,7 @@ mod tests {
 
         writer.flush()?;
 
-        let parts_arg = format!("--parts={}", test_parts_file_name.to_str().unwrap());
+        let parts_arg = format!("--parts {}", test_parts_file_name.to_str().unwrap());
 
         // and part mappings
         let (test_part_mappings_path, test_part_mappings_file_name) = build_temp_csv_file(&temp_dir, "part_mappings");
@@ -338,7 +338,7 @@ mod tests {
 
         writer.flush()?;
 
-        let part_mappings_arg = format!("--part-mappings={}", test_part_mappings_file_name.to_str().unwrap());
+        let part_mappings_arg = format!("--part-mappings {}", test_part_mappings_file_name.to_str().unwrap());
 
         // and assembly-rules
         let (test_assembly_rule_path, test_assembly_rule_file_name) = build_temp_csv_file(&temp_dir, "assembly_rule");
@@ -355,7 +355,7 @@ mod tests {
 
         writer.flush()?;
 
-        let assembly_rules_arg = format!("--assembly-rules={}", test_assembly_rule_file_name.to_str().unwrap());
+        let assembly_rules_arg = format!("--assembly-rules {}", test_assembly_rule_file_name.to_str().unwrap());
 
         // and
         let expected_part_mapping_tree = indoc! {"
@@ -401,17 +401,17 @@ mod tests {
         "#}.to_string();
 
         let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
-        let csv_output_arg = format!("--output={}", test_csv_output_file_name.to_str().unwrap());
+        let csv_output_arg = format!("--output {}", test_csv_output_file_name.to_str().unwrap());
 
         // and
         let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
-        let trace_log_arg = format!("--trace={}", test_trace_log_file_name.to_str().unwrap());
+        let trace_log_arg = format!("--trace {}", test_trace_log_file_name.to_str().unwrap());
 
         // when
-        cmd.args([
+        cmd.args(prepare_args(vec![
             trace_log_arg.as_str(),
             "build",
-            "--eda=diptrace",
+            "--eda diptrace",
             placements_arg.as_str(),
             parts_arg.as_str(),
             part_mappings_arg.as_str(),
@@ -420,10 +420,10 @@ mod tests {
             assembly_rules_arg.as_str(),
             csv_output_arg.as_str(),
             "--name",
-            "Variant 1",
-            "--ref-des-list=R1,R3,R4,D1,C1,J1,TP1,TP2",
-            "--ref-des-disable-list=TP1,TP2",
-        ])
+            "Variant_1",
+            "--ref-des-list R1,R3,R4,D1,C1,J1,TP1,TP2",
+            "--ref-des-disable-list TP1,TP2",
+        ]))
             // then
             .assert()
             .stderr(print("stderr"))
@@ -446,7 +446,7 @@ mod tests {
             "Loaded 9 part mappings\n",
             "Loaded 3 load-out items\n",
             "Loaded 1 assembly rules\n",
-            "Assembly variant: Variant 1\n",
+            "Assembly variant: Variant_1\n",
             "Ref_des list: R1, R3, R4, D1, C1, J1, TP1, TP2\n",
             "Matched 8 placements for assembly variant\n",
             expected_part_mapping_tree,
@@ -496,7 +496,7 @@ mod tests {
 
         writer.flush()?;
 
-        let placements_arg = format!("--placements={}", test_placements_file_name.to_str().unwrap());
+        let placements_arg = format!("--placements {}", test_placements_file_name.to_str().unwrap());
 
         // and global substitutions
         let (test_global_substitutions_path, test_global_substitutions_file_name) = build_temp_csv_file(&temp_dir, "global-substitutions");
@@ -515,8 +515,8 @@ mod tests {
 
         writer.flush()?;
 
-        let substitutions_arg = format!("--substitutions={}",
-                                        test_global_substitutions_file_name.to_str().unwrap(),
+        let substitutions_arg = format!("--substitutions {}",
+            test_global_substitutions_file_name.to_str().unwrap(),
         );
 
         // and parts
@@ -533,7 +533,7 @@ mod tests {
 
         writer.flush()?;
 
-        let parts_arg = format!("--parts={}", test_parts_file_name.to_str().unwrap());
+        let parts_arg = format!("--parts {}", test_parts_file_name.to_str().unwrap());
 
         // and part mappings
         let (test_part_mappings_path, test_part_mappings_file_name) = build_temp_csv_file(&temp_dir, "part_mappings");
@@ -554,14 +554,14 @@ mod tests {
 
         writer.flush()?;
 
-        let part_mappings_arg = format!("--part-mappings={}", test_part_mappings_file_name.to_str().unwrap());
+        let part_mappings_arg = format!("--part-mappings {}", test_part_mappings_file_name.to_str().unwrap());
 
         let (test_csv_output_path, test_csv_output_file_name) = build_temp_csv_file(&temp_dir, "output");
-        let csv_output_arg = format!("--output={}", test_csv_output_file_name.to_str().unwrap());
+        let csv_output_arg = format!("--output {}", test_csv_output_file_name.to_str().unwrap());
 
         // and
         let (test_trace_log_path, test_trace_log_file_name) = build_temp_file(&temp_dir, "trace", "log");
-        let trace_log_arg = format!("--trace={}", test_trace_log_file_name.to_str().unwrap());
+        let trace_log_arg = format!("--trace {}", test_trace_log_file_name.to_str().unwrap());
 
         // and
         let expected_part_mapping_tree = indoc! {"
@@ -578,16 +578,16 @@ mod tests {
         "#}.to_string();
 
         // when
-        cmd.args([
+        cmd.args(prepare_args(vec![
             trace_log_arg.as_str(),
             "build",
-            "--eda=kicad",
+            "--eda kicad",
             placements_arg.as_str(),
             parts_arg.as_str(),
             part_mappings_arg.as_str(),
             csv_output_arg.as_str(),
             substitutions_arg.as_str(),
-        ])
+        ]))
             // then
             .assert()
             .stderr(print("stderr"))
@@ -724,7 +724,7 @@ mod help {
               help   Print this message or the help of the given subcommand(s)
 
             Options:
-                  --trace[=<TRACE>]  Trace log file
+                  --trace [<TRACE>]  Trace log file
               -v, --verbose...       Increase logging verbosity
               -q, --quiet...         Decrease logging verbosity
               -h, --help             Print help
@@ -773,7 +773,7 @@ mod help {
                       Decrease logging verbosity
                   --part-mappings <SOURCE>
                       Part-mappings source
-                  --substitutions[=<SOURCE>...]
+                  --substitutions [<SOURCE>...]
                       Substitution sources
                   --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
                       List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)

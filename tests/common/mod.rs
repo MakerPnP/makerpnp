@@ -33,3 +33,12 @@ pub fn build_temp_file(temp_dir: &TempDir, base: &str, extension: &str) -> (Path
 
     (path_buf, absolute_path)
 }
+
+pub fn prepare_args<'a>(args: Vec<&'a str>) -> Vec<&'a str> {
+    args.iter().fold(vec![], |mut args: Vec<&str>, arg| {
+        for &arg in arg.split(" ").collect::<Vec<&str>>().iter() {
+            args.push(arg);
+        }
+        args
+    })
+}

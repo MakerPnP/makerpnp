@@ -27,7 +27,7 @@ struct Opts {
     command: Option<Command>,
 
     /// Trace log file
-    #[arg(long, num_args = 0..=1, default_missing_value = "trace.log", require_equals = true)]
+    #[arg(long, num_args = 0..=1, default_missing_value = "trace.log")]
     trace: Option<PathBuf>,
 
     #[command(flatten)]
@@ -87,7 +87,7 @@ enum Command {
         part_mappings: String,
 
         /// Substitution sources
-        #[arg(long, require_equals = true, value_delimiter = ',', num_args = 0.., value_name = "SOURCE")]
+        #[arg(long, value_delimiter = ',', num_args = 0.., value_name = "SOURCE")]
         substitutions: Vec<String>,
 
         /// List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
