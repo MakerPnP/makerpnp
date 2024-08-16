@@ -53,10 +53,10 @@ mod operation_sequence_1 {
                 let project_arg = "--project=job1".to_string();
 
                 let mut phase_1_load_out_path = PathBuf::from(temp_dir.path());
-                phase_1_load_out_path.push("phase_1_load_out_1.csv");
+                phase_1_load_out_path.push("phase_1_top_1_load_out.csv");
                 
                 let mut phase_2_load_out_path = PathBuf::from(temp_dir.path());
-                phase_2_load_out_path.push("phase_2_load_out_1.csv");
+                phase_2_load_out_path.push("phase_2_bottom_1_load_out.csv");
 
                 Context {
                     temp_dir,
@@ -1196,14 +1196,26 @@ mod operation_sequence_1 {
             count
         }), 1);
 
+        // and
+        let mut phase_1_placements_file_path = PathBuf::from(ctx.temp_dir.path());
+        phase_1_placements_file_path.push("top_1_placements.csv");
+        let mut phase_2_placements_file_path = PathBuf::from(ctx.temp_dir.path());
+        phase_2_placements_file_path.push("bottom_1_placements.csv");
+        let mut project_report_file_path = PathBuf::from(ctx.temp_dir.path());
+        project_report_file_path.push("job1_report.json");
+
+        let phase_1_message = format!("Generated phase placements. phase: 'top_1', path: {:?}\n", phase_1_placements_file_path);
+        let phase_2_message = format!("Generated phase placements. phase: 'bottom_1', path: {:?}\n", phase_2_placements_file_path);
+        let report_message = format!("Generated report. path: {:?}\n", project_report_file_path);
+        
         assert_contains_inorder!(trace_content, [
+            &phase_1_message,
+            &phase_2_message,
+            &report_message,
             "Generated artifacts.\n",
         ]);
         
         // and
-        let mut phase_1_placements_file_path = PathBuf::from(ctx.temp_dir.path());
-        phase_1_placements_file_path.push("top_1_placements.csv");
-
         let phase_1_placements_content: String = read_to_string(phase_1_placements_file_path)?;
         println!("{}", phase_1_placements_content);
 
@@ -1212,8 +1224,6 @@ mod operation_sequence_1 {
         // and
         println!("expected:\n{}", expected_project_report_content);
 
-        let mut project_report_file_path = PathBuf::from(ctx.temp_dir.path());
-        project_report_file_path.push("job1_report.json");
 
         let project_report_content: String = read_to_string(project_report_file_path)?;
         println!("actual:\n{}", project_report_content);

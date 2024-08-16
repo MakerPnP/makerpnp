@@ -178,7 +178,9 @@ pub fn generate_artifacts(project: &Project, path: &PathBuf, name: &String) -> R
     
     let mut phase_load_out_items_map: BTreeMap<Reference, Vec<LoadOutItem>> = BTreeMap::new();
     
-    for (reference, phase) in project.phases.iter() {
+    for reference in project.phase_orderings.iter() {
+        let phase = project.phases.get(reference).unwrap();
+        
         let load_out_items = load_out::load_items(&phase.load_out).map_err(|err|{
             ArtifactGenerationError::UnableToLoadItems { load_out_source: phase.load_out.clone(), reason: err }
         })?;
@@ -265,7 +267,9 @@ fn generate_phase_artifacts(project: &Project, phase: &Phase, load_out_items: &[
     store_phase_placements_as_csv(&phase_placements_path, &placement_states, load_out_items).map_err(|e|{
         ArtifactGenerationError::PhasePlacementsGenerationError(e)
     })?;
-    
+
+    info!("Generated phase placements. phase: '{}', path: {:?}", phase.reference, phase_placements_path);
+
     Ok(())
 }
 
@@ -314,7 +318,7 @@ pub fn store_phase_placements_as_csv(output_path: &PathBuf, placement_states: &[
     }
 
     writer.flush()?;
-
+    
     Ok(())
 }
 

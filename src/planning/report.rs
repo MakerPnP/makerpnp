@@ -585,5 +585,7 @@ fn project_report_save(report: &ProjectReport, report_file_path: &PathBuf) -> an
     let mut report_file = ser.into_inner();
     report_file.write(b"\n")?;
 
+    info!("Generated report. path: {:?}", report_file_path);
+    
     Ok(())
 }
