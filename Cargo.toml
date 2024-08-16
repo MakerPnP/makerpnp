@@ -19,6 +19,7 @@ heck = { version = "0.5.0" }
 regex = { version = "1.10.5" }
 rust_decimal = { version = "1.35.0"}
 rust_decimal_macros = { version = "1.35"}
+indexmap = { version = "2.4.0", features = ["serde"] }
 
 [dev-dependencies]
 predicates = {  version = "3.1.0" }

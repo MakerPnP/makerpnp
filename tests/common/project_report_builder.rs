@@ -54,6 +54,7 @@ pub struct TestProjectReport {
 #[derive(Clone, serde::Serialize)]
 pub struct TestPhaseOverview {
     pub phase_name: String,
+    pub process: String,
 }
 
 #[derive(Clone, serde::Serialize)]

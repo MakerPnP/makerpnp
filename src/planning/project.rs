@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::cmp::Ordering;
 use thiserror::Error;
 use anyhow::Error;
+use indexmap::IndexSet;
 use csv::QuoteStyle;
 use std::fs::File;
 use rust_decimal::Decimal;
@@ -57,11 +58,15 @@ pub struct Project {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     pub phases: BTreeMap<Reference, Phase>,
-    
+
+    #[serde(skip_serializing_if = "IndexSet::is_empty")]
+    #[serde(default)]
+    pub phase_orderings: IndexSet<Reference>,
+
     #[serde_as(as = "Vec<(DisplayFromStr, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
-    pub placements: BTreeMap<ObjectPath, PlacementState>
+    pub placements: BTreeMap<ObjectPath, PlacementState>,
 }
 
 impl Project {
@@ -108,6 +113,7 @@ impl Project {
                 let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), placement_orderings: vec![] };
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
+                self.phase_orderings.insert(reference);
             }
             Entry::Occupied(mut entry) => {
                 let existing_phase = entry.get_mut();
@@ -134,6 +140,7 @@ impl Default for Project {
             part_states: Default::default(),
             phases: Default::default(),
             placements: Default::default(),
+            phase_orderings: Default::default(),
         }
     }
 }

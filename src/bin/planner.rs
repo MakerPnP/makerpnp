@@ -137,6 +137,9 @@ enum Command {
         #[arg(long, num_args = 0.., require_equals = true, value_delimiter = ',', value_parser = makerpnp::cli::parsers::PlacementSortingItemParser::default())]
         placement_orderings: Vec<PlacementSortingItem>
     },
+    
+    // FUTURE consider adding a command to allow the phase ordering to be changed, currently phase ordering is determined by the order of phase creation.
+    
     /// Generate artifacts
     GenerateArtifacts {
     },

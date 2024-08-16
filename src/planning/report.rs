@@ -44,8 +44,13 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     }
 
     if !project.phases.is_empty() {
-        report.phase_overviews.extend(project.phases.values().map(|phase| {
-            PhaseOverview { phase_name: phase.reference.to_string() }
+        report.phase_overviews.extend(project.phase_orderings.iter().map(|reference| {
+            let phase = project.phases.get(reference).unwrap();
+
+            PhaseOverview { 
+                phase_name: phase.reference.to_string(),
+                process: phase.process.to_string(),
+            }
         }));
     } else {
         issues.insert(ProjectReportIssue {
@@ -94,7 +99,9 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
         }
     }
 
-    let phase_specifications: Vec<PhaseSpecification>  = project.phases.iter().try_fold(vec![], |mut results: Vec<PhaseSpecification>, (reference, phase) | {
+    let phase_specifications: Vec<PhaseSpecification>  = project.phase_orderings.iter().try_fold(vec![], |mut results: Vec<PhaseSpecification>, reference | {
+        let phase = project.phases.get(reference).unwrap();
+        
         let load_out_items = phase_load_out_items_map.get(reference).unwrap();
 
         let load_out_assignments = load_out_items.iter().map(|load_out_item|{
@@ -493,6 +500,7 @@ pub struct ProjectReport {
 #[derive(serde::Serialize)]
 pub struct PhaseOverview {
     pub phase_name: String,
+    pub process: String,
 }
 
 #[derive(Clone, serde::Serialize)]

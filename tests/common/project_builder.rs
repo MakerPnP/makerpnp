@@ -16,6 +16,7 @@ pub struct TestProjectBuilder<'a> {
         ), bool, &'a str, Option<&'a str>)
     ]>,
     phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]>,
+    phase_orderings: Option<&'a [&'a str]>
 }
 
 impl<'a> TestProjectBuilder<'a> {
@@ -111,6 +112,13 @@ impl<'a> TestProjectBuilder<'a> {
             }).collect();
             root["phases"] = Value::Array(values);
         }
+        
+        if let Some(phase_orderings) = self.phase_orderings {
+            let values: Vec<Value> = phase_orderings.iter().map(|phase_ordering|{
+                Value::String(phase_ordering.to_string())
+            }).collect();
+            root["phase_orderings"] = Value::Array(values);
+        }
 
         if let Some(placements) = self.placements {
 
@@ -178,6 +186,11 @@ impl<'a> TestProjectBuilder<'a> {
         self
     }
 
+    pub fn with_phase_orderings(mut self, phase_orderings: &'a [&'a str]) -> Self {
+        self.phase_orderings = Some(phase_orderings);
+        self
+    }
+    
     pub fn with_placements(mut self, placements: &'a [
         (&'a str, &'a str, (
             &'a str, &'a str, &'a str, bool, &'a str, Decimal, Decimal, Decimal,

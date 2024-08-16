@@ -683,9 +683,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "2.2.6"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "168fb715dda47215e360912c096649d23d58bf392ac62f73919e831745e40f26"
+checksum = "93ead53efc7ea8ed3cfb0c79fc8023fbb782a5432b52830b6518941cebe6505c"
 dependencies = [
  "equivalent",
  "hashbrown 0.14.5",
@@ -753,6 +753,7 @@ dependencies = [
  "clap",
  "csv",
  "heck",
+ "indexmap 2.4.0",
  "indoc",
  "predicates",
  "predicates-tree",
@@ -1186,7 +1187,7 @@ version = "1.0.120"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4e0d21c9a8cae1235ad58a00c11cb40d4b1e5c784f1ef2c537876ed6ffd8b7c5"
 dependencies = [
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
  "itoa",
  "ryu",
  "serde",
@@ -1202,7 +1203,7 @@ dependencies = [
  "chrono",
  "hex",
  "indexmap 1.9.3",
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
  "serde",
  "serde_derive",
  "serde_json",
@@ -1404,7 +1405,7 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a8534fd7f78b5405e860340ad6575217ce99f38d4d5c8f2442cb5ecb50090e1"
 dependencies = [
- "indexmap 2.2.6",
+ "indexmap 2.4.0",
  "toml_datetime",
  "winnow",
 ]

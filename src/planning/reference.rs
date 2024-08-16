@@ -1,7 +1,7 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Reference(String);
 
 impl FromStr for Reference {

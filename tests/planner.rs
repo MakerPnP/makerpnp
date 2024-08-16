@@ -499,6 +499,9 @@ mod operation_sequence_1 {
                     ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[])
                 ]
             )
+            .with_phase_orderings(
+                &["top_1"]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -623,6 +626,9 @@ mod operation_sequence_1 {
                     ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[]),
                 ]
             )
+            .with_phase_orderings(
+                &["top_1", "bottom_1"]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -745,6 +751,9 @@ mod operation_sequence_1 {
                     ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
                     ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[]),
                 ]
+            )
+            .with_phase_orderings(
+                &["top_1", "bottom_1"]
             )
             .with_placements(&[
                 (
@@ -951,6 +960,9 @@ mod operation_sequence_1 {
                 ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
                 ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[("PcbUnit", "Asc"),("FeederReference", "Asc")]),
             ])
+            .with_phase_orderings(
+                &["top_1", "bottom_1"]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -1081,27 +1093,10 @@ mod operation_sequence_1 {
         let expected_project_report_content = ProjectReportBuilder::default()
             .with_name("job1")
             .with_phases_overview(&[
-                TestPhaseOverview { phase_name: "bottom_1".to_string() },
-                TestPhaseOverview { phase_name: "top_1".to_string() },
+                TestPhaseOverview { phase_name: "top_1".to_string(), process: "pnp".to_string() },
+                TestPhaseOverview { phase_name: "bottom_1".to_string(), process: "manual".to_string() },
             ])
             .with_phase_specification(&[
-                TestPhaseSpecification {
-                    phase_name: "bottom_1".to_string(),
-                    operations: vec![
-                        TestPhaseOperation::PreparePcbs { pcbs: vec![
-                            TestPcb::Panel {
-                                name: "panel_a".to_string(),
-                                unit_assignments: vec![TestPcbUnitAssignment {
-                                    unit_path: "panel=1::unit=1".to_string(),
-                                    design_name: "design_a".to_string(),
-                                    variant_name: "variant_a".to_string(),
-                                }]
-                            }
-                        ] }
-                    ],
-                    load_out_assignments: vec![
-                    ]
-                },
                 TestPhaseSpecification {
                     phase_name: "top_1".to_string(),
                     operations: vec![
@@ -1129,6 +1124,23 @@ mod operation_sequence_1 {
                             mpn: "RES2".to_string(),
                             quantity: 1,
                         },
+                    ]
+                },
+                TestPhaseSpecification {
+                    phase_name: "bottom_1".to_string(),
+                    operations: vec![
+                        TestPhaseOperation::PreparePcbs { pcbs: vec![
+                            TestPcb::Panel {
+                                name: "panel_a".to_string(),
+                                unit_assignments: vec![TestPcbUnitAssignment {
+                                    unit_path: "panel=1::unit=1".to_string(),
+                                    design_name: "design_a".to_string(),
+                                    variant_name: "variant_a".to_string(),
+                                }]
+                            }
+                        ] }
+                    ],
+                    load_out_assignments: vec![
                     ]
                 },
             ])
@@ -1242,6 +1254,9 @@ mod operation_sequence_1 {
                 ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
                 ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[("PcbUnit", "Asc"),("FeederReference", "Asc")]),
             ])
+            .with_phase_orderings(
+                &["top_1", "bottom_1"]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
