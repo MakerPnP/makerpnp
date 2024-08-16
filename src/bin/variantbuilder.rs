@@ -108,7 +108,12 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()>{
-    let opts = Opts::parse();
+    let args = argfile::expand_args(
+        argfile::parse_fromfile,
+        argfile::PREFIX,
+    ).unwrap();
+    
+    let opts = Opts::parse_from(args);
 
     cli::tracing::configure_tracing(opts.trace, opts.verbose)?;
 
