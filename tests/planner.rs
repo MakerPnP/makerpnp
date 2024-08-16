@@ -578,6 +578,7 @@ mod operation_sequence_1 {
         assert_contains_inorder!(trace_content, [
             &load_out_creation_message,
             "Created phase. reference: 'top_1', process: pnp",
+            "Phase ordering: ['top_1']\n",
         ]);
 
         // and
@@ -705,6 +706,7 @@ mod operation_sequence_1 {
         assert_contains_inorder!(trace_content, [
             &load_out_creation_message,
             "Created phase. reference: 'bottom_1', process: manual",
+            "Phase ordering: ['top_1', 'bottom_1']\n",
         ]);
 
         // and

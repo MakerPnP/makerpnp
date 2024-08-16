@@ -114,6 +114,7 @@ impl Project {
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
                 self.phase_orderings.insert(reference);
+                info!("Phase ordering: ['{}']", self.phase_orderings.iter().map(Reference::to_string).collect::<Vec<String>>().join("', '"));
             }
             Entry::Occupied(mut entry) => {
                 let existing_phase = entry.get_mut();
