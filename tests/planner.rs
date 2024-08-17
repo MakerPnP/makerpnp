@@ -1375,7 +1375,7 @@ mod help {
 
         // and
         let expected_output = indoc! {"
-            Usage: planner [OPTIONS] <COMMAND>
+            Usage: planner [OPTIONS] <--project <PROJECT_NAME>> <COMMAND>
 
             Commands:
               create                          Create a new job
@@ -1418,7 +1418,7 @@ mod help {
         let expected_output = indoc! {"
             Create a new job
 
-            Usage: planner create [OPTIONS]
+            Usage: planner <--project <PROJECT_NAME>> create [OPTIONS]
 
             Options:
               -v, --verbose...  Increase logging verbosity
@@ -1444,7 +1444,7 @@ mod help {
         let expected_output = indoc! {"
             Add a PCB
 
-            Usage: planner add-pcb [OPTIONS] --kind <KIND> --name <NAME>
+            Usage: planner <--project <PROJECT_NAME>> add-pcb [OPTIONS] --kind <KIND> --name <NAME>
 
             Options:
                   --kind <KIND>  PCB kind [possible values: single, panel]
@@ -1472,7 +1472,7 @@ mod help {
         let expected_output = indoc! {"
             Assign a design variant to a PCB unit
 
-            Usage: planner assign-variant-to-unit [OPTIONS] --design <DESIGN_NAME> --variant <VARIANT_NAME> --unit <OBJECT_PATH>
+            Usage: planner <--project <PROJECT_NAME>> assign-variant-to-unit [OPTIONS] --design <DESIGN_NAME> --variant <VARIANT_NAME> --unit <OBJECT_PATH>
 
             Options:
                   --design <DESIGN_NAME>    Name of the design
@@ -1501,7 +1501,7 @@ mod help {
         let expected_output = indoc! {"
             Assign a process to parts
 
-            Usage: planner assign-process-to-parts [OPTIONS] --process <PROCESS> --manufacturer <MANUFACTURER> --mpn <MPN>
+            Usage: planner <--project <PROJECT_NAME>> assign-process-to-parts [OPTIONS] --process <PROCESS> --manufacturer <MANUFACTURER> --mpn <MPN>
 
             Options:
                   --process <PROCESS>            Process name
@@ -1530,7 +1530,7 @@ mod help {
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner create-phase [OPTIONS] --process <PROCESS> --reference <REFERENCE> --load-out <LOAD_OUT> --pcb-side <PCB_SIDE>
+            Usage: planner <--project <PROJECT_NAME>> create-phase [OPTIONS] --process <PROCESS> --reference <REFERENCE> --load-out <LOAD_OUT> --pcb-side <PCB_SIDE>
 
             Options:
                   --process <PROCESS>      Process name
@@ -1560,7 +1560,7 @@ mod help {
         let expected_output = indoc! {"
             Assign placements to a phase
 
-            Usage: planner assign-placements-to-phase [OPTIONS] --phase <PHASE> --placements <PLACEMENTS>
+            Usage: planner <--project <PROJECT_NAME>> assign-placements-to-phase [OPTIONS] --phase <PHASE> --placements <PLACEMENTS>
 
             Options:
                   --phase <PHASE>            Phase reference (e.g. 'top_1')
@@ -1588,7 +1588,7 @@ mod help {
         let expected_output = indoc! {"
             Assign feeder to load-out item
 
-            Usage: planner assign-feeder-to-load-out-item [OPTIONS] --phase <PHASE> --feeder-reference <FEEDER_REFERENCE> --manufacturer <MANUFACTURER> --mpn <MPN>
+            Usage: planner <--project <PROJECT_NAME>> assign-feeder-to-load-out-item [OPTIONS] --phase <PHASE> --feeder-reference <FEEDER_REFERENCE> --manufacturer <MANUFACTURER> --mpn <MPN>
 
             Options:
                   --phase <PHASE>                        Phase reference (e.g. 'top_1')
@@ -1618,7 +1618,7 @@ mod help {
         let expected_output = indoc! {"
             Set placement ordering for a phase
 
-            Usage: planner set-placement-ordering [OPTIONS] --phase <PHASE>
+            Usage: planner <--project <PROJECT_NAME>> set-placement-ordering [OPTIONS] --phase <PHASE>
 
             Options:
                   --phase <PHASE>
@@ -1652,7 +1652,7 @@ mod help {
         let expected_output = indoc! {"
             Generate artifacts
 
-            Usage: planner generate-artifacts [OPTIONS]
+            Usage: planner <--project <PROJECT_NAME>> generate-artifacts [OPTIONS]
 
             Options:
               -v, --verbose...  Increase logging verbosity
@@ -1678,7 +1678,7 @@ mod help {
         let expected_output = indoc! {"
             Record placements operation
 
-            Usage: planner record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation <OPERATION>
+            Usage: planner <--project <PROJECT_NAME>> record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation <OPERATION>
 
             Options:
                   --object-path-patterns <OBJECT_PATH_PATTERNS>...

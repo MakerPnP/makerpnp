@@ -1,6 +1,5 @@
 use std::path::PathBuf;
-use anyhow::bail;
-use clap::{Parser, Subcommand, CommandFactory};
+use clap::{Parser, Subcommand, ArgGroup};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use heck::ToShoutySnakeCase;
 use regex::Regex;
@@ -22,6 +21,11 @@ use makerpnp::stores::load_out::LoadOutSource;
 #[command(name = "planner")]
 #[command(bin_name = "planner")]
 #[command(version, about, long_about = None)]
+#[command(group(
+    ArgGroup::new("requires_project")
+        .args(&["project"])
+            .required(true)
+))]
 struct Opts {
     #[command(subcommand)]
     command: Command,
@@ -174,124 +178,117 @@ fn main() -> anyhow::Result<()>{
 
     cli::tracing::configure_tracing(opts.trace, opts.verbose)?;
 
-    if let Some(project_name) = &opts.project {
-        let project_file_path = project::build_project_file_path(&project_name, &opts.path);
+    let project_name = &opts.project.unwrap();
+    let project_file_path = project::build_project_file_path(&project_name, &opts.path);
 
-        match opts.command {
-            Command::Create {} => {
-                let project = Project::new(project_name.to_string());
-                project::save(&project, &project_file_path)?;
+    match opts.command {
+        Command::Create {} => {
+            let project = Project::new(project_name.to_string());
+            project::save(&project, &project_file_path)?;
 
-                info!("Created job: {}", project.name);
-            },
-            Command::AddPcb { kind, name } => {
-                let mut project = project::load(&project_file_path)?;
+            info!("Created job: {}", project.name);
+        },
+        Command::AddPcb { kind, name } => {
+            let mut project = project::load(&project_file_path)?;
 
-                project::add_pcb(&mut project, kind.clone().into(), name)?;
+            project::add_pcb(&mut project, kind.clone().into(), name)?;
 
+            project::save(&project, &project_file_path)?;
+        },
+        Command::AssignVariantToUnit { design, variant, unit } => {
+            let mut project = project::load(&project_file_path)?;
+
+            project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
+
+            project::refresh_from_design_variants(&mut project, &opts.path)?;
+
+            project::save(&project, &project_file_path)?;
+        },
+        Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
+            let mut project = project::load(&project_file_path)?;
+
+            process::assert_process(&process, &project.processes)?;
+
+            let all_parts = project::refresh_from_design_variants(&mut project, &opts.path)?;
+
+            project::update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
+
+            project::save(&project, &project_file_path)?;
+        },
+        Command::CreatePhase { process, reference, load_out, pcb_side: pcb_side_arg } => {
+            let mut project = project::load(&project_file_path)?;
+
+            let pcb_side = pcb_side_arg.into();
+
+            project.ensure_process(&process)?;
+
+            project.update_phase(reference, process, load_out, pcb_side)?;
+
+            project::save(&project, &project_file_path)?;
+        },
+        Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
+            let mut project = project::load(&project_file_path)?;
+
+            project::refresh_from_design_variants(&mut project, &opts.path)?;
+
+            let phase = project.phases.get(&reference)
+                .ok_or(PhaseError::UnknownPhase(reference))?.clone();
+
+            let parts = project::assign_placements_to_phase(&mut project, &phase, placements_pattern);
+            trace!("Required load_out parts: {:?}", parts);
+
+            for part in parts.iter() {
+                let part_state = project.part_states.get_mut(&part)
+                    .ok_or_else(|| PartStateError::NoPartStateFound { part: part.clone() })?;
+
+                project::add_process_to_part(part_state, part, phase.process.clone());
+            }
+
+            planning::load_out::add_parts_to_load_out(&phase.load_out, parts)?;
+
+            project::save(&project, &project_file_path)?;
+        },
+        Command::SetPlacementOrdering { phase: reference, placement_orderings } => {
+            let mut project = project::load(&project_file_path)?;
+
+            project::refresh_from_design_variants(&mut project, &opts.path)?;
+
+            let phase = project.phases.get_mut(&reference)
+                .ok_or(PhaseError::UnknownPhase(reference.clone()))?;
+
+            phase.placement_orderings.clone_from(&placement_orderings);
+
+            info!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings.iter().map(|item|{
+                format!("{}:{}",
+                    item.mode.to_string().to_shouty_snake_case(),
+                    item.sort_order.to_string().to_shouty_snake_case()
+                )
+            }).collect::<Vec<_>>().join(", "));
+
+            project::save(&project, &project_file_path)?;
+        },
+        Command::GenerateArtifacts { } => {
+            let project = project::load(&project_file_path)?;
+
+            project::generate_artifacts(&project, &opts.path, &project_name)?;
+        },
+        Command::RecordPlacementsOperation { object_path_patterns, operation } => {
+            let mut project = project::load(&project_file_path)?;
+
+            let modified = project::update_placements_operation(&mut project, object_path_patterns, operation.into())?;
+
+            if modified {
                 project::save(&project, &project_file_path)?;
             }
-            Command::AssignVariantToUnit { design, variant, unit } => {
-                let mut project = project::load(&project_file_path)?;
+        },
+        Command::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
+            let project = project::load(&project_file_path)?;
 
-                project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
+            let phase = project.phases.get(&reference)
+                .ok_or(PhaseError::UnknownPhase(reference))?.clone();
 
-                project::refresh_from_design_variants(&mut project, &opts.path)?;
-
-                project::save(&project, &project_file_path)?;
-            },
-            Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
-                let mut project = project::load(&project_file_path)?;
-
-                process::assert_process(&process, &project.processes)?;
-
-                let all_parts = project::refresh_from_design_variants(&mut project, &opts.path)?;
-
-                project::update_applicable_processes(&mut project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
-
-                project::save(&project, &project_file_path)?;
-            },
-            Command::CreatePhase { process, reference, load_out, pcb_side: pcb_side_arg } => {
-                let mut project = project::load(&project_file_path)?;
-
-                let pcb_side = pcb_side_arg.into();
-
-                project.ensure_process(&process)?;
-
-                project.update_phase(reference, process, load_out, pcb_side)?;
-
-                project::save(&project, &project_file_path)?;
-            },
-            Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
-                let mut project = project::load(&project_file_path)?;
-
-                project::refresh_from_design_variants(&mut project, &opts.path)?;
-
-                let phase = project.phases.get(&reference)
-                    .ok_or(PhaseError::UnknownPhase(reference))?.clone();
-
-                let parts = project::assign_placements_to_phase(&mut project, &phase, placements_pattern);
-                trace!("Required load_out parts: {:?}", parts);
-
-                for part in parts.iter() {
-                    let part_state = project.part_states.get_mut(&part)
-                        .ok_or_else(|| PartStateError::NoPartStateFound { part: part.clone() })?;
-
-                    project::add_process_to_part(part_state, part, phase.process.clone());
-                }
-
-                planning::load_out::add_parts_to_load_out(&phase.load_out, parts)?;
-
-                project::save(&project, &project_file_path)?;
-            },
-            Command::SetPlacementOrdering { phase: reference, placement_orderings } => {
-                let mut project = project::load(&project_file_path)?;
-
-                project::refresh_from_design_variants(&mut project, &opts.path)?;
-
-                let phase = project.phases.get_mut(&reference)
-                    .ok_or(PhaseError::UnknownPhase(reference.clone()))?;
-
-                phase.placement_orderings.clone_from(&placement_orderings);
-
-                info!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings.iter().map(|item|{
-                    format!("{}:{}",
-                        item.mode.to_string().to_shouty_snake_case(),
-                        item.sort_order.to_string().to_shouty_snake_case()
-                    )
-                }).collect::<Vec<_>>().join(", "));
-
-                project::save(&project, &project_file_path)?;
-            }
-            Command::GenerateArtifacts { } => {
-                let project = project::load(&project_file_path)?;
-
-                project::generate_artifacts(&project, &opts.path, &project_name)?;
-            },
-            Command::RecordPlacementsOperation { object_path_patterns, operation } => {
-                let mut project = project::load(&project_file_path)?;
-
-                let modified = project::update_placements_operation(&mut project, object_path_patterns, operation.into())?;
-
-                if modified {
-                    project::save(&project, &project_file_path)?;
-                }
-            }
-            Command::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
-                let project = project::load(&project_file_path)?;
-
-                let phase = project.phases.get(&reference)
-                    .ok_or(PhaseError::UnknownPhase(reference))?.clone();
-
-                planning::load_out::assign_feeder_to_load_out_item(&phase, &feeder_reference, manufacturer, mpn)?;
-            }
-        }
-    } else {
-        let mut cmd = Opts::command();
-        cmd.print_help()?;
-        
-        // FUTURE somehow use clap to enforce this, without adding 'project' to each command and without excessive code duplication. (Reference: CLAP-1)
-        bail!("All project commands require need the 'project' option.");
+            planning::load_out::assign_feeder_to_load_out_item(&phase, &feeder_reference, manufacturer, mpn)?;
+        },
     }
 
     Ok(())
