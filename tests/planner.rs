@@ -1365,9 +1365,6 @@ mod help {
     use predicates::prelude::{predicate, PredicateBooleanExt};
     use crate::common::print;
 
-    // FUTURE ideally we want to require the 'project' argument for project-specific sub-commands
-    //        but without excessive code duplication.
-
     #[test]
     fn no_args() {
         // given
