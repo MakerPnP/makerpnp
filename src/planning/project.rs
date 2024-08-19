@@ -23,7 +23,7 @@ use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseOrderings};
 use crate::planning::placement::{PlacementOperation, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::{Process, ProcessName};
+use crate::planning::process::{Process, ProcessError, ProcessName};
 use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
@@ -129,6 +129,14 @@ impl Project {
         }
 
         Ok(())
+    }
+
+    pub fn find_process(&self, process_name: &ProcessName) -> Result<&Process, ProcessError> {
+        self.processes.iter().find(|&process| {
+            process.name.eq(&process_name)
+        }).ok_or(
+            ProcessError::UnusedProcessError { processes: self.processes.clone(), process: process_name.to_string() }
+        )
     }
 }
 

@@ -13,7 +13,7 @@ use makerpnp::planning::placement::PlacementSortingItem;
 use makerpnp::planning::process::{Process, ProcessError, ProcessName};
 use makerpnp::planning::project::{PartStateError, Project};
 use makerpnp::planning::project;
-use makerpnp::planning::phase::PhaseError;
+use makerpnp::planning::phase::{Phase, PhaseError};
 use makerpnp::planning::variant::VariantName;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::stores::load_out::LoadOutSource;
@@ -207,12 +207,8 @@ fn main() -> anyhow::Result<()>{
         },
         Command::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
             let mut project = project::load(&project_file_path)?;
-            
-            let process =  project.processes.iter().find(|&process| {
-                process.name.eq(&process_name)
-            }).ok_or(
-                ProcessError::UnusedProcessError { processes: project.processes.clone(), process: process_name.to_string() }
-            )?.clone();
+
+            let process = project.find_process(&process_name)?.clone();
 
             let all_parts = project::refresh_from_design_variants(&mut project, &opts.path)?;
 
@@ -225,6 +221,8 @@ fn main() -> anyhow::Result<()>{
 
             let pcb_side = pcb_side_arg.into();
 
+            // FUTURE support more processes
+            
             let process = match &process_name {
                 ProcessName(name) if name.eq("pnp") => Process { name: process_name, is_pnp: true },
                 ProcessName(name) if name.eq("manual") => Process { name: process_name, is_pnp: false },
@@ -298,11 +296,7 @@ fn main() -> anyhow::Result<()>{
             let phase = project.phases.get(&reference)
                 .ok_or(PhaseError::UnknownPhase(reference))?.clone();
 
-            let process = project.processes.iter().find(|&process| {
-                process.name.eq(&phase.process)
-            }).ok_or(
-                ProcessError::UnusedProcessError { processes: project.processes.clone(), process: phase.process.to_string() }
-            )?.clone();
+            let process = project.find_process(&phase.process)?.clone();
             
             planning::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
         },
