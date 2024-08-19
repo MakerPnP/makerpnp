@@ -1095,9 +1095,10 @@ mod operation_sequence_1 {
 
         let expected_project_report_content = ProjectReportBuilder::default()
             .with_name("job1")
+            .with_status("Incomplete")
             .with_phases_overview(&[
-                TestPhaseOverview { phase_name: "top_1".to_string(), process: "pnp".to_string() },
-                TestPhaseOverview { phase_name: "bottom_1".to_string(), process: "manual".to_string() },
+                TestPhaseOverview { phase_name: "top_1".to_string(), status: "Incomplete".to_string(), process: "pnp".to_string() },
+                TestPhaseOverview { phase_name: "bottom_1".to_string(), status: "Complete".to_string(), process: "manual".to_string() },
             ])
             .with_phase_specification(&[
                 TestPhaseSpecification {

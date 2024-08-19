@@ -26,6 +26,11 @@ impl ProjectReportBuilder {
         self
     }
 
+    pub fn with_status(mut self, status: &str) -> Self {
+        self.report.status = Some(status.to_string());
+        self
+    }
+
     pub fn as_string(&mut self) -> String {
         
         
@@ -46,6 +51,7 @@ impl ProjectReportBuilder {
 #[derive(Clone, serde::Serialize, Default)]
 pub struct TestProjectReport {
     name: Option<String>,
+    status: Option<String>,
     phase_overviews: Option<Vec<TestPhaseOverview>>,
     phase_specifications: Option<Vec<TestPhaseSpecification>>,
     issues: Option<Vec<TestIssue>>,
@@ -54,6 +60,7 @@ pub struct TestProjectReport {
 #[derive(Clone, serde::Serialize)]
 pub struct TestPhaseOverview {
     pub phase_name: String,
+    pub status: String,
     pub process: String,
 }
 

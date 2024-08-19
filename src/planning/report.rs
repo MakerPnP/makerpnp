@@ -43,12 +43,33 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
         });
     }
 
+    let mut all_phases_complete = true;
+
     if !project.phases.is_empty() {
         report.phase_overviews.extend(project.phase_orderings.iter().map(|reference| {
             let phase = project.phases.get(reference).unwrap();
+            
+            let phase_status = project.placements.iter()
+                .fold( PhaseStatus::Complete, | mut status, (_object_path, placement_status) | {
+                
+                if let Some(placement_phase) = &placement_status.phase {
+                    if placement_phase.eq(reference) {
+                        status = match (&status, placement_status.placed) {
+                            (PhaseStatus::Complete, false) => {
+                                all_phases_complete = false;
+                                PhaseStatus::Incomplete
+                            },
+                            (_, _) => status,
+                        }
+                    }
+                }  
+                
+                status
+            });
 
             PhaseOverview { 
                 phase_name: phase.reference.to_string(),
+                status: phase_status,
                 process: phase.process.to_string(),
             }
         }));
@@ -59,6 +80,11 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
             kind: IssueKind::NoPhasesCreated,
         });
     }
+
+    report.status = match all_phases_complete {
+        true => ProjectStatus::Complete,
+        false => ProjectStatus::Incomplete,
+    };
 
     // generate issues for invalid unit assignments
     for (object_path, _design_variant) in project.unit_assignments.iter() {
@@ -490,6 +516,7 @@ fn find_unit_assignments(project: &Project, unit_path: &ObjectPath) -> Vec<PcbUn
 #[derive(serde::Serialize, Default)]
 pub struct ProjectReport {
     pub name: String,
+    pub status: ProjectStatus,
     pub phase_overviews: Vec<PhaseOverview>,
     pub phase_specifications: Vec<PhaseSpecification>,
     /// A list of unique issues.
@@ -497,9 +524,28 @@ pub struct ProjectReport {
     pub issues: Vec<ProjectReportIssue>,
 }
 
+#[derive(Clone, serde::Serialize)]
+pub enum ProjectStatus {
+    Incomplete,
+    Complete,
+}
+
+impl Default for ProjectStatus {
+    fn default() -> Self {
+        Self::Incomplete
+    }
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum PhaseStatus {
+    Incomplete, 
+    Complete,
+}
+
 #[derive(serde::Serialize)]
 pub struct PhaseOverview {
     pub phase_name: String,
+    pub status: PhaseStatus,
     pub process: String,
 }
 
