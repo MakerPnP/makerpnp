@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use thiserror::Error;
 use crate::planning::variant::VariantName;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,7 +19,7 @@ impl Display for DesignVariant {
 pub struct DesignName(String);
 
 impl FromStr for DesignName {
-    type Err = String;
+    type Err = DesignNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(DesignName(s.to_string()))
@@ -30,3 +31,7 @@ impl Display for DesignName {
         f.write_str(self.0.as_str())
     }
 }
+
+#[derive(Debug, Error)]
+#[error("Design name error")]
+pub struct DesignNameError;

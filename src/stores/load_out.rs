@@ -75,7 +75,7 @@ pub fn ensure_load_out(load_out_source: &LoadOutSource) -> anyhow::Result<()> {
 pub struct LoadOutSource(String);
 
 impl FromStr for LoadOutSource {
-    type Err = String;
+    type Err = LoadOutSourceError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(LoadOutSource(s.to_string()))
@@ -87,6 +87,10 @@ impl Display for LoadOutSource {
         f.write_str(self.0.as_str())
     }
 }
+
+#[derive(Debug, Error)]
+#[error("Design name error")]
+pub struct LoadOutSourceError;
 
 #[derive(Error, Debug)]
 pub enum LoadOutOperationError<E> {

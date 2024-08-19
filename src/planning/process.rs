@@ -5,8 +5,12 @@ use thiserror::Error;
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProcessName(pub String);
 
+#[derive(Debug, Error)]
+#[error("Process name error")] 
+pub struct ProcessNameError;
+
 impl FromStr for ProcessName {
-    type Err = String;
+    type Err = ProcessNameError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(ProcessName(s.to_string()))
