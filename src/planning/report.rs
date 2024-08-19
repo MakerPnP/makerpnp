@@ -13,6 +13,7 @@ use std::io::Write;
 use crate::planning::design::{DesignName, DesignVariant};
 use crate::planning::pcb::PcbKind;
 use crate::planning::placement::PlacementStatus;
+use crate::planning::process::ProcessOperationKind;
 use crate::planning::project::Project;
 use crate::planning::reference::Reference;
 use crate::planning::variant::VariantName;
@@ -48,29 +49,64 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     if !project.phases.is_empty() {
         report.phase_overviews.extend(project.phase_orderings.iter().map(|reference| {
             let phase = project.phases.get(reference).unwrap();
-            
-            let phase_status = project.placements.iter()
-                .fold( PhaseStatus::Complete, | mut status, (_object_path, placement_status) | {
+            let phase_process = project.find_process(&phase.process).unwrap();
+
+            let (placed, total) = project.placements.iter()
+                .fold( (0_usize, 0_usize), | (mut placed, mut total), (_object_path, placement_status) | {
                 
                 if let Some(placement_phase) = &placement_status.phase {
                     if placement_phase.eq(reference) {
-                        status = match (&status, placement_status.placed) {
-                            (PhaseStatus::Complete, false) => {
-                                all_phases_complete = false;
-                                PhaseStatus::Incomplete
-                            },
-                            (_, _) => status,
+                        if placement_status.placed {
+                            placed += 1;
                         }
+                        total += 1;
                     }
                 }  
                 
-                status
+                (placed, total)
             });
 
+            let all_placements_placed = placed == total;
+            let placements_message = format!("{placed:}/{total:} placements placed");
+            
+            let mut operations_overview = vec![];
+            
+            let phase_status= phase_process.operations.iter().fold(PhaseStatus::Complete, |mut phase_status, operation |{
+                let overview = match operation {
+                    ProcessOperationKind::LoadPcbs => None,
+                    ProcessOperationKind::AutomatedPnp => {
+                        if phase_status == PhaseStatus::Complete && !all_placements_placed {
+                            phase_status = PhaseStatus::Incomplete;
+                        } 
+                        
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: all_placements_placed })
+                    },
+                    ProcessOperationKind::ReflowComponents => None,
+                    ProcessOperationKind::ManuallySolderComponents => {
+                        if phase_status.eq(&PhaseStatus::Complete) && !all_placements_placed {
+                            phase_status = PhaseStatus::Incomplete;
+                        }
+
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: all_placements_placed })
+                    },
+                };
+                
+                if let Some(overview) = overview {
+                    operations_overview.push(overview)
+                }
+                
+                phase_status 
+            });
+            
+            if phase_status == PhaseStatus::Incomplete {
+                all_phases_complete = false
+            }
+            
             PhaseOverview { 
                 phase_name: phase.reference.to_string(),
                 status: phase_status,
                 process: phase.process.to_string(),
+                operations_overview,
             }
         }));
     } else {
@@ -127,7 +163,8 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
 
     let phase_specifications: Vec<PhaseSpecification>  = project.phase_orderings.iter().try_fold(vec![], |mut results: Vec<PhaseSpecification>, reference | {
         let phase = project.phases.get(reference).unwrap();
-        
+        let phase_process = project.find_process(&phase.process).unwrap();
+
         let load_out_items = phase_load_out_items_map.get(reference).unwrap();
 
         let load_out_assignments = load_out_items.iter().map(|load_out_item|{
@@ -160,47 +197,59 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
             }
             acc
         });
+        
+        let operations = phase_process.operations.iter().filter_map(|operation| {
+            match operation {
+                ProcessOperationKind::LoadPcbs => {
+                    if !unit_paths_with_placements.is_empty() {
+                        let pcbs: Vec<PcbReportItem> = unit_paths_with_placements.iter().find_map(|unit_path| {
+                            if let Some((kind, mut index)) = unit_path.pcb_kind_and_index() {
 
-        let mut operations = vec![];
-        if !unit_paths_with_placements.is_empty() {
-            let pcbs: Vec<PcbReportItem> = unit_paths_with_placements.iter().find_map(|unit_path|{
-                if let Some((kind, mut index)) = unit_path.pcb_kind_and_index() {
+                                // TODO consider if unit paths should use zero-based index
+                                index -= 1;
 
-                    // TODO consider if unit paths should use zero-based index
-                    index -= 1;
+                                // Note: the user may not have made any unit assignments yet.
+                                let mut unit_assignments = find_unit_assignments(project, unit_path);
 
-                    // Note: the user may not have made any unit assignments yet.
-                    let mut unit_assignments = find_unit_assignments(project, unit_path);
-
-                    match kind {
-                        PcbKind::Panel => {
-                            let pcb = project.pcbs.get(index).unwrap();
+                                match kind {
+                                    PcbKind::Panel => {
+                                        let pcb = project.pcbs.get(index).unwrap();
 
 
-                            Some(PcbReportItem::Panel {
-                                name: pcb.name.clone(),
-                                unit_assignments,
-                            })
-                        },
-                        PcbKind::Single => {
-                            let pcb = project.pcbs.get(index).unwrap();
+                                        Some(PcbReportItem::Panel {
+                                            name: pcb.name.clone(),
+                                            unit_assignments,
+                                        })
+                                    },
+                                    PcbKind::Single => {
+                                        let pcb = project.pcbs.get(index).unwrap();
 
-                            assert!(unit_assignments.len() <= 1);
+                                        assert!(unit_assignments.len() <= 1);
 
-                            Some(PcbReportItem::Single {
-                                name: pcb.name.clone(),
-                                unit_assignment: unit_assignments.pop()
-                            })
-                        },
+                                        Some(PcbReportItem::Single {
+                                            name: pcb.name.clone(),
+                                            unit_assignment: unit_assignments.pop()
+                                        })
+                                    },
+                                }
+                            } else {
+                                None
+                            }
+                        }).into_iter().collect();
+
+                        let operation = PhaseOperation::PreparePcbs { pcbs };
+
+                        Some(operation)
+                    } else {
+                        None
                     }
-                } else {
-                    None
-                }
-            }).into_iter().collect();
+                },
+                ProcessOperationKind::AutomatedPnp => Some(PhaseOperation::PlaceComponents {}),
+                ProcessOperationKind::ReflowComponents => Some(PhaseOperation::ReflowComponents {}),
+                ProcessOperationKind::ManuallySolderComponents => Some(PhaseOperation::ManuallySolderComponents {}),
+            }
+        }).collect();
 
-            let operation = PhaseOperation::PreparePcbs { pcbs };
-            operations.push(operation);
-        }
 
         results.push(PhaseSpecification {
             phase_name: phase.reference.to_string(),
@@ -536,7 +585,7 @@ impl Default for ProjectStatus {
     }
 }
 
-#[derive(Clone, serde::Serialize)]
+#[derive(Clone, serde::Serialize, PartialEq)]
 pub enum PhaseStatus {
     Incomplete, 
     Complete,
@@ -547,6 +596,7 @@ pub struct PhaseOverview {
     pub phase_name: String,
     pub status: PhaseStatus,
     pub process: String,
+    pub operations_overview: Vec<PhaseOperationOverview>,
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -554,6 +604,13 @@ pub struct PhaseSpecification {
     pub phase_name: String,
     pub operations: Vec<PhaseOperation>,
     pub load_out_assignments: Vec<PhaseLoadOutAssignmentItem>
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct PhaseOperationOverview {
+    pub operation: PhaseOperationKind,
+    pub message: String,
+    pub complete: bool,
 }
 
 #[serde_as]
@@ -575,8 +632,18 @@ pub enum PcbReportItem {
 
 #[derive(Clone, serde::Serialize)]
 pub enum PhaseOperation {
-    PreparePcbs{ pcbs: Vec<PcbReportItem>}
+    PreparePcbs{ pcbs: Vec<PcbReportItem>},
+    PlaceComponents {},
+    ReflowComponents {},
+    ManuallySolderComponents {},
 }
+
+#[derive(Clone, serde::Serialize)]
+pub enum PhaseOperationKind {
+    PreparePcbs,
+    PlaceComponents,
+}
+
 
 #[derive(Clone, serde::Serialize)]
 pub struct PhaseLoadOutAssignmentItem {

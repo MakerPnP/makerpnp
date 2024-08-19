@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use regex::Regex;
 use thiserror::Error;
 use crate::planning::phase::Phase;
-use crate::planning::process::{Process, ProcessName};
+use crate::planning::process::{Process, ProcessName, ProcessOperationKind};
 use crate::planning::reference::Reference;
 use crate::pnp;
 use crate::pnp::load_out::LoadOutItem;
@@ -61,7 +61,7 @@ pub fn assign_feeder_to_load_out_item(phase: &Phase, process: &Process, feeder_r
             return Err(FeederAssignmentError::NoMatchingPart { manufacturer: manufacturer.clone(), mpn: mpn.clone() })
         }
 
-        if process.is_pnp() && items.len() > 1 {
+        if process.has_operation(&ProcessOperationKind::AutomatedPnp) && items.len() > 1 {
             return Err(FeederAssignmentError::MultipleMatchingParts { process: phase.process.clone(), manufacturer: manufacturer.clone(), mpn: mpn.clone() })
         }
 

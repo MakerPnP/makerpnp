@@ -26,12 +26,20 @@ impl Display for ProcessName {
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Process {
     pub name: ProcessName,
-    pub is_pnp: bool,
+    pub operations: Vec<ProcessOperationKind>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProcessOperationKind {
+    LoadPcbs,
+    AutomatedPnp,
+    ReflowComponents,
+    ManuallySolderComponents,
 }
 
 impl Process {
-    pub fn is_pnp(&self) -> bool {
-        self.is_pnp
+    pub fn has_operation(&self, operation: &ProcessOperationKind) -> bool {
+        self.operations.contains(operation)
     }
 }
 

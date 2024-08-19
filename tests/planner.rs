@@ -17,7 +17,7 @@ mod operation_sequence_1 {
     use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::common::project_builder::TestProjectBuilder;
-    use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOverview, TestPhaseSpecification};
+    use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOperationKind, TestPhaseOperationOverview, TestPhaseOverview, TestPhaseSpecification};
 
     /// A context, which will be dropped when the tests are completed.
     mod context {
@@ -115,7 +115,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .content();
 
         // and
@@ -164,7 +164,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -235,7 +235,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -359,7 +359,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -476,7 +476,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -603,7 +603,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -730,7 +730,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -941,7 +941,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])
@@ -1097,8 +1097,20 @@ mod operation_sequence_1 {
             .with_name("job1")
             .with_status("Incomplete")
             .with_phases_overview(&[
-                TestPhaseOverview { phase_name: "top_1".to_string(), status: "Incomplete".to_string(), process: "pnp".to_string() },
-                TestPhaseOverview { phase_name: "bottom_1".to_string(), status: "Complete".to_string(), process: "manual".to_string() },
+                TestPhaseOverview { phase_name: "top_1".to_string(), status: "Incomplete".to_string(), process: "pnp".to_string(), operations_overview: vec![
+                    TestPhaseOperationOverview { 
+                        operation: TestPhaseOperationKind::PlaceComponents, 
+                        message: "0/3 placements placed".to_string(),
+                        complete: false,
+                    }
+                ]},
+                TestPhaseOverview { phase_name: "bottom_1".to_string(), status: "Complete".to_string(), process: "manual".to_string(), operations_overview: vec![
+                    TestPhaseOperationOverview { 
+                        operation: TestPhaseOperationKind::PlaceComponents, 
+                        message: "0/0 placements placed".to_string(),
+                        complete: true,
+                    }
+                ]},
             ])
             .with_phase_specification(&[
                 TestPhaseSpecification {
@@ -1113,7 +1125,9 @@ mod operation_sequence_1 {
                                     variant_name: "variant_a".to_string(),
                                 }]
                             }
-                        ] }
+                        ]},
+                        TestPhaseOperation::PlaceComponents {},
+                        TestPhaseOperation::ReflowComponents {},
                     ],
                     load_out_assignments: vec![
                         TestPhaseLoadOutAssignmentItem {
@@ -1142,7 +1156,8 @@ mod operation_sequence_1 {
                                     variant_name: "variant_a".to_string(),
                                 }]
                             }
-                        ] }
+                        ]},
+                        TestPhaseOperation::ManuallySolderComponents {},
                     ],
                     load_out_assignments: vec![
                     ]
@@ -1246,7 +1261,7 @@ mod operation_sequence_1 {
         // and
         let expected_project_content = TestProjectBuilder::new()
             .with_name("job1")
-            .with_processes(&[("pnp", true), ("manual", false)])
+            .with_default_processes()
             .with_pcbs(&[
                 ("panel", "panel_a"),
             ])

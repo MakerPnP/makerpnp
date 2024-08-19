@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use anyhow::bail;
 use clap::{Parser, Subcommand, ArgGroup};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use heck::ToShoutySnakeCase;
@@ -10,10 +9,10 @@ use makerpnp::cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg};
 use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
 use makerpnp::planning::placement::PlacementSortingItem;
-use makerpnp::planning::process::{Process, ProcessError, ProcessName};
-use makerpnp::planning::project::{PartStateError, Project};
+use makerpnp::planning::process::ProcessName;
+use makerpnp::planning::project::{PartStateError, ProcessFactory, Project};
 use makerpnp::planning::project;
-use makerpnp::planning::phase::{Phase, PhaseError};
+use makerpnp::planning::phase::PhaseError;
 use makerpnp::planning::variant::VariantName;
 use makerpnp::pnp::object_path::ObjectPath;
 use makerpnp::stores::load_out::LoadOutSource;
@@ -220,14 +219,9 @@ fn main() -> anyhow::Result<()>{
             let mut project = project::load(&project_file_path)?;
 
             let pcb_side = pcb_side_arg.into();
-
-            // FUTURE support more processes
             
-            let process = match &process_name {
-                ProcessName(name) if name.eq("pnp") => Process { name: process_name, is_pnp: true },
-                ProcessName(name) if name.eq("manual") => Process { name: process_name, is_pnp: false },
-                ProcessName(name) => bail!("unknown process name.  process: {}", name) 
-            };
+            let process_name_str = process_name.to_string();
+            let process = ProcessFactory::by_name(process_name_str.as_str())?;
             
             project.ensure_process(&process)?;
 

@@ -62,6 +62,19 @@ pub struct TestPhaseOverview {
     pub phase_name: String,
     pub status: String,
     pub process: String,
+    pub operations_overview: Vec<TestPhaseOperationOverview>,
+}
+
+#[derive(Clone, serde::Serialize)]
+pub struct TestPhaseOperationOverview {
+    pub operation: TestPhaseOperationKind,
+    pub message: String,
+    pub complete: bool
+}
+
+#[derive(Clone, serde::Serialize)]
+pub enum TestPhaseOperationKind {
+    PlaceComponents
 }
 
 #[derive(Clone, serde::Serialize)]
@@ -74,6 +87,9 @@ pub struct TestPhaseSpecification {
 #[derive(Clone, serde::Serialize)]
 pub enum TestPhaseOperation {
     PreparePcbs { pcbs: Vec<TestPcb> },
+    PlaceComponents {},
+    ManuallySolderComponents {},
+    ReflowComponents {},
     // FUTURE add `LoadFeeders {...}`
 }
 

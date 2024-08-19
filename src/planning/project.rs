@@ -23,7 +23,7 @@ use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseOrderings};
 use crate::planning::placement::{PlacementOperation, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::{Process, ProcessError, ProcessName};
+use crate::planning::process::{Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationKind};
 use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
@@ -140,13 +140,45 @@ impl Project {
     }
 }
 
+#[derive(Error, Debug)]
+pub enum ProcessFactoryError {
+    #[error("Unknown error, reason: {reason:?}")]
+    ErrorCreatingProcessName { reason: ProcessNameError },
+    #[error("unknown process name.  process: {}", process)]
+    UnknownProcessName { process: String }
+}
+
+pub struct ProcessFactory {}
+
+impl ProcessFactory {
+
+    pub fn by_name(name: &str) -> Result<Process, ProcessFactoryError> {
+        
+        let process_name = ProcessName::from_str(name).map_err(|e|ProcessFactoryError::ErrorCreatingProcessName { reason: e })?;
+        
+        // FUTURE add support for more named processes
+        
+        match name {
+            "pnp" => Ok(Process { 
+                name: process_name, 
+                operations: vec![ProcessOperationKind::LoadPcbs, ProcessOperationKind::AutomatedPnp, ProcessOperationKind::ReflowComponents] 
+            }),
+            "manual" => Ok(Process { 
+                name: process_name,
+                operations: vec![ProcessOperationKind::LoadPcbs, ProcessOperationKind::ManuallySolderComponents] 
+            }),
+            _ => Err(ProcessFactoryError::UnknownProcessName { process: process_name.to_string() })
+        }
+    }
+}
+
 impl Default for Project {
     fn default() -> Self {
         Self {
             name: "Unnamed".to_string(),
             processes: vec![
-                Process { name: ProcessName::from_str("pnp").unwrap(), is_pnp: true }, 
-                Process { name: ProcessName::from_str("manual").unwrap(), is_pnp: false }
+                ProcessFactory::by_name("pnp").unwrap(),
+                ProcessFactory::by_name("manual").unwrap(),
             ],
             pcbs: vec![],
             unit_assignments: Default::default(),
