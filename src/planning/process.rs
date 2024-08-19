@@ -3,42 +3,36 @@ use std::fmt::{Display, Formatter};
 use thiserror::Error;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Process(String);
+pub struct ProcessName(pub String);
 
-impl Process {
-    pub fn new(name: &str) -> Self {
-        Self(name.to_string())
-    }
-    
-    pub fn is_pnp(&self) -> bool {
-        self.0.to_lowercase().eq("pnp")
-    }
-}
-
-impl FromStr for Process {
+impl FromStr for ProcessName {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Process(s.to_string()))
+        Ok(ProcessName(s.to_string()))
     }
 }
 
-impl Display for Process {
+impl Display for ProcessName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.0.as_str())
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Process {
+    pub name: ProcessName,
+    pub is_pnp: bool,
+}
+
+impl Process {
+    pub fn is_pnp(&self) -> bool {
+        self.is_pnp
     }
 }
 
 #[derive(Error, Debug)]
 pub enum ProcessError {
     #[error("Unused process. processes: {:?}, process: '{}'", processes, process)]
-    UnusedProcessError { processes: Vec<Process>, process: Process }
-}
-
-pub fn assert_process(process: &Process, processes: &[Process]) -> Result<(), ProcessError> {
-    if !processes.contains(&process) {
-        Err(ProcessError::UnusedProcessError { processes: Vec::from(processes), process: process.clone() })
-    } else {
-        Ok(())
-    }
+    UnusedProcessError { processes: Vec<Process>, process: String }
 }

@@ -5,12 +5,12 @@ use crate::stores::load_out::LoadOutSource;
 use crate::planning::reference::Reference;
 use crate::planning::pcb::PcbSide;
 use crate::planning::placement::PlacementSortingItem;
-use crate::planning::process::Process;
+use crate::planning::process::ProcessName;
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Phase {
     pub reference: Reference,
-    pub process: Process,
+    pub process: ProcessName,
 
     pub load_out: LoadOutSource,
     

@@ -14,6 +14,7 @@ use rust_decimal::Decimal;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
+use std::str::FromStr;
 use crate::stores::load_out;
 use crate::stores::load_out::LoadOutSource;
 use crate::planning::design::DesignVariant;
@@ -22,7 +23,7 @@ use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseOrderings};
 use crate::planning::placement::{PlacementOperation, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::Process;
+use crate::planning::process::{Process, ProcessName};
 use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
@@ -79,7 +80,7 @@ impl Project {
 
     pub fn ensure_process(&mut self, process: &Process) -> anyhow::Result<()> {
         if !self.processes.contains(process) {
-            info!("Adding process to project.  process: '{process:}'");
+            info!("Adding process to project.  process: '{}'", process.name);
             self.processes.push(process.clone())
         }
         Ok(())
@@ -104,15 +105,15 @@ impl Project {
         Ok(())
     }
 
-    pub fn update_phase(&mut self, reference: Reference, process: Process, load_out: LoadOutSource, pcb_side: PcbSide) -> anyhow::Result<()> {
+    pub fn update_phase(&mut self, reference: Reference, process_name: ProcessName, load_out: LoadOutSource, pcb_side: PcbSide) -> anyhow::Result<()> {
 
         load_out::ensure_load_out(&load_out)?;
         
         match self.phases.entry(reference.clone()) {
             Entry::Vacant(entry) => {
-                let phase = Phase { reference: reference.clone(), process: process.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), placement_orderings: vec![] };
+                let phase = Phase { reference: reference.clone(), process: process_name.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), placement_orderings: vec![] };
                 entry.insert(phase);
-                info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process, load_out);
+                info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process_name, load_out);
                 self.phase_orderings.insert(reference);
                 info!("Phase ordering: {}", PhaseOrderings(&self.phase_orderings));
             }
@@ -120,7 +121,7 @@ impl Project {
                 let existing_phase = entry.get_mut();
                 let old_phase = existing_phase.clone();
 
-                existing_phase.process = process;
+                existing_phase.process = process_name;
                 existing_phase.load_out = load_out;
 
                 info!("Updated phase. old: {:?}, new: {:?}", old_phase, existing_phase);
@@ -135,7 +136,10 @@ impl Default for Project {
     fn default() -> Self {
         Self {
             name: "Unnamed".to_string(),
-            processes: vec![Process::new("pnp"), Process::new("manual")],
+            processes: vec![
+                Process { name: ProcessName::from_str("pnp").unwrap(), is_pnp: true }, 
+                Process { name: ProcessName::from_str("manual").unwrap(), is_pnp: false }
+            ],
             pcbs: vec![],
             unit_assignments: Default::default(),
             part_states: Default::default(),
@@ -520,7 +524,7 @@ pub fn update_applicable_processes(project: &mut Project, all_parts: &[Part], pr
                 if manufacturer_pattern.is_match(part.manufacturer.as_str()) && mpn_pattern.is_match(part.mpn.as_str()) {
                     project.part_states.entry(part.clone())
                         .and_modify(|part_state| {
-                            add_process_to_part(part_state, part, process.clone());
+                            add_process_to_part(part_state, part, process.name.clone());
                         });
                 }
             },
@@ -531,11 +535,11 @@ pub fn update_applicable_processes(project: &mut Project, all_parts: &[Part], pr
     }
 }
 
-pub fn add_process_to_part(part_state: &mut PartState, part: &Part, process: Process) {
+pub fn add_process_to_part(part_state: &mut PartState, part: &Part, process: ProcessName) {
     let inserted = part_state.applicable_processes.insert(process);
 
     if inserted {
-        info!("Added process. part: {:?}, applicable_processes: {:?}", part, part_state.applicable_processes);
+        info!("Added process. part: {:?}, applicable_processes: {:?}", part, part_state.applicable_processes.iter().map(|it|it.to_string()).collect::<Vec<String>>());
     }
 }
 

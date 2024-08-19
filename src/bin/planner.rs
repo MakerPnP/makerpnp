@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use anyhow::bail;
 use clap::{Parser, Subcommand, ArgGroup};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use heck::ToShoutySnakeCase;
@@ -9,9 +10,9 @@ use makerpnp::cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg};
 use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
 use makerpnp::planning::placement::PlacementSortingItem;
-use makerpnp::planning::process::Process;
+use makerpnp::planning::process::{Process, ProcessError, ProcessName};
 use makerpnp::planning::project::{PartStateError, Project};
-use makerpnp::planning::{process, project};
+use makerpnp::planning::project;
 use makerpnp::planning::phase::PhaseError;
 use makerpnp::planning::variant::VariantName;
 use makerpnp::pnp::object_path::ObjectPath;
@@ -81,7 +82,7 @@ enum Command {
     AssignProcessToParts {
         /// Process name
         #[arg(long)]
-        process: Process,
+        process: ProcessName,
 
         /// Manufacturer pattern (regexp)
         #[arg(long)]
@@ -95,7 +96,7 @@ enum Command {
     CreatePhase {
         /// Process name
         #[arg(long)]
-        process: Process,
+        process: ProcessName,
         
         /// Phase reference (e.g. 'top_1')
         #[arg(long)]
@@ -204,10 +205,14 @@ fn main() -> anyhow::Result<()>{
 
             project::save(&project, &project_file_path)?;
         },
-        Command::AssignProcessToParts { process, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
+        Command::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
             let mut project = project::load(&project_file_path)?;
-
-            process::assert_process(&process, &project.processes)?;
+            
+            let process =  project.processes.iter().find(|&process| {
+                process.name.eq(&process_name)
+            }).ok_or(
+                ProcessError::UnusedProcessError { processes: project.processes.clone(), process: process_name.to_string() }
+            )?.clone();
 
             let all_parts = project::refresh_from_design_variants(&mut project, &opts.path)?;
 
@@ -215,14 +220,20 @@ fn main() -> anyhow::Result<()>{
 
             project::save(&project, &project_file_path)?;
         },
-        Command::CreatePhase { process, reference, load_out, pcb_side: pcb_side_arg } => {
+        Command::CreatePhase { process: process_name, reference, load_out, pcb_side: pcb_side_arg } => {
             let mut project = project::load(&project_file_path)?;
 
             let pcb_side = pcb_side_arg.into();
 
+            let process = match &process_name {
+                ProcessName(name) if name.eq("pnp") => Process { name: process_name, is_pnp: true },
+                ProcessName(name) if name.eq("manual") => Process { name: process_name, is_pnp: false },
+                ProcessName(name) => bail!("unknown process name.  process: {}", name) 
+            };
+            
             project.ensure_process(&process)?;
 
-            project.update_phase(reference, process, load_out, pcb_side)?;
+            project.update_phase(reference, process.name.clone(), load_out, pcb_side)?;
 
             project::save(&project, &project_file_path)?;
         },
@@ -287,7 +298,13 @@ fn main() -> anyhow::Result<()>{
             let phase = project.phases.get(&reference)
                 .ok_or(PhaseError::UnknownPhase(reference))?.clone();
 
-            planning::load_out::assign_feeder_to_load_out_item(&phase, &feeder_reference, manufacturer, mpn)?;
+            let process = project.processes.iter().find(|&process| {
+                process.name.eq(&phase.process)
+            }).ok_or(
+                ProcessError::UnusedProcessError { processes: project.processes.clone(), process: phase.process.to_string() }
+            )?.clone();
+            
+            planning::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
         },
     }
 

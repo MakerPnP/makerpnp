@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use regex::Regex;
 use thiserror::Error;
 use crate::planning::phase::Phase;
-use crate::planning::process::Process;
+use crate::planning::process::{Process, ProcessName};
 use crate::planning::reference::Reference;
 use crate::pnp;
 use crate::pnp::load_out::LoadOutItem;
@@ -44,10 +44,10 @@ pub enum FeederAssignmentError {
     NoMatchingPart { manufacturer: Regex, mpn: Regex },
 
     #[error("Multiple matching parts; patterns must match exactly one part for the process. process: {process}, manufacturer: {manufacturer}, mpn: {mpn}")]
-    MultipleMatchingParts { process: Process, manufacturer: Regex, mpn: Regex },
+    MultipleMatchingParts { process: ProcessName, manufacturer: Regex, mpn: Regex },
 }
 
-pub fn assign_feeder_to_load_out_item(phase: &Phase, feeder_reference: &Reference, manufacturer: Regex, mpn: Regex) -> anyhow::Result<Vec<Part>> {
+pub fn assign_feeder_to_load_out_item(phase: &Phase, process: &Process, feeder_reference: &Reference, manufacturer: Regex, mpn: Regex) -> anyhow::Result<Vec<Part>> {
 
     let mut parts: Vec<Part> = vec![];
 
@@ -61,7 +61,7 @@ pub fn assign_feeder_to_load_out_item(phase: &Phase, feeder_reference: &Referenc
             return Err(FeederAssignmentError::NoMatchingPart { manufacturer: manufacturer.clone(), mpn: mpn.clone() })
         }
 
-        if phase.process.is_pnp() && items.len() > 1 {
+        if process.is_pnp() && items.len() > 1 {
             return Err(FeederAssignmentError::MultipleMatchingParts { process: phase.process.clone(), manufacturer: manufacturer.clone(), mpn: mpn.clone() })
         }
 

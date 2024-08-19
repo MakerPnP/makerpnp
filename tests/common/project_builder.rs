@@ -6,7 +6,7 @@ use serde_json::{json, Map, Value};
 #[derive(Default)]
 pub struct TestProjectBuilder<'a> {
     name: Option<&'a str>,
-    processes: Option<&'a [&'a str]>,
+    processes: Option<&'a [(&'a str, bool)]>,
     pcbs: Option<&'a [(&'a str, &'a str)]>,
     unit_assignments: Option<&'a[(&'a str, BTreeMap<&'a str, &'a str>)]>,
     part_states: Option<&'a [((&'a str, &'a str), &'a [&'a str])]>,
@@ -30,7 +30,13 @@ impl<'a> TestProjectBuilder<'a> {
         if let Some(processes) = self.processes {
             root["processes"] = Value::Array(processes
                 .to_vec().iter()
-                .map(|process|Value::String(process.to_string())).collect()
+                .map(|(process_name, is_pnp)| {
+                    let mut process_map = Map::new();
+                    process_map.insert("name".to_string(), Value::String(process_name.to_string()));
+                    process_map.insert("is_pnp".to_string(), Value::Bool(*is_pnp));
+
+                    Value::Object(process_map)
+                }).collect()
             );
         }
 
@@ -209,7 +215,7 @@ impl<'a> TestProjectBuilder<'a> {
         self.unit_assignments = Some(unit_assignments);
         self
     }
-    pub fn with_processes(mut self, processes: &'a [&'a str]) -> Self {
+    pub fn with_processes(mut self, processes: &'a [(&'a str, bool)]) -> Self {
         self.processes = Some(processes);
         self
     }
