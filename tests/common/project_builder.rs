@@ -156,14 +156,14 @@ impl<'a> TestProjectBuilder<'a> {
         if let Some(placements) = self.placements {
 
             let values: Vec<Value> = placements.iter().map(|(
-                                                                key,
-                                                                unit_path, (
+                key,
+                unit_path, (
                     ref_des, manufacturer, mpn, place, pcb_side, x, y , rotation
                 ),
-                                                                placed,
-                                                                status,
-                                                                phase,
-                                                            ) | {
+                placed,
+                status,
+                phase,
+            ) | {
 
                 let mut part_map = Map::new();
                 part_map.insert("manufacturer".to_string(), Value::String(manufacturer.to_string()));
