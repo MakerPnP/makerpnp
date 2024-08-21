@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use indexmap::IndexSet;
 use thiserror::Error;
@@ -5,7 +6,7 @@ use crate::stores::load_out::LoadOutSource;
 use crate::planning::reference::Reference;
 use crate::planning::pcb::PcbSide;
 use crate::planning::placement::PlacementSortingItem;
-use crate::planning::process::ProcessName;
+use crate::planning::process::{Process, ProcessName, ProcessOperationKind, ProcessOperationState};
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Phase {
@@ -33,5 +34,25 @@ pub struct PhaseOrderings<'a>(pub &'a IndexSet<Reference>);
 impl<'a> Display for PhaseOrderings<'a> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "['{}']", self.0.iter().map(Reference::to_string).collect::<Vec<String>>().join("', '"))
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct PhaseState {
+    pub operation_state: BTreeMap<ProcessOperationKind, ProcessOperationState>
+}
+
+impl PhaseState {
+    pub fn from_process(process: &Process) -> Self {
+
+        let mut operation_state = BTreeMap::new();
+        
+        for process_kind in process.operations.iter() {
+            operation_state.insert(process_kind.clone(), ProcessOperationState::default());
+        }
+        
+        Self {
+            operation_state,
+        }
     }
 }

@@ -48,3 +48,12 @@ pub enum ProcessError {
     #[error("Unused process. processes: {:?}, process: '{}'", processes, process)]
     UnusedProcessError { processes: Vec<Process>, process: String }
 }
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default)]
+pub struct ProcessOperationState {
+    pub completed: bool
+}
+
+pub enum ProcessOperationSetItem {
+    Completed
+}

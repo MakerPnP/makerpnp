@@ -15,15 +15,16 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::str::FromStr;
+use heck::ToShoutySnakeCase;
 use crate::stores::load_out;
 use crate::stores::load_out::LoadOutSource;
 use crate::planning::design::DesignVariant;
 use crate::planning::reference::Reference;
 use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
-use crate::planning::phase::{Phase, PhaseOrderings};
-use crate::planning::placement::{PlacementOperation, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::{Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationKind};
+use crate::planning::phase::{Phase, PhaseError, PhaseOrderings, PhaseState};
+use crate::planning::placement::{PlacementOperation, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
+use crate::planning::process::{Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationKind, ProcessOperationSetItem};
 use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
@@ -59,10 +60,15 @@ pub struct Project {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     pub phases: BTreeMap<Reference, Phase>,
-
+    
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
     #[serde(default)]
     pub phase_orderings: IndexSet<Reference>,
+
+    #[serde_as(as = "Vec<(_, _)>")]
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    #[serde(default)]
+    pub phase_states: BTreeMap<Reference, PhaseState>,
 
     #[serde_as(as = "Vec<(DisplayFromStr, _)>")]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -114,8 +120,12 @@ impl Project {
                 let phase = Phase { reference: reference.clone(), process: process_name.clone(), load_out: load_out.clone(), pcb_side: pcb_side.clone(), placement_orderings: vec![] };
                 entry.insert(phase);
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process_name, load_out);
-                self.phase_orderings.insert(reference);
+                self.phase_orderings.insert(reference.clone());
                 info!("Phase ordering: {}", PhaseOrderings(&self.phase_orderings));
+                
+                let process = self.find_process(&process_name)?;
+                
+                self.phase_states.insert(reference, PhaseState::from_process(process));
             }
             Entry::Occupied(mut entry) => {
                 let existing_phase = entry.get_mut();
@@ -186,6 +196,7 @@ impl Default for Project {
             phases: Default::default(),
             placements: Default::default(),
             phase_orderings: Default::default(),
+            phase_states: Default::default(),
         }
     }
 }
@@ -656,4 +667,63 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
 pub enum PartStateError {
     #[error("No part state found. manufacturer: {}, mpn: {}", part.manufacturer, part.mpn)]
     NoPartStateFound { part: Part }
+}
+
+pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_reference: &Reference, operation: ProcessOperationKind, set_item: ProcessOperationSetItem) -> anyhow::Result<bool> {
+
+    let phase_state = project.phase_states.get_mut(phase_reference)
+        .ok_or(PhaseError::UnknownPhase(phase_reference.clone()))?;
+
+    let mut modified = false;
+    
+    let state = phase_state.operation_state.get(&operation)
+        .ok_or(PhaseError::UnknownPhase(phase_reference.clone()))?;
+
+    if let (ProcessOperationKind::LoadPcbs, false) = (&operation, state.completed) {
+        let mut phase_log_path = path.clone();
+        phase_log_path.push(format!("{}_log.json", phase_reference.to_string()));
+
+        let _file = File::create(phase_log_path.clone())?;
+
+        info!("Creating new log. path: {:?}\n", phase_log_path);
+    };
+    
+    phase_state.operation_state.entry(operation.clone())
+        .and_modify(|state|{
+            match set_item {
+                ProcessOperationSetItem::Completed => {
+                    if !state.completed {
+
+                        state.completed = true;
+                        modified = true;
+                    }
+                } 
+            }
+        });
+        
+    Ok(modified)
+}
+
+
+pub fn update_placement_orderings(project: &mut Project, reference: &Reference, placement_orderings: &Vec<PlacementSortingItem>) -> anyhow::Result<bool> {
+    let phase = project.phases.get_mut(reference)
+        .ok_or(PhaseError::UnknownPhase(reference.clone()))?;
+
+    let modified = if phase.placement_orderings.eq(placement_orderings) {
+        false
+    } else {
+        phase.placement_orderings.clone_from(placement_orderings);
+
+        info!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings
+            .iter().map(|item|{
+                format!("{}:{}",
+                    item.mode.to_string().to_shouty_snake_case(),
+                    item.sort_order.to_string().to_shouty_snake_case()
+                )
+            }).collect::<Vec<_>>().join(", ")
+        );
+        true
+    };
+    
+    Ok(modified)
 }

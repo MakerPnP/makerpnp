@@ -3,6 +3,7 @@ use crate::eda::EdaTool;
 use crate::planning::pcb::{PcbKind, PcbSide};
 use crate::util::sorting::SortOrder;
 use crate::planning::placement::{PlacementOperation, PlacementSortingMode};
+use crate::planning::process::{ProcessOperationKind, ProcessOperationSetItem};
 
 /// Args decouple of CLI arg handling requirements from the internal data structures
 
@@ -103,6 +104,36 @@ impl From<PlacementOperationArg> for PlacementOperation {
     fn from(value: PlacementOperationArg) -> Self {
         match value {
             PlacementOperationArg::Placed => Self::Placed,
+        }
+    }
+}
+
+#[derive(Clone)]
+#[derive(ValueEnum)]
+pub enum ProcessOperationArg {
+    #[value(name("loadpcbs"))]
+    LoadPcbs,
+}
+
+impl From<ProcessOperationArg> for ProcessOperationKind {
+    fn from(value: ProcessOperationArg) -> Self {
+        match value {
+            ProcessOperationArg::LoadPcbs => ProcessOperationKind::LoadPcbs
+        }
+    }
+}
+
+#[derive(Clone)]
+#[derive(ValueEnum)]
+pub enum ProcessOperationSetArg {
+    #[value(name("completed"))]
+    Completed,
+}
+
+impl From<ProcessOperationSetArg> for ProcessOperationSetItem {
+    fn from(value: ProcessOperationSetArg) -> Self {
+        match value {
+            ProcessOperationSetArg::Completed => ProcessOperationSetItem::Completed
         }
     }
 }

@@ -16,7 +16,8 @@ pub struct TestProjectBuilder<'a> {
         ), bool, &'a str, Option<&'a str>)
     ]>,
     phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]>,
-    phase_orderings: Option<&'a [&'a str]>
+    phase_orderings: Option<&'a [&'a str]>,
+    phase_states: Option<&'a [(&'a str, &'a [(&'a str, bool)])]>,
 }
 
 impl<'a> TestProjectBuilder<'a> {
@@ -120,12 +121,36 @@ impl<'a> TestProjectBuilder<'a> {
             }).collect();
             root["phases"] = Value::Array(values);
         }
-        
+
+
         if let Some(phase_orderings) = self.phase_orderings {
             let values: Vec<Value> = phase_orderings.iter().map(|phase_ordering|{
                 Value::String(phase_ordering.to_string())
             }).collect();
             root["phase_orderings"] = Value::Array(values);
+        }
+
+        if let Some(phase_states) = self.phase_states {
+            let values = phase_states.iter().map(|(reference, operation_states)| {
+                let operation_state_entries= operation_states.iter().fold(Map::new(),|mut map, (operation, completed)|{
+
+                    let mut operation_state_map = Map::new();
+                    operation_state_map.insert("completed".to_string(), Value::Bool(*completed));
+                    
+                    map.insert(operation.to_string(), Value::Object(operation_state_map));
+                    
+                    map                    
+                });
+                
+                let mut phase_state = Map::new();
+                phase_state.insert("operation_state".to_string(), Value::Object(operation_state_entries));
+
+                Value::Array(vec![
+                    Value::String(reference.to_string()),
+                    Value::Object(phase_state),
+                ])
+            }).collect();
+            root["phase_states"] = Value::Array(values);
         }
 
         if let Some(placements) = self.placements {
@@ -191,6 +216,11 @@ impl<'a> TestProjectBuilder<'a> {
 
     pub fn with_phases(mut self, phases: &'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]) -> Self {
         self.phases = Some(phases);
+        self
+    }
+
+    pub fn with_phase_states(mut self, phase_states: &'a [(&'a str, &'a [(&'a str, bool)])]) -> Self {
+        self.phase_states = Some(phase_states);
         self
     }
 

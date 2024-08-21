@@ -1,11 +1,10 @@
 use std::path::PathBuf;
 use clap::{Parser, Subcommand, ArgGroup};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use heck::ToShoutySnakeCase;
 use regex::Regex;
 use tracing::{info, trace};
 use makerpnp::{cli, planning};
-use makerpnp::cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg};
+use makerpnp::cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg, ProcessOperationArg, ProcessOperationSetArg};
 use makerpnp::planning::design::{DesignName, DesignVariant};
 use makerpnp::planning::reference::Reference;
 use makerpnp::planning::placement::PlacementSortingItem;
@@ -153,6 +152,20 @@ enum Command {
     /// Generate artifacts
     GenerateArtifacts {
     },
+    /// Record phase operation
+    RecordPhaseOperation {
+        /// Phase reference (e.g. 'top_1')
+        #[arg(long)]
+        phase: Reference,
+
+        /// The operation to update
+        #[arg(long)]
+        operation: ProcessOperationArg,
+
+        /// The process operation to set
+        #[arg(long)]
+        set: ProcessOperationSetArg,
+    },   
     /// Record placements operation
     RecordPlacementsOperation {
         /// List of reference designators to apply the operation to
@@ -256,24 +269,25 @@ fn main() -> anyhow::Result<()>{
 
             project::refresh_from_design_variants(&mut project, &opts.path)?;
 
-            let phase = project.phases.get_mut(&reference)
-                .ok_or(PhaseError::UnknownPhase(reference.clone()))?;
+            let modified = project::update_placement_orderings(&mut project, &reference, &placement_orderings)?;
 
-            phase.placement_orderings.clone_from(&placement_orderings);
-
-            info!("Phase placement orderings set. phase: '{}', orderings: [{}]", reference, placement_orderings.iter().map(|item|{
-                format!("{}:{}",
-                    item.mode.to_string().to_shouty_snake_case(),
-                    item.sort_order.to_string().to_shouty_snake_case()
-                )
-            }).collect::<Vec<_>>().join(", "));
-
-            project::save(&project, &project_file_path)?;
+            if modified {
+                project::save(&project, &project_file_path)?;
+            }
         },
         Command::GenerateArtifacts { } => {
             let project = project::load(&project_file_path)?;
 
             project::generate_artifacts(&project, &opts.path, &project_name)?;
+        },
+        Command::RecordPhaseOperation { phase: reference, operation, set } => {
+            let mut project = project::load(&project_file_path)?;
+
+            let modified = project::update_phase_operation(&mut project, &opts.path, &reference, operation.into(), set.into())?;
+
+            if modified {
+                project::save(&project, &project_file_path)?;
+            }            
         },
         Command::RecordPlacementsOperation { object_path_patterns, operation } => {
             let mut project = project::load(&project_file_path)?;

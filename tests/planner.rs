@@ -37,6 +37,7 @@ mod operation_sequence_1 {
             pub test_project_path: PathBuf,
             pub phase_1_load_out_path: PathBuf,
             pub phase_2_load_out_path: PathBuf,
+            pub phase_1_log_path: PathBuf,
         }
 
         impl Context {
@@ -54,7 +55,10 @@ mod operation_sequence_1 {
 
                 let mut phase_1_load_out_path = PathBuf::from(temp_dir.path());
                 phase_1_load_out_path.push("phase_1_top_1_load_out.csv");
-                
+
+                let mut phase_1_log_path = PathBuf::from(temp_dir.path());
+                phase_1_log_path.push("top_1_log.json");
+
                 let mut phase_2_load_out_path = PathBuf::from(temp_dir.path());
                 phase_2_load_out_path.push("phase_2_bottom_1_load_out.csv");
 
@@ -66,6 +70,7 @@ mod operation_sequence_1 {
                     test_trace_log_path,
                     test_project_path,
                     phase_1_load_out_path,
+                    phase_1_log_path,
                     phase_2_load_out_path,
                 }
             }
@@ -502,6 +507,11 @@ mod operation_sequence_1 {
             .with_phase_orderings(
                 &["top_1"]
             )
+            .with_phase_states(
+                &[
+                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)])
+                ]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -630,6 +640,12 @@ mod operation_sequence_1 {
             .with_phase_orderings(
                 &["top_1", "bottom_1"]
             )
+            .with_phase_states(
+                &[
+                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
+                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                ]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -756,6 +772,12 @@ mod operation_sequence_1 {
             )
             .with_phase_orderings(
                 &["top_1", "bottom_1"]
+            )
+            .with_phase_states(
+                &[
+                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
+                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                ]
             )
             .with_placements(&[
                 (
@@ -966,6 +988,12 @@ mod operation_sequence_1 {
             .with_phase_orderings(
                 &["top_1", "bottom_1"]
             )
+            .with_phase_states(
+                &[
+                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
+                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                ]
+            )
             .with_placements(&[
                 (
                     "panel=1::unit=1::ref_des=C1",
@@ -1098,7 +1126,8 @@ mod operation_sequence_1 {
             .with_status("Incomplete")
             .with_phases_overview(&[
                 TestPhaseOverview { phase_name: "top_1".to_string(), status: "Incomplete".to_string(), process: "pnp".to_string(), operations_overview: vec![
-                    TestPhaseOperationOverview { 
+                    // TODO add Prepare/Load PCBs and ensure it's incomplete
+                    TestPhaseOperationOverview {
                         operation: TestPhaseOperationKind::PlaceComponents, 
                         message: "0/3 placements placed".to_string(),
                         complete: false,
@@ -1250,7 +1279,7 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_11_record_placements_operation() -> Result<(), anyhow::Error> {
+    fn sequence_11_record_phase_operation() -> Result<(), anyhow::Error> {
         // given
         let mut ctx_guard = context::aquire(11);
         let ctx = ctx_guard.1.as_mut().unwrap();
@@ -1285,6 +1314,135 @@ mod operation_sequence_1 {
             ])
             .with_phase_orderings(
                 &["top_1", "bottom_1"]
+            )
+            .with_phase_states(
+                &[
+                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
+                    ("top_1", &[("LoadPcbs", true), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                ]
+            )
+            .with_placements(&[
+                (
+                    "panel=1::unit=1::ref_des=C1",
+                    "panel=1::unit=1",
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
+                    false,
+                    "Unknown",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=J1",
+                    "panel=1::unit=1",
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R1",
+                    "panel=1::unit=1",
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R2",
+                    "panel=1::unit=1",
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R3",
+                    "panel=1::unit=1",
+                    ("R3", "RES_MFR1", "RES1", true, "top", dec!(105), dec!(1105), dec!(91)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+            ])
+            .content();
+
+        let args = prepare_args(vec![
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "record-phase-operation",
+            "--phase top_1",
+            "--operation loadpcbs",
+            "--set completed"
+        ]);
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        let log_file_message = format!("Creating new log. path: {:?}\n", ctx.phase_1_log_path);
+        
+        assert_contains_inorder!(trace_content, [
+            &log_file_message,
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+    
+    #[test]
+    fn sequence_12_record_placements_operation() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::aquire(12);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = TestProjectBuilder::new()
+            .with_name("job1")
+            .with_default_processes()
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
+            .with_unit_assignments(&[
+                (
+                    "panel=1::unit=1",
+                    BTreeMap::from([
+                        ("design_name", "design_a"),
+                        ("variant_name", "variant_a"),
+                    ])
+                )
+            ])
+            .with_part_states(&[
+                (("CONN_MFR1", "CONN1"), &["manual"]),
+                (("RES_MFR1", "RES1"), &["pnp"]),
+                (("RES_MFR2", "RES2"), &["pnp"]),
+            ])
+            .with_phases(&[
+                ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
+                ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[("PcbUnit", "Asc"),("FeederReference", "Asc")]),
+            ])
+            .with_phase_orderings(
+                &["top_1", "bottom_1"]
+            )
+            .with_phase_states(
+                &[
+                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
+                    ("top_1", &[("LoadPcbs", true), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                ]
             )
             .with_placements(&[
                 (
@@ -1367,8 +1525,8 @@ mod operation_sequence_1 {
         Ok(())
     }
     #[test]
-    fn sequence_12_cleanup() {
-        let mut ctx_guard = context::aquire(12);
+    fn sequence_13_cleanup() {
+        let mut ctx_guard = context::aquire(13);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -1400,6 +1558,7 @@ mod help {
               assign-feeder-to-load-out-item  Assign feeder to load-out item
               set-placement-ordering          Set placement ordering for a phase
               generate-artifacts              Generate artifacts
+              record-phase-operation          Record phase operation
               record-placements-operation     Record placements operation
               help                            Print this message or the help of the given subcommand(s)
 
@@ -1682,6 +1841,34 @@ mod help {
             .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
 
+    #[test]
+    fn help_for_record_phase_operation() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Record phase operation
+
+            Usage: planner <--project <PROJECT_NAME>> record-phase-operation [OPTIONS] --phase <PHASE> --operation <OPERATION> --set <SET>
+
+            Options:
+                  --phase <PHASE>          Phase reference (e.g. 'top_1')
+                  --operation <OPERATION>  The operation to update [possible values: loadpcbs]
+                  --set <SET>              The process operation to set [possible values: completed]
+              -v, --verbose...             Increase logging verbosity
+              -q, --quiet...               Decrease logging verbosity
+              -h, --help                   Print help
+        "};
+
+        // when
+        cmd.args(["record-phase-operation", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
     #[test]
     fn help_for_record_placements_operation() {
         // given
