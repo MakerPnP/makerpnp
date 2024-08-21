@@ -49,7 +49,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
         report.phase_overviews.extend(project.phase_orderings.iter().map(|reference| {
             let phase = project.phases.get(reference).unwrap();
             let phase_state = project.phase_states.get(reference).unwrap();
-            info!("phase: {:?}, phase_state: {:?}", phase, phase_state);
+            trace!("phase: {:?}, phase_state: {:?}", phase, phase_state);
             
             let mut operations_overview = vec![];
             
