@@ -4,15 +4,14 @@ use std::path::PathBuf;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tracing::{info, trace};
 use std::cmp::Ordering;
-use std::collections::hash_map::Entry;
 use std::fs::File;
 use thiserror::Error;
 use anyhow::Error;
 use serde::Serialize;
 use std::io::Write;
 use crate::planning::design::{DesignName, DesignVariant};
-use crate::planning::pcb::PcbKind;
-use crate::planning::placement::PlacementStatus;
+use crate::planning::pcb::{Pcb, PcbKind};
+use crate::planning::placement::{PlacementState, PlacementStatus};
 use crate::planning::process::ProcessOperationKind;
 use crate::planning::project::Project;
 use crate::planning::reference::Reference;
@@ -31,13 +30,13 @@ pub enum ReportGenerationError {
 // FUTURE add a test to ensure that duplicate issues are not added to the report.
 //        currently a BTreeSet is used to prevent duplicate issues.
 
-pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String, phase_load_out_items_map: &BTreeMap<Reference, Vec<LoadOutItem>>, issues: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
+pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String, phase_load_out_items_map: &BTreeMap<Reference, Vec<LoadOutItem>>, issue_set: &mut BTreeSet<ProjectReportIssue>) -> Result<(), ReportGenerationError> {
 
     let mut report = ProjectReport::default();
 
     report.name.clone_from(&project.name);
     if project.pcbs.is_empty() {
-        issues.insert(ProjectReportIssue {
+        issue_set.insert(ProjectReportIssue {
             message: "No PCBs have been assigned to the project.".to_string(),
             severity: IssueSeverity::Severe,
             kind: IssueKind::NoPcbsAssigned,
@@ -110,7 +109,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
             }
         }));
     } else {
-        issues.insert(ProjectReportIssue {
+        issue_set.insert(ProjectReportIssue {
             message: "No phases have been created.".to_string(),
             severity: IssueSeverity::Severe,
             kind: IssueKind::NoPhasesCreated,
@@ -122,149 +121,17 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
         false => ProjectStatus::Incomplete,
     };
 
-    // generate issues for invalid unit assignments
-    for (object_path, _design_variant) in project.unit_assignments.iter() {
+    let invalid_unit_assignment_issues = generate_issues_for_invalid_unit_assignments(project);
+    issue_set.extend(invalid_unit_assignment_issues);
 
-        let mut pcb_kind_counts: HashMap<PcbKind, usize> = Default::default();
-        for pcb in project.pcbs.iter() {
-            pcb_kind_counts.entry(pcb.kind.clone())
-                .and_modify(|e| { *e += 1 })
-                .or_insert(1);       
-        }
-
-        if let Some((pcb_kind, index)) = object_path.pcb_kind_and_index() {
-
-            let issue = match pcb_kind_counts.entry(pcb_kind.clone()) {
-                Entry::Occupied(entry) => {
-                    let count = *entry.get();
-                    if index > count {
-                        Some(ProjectReportIssue {
-                            message: "Invalid unit assignment, index out of range.".to_string(),
-                            severity: IssueSeverity::Severe,
-                            kind: IssueKind::InvalidUnitAssignment { object_path: object_path.clone() },
-                        })           
-                    } else {
-                        None
-                    }
-                    
-                }
-                Entry::Vacant(_) => Some(ProjectReportIssue {
-                    message: "Invalid unit assignment, no pcbs match the assignment.".to_string(),
-                    severity: IssueSeverity::Severe,
-                    kind: IssueKind::InvalidUnitAssignment { object_path: object_path.clone() },
-                })
-            };
-            
-            if let Some(issue) = issue {
-                issues.insert(issue);
-            }
-        }
-    }
-
-    let phase_specifications: Vec<PhaseSpecification>  = project.phase_orderings.iter().try_fold(vec![], |mut results: Vec<PhaseSpecification>, reference | {
-        let phase = project.phases.get(reference).unwrap();
-        let phase_process = project.find_process(&phase.process).unwrap();
-
-        let load_out_items = phase_load_out_items_map.get(reference).unwrap();
-
-        let load_out_assignments = load_out_items.iter().map(|load_out_item|{
-
-            let quantity = project.placements.iter()
-                .filter(|(_object_path, placement_state)| {
-                    matches!(&placement_state.phase, Some(other_phase_reference) if phase.reference.eq(other_phase_reference))
-                        && placement_state.placement.place
-                        && load_out_item.manufacturer.eq(&placement_state.placement.part.manufacturer)
-                        && load_out_item.mpn.eq(&placement_state.placement.part.mpn)
-                })
-                .fold(0_u32, | quantity, _placement_state | {
-                    quantity + 1
-                });
-
-            PhaseLoadOutAssignmentItem {
-                feeder_reference: load_out_item.reference.clone(),
-                manufacturer: load_out_item.manufacturer.clone(),
-                mpn: load_out_item.mpn.clone(),
-                quantity,
-            }
-        }).collect();
-
-        let unit_paths_with_placements = project.placements.iter().fold(BTreeSet::<ObjectPath>::new(), |mut acc, (object_path, placement_state)|{
-            if placement_state.placement.place {
-                let pcb_unit = object_path.pcb_unit();
-                if acc.insert(pcb_unit) {
-                    trace!("Phase pcb unit found.  object_path: {}", object_path);
-                }
-            }
-            acc
-        });
-        
-        let operations = phase_process.operations.iter().filter_map(|operation| {
-            match operation {
-                ProcessOperationKind::LoadPcbs => {
-                    if !unit_paths_with_placements.is_empty() {
-                        let pcbs: Vec<PcbReportItem> = unit_paths_with_placements.iter().find_map(|unit_path| {
-                            if let Some((kind, mut index)) = unit_path.pcb_kind_and_index() {
-
-                                // TODO consider if unit paths should use zero-based index
-                                index -= 1;
-
-                                // Note: the user may not have made any unit assignments yet.
-                                let mut unit_assignments = find_unit_assignments(project, unit_path);
-
-                                match kind {
-                                    PcbKind::Panel => {
-                                        let pcb = project.pcbs.get(index).unwrap();
-
-
-                                        Some(PcbReportItem::Panel {
-                                            name: pcb.name.clone(),
-                                            unit_assignments,
-                                        })
-                                    },
-                                    PcbKind::Single => {
-                                        let pcb = project.pcbs.get(index).unwrap();
-
-                                        assert!(unit_assignments.len() <= 1);
-
-                                        Some(PcbReportItem::Single {
-                                            name: pcb.name.clone(),
-                                            unit_assignment: unit_assignments.pop()
-                                        })
-                                    },
-                                }
-                            } else {
-                                None
-                            }
-                        }).into_iter().collect();
-
-                        let operation = PhaseOperation::PreparePcbs { pcbs };
-
-                        Some(operation)
-                    } else {
-                        None
-                    }
-                },
-                ProcessOperationKind::AutomatedPnp => Some(PhaseOperation::PlaceComponents {}),
-                ProcessOperationKind::ReflowComponents => Some(PhaseOperation::ReflowComponents {}),
-                ProcessOperationKind::ManuallySolderComponents => Some(PhaseOperation::ManuallySolderComponents {}),
-            }
-        }).collect();
-
-
-        results.push(PhaseSpecification {
-            phase_name: phase.reference.to_string(),
-            operations,
-            load_out_assignments,
-        });
-
-        Ok(results)
-
-    })?;
+    let phase_specifications: Vec<PhaseSpecification>  = project.phase_orderings.iter().map(| reference | {
+        build_phase_specification(project, phase_load_out_items_map, reference)
+    }).collect();
 
     report.phase_specifications.extend(phase_specifications);
 
-    project_report_add_placement_issues(project, issues);
-    let mut issues: Vec<ProjectReportIssue> = issues.iter().cloned().collect();
+    project_report_add_placement_issues(project, issue_set);
+    let mut issues: Vec<ProjectReportIssue> = issue_set.iter().cloned().collect();
 
     project_report_sort_issues(&mut issues);
     
@@ -281,6 +148,147 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     })?;
 
     Ok(())
+}
+
+fn generate_issues_for_invalid_unit_assignments(project: &Project) -> BTreeSet<ProjectReportIssue> {
+    let mut issues: BTreeSet<ProjectReportIssue> = BTreeSet::new();
+
+    for (object_path, _design_variant) in project.unit_assignments.iter() {
+        let pcb_kind_counts = count_pcb_kinds(&project.pcbs);
+
+        if let Some((pcb_kind, index)) = object_path.pcb_kind_and_index() {
+            let issue = match pcb_kind_counts.get(&pcb_kind) {
+                Some(count) => {
+                    if index > *count {
+                        Some(ProjectReportIssue {
+                            message: "Invalid unit assignment, index out of range.".to_string(),
+                            severity: IssueSeverity::Severe,
+                            kind: IssueKind::InvalidUnitAssignment { object_path: object_path.clone() },
+                        })
+                    } else {
+                        None
+                    }
+                }
+                None => Some(ProjectReportIssue {
+                    message: "Invalid unit assignment, no pcbs match the assignment.".to_string(),
+                    severity: IssueSeverity::Severe,
+                    kind: IssueKind::InvalidUnitAssignment { object_path: object_path.clone() },
+                })
+            };
+
+            if let Some(issue) = issue {
+                issues.insert(issue);
+            }
+        }
+    }
+
+    issues
+}
+
+fn count_pcb_kinds(pcbs: &[Pcb]) -> HashMap<PcbKind, usize> {
+    let mut pcb_kind_counts: HashMap<PcbKind, usize> = Default::default();
+    for pcb in pcbs.iter() {
+        pcb_kind_counts.entry(pcb.kind.clone())
+            .and_modify(|e| { *e += 1 })
+            .or_insert(1);
+    }
+    pcb_kind_counts
+}
+
+fn build_phase_specification(project: &Project, phase_load_out_items_map: &BTreeMap<Reference, Vec<LoadOutItem>>, reference: &Reference) -> PhaseSpecification {
+    let phase = project.phases.get(reference).unwrap();
+    let phase_state = project.phase_states.get(reference).unwrap();
+
+    let load_out_items = phase_load_out_items_map.get(reference).unwrap();
+
+    let load_out_assignments = load_out_items.iter().map(|load_out_item| {
+        let quantity = project.placements.iter()
+            .filter(|(_object_path, placement_state)| {
+                matches!(&placement_state.phase, Some(other_phase_reference) if phase.reference.eq(other_phase_reference))
+                    && placement_state.placement.place
+                    && load_out_item.manufacturer.eq(&placement_state.placement.part.manufacturer)
+                    && load_out_item.mpn.eq(&placement_state.placement.part.mpn)
+            })
+            .fold(0_u32, |quantity, _placement_state| {
+                quantity + 1
+            });
+
+        PhaseLoadOutAssignmentItem {
+            feeder_reference: load_out_item.reference.clone(),
+            manufacturer: load_out_item.manufacturer.clone(),
+            mpn: load_out_item.mpn.clone(),
+            quantity,
+        }
+    }).collect();
+
+    let operations = phase_state.operation_state.keys().map(|operation| {
+        match operation {
+            ProcessOperationKind::LoadPcbs => build_operation_load_pcbs(project),
+            ProcessOperationKind::AutomatedPnp => PhaseOperation::PlaceComponents {},
+            ProcessOperationKind::ReflowComponents => PhaseOperation::ReflowComponents {},
+            ProcessOperationKind::ManuallySolderComponents => PhaseOperation::ManuallySolderComponents {},
+        }
+    }).collect();
+
+    PhaseSpecification {
+        phase_name: phase.reference.to_string(),
+        operations,
+        load_out_assignments,
+    }
+}
+
+fn build_operation_load_pcbs(project: &Project) -> PhaseOperation {
+    let unit_paths_with_placements = build_unit_paths_with_placements(&project.placements);
+
+    let pcbs: Vec<PcbReportItem> = unit_paths_with_placements.iter().find_map(|unit_path| {
+        if let Some((kind, mut index)) = unit_path.pcb_kind_and_index() {
+
+            // TODO consider if unit paths should use zero-based index
+            index -= 1;
+
+            // Note: the user may not have made any unit assignments yet.
+            let mut unit_assignments = find_unit_assignments(project, unit_path);
+
+            match kind {
+                PcbKind::Panel => {
+                    let pcb = project.pcbs.get(index).unwrap();
+
+
+                    Some(PcbReportItem::Panel {
+                        name: pcb.name.clone(),
+                        unit_assignments,
+                    })
+                },
+                PcbKind::Single => {
+                    let pcb = project.pcbs.get(index).unwrap();
+
+                    assert!(unit_assignments.len() <= 1);
+
+                    Some(PcbReportItem::Single {
+                        name: pcb.name.clone(),
+                        unit_assignment: unit_assignments.pop()
+                    })
+                },
+            }
+        } else {
+            None
+        }
+    }).into_iter().collect();
+
+    let operation = PhaseOperation::PreparePcbs { pcbs };
+    operation
+}
+
+fn build_unit_paths_with_placements(placement_states: &BTreeMap<ObjectPath, PlacementState>) -> BTreeSet<ObjectPath> {
+    placement_states.iter().fold(BTreeSet::<ObjectPath>::new(), |mut acc, (object_path, placement_state)| {
+        if placement_state.placement.place {
+            let pcb_unit = object_path.pcb_unit();
+            if acc.insert(pcb_unit) {
+                trace!("Phase pcb unit found.  object_path: {}", object_path);
+            }
+        }
+        acc
+    })
 }
 
 fn project_report_add_placement_issues(project: &Project, issues: &mut BTreeSet<ProjectReportIssue>) {
@@ -632,7 +640,7 @@ pub enum PcbReportItem {
 
 #[derive(Clone, serde::Serialize)]
 pub enum PhaseOperation {
-    PreparePcbs{ pcbs: Vec<PcbReportItem>},
+    PreparePcbs { pcbs: Vec<PcbReportItem> },
     PlaceComponents {},
     ReflowComponents {},
     ManuallySolderComponents {},
