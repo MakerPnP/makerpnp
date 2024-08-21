@@ -16,7 +16,7 @@ mod operation_sequence_1 {
     use crate::common::{build_temp_file, prepare_args, print};
     use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
-    use crate::common::project_builder::TestProjectBuilder;
+    use crate::common::project_builder::{TestPlacementsState, TestProcessOperationExtraState, TestProjectBuilder};
     use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOperationKind, TestPhaseOperationOverview, TestPhaseOverview, TestPhaseSpecification};
 
     /// A context, which will be dropped when the tests are completed.
@@ -509,7 +509,7 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)])
+                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)])
                 ]
             )
             .with_placements(&[
@@ -642,8 +642,8 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
-                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                    ("bottom_1", &[("LoadPcbs", false, None), ("ManuallySolderComponents", false, None)]),
+                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)]),
                 ]
             )
             .with_placements(&[
@@ -775,8 +775,8 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
-                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                    ("bottom_1", &[("LoadPcbs", false, None), ("ManuallySolderComponents", false, None)]),
+                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)]),
                 ]
             )
             .with_placements(&[
@@ -990,8 +990,8 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
-                    ("top_1", &[("LoadPcbs", false), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                    ("bottom_1", &[("LoadPcbs", false, None), ("ManuallySolderComponents", false, None)]),
+                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)]),
                 ]
             )
             .with_placements(&[
@@ -1254,6 +1254,10 @@ mod operation_sequence_1 {
         let report_message = format!("Generated report. path: {:?}\n", project_report_file_path);
         
         assert_contains_inorder!(trace_content, [
+            "Updating phase status. phase: bottom_1\n",
+            "Phase operation complete. phase: bottom_1, operation: ManuallySolderComponents\n",
+            "Updating phase status. phase: top_1\n",
+            "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
             &phase_1_message,
             &phase_2_message,
             &report_message,
@@ -1317,8 +1321,15 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
-                    ("top_1", &[("LoadPcbs", true), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                    ("bottom_1", &[
+                        ("LoadPcbs", false, None),
+                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                    ]),
+                    ("top_1", &[
+                        ("LoadPcbs", true, None),
+                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", false, None)
+                    ]),
                 ]
             )
             .with_placements(&[
@@ -1440,8 +1451,15 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false), ("ManuallySolderComponents", false)]),
-                    ("top_1", &[("LoadPcbs", true), ("AutomatedPnp", false), ("ReflowComponents", false)]),
+                    ("bottom_1", &[
+                        ("LoadPcbs", false, None),
+                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                    ]),
+                    ("top_1", &[
+                        ("LoadPcbs", true, None),
+                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 2, total: 3 }})),
+                        ("ReflowComponents", false, None)
+                    ]),
                 ]
             )
             .with_placements(&[
@@ -1514,6 +1532,8 @@ mod operation_sequence_1 {
             "Setting placed flag. object_path: panel=1::unit=1::ref_des=R1\n",
             "Unmatched object path pattern. object_path_pattern: panel=1::unit=2::ref_des=.*\n",
             "Setting placed flag. object_path: panel=1::unit=1::ref_des=R3\n",
+            "Updating phase status. phase: top_1\n",
+            "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
         ]);
 
         // and

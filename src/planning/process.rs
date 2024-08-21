@@ -49,9 +49,29 @@ pub enum ProcessError {
     UnusedProcessError { processes: Vec<Process>, process: String }
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default)]
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default, PartialEq)]
 pub struct ProcessOperationState {
-    pub completed: bool
+    pub completed: bool,
+    
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<ProcessOperationExtraState>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub enum ProcessOperationExtraState {
+    PlacementOperation { placements_state: PlacementsState },
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default, PartialEq)]
+pub struct PlacementsState {
+    pub placed: usize,
+    pub total: usize,
+}
+
+impl PlacementsState {
+    pub fn are_all_placements_placed(&self) -> bool {
+        self.placed == self.total
+    }
 }
 
 pub enum ProcessOperationSetItem {

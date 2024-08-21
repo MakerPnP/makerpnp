@@ -12,7 +12,7 @@ use std::io::Write;
 use crate::planning::design::{DesignName, DesignVariant};
 use crate::planning::pcb::{Pcb, PcbKind};
 use crate::planning::placement::{PlacementState, PlacementStatus};
-use crate::planning::process::ProcessOperationKind;
+use crate::planning::process::{ProcessOperationExtraState, ProcessOperationKind};
 use crate::planning::project::Project;
 use crate::planning::reference::Reference;
 use crate::planning::variant::VariantName;
@@ -48,46 +48,34 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
     if !project.phases.is_empty() {
         report.phase_overviews.extend(project.phase_orderings.iter().map(|reference| {
             let phase = project.phases.get(reference).unwrap();
-            let phase_process = project.find_process(&phase.process).unwrap();
-
-            let (placed, total) = project.placements.iter()
-                .fold( (0_usize, 0_usize), | (mut placed, mut total), (_object_path, placement_status) | {
-                
-                if let Some(placement_phase) = &placement_status.phase {
-                    if placement_phase.eq(reference) {
-                        if placement_status.placed {
-                            placed += 1;
-                        }
-                        total += 1;
-                    }
-                }  
-                
-                (placed, total)
-            });
-
-            let all_placements_placed = placed == total;
-            let placements_message = format!("{placed:}/{total:} placements placed");
+            let phase_state = project.phase_states.get(reference).unwrap();
+            info!("phase: {:?}, phase_state: {:?}", phase, phase_state);
             
             let mut operations_overview = vec![];
             
-            let phase_status= phase_process.operations.iter().fold(PhaseStatus::Complete, |mut phase_status, operation |{
-                let overview = match operation {
-                    ProcessOperationKind::LoadPcbs => None,
-                    ProcessOperationKind::AutomatedPnp => {
-                        if phase_status == PhaseStatus::Complete && !all_placements_placed {
+            let phase_status = phase_state.operation_state.iter()
+                .fold(PhaseStatus::Complete, |mut phase_status, (operation, operation_state) | {
+                let overview = match (operation, &operation_state.extra) {
+
+                    (ProcessOperationKind::AutomatedPnp, Some(ProcessOperationExtraState::PlacementOperation { placements_state })) => {
+                        if phase_status == PhaseStatus::Complete && !operation_state.completed {
                             phase_status = PhaseStatus::Incomplete;
-                        } 
+                        }
                         
-                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: all_placements_placed })
+                        let placements_message = format!("{}/{} placements placed", placements_state.placed, placements_state.total);
+                        
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: operation_state.completed })
                     },
-                    ProcessOperationKind::ReflowComponents => None,
-                    ProcessOperationKind::ManuallySolderComponents => {
-                        if phase_status.eq(&PhaseStatus::Complete) && !all_placements_placed {
+                    (ProcessOperationKind::ManuallySolderComponents, Some(ProcessOperationExtraState::PlacementOperation { placements_state })) => {
+                        if phase_status == PhaseStatus::Complete && !operation_state.completed {
                             phase_status = PhaseStatus::Incomplete;
                         }
 
-                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: all_placements_placed })
+                        let placements_message = format!("{}/{} placements placed", placements_state.placed, placements_state.total);
+
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: operation_state.completed })
                     },
+                    (_, _) => None,
                 };
                 
                 if let Some(overview) = overview {

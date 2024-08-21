@@ -1,8 +1,9 @@
 use std::collections::BTreeMap;
 use rust_decimal::Decimal;
 use serde::Serialize;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Map, Number, Value};
 
+// TODO transition this to use test structures/enums instead of tuples and serialize with serde.
 #[derive(Default)]
 pub struct TestProjectBuilder<'a> {
     name: Option<&'a str>,
@@ -17,7 +18,7 @@ pub struct TestProjectBuilder<'a> {
     ]>,
     phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]>,
     phase_orderings: Option<&'a [&'a str]>,
-    phase_states: Option<&'a [(&'a str, &'a [(&'a str, bool)])]>,
+    phase_states: Option<&'a [(&'a str, &'a [(&'a str, bool, Option<TestProcessOperationExtraState>)])]>,
 }
 
 impl<'a> TestProjectBuilder<'a> {
@@ -132,10 +133,28 @@ impl<'a> TestProjectBuilder<'a> {
 
         if let Some(phase_states) = self.phase_states {
             let values = phase_states.iter().map(|(reference, operation_states)| {
-                let operation_state_entries= operation_states.iter().fold(Map::new(),|mut map, (operation, completed)|{
+                let operation_state_entries= operation_states.iter().fold(Map::new(),|mut map, (operation, completed, extra_state)|{
 
                     let mut operation_state_map = Map::new();
                     operation_state_map.insert("completed".to_string(), Value::Bool(*completed));
+                    match extra_state {
+                        Some(TestProcessOperationExtraState::PlacementOperation { placements_state }) => {
+                            
+                            let mut placements_state_map = Map::new();
+                            placements_state_map.insert("placed".to_string(), Value::Number(Number::from(placements_state.placed)));
+                            placements_state_map.insert("total".to_string(), Value::Number(Number::from(placements_state.total)));
+                            
+                            let mut placement_operation_map= Map::new();
+                            placement_operation_map.insert("placements_state".to_string(), Value::Object(placements_state_map));
+                            
+                            let mut extra_map = Map::new();
+                            extra_map.insert("PlacementOperation".to_string(), Value::Object(placement_operation_map));
+                            
+                            operation_state_map.insert("extra".to_string(), Value::Object(extra_map));        
+                        },
+                        _ => {}
+                    }
+                    
                     
                     map.insert(operation.to_string(), Value::Object(operation_state_map));
                     
@@ -219,7 +238,7 @@ impl<'a> TestProjectBuilder<'a> {
         self
     }
 
-    pub fn with_phase_states(mut self, phase_states: &'a [(&'a str, &'a [(&'a str, bool)])]) -> Self {
+    pub fn with_phase_states(mut self, phase_states: &'a [(&'a str, &'a [(&'a str, bool, Option<TestProcessOperationExtraState>)])]) -> Self {
         self.phase_states = Some(phase_states);
         self
     }
@@ -268,4 +287,15 @@ impl<'a> TestProjectBuilder<'a> {
     pub fn new() -> Self {
         Default::default()
     }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub enum TestProcessOperationExtraState {
+    PlacementOperation { placements_state: TestPlacementsState },
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default, PartialEq)]
+pub struct TestPlacementsState {
+    pub placed: usize,
+    pub total: usize,
 }

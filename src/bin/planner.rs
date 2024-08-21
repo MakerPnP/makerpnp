@@ -276,9 +276,15 @@ fn main() -> anyhow::Result<()>{
             }
         },
         Command::GenerateArtifacts { } => {
-            let project = project::load(&project_file_path)?;
+            let mut project = project::load(&project_file_path)?;
+
+            let modified = project::update_phase_operation_states(&mut project);
 
             project::generate_artifacts(&project, &opts.path, &project_name)?;
+
+            if modified {
+                project::save(&project, &project_file_path)?;
+            }
         },
         Command::RecordPhaseOperation { phase: reference, operation, set } => {
             let mut project = project::load(&project_file_path)?;
@@ -287,7 +293,7 @@ fn main() -> anyhow::Result<()>{
 
             if modified {
                 project::save(&project, &project_file_path)?;
-            }            
+            }
         },
         Command::RecordPlacementsOperation { object_path_patterns, operation } => {
             let mut project = project::load(&project_file_path)?;

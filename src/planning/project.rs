@@ -24,7 +24,7 @@ use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseError, PhaseOrderings, PhaseState};
 use crate::planning::placement::{PlacementOperation, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::{Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationKind, ProcessOperationSetItem};
+use crate::planning::process::{PlacementsState, Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationExtraState, ProcessOperationKind, ProcessOperationSetItem};
 use crate::planning::{placement, report};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
@@ -60,7 +60,7 @@ pub struct Project {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     pub phases: BTreeMap<Reference, Phase>,
-    
+
     #[serde(skip_serializing_if = "IndexSet::is_empty")]
     #[serde(default)]
     pub phase_orderings: IndexSet<Reference>,
@@ -122,9 +122,9 @@ impl Project {
                 info!("Created phase. reference: '{}', process: {}, load_out: {:?}", reference, process_name, load_out);
                 self.phase_orderings.insert(reference.clone());
                 info!("Phase ordering: {}", PhaseOrderings(&self.phase_orderings));
-                
+
                 let process = self.find_process(&process_name)?;
-                
+
                 self.phase_states.insert(reference, PhaseState::from_process(process));
             }
             Entry::Occupied(mut entry) => {
@@ -659,8 +659,78 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
             }
         }
     }
+
+    if modified {
+        update_phase_operation_states(project);
+    }
     
     Ok(modified)
+}
+
+pub fn update_phase_operation_states(project: &mut Project) -> bool {
+    let mut modified = false;
+    
+    for (reference, phase_state) in project.phase_states.iter_mut() {
+        trace!("reference: {:?}, phase_state: {:?}", reference, phase_state);
+        
+        for (operation, operation_state) in phase_state.operation_state.iter_mut() {
+            trace!("operation: {:?}, operation_state: {:?}", operation, operation_state);
+
+            let maybe_state = if operation.eq(&ProcessOperationKind::AutomatedPnp) || operation.eq(&ProcessOperationKind::ManuallySolderComponents) {
+                let placements_state = project.placements.iter()
+                    .fold(PlacementsState::default(), |mut state, (_object_path, placement_status)| {
+                        if let Some(placement_phase) = &placement_status.phase {
+                            if placement_phase.eq(reference) {
+                                if placement_status.placed {
+                                    state.placed += 1;
+                                }
+                                state.total += 1;
+                            }
+                        }
+
+                        state
+                    });
+
+                let completed = placements_state.are_all_placements_placed();
+                Some((placements_state, completed))
+            } else {
+                None
+            };
+            trace!("maybe_state: {:?}", maybe_state);
+
+
+            let original_operation_state = operation_state.clone();
+            
+            match (&maybe_state, operation) {
+                (Some((placements_state, completed)), ProcessOperationKind::AutomatedPnp) => {
+                    operation_state.completed = *completed;
+                    operation_state.extra = Some(ProcessOperationExtraState::PlacementOperation { placements_state: placements_state.clone() });
+                },
+                (Some((placements_state, completed)), ProcessOperationKind::ManuallySolderComponents) => {
+                    operation_state.completed = *completed;
+                    operation_state.extra = Some(ProcessOperationExtraState::PlacementOperation { placements_state: placements_state.clone() });
+                },
+                (_, _) => {}
+            };
+            
+            let phase_operation_modified = !original_operation_state.eq(operation_state);
+
+            if phase_operation_modified {
+                info!("Updating phase status. phase: {}", reference);
+
+                if let Some((_maybe_state, completed)) = maybe_state {
+                    match completed {
+                        true => info!("Phase operation complete. phase: {}, operation: {:?}", reference, operation),
+                        false => info!("Phase operation incomplete. phase: {}, operation: {:?}", reference, operation),
+                    }
+                }
+            }
+            
+            modified |= phase_operation_modified;
+        }
+    }
+    
+    modified
 }
 
 #[derive(Error, Debug)]
@@ -675,7 +745,7 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
         .ok_or(PhaseError::UnknownPhase(phase_reference.clone()))?;
 
     let mut modified = false;
-    
+
     let state = phase_state.operation_state.get(&operation)
         .ok_or(PhaseError::UnknownPhase(phase_reference.clone()))?;
 
@@ -687,7 +757,7 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
 
         info!("Creating new log. path: {:?}\n", phase_log_path);
     };
-    
+
     phase_state.operation_state.entry(operation.clone())
         .and_modify(|state|{
             match set_item {
@@ -697,10 +767,10 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
                         state.completed = true;
                         modified = true;
                     }
-                } 
+                }
             }
         });
-        
+
     Ok(modified)
 }
 
@@ -724,6 +794,6 @@ pub fn update_placement_orderings(project: &mut Project, reference: &Reference, 
         );
         true
     };
-    
+
     Ok(modified)
 }
