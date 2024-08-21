@@ -73,7 +73,7 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
 
                         let placements_message = format!("{}/{} placements placed", placements_state.placed, placements_state.total);
 
-                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: operation_state.completed })
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::ManuallySolderComponents, message: placements_message.clone(), complete: operation_state.completed })
                     },
                     (_, _) => None,
                 };
@@ -638,6 +638,7 @@ pub enum PhaseOperation {
 pub enum PhaseOperationKind {
     PreparePcbs,
     PlaceComponents,
+    ManuallySolderComponents,
 }
 
 

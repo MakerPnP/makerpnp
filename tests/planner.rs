@@ -1157,7 +1157,7 @@ mod operation_sequence_1 {
                 ]},
                 TestPhaseOverview { phase_name: "bottom_1".to_string(), status: "Complete".to_string(), process: "manual".to_string(), operations_overview: vec![
                     TestPhaseOperationOverview { 
-                        operation: TestPhaseOperationKind::PlaceComponents, 
+                        operation: TestPhaseOperationKind::ManuallySolderComponents,
                         message: "0/0 placements placed".to_string(),
                         complete: true,
                     }

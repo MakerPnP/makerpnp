@@ -74,7 +74,8 @@ pub struct TestPhaseOperationOverview {
 
 #[derive(Clone, serde::Serialize)]
 pub enum TestPhaseOperationKind {
-    PlaceComponents
+    PlaceComponents,
+    ManuallySolderComponents,
 }
 
 #[derive(Clone, serde::Serialize)]
