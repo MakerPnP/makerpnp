@@ -775,8 +775,15 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false, None), ("ManuallySolderComponents", false, None)]),
-                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)]),
+                    ("bottom_1", &[
+                        ("LoadPcbs", false, None),
+                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                    ]),
+                    ("top_1", &[
+                        ("LoadPcbs", false, None),
+                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", false, None)
+                    ]),
                 ]
             )
             .with_placements(&[
@@ -870,11 +877,19 @@ mod operation_sequence_1 {
         let storing_load_out_message = format!("Storing load-out. source: '{}'", ctx.phase_1_load_out_path.to_str().unwrap());
         
         assert_contains_inorder!(trace_content, [
+            // assignments should be made
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R1",
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R2",
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R3",
+            // all phase status should be updated
+            "Updating phase status. phase: bottom_1\n",
+            "Phase operation complete. phase: bottom_1, operation: ManuallySolderComponents\n",
+            "Updating phase status. phase: top_1\n",
+            "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
+            // part process should be updated
             "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: [\"pnp\"]",
             "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: [\"pnp\"]",
+            // load-out should be checked
             &loading_load_out_message,
             r#"Checking for part in load_out. part: Part { manufacturer: "RES_MFR1", mpn: "RES1" }"#,
             r#"Checking for part in load_out. part: Part { manufacturer: "RES_MFR2", mpn: "RES2" }"#,
@@ -990,8 +1005,15 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false, None), ("ManuallySolderComponents", false, None)]),
-                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)]),
+                    ("bottom_1", &[
+                        ("LoadPcbs", false, None),
+                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                    ]),
+                    ("top_1", &[
+                        ("LoadPcbs", false, None),
+                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", false, None)
+                    ]),
                 ]
             )
             .with_placements(&[
@@ -1254,10 +1276,6 @@ mod operation_sequence_1 {
         let report_message = format!("Generated report. path: {:?}\n", project_report_file_path);
         
         assert_contains_inorder!(trace_content, [
-            "Updating phase status. phase: bottom_1\n",
-            "Phase operation complete. phase: bottom_1, operation: ManuallySolderComponents\n",
-            "Updating phase status. phase: top_1\n",
-            "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
             &phase_1_message,
             &phase_2_message,
             &report_message,

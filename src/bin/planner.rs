@@ -253,6 +253,8 @@ fn main() -> anyhow::Result<()>{
             let parts = project::assign_placements_to_phase(&mut project, &phase, placements_pattern);
             trace!("Required load_out parts: {:?}", parts);
 
+            let _modified = project::update_phase_operation_states(&mut project);
+
             for part in parts.iter() {
                 let part_state = project.part_states.get_mut(&part)
                     .ok_or_else(|| PartStateError::NoPartStateFound { part: part.clone() })?;
