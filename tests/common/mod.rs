@@ -9,6 +9,8 @@ pub mod phase_placement_builder;
 pub mod project_builder;
 pub mod project_report_builder;
 
+pub mod operation_history;
+
 pub fn print(message: &str) -> FnPredicate<fn(&str) -> bool, str> {
     println!("{}:", message);
     predicate::function(|content| {

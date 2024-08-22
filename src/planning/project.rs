@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::str::FromStr;
 use heck::ToShoutySnakeCase;
+use time::OffsetDateTime;
 use crate::stores::load_out;
 use crate::stores::load_out::LoadOutSource;
 use crate::planning::design::DesignVariant;
@@ -25,7 +26,8 @@ use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseError, PhaseOrderings, PhaseState};
 use crate::planning::placement::{PlacementOperation, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
 use crate::planning::process::{PlacementsState, Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationExtraState, ProcessOperationKind, ProcessOperationSetItem};
-use crate::planning::{placement, report};
+use crate::planning::{operation_history, placement, report};
+use crate::planning::operation_history::{OperationHistoryItem, OperationHistoryKind};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
 use crate::pnp;
 use crate::pnp::load_out::LoadOutItem;
@@ -669,10 +671,10 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
 
 pub fn update_phase_operation_states(project: &mut Project) -> bool {
     let mut modified = false;
-    
+
     for (reference, phase_state) in project.phase_states.iter_mut() {
         trace!("reference: {:?}, phase_state: {:?}", reference, phase_state);
-        
+
         for (operation, operation_state) in phase_state.operation_state.iter_mut() {
             trace!("operation: {:?}, operation_state: {:?}", operation, operation_state);
 
@@ -700,7 +702,7 @@ pub fn update_phase_operation_states(project: &mut Project) -> bool {
 
 
             let original_operation_state = operation_state.clone();
-            
+
             match (&maybe_state, operation) {
                 (Some((placements_state, completed)), ProcessOperationKind::AutomatedPnp) => {
                     operation_state.completed = *completed;
@@ -712,7 +714,7 @@ pub fn update_phase_operation_states(project: &mut Project) -> bool {
                 },
                 (_, _) => {}
             };
-            
+
             let phase_operation_modified = !original_operation_state.eq(operation_state);
 
             if phase_operation_modified {
@@ -725,11 +727,11 @@ pub fn update_phase_operation_states(project: &mut Project) -> bool {
                     }
                 }
             }
-            
+
             modified |= phase_operation_modified;
         }
     }
-    
+
     modified
 }
 
@@ -746,34 +748,48 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
 
     let mut modified = false;
 
-    let state = phase_state.operation_state.get(&operation)
+    let state = phase_state.operation_state.get_mut(&operation)
         .ok_or(PhaseError::UnknownPhase(phase_reference.clone()))?;
 
-    if let (ProcessOperationKind::LoadPcbs, false) = (&operation, state.completed) {
-        let mut phase_log_path = path.clone();
-        phase_log_path.push(format!("{}_log.json", phase_reference.to_string()));
+    match set_item {
+        ProcessOperationSetItem::Completed => {
+            if !state.completed {
 
-        let _file = File::create(phase_log_path.clone())?;
-
-        info!("Creating new log. path: {:?}\n", phase_log_path);
-    };
-
-    phase_state.operation_state.entry(operation.clone())
-        .and_modify(|state|{
-            match set_item {
-                ProcessOperationSetItem::Completed => {
-                    if !state.completed {
-
-                        state.completed = true;
-                        modified = true;
-                    }
-                }
+                state.completed = true;
+                modified = true;
             }
-        });
+        }
+    }
+    
+    if modified {
+        let mut operation_history: Vec<OperationHistoryItem> = Default::default();
+
+        let history_operation = match operation {
+            ProcessOperationKind::LoadPcbs => OperationHistoryKind::LoadPcbs { completed: state.completed },
+            ProcessOperationKind::AutomatedPnp => OperationHistoryKind::AutomatedPnp {},
+            ProcessOperationKind::ReflowComponents => OperationHistoryKind::ReflowComponents {},
+            ProcessOperationKind::ManuallySolderComponents => OperationHistoryKind::ManuallySolderComponents {},
+        };
+
+        let now = OffsetDateTime::now_utc();
+
+        let history_item = OperationHistoryItem {
+            date_time: now,
+            phase: phase_reference.clone(),
+            operation: history_operation,
+            extra: Default::default(),
+        };
+
+        operation_history.push(history_item);
+
+        let mut phase_log_path = path.clone();
+        phase_log_path.push(format!("{}_log.json", phase_reference));
+
+        operation_history::write(phase_log_path, &operation_history)?;
+    }
 
     Ok(modified)
 }
-
 
 pub fn update_placement_orderings(project: &mut Project, reference: &Reference, placement_orderings: &Vec<PlacementSortingItem>) -> anyhow::Result<bool> {
     let phase = project.phases.get_mut(reference)

@@ -26,6 +26,7 @@ clap = { version = "4.5.8", features = ["derive", "env"], optional = true }
 clap-verbosity-flag = { version = "2.2.1", optional = true }
 argfile = { version = "0.2.1", optional = true }
 termtree = { version = "0.4.1", optional = true }
+time = { version = "0.3.36", features = ["serde", "serde-well-known"] }
 
 [dev-dependencies]
 predicates = {  version = "3.1.0" }

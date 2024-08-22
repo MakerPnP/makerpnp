@@ -15,6 +15,7 @@ mod operation_sequence_1 {
     use tempfile::tempdir;
     use crate::common::{build_temp_file, prepare_args, print};
     use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
+    use crate::common::operation_history::{TestOperationHistoryItem, TestOperationHistoryKind};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::common::project_builder::{TestPlacementsState, TestProcessOperationExtraState, TestProjectBuilder};
     use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOperationKind, TestPhaseOperationOverview, TestPhaseOverview, TestPhaseSpecification};
@@ -1394,6 +1395,10 @@ mod operation_sequence_1 {
             ])
             .content();
 
+        // and
+        let expected_operation = TestOperationHistoryKind::LoadPcbs { completed: true };
+
+        // and
         let args = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
@@ -1403,6 +1408,7 @@ mod operation_sequence_1 {
             "--operation loadpcbs",
             "--set completed"
         ]);
+        
         // when
         cmd.args(args)
             // then
@@ -1415,7 +1421,7 @@ mod operation_sequence_1 {
         let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
-        let log_file_message = format!("Creating new log. path: {:?}\n", ctx.phase_1_log_path);
+        let log_file_message = format!("Created operation history file. path: {:?}\n", ctx.phase_1_log_path);
         
         assert_contains_inorder!(trace_content, [
             &log_file_message,
@@ -1426,6 +1432,16 @@ mod operation_sequence_1 {
         println!("{}", project_content);
 
         assert_eq!(project_content, expected_project_content);
+
+        // and
+        let operation_history_file = File::open(ctx.phase_1_log_path.clone())?;
+        let operation_history: Vec<TestOperationHistoryItem> = serde_json::from_reader(operation_history_file)?;
+
+        let (first, operation_history) = operation_history.split_first().unwrap();
+        
+        assert_eq!(&first.operation, &expected_operation);
+        assert_eq!(&first.phase, "top_1");
+        assert!(operation_history.is_empty());
 
         Ok(())
     }
