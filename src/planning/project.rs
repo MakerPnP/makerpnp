@@ -639,43 +639,42 @@ pub fn update_placements_operation(project: &mut Project, path: &PathBuf, object
     let mut history_item_map: HashMap<Reference, Vec<OperationHistoryItem>> = HashMap::new();
     
     for object_path_pattern in object_path_patterns.iter() {
-        let placement = project.placements.iter_mut().find(|(object_path, _placement_state)|{
+        let placements: Vec<_> = project.placements.iter_mut().filter(|(object_path, _placement_state)|{
             object_path_pattern.is_match(&object_path.to_string())
-        });
+        }).collect();
         
-        match placement {
-            Some((object_path, placement_state)) => {
-                match operation {
-                    PlacementOperation::Placed => {
-                        if placement_state.placed {
-                            warn!("Placed flag already set. object_path: {}", object_path);
-                        } else {
-                            info!("Setting placed flag. object_path: {}", object_path);
-                            placement_state.placed = true;
+        if placements.is_empty() {
+            warn!("Unmatched object path pattern. object_path_pattern: {}", object_path_pattern);
+        }
+        
+        for (object_path, placement_state) in placements {
+            match operation {
+                PlacementOperation::Placed => {
+                    if placement_state.placed {
+                        warn!("Placed flag already set. object_path: {}", object_path);
+                    } else {
+                        info!("Setting placed flag. object_path: {}", object_path);
+                        placement_state.placed = true;
 
-                            let now = OffsetDateTime::now_utc();
+                        let now = OffsetDateTime::now_utc();
 
-                            let phase = placement_state.phase.as_ref().unwrap();
-                            
-                            let history_item = OperationHistoryItem {
-                                date_time: now,
-                                phase: phase.clone(),
-                                operation: OperationHistoryKind::PlacementOperation { object_path: object_path.clone(), operation: operation.clone()},
-                                extra: Default::default(),
-                            };
-                            
-                            let history_items = history_item_map.entry(phase.clone())
-                                .or_default();
+                        let phase = placement_state.phase.as_ref().unwrap();
 
-                            history_items.push(history_item);
+                        let history_item = OperationHistoryItem {
+                            date_time: now,
+                            phase: phase.clone(),
+                            operation: OperationHistoryKind::PlacementOperation { object_path: object_path.clone(), operation: operation.clone() },
+                            extra: Default::default(),
+                        };
 
-                            modified = true;
-                        }
+                        let history_items = history_item_map.entry(phase.clone())
+                            .or_default();
+
+                        history_items.push(history_item);
+
+                        modified = true;
                     }
                 }
-            },
-            None => {
-                warn!("Unmatched object path pattern. object_path_pattern: {}", object_path_pattern);
             }
         }
     }

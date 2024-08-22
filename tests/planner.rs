@@ -1490,7 +1490,7 @@ mod operation_sequence_1 {
                     ]),
                     ("top_1", &[
                         ("LoadPcbs", true, None),
-                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 2, total: 3 }})),
+                        ("AutomatedPnp", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 3, total: 3 }})),
                         ("ReflowComponents", false, None)
                     ]),
                 ]
@@ -1524,7 +1524,7 @@ mod operation_sequence_1 {
                     "panel=1::unit=1::ref_des=R2",
                     "panel=1::unit=1",
                     ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
-                    false,
+                    true,
                     "Known",
                     Some("top_1"),
                 ),
@@ -1543,6 +1543,7 @@ mod operation_sequence_1 {
         let operation_expectations = vec![
             ("ignore", None),
             ("require", Some(("top_1".to_string(), TestOperationHistoryKind::PlacementOperation { object_path: "panel=1::unit=1::ref_des=R1".to_string(), operation: TestOperationHistoryPlacementOperation::Placed}))),
+            ("require", Some(("top_1".to_string(), TestOperationHistoryKind::PlacementOperation { object_path: "panel=1::unit=1::ref_des=R2".to_string(), operation: TestOperationHistoryPlacementOperation::Placed}))),
             ("require", Some(("top_1".to_string(), TestOperationHistoryKind::PlacementOperation { object_path: "panel=1::unit=1::ref_des=R3".to_string(), operation: TestOperationHistoryPlacementOperation::Placed}))),
             ("eof", None),
         ];
@@ -1553,7 +1554,7 @@ mod operation_sequence_1 {
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
             "record-placements-operation",
-            "--object-path-patterns panel=1::unit=1::ref_des=R([1-2])?,panel=1::unit=2::ref_des=.*,panel=1::unit=1::ref_des=R3",
+            "--object-path-patterns panel=1::unit=1::ref_des=R([1-3])?,panel=1::unit=2::ref_des=.*",
             "--operation placed",
         ]);
         // when
@@ -1572,10 +1573,11 @@ mod operation_sequence_1 {
 
         assert_contains_inorder!(trace_content, [
             "Setting placed flag. object_path: panel=1::unit=1::ref_des=R1\n",
-            "Unmatched object path pattern. object_path_pattern: panel=1::unit=2::ref_des=.*\n",
+            "Setting placed flag. object_path: panel=1::unit=1::ref_des=R2\n",
             "Setting placed flag. object_path: panel=1::unit=1::ref_des=R3\n",
+            "Unmatched object path pattern. object_path_pattern: panel=1::unit=2::ref_des=.*\n",
             "Updating phase status. phase: top_1\n",
-            "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
+            "Phase operation complete. phase: top_1, operation: AutomatedPnp\n",
             &log_file_message,
         ]);
 
