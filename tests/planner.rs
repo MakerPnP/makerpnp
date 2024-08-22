@@ -15,7 +15,7 @@ mod operation_sequence_1 {
     use tempfile::tempdir;
     use crate::common::{build_temp_file, prepare_args, print};
     use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
-    use crate::common::operation_history::{TestOperationHistoryItem, TestOperationHistoryKind};
+    use crate::common::operation_history::{TestOperationHistoryItem, TestOperationHistoryKind, TestOperationHistoryPlacementOperation};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::common::project_builder::{TestPlacementsState, TestProcessOperationExtraState, TestProjectBuilder};
     use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOperationKind, TestPhaseOperationOverview, TestPhaseOverview, TestPhaseSpecification};
@@ -1396,7 +1396,10 @@ mod operation_sequence_1 {
             .content();
 
         // and
-        let expected_operation = TestOperationHistoryKind::LoadPcbs { completed: true };
+        let operation_expectations = vec![
+            ("require", Some(("top_1".to_string(), TestOperationHistoryKind::LoadPcbs { completed: true }))),
+            ("eof", None),
+        ];
 
         // and
         let args = prepare_args(vec![
@@ -1437,11 +1440,7 @@ mod operation_sequence_1 {
         let operation_history_file = File::open(ctx.phase_1_log_path.clone())?;
         let operation_history: Vec<TestOperationHistoryItem> = serde_json::from_reader(operation_history_file)?;
 
-        let (first, operation_history) = operation_history.split_first().unwrap();
-        
-        assert_eq!(&first.operation, &expected_operation);
-        assert_eq!(&first.phase, "top_1");
-        assert!(operation_history.is_empty());
+        assert_operation_history(operation_history, operation_expectations);
 
         Ok(())
     }
@@ -1540,6 +1539,13 @@ mod operation_sequence_1 {
             ])
             .content();
         
+        // and
+        let operation_expectations = vec![
+            ("ignore", None),
+            ("require", Some(("top_1".to_string(), TestOperationHistoryKind::PlacementOperation { object_path: "panel=1::unit=1::ref_des=R1".to_string(), operation: TestOperationHistoryPlacementOperation::Placed}))),
+            ("require", Some(("top_1".to_string(), TestOperationHistoryKind::PlacementOperation { object_path: "panel=1::unit=1::ref_des=R3".to_string(), operation: TestOperationHistoryPlacementOperation::Placed}))),
+            ("eof", None),
+        ];
         
         // and
         let args = prepare_args(vec![
@@ -1562,12 +1568,15 @@ mod operation_sequence_1 {
         let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
         println!("{}", trace_content);
 
+        let log_file_message = format!("Updated operation history file. path: {:?}\n", ctx.phase_1_log_path);
+
         assert_contains_inorder!(trace_content, [
             "Setting placed flag. object_path: panel=1::unit=1::ref_des=R1\n",
             "Unmatched object path pattern. object_path_pattern: panel=1::unit=2::ref_des=.*\n",
             "Setting placed flag. object_path: panel=1::unit=1::ref_des=R3\n",
             "Updating phase status. phase: top_1\n",
             "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
+            &log_file_message,
         ]);
 
         // and
@@ -1576,8 +1585,42 @@ mod operation_sequence_1 {
 
         assert_eq!(project_content, expected_project_content);
 
+        // and
+        let operation_history_file = File::open(ctx.phase_1_log_path.clone())?;
+        let operation_history: Vec<TestOperationHistoryItem> = serde_json::from_reader(operation_history_file)?;
+        println!("{:?}", operation_history);
+
+        assert_operation_history(operation_history, operation_expectations);
+
         Ok(())
     }
+
+    fn assert_operation_history(mut operation_history: Vec<TestOperationHistoryItem>, operation_expectations: Vec<(&str, Option<(String, TestOperationHistoryKind)>)>) {
+        for (index, (&ref expectation_operation, expectation)) in operation_expectations.iter().enumerate() {
+
+            match expectation_operation {
+                "eof" => {
+                    assert!(operation_history.is_empty());
+                    break
+                },
+                _ => {}
+            }
+            
+            let (item, remaining_operation_history) = operation_history.split_first().unwrap();
+            println!("index: {}, expectation: {}, item: {:?}", index, expectation_operation, item);
+            
+            match expectation_operation {
+                "ignore" => {},
+                "require" => {
+                    assert_eq!(&(item.phase.clone(), item.operation.clone()), expectation.as_ref().unwrap());
+                }
+                _ => unreachable!()
+            }
+
+            operation_history = Vec::from(remaining_operation_history);
+        }
+    }
+
     #[test]
     fn sequence_13_cleanup() {
         let mut ctx_guard = context::aquire(13);

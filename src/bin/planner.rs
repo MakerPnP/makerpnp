@@ -300,7 +300,7 @@ fn main() -> anyhow::Result<()>{
         Command::RecordPlacementsOperation { object_path_patterns, operation } => {
             let mut project = project::load(&project_file_path)?;
 
-            let modified = project::update_placements_operation(&mut project, object_path_patterns, operation.into())?;
+            let modified = project::update_placements_operation(&mut project, &opts.path, object_path_patterns, operation.into())?;
 
             if modified {
                 project::save(&project, &project_file_path)?;

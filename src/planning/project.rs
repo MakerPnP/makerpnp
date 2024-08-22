@@ -2,7 +2,7 @@ use std::collections::btree_map::Entry;
 use tracing::{debug, info, trace, warn};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::cmp::Ordering;
 use thiserror::Error;
@@ -633,9 +633,10 @@ pub fn save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()
     Ok(())
 }
 
-pub fn update_placements_operation(project: &mut Project, object_path_patterns: Vec<Regex>, operation: PlacementOperation) -> anyhow::Result<bool> {
+pub fn update_placements_operation(project: &mut Project, path: &PathBuf, object_path_patterns: Vec<Regex>, operation: PlacementOperation) -> anyhow::Result<bool> {
 
     let mut modified = false;
+    let mut history_item_map: HashMap<Reference, Vec<OperationHistoryItem>> = HashMap::new();
     
     for object_path_pattern in object_path_patterns.iter() {
         let placement = project.placements.iter_mut().find(|(object_path, _placement_state)|{
@@ -651,6 +652,23 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
                         } else {
                             info!("Setting placed flag. object_path: {}", object_path);
                             placement_state.placed = true;
+
+                            let now = OffsetDateTime::now_utc();
+
+                            let phase = placement_state.phase.as_ref().unwrap();
+                            
+                            let history_item = OperationHistoryItem {
+                                date_time: now,
+                                phase: phase.clone(),
+                                operation: OperationHistoryKind::PlacementOperation { object_path: object_path.clone(), operation: operation.clone()},
+                                extra: Default::default(),
+                            };
+                            
+                            let history_items = history_item_map.entry(phase.clone())
+                                .or_default();
+
+                            history_items.push(history_item);
+
                             modified = true;
                         }
                     }
@@ -664,6 +682,17 @@ pub fn update_placements_operation(project: &mut Project, object_path_patterns: 
 
     if modified {
         update_phase_operation_states(project);
+
+        for (phase_reference, history_items) in history_item_map {
+            let mut phase_log_path = path.clone();
+            phase_log_path.push(format!("{}_log.json", phase_reference));
+
+            let mut operation_history: Vec<OperationHistoryItem> = operation_history::read_or_default(&phase_log_path)?;
+            
+            operation_history.extend(history_items);
+            
+            operation_history::write(phase_log_path, &operation_history)?;
+        }
     }
     
     Ok(modified)
@@ -760,10 +789,8 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
             }
         }
     }
-    
-    if modified {
-        let mut operation_history: Vec<OperationHistoryItem> = Default::default();
 
+    if modified {
         let history_operation = match operation {
             ProcessOperationKind::LoadPcbs => OperationHistoryKind::LoadPcbs { completed: state.completed },
             ProcessOperationKind::AutomatedPnp => OperationHistoryKind::AutomatedPnp {},
@@ -780,11 +807,13 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
             extra: Default::default(),
         };
 
-        operation_history.push(history_item);
-
         let mut phase_log_path = path.clone();
         phase_log_path.push(format!("{}_log.json", phase_reference));
 
+        let mut operation_history: Vec<OperationHistoryItem> = operation_history::read_or_default(&phase_log_path)?;
+
+        operation_history.push(history_item);
+        
         operation_history::write(phase_log_path, &operation_history)?;
     }
 

@@ -4,8 +4,14 @@ use time::serde::rfc3339;
 use time::{OffsetDateTime};
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
+pub enum TestOperationHistoryPlacementOperation {
+    Placed
+}
+
+#[derive(Debug, Clone, serde::Deserialize, PartialEq)]
 pub enum TestOperationHistoryKind {
     LoadPcbs { completed: bool },
+    PlacementOperation { object_path: String, operation: TestOperationHistoryPlacementOperation },
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
