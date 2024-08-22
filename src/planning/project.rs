@@ -777,7 +777,7 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
     let mut modified = false;
 
     let state = phase_state.operation_state.get_mut(&operation)
-        .ok_or(PhaseError::UnknownPhase(phase_reference.clone()))?;
+        .ok_or(PhaseError::InvalidOperationForPhase(phase_reference.clone(), operation.clone()))?;
 
     match set_item {
         ProcessOperationSetItem::Completed => {

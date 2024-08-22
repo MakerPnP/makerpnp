@@ -26,7 +26,10 @@ pub struct Phase {
 #[derive(Error, Debug)]
 pub enum PhaseError {
     #[error("Unknown phase. phase: '{0:}'")]
-    UnknownPhase(Reference)
+    UnknownPhase(Reference),
+    
+    #[error("Invalid operation for phase. phase: '{0:}', operation: {1:?}")]
+    InvalidOperationForPhase(Reference, ProcessOperationKind),
 }
 
 pub struct PhaseOrderings<'a>(pub &'a IndexSet<Reference>);
