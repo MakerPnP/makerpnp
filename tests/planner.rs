@@ -1597,6 +1597,134 @@ mod operation_sequence_1 {
         Ok(())
     }
 
+    #[test]
+    fn sequence_13_reset_operations() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::aquire(13);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_project_content = TestProjectBuilder::new()
+            .with_name("job1")
+            .with_default_processes()
+            .with_pcbs(&[
+                ("panel", "panel_a"),
+            ])
+            .with_unit_assignments(&[
+                (
+                    "panel=1::unit=1",
+                    BTreeMap::from([
+                        ("design_name", "design_a"),
+                        ("variant_name", "variant_a"),
+                    ])
+                )
+            ])
+            .with_part_states(&[
+                (("CONN_MFR1", "CONN1"), &["manual"]),
+                (("RES_MFR1", "RES1"), &["pnp"]),
+                (("RES_MFR2", "RES2"), &["pnp"]),
+            ])
+            .with_phases(&[
+                ("bottom_1", "manual", ctx.phase_2_load_out_path.to_str().unwrap(), "bottom", &[]),
+                ("top_1", "pnp", ctx.phase_1_load_out_path.to_str().unwrap(), "top", &[("PcbUnit", "Asc"),("FeederReference", "Asc")]),
+            ])
+            .with_phase_orderings(
+                &["top_1", "bottom_1"]
+            )
+            .with_phase_states(
+                &[
+                    ("bottom_1", &[
+                        ("LoadPcbs", false, None),
+                        // FIXME after resetting the state, the operation should not be complete, consider adding a 'pending' state, since there are no placements for this phase yet.
+                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                    ]),
+                    ("top_1", &[
+                        ("LoadPcbs", false, None),
+                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", false, None)
+                    ]),
+                ]
+            )
+            .with_placements(&[
+                (
+                    "panel=1::unit=1::ref_des=C1",
+                    "panel=1::unit=1",
+                    ("C1", "CAP_MFR1", "CAP1", true, "bottom", dec!(30), dec!(130), dec!(180)),
+                    false,
+                    "Unknown",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=J1",
+                    "panel=1::unit=1",
+                    ("J1", "CONN_MFR1", "CONN1", true, "bottom", dec!(130), dec!(1130), dec!(-179)),
+                    false,
+                    "Known",
+                    None,
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R1",
+                    "panel=1::unit=1",
+                    ("R1", "RES_MFR1", "RES1", true, "top", dec!(110), dec!(1110), dec!(1)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R2",
+                    "panel=1::unit=1",
+                    ("R2", "RES_MFR2", "RES2", true, "top", dec!(120), dec!(1120), dec!(91)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+                (
+                    "panel=1::unit=1::ref_des=R3",
+                    "panel=1::unit=1",
+                    ("R3", "RES_MFR1", "RES1", true, "top", dec!(105), dec!(1105), dec!(91)),
+                    false,
+                    "Known",
+                    Some("top_1"),
+                ),
+            ])
+            .content();
+
+        // and
+        let args = prepare_args(vec![
+            ctx.trace_log_arg.as_str(),
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "reset-operations",
+        ]);
+        // when
+        cmd.args(args)
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        // and
+        let trace_content: String = read_to_string(ctx.test_trace_log_path.clone())?;
+        println!("{}", trace_content);
+
+        assert_contains_inorder!(trace_content, [
+            "Placement operations reset.\n",
+            "Phase operations reset. phase: bottom_1\n",
+            "Phase operations reset. phase: top_1\n",
+        ]);
+
+        // and
+        let project_content: String = read_to_string(ctx.test_project_path.clone())?;
+        println!("{}", project_content);
+
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
     fn assert_operation_history(mut operation_history: Vec<TestOperationHistoryItem>, operation_expectations: Vec<(&str, Option<(String, TestOperationHistoryKind)>)>) {
         for (index, (&ref expectation_operation, expectation)) in operation_expectations.iter().enumerate() {
 
@@ -1624,8 +1752,8 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_13_cleanup() {
-        let mut ctx_guard = context::aquire(13);
+    fn sequence_14_cleanup() {
+        let mut ctx_guard = context::aquire(14);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -1659,6 +1787,7 @@ mod help {
               generate-artifacts              Generate artifacts
               record-phase-operation          Record phase operation
               record-placements-operation     Record placements operation
+              reset-operations                Reset operations
               help                            Print this message or the help of the given subcommand(s)
 
             Options:
@@ -1968,6 +2097,7 @@ mod help {
             .stderr(print("stderr"))
             .stdout(print("stdout").and(predicate::str::diff(expected_output)));
     }
+
     #[test]
     fn help_for_record_placements_operation() {
         // given
@@ -1994,6 +2124,32 @@ mod help {
 
         // when
         cmd.args(["record-placements-operation", "--help"])
+            // then
+            .assert()
+            .success()
+            .stderr(print("stderr"))
+            .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+    }
+
+    #[test]
+    fn help_for_reset_operations() {
+        // given
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+
+        // and
+        let expected_output = indoc! {"
+            Reset operations
+
+            Usage: planner <--project <PROJECT_NAME>> reset-operations [OPTIONS]
+
+            Options:
+              -v, --verbose...  Increase logging verbosity
+              -q, --quiet...    Decrease logging verbosity
+              -h, --help        Print help
+        "};
+
+        // when
+        cmd.args(["reset-operations", "--help"])
             // then
             .assert()
             .success()

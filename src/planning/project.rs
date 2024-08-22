@@ -634,7 +634,6 @@ pub fn save(project: &Project, project_file_path: &PathBuf) -> anyhow::Result<()
 }
 
 pub fn update_placements_operation(project: &mut Project, path: &PathBuf, object_path_patterns: Vec<Regex>, operation: PlacementOperation) -> anyhow::Result<bool> {
-
     let mut modified = false;
     let mut history_item_map: HashMap<Reference, Vec<OperationHistoryItem>> = HashMap::new();
     
@@ -921,4 +920,31 @@ pub fn update_placement_orderings(project: &mut Project, reference: &Reference, 
     };
 
     Ok(modified)
+}
+
+pub fn reset_operations(project: &mut Project) -> anyhow::Result<()> {
+    
+    reset_placement_operations(project);
+    reset_phase_operations(project);
+    
+    update_phase_operation_states(project);
+    
+    Ok(())
+}
+
+fn reset_placement_operations(project: &mut Project) {
+    for (_object_path, placement_state) in project.placements.iter_mut() {
+        placement_state.placed = false;
+    }
+
+    info!("Placement operations reset.");
+}
+
+fn reset_phase_operations(project: &mut Project) {
+    for (reference, phase_state) in project.phase_states.iter_mut() {
+        for (_kind, state) in phase_state.operation_state.iter_mut() {
+            state.completed = false;
+        }
+        info!("Phase operations reset. phase: {}", reference);
+    }
 }

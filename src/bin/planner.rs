@@ -175,6 +175,9 @@ enum Command {
         /// The completed operation to apply
         #[arg(long)]
         operation: PlacementOperationArg,
+    },
+    /// Reset operations
+    ResetOperations {
     }
 }
 
@@ -316,6 +319,13 @@ fn main() -> anyhow::Result<()>{
             
             planning::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
         },
+        Command::ResetOperations { } => {
+            let mut project = project::load(&project_file_path)?;
+
+            project::reset_operations(&mut project)?;
+            
+            project::save(&project, &project_file_path)?;
+        }
     }
 
     Ok(())
