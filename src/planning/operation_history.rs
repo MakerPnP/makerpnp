@@ -10,6 +10,7 @@ use time::serde::rfc3339;
 use time::OffsetDateTime;
 use tracing::info;
 use crate::planning::placement::PlacementOperation;
+use crate::planning::process::ProcessOperationStatus;
 use crate::planning::reference::Reference;
 use crate::pnp::object_path::ObjectPath;
 
@@ -17,10 +18,10 @@ use crate::pnp::object_path::ObjectPath;
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
 #[cfg_attr(test, derive(PartialEq))]
 pub enum OperationHistoryKind {
-    LoadPcbs { completed: bool },
-    AutomatedPnp { completed: bool },
-    ReflowComponents { completed: bool },
-    ManuallySolderComponents { completed: bool },
+    LoadPcbs { status: ProcessOperationStatus },
+    AutomatedPnp { status: ProcessOperationStatus },
+    ReflowComponents { status: ProcessOperationStatus },
+    ManuallySolderComponents { status: ProcessOperationStatus },
     PlacementOperation {
         #[serde_as(as = "DisplayFromStr")]
         object_path: ObjectPath,

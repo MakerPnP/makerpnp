@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::{Display, Formatter};
 use rust_decimal::Decimal;
 use serde::Serialize;
 use serde_json::{json, Map, Number, Value};
@@ -18,7 +19,7 @@ pub struct TestProjectBuilder<'a> {
     ]>,
     phases: Option<&'a [(&'a str, &'a str, &'a str, &'a str, &'a [(&'a str, &'a str)])]>,
     phase_orderings: Option<&'a [&'a str]>,
-    phase_states: Option<&'a [(&'a str, &'a [(&'a str, bool, Option<TestProcessOperationExtraState>)])]>,
+    phase_states: Option<&'a [(&'a str, &'a [(&'a str, TestProcessOperationStatus, Option<TestProcessOperationExtraState>)])]>,
 }
 
 impl<'a> TestProjectBuilder<'a> {
@@ -133,10 +134,11 @@ impl<'a> TestProjectBuilder<'a> {
 
         if let Some(phase_states) = self.phase_states {
             let values = phase_states.iter().map(|(reference, operation_states)| {
-                let operation_state_entries= operation_states.iter().fold(Map::new(),|mut map, (operation, completed, extra_state)|{
+                let operation_state_entries = operation_states.iter().fold(Map::new(),|mut map, (operation, status, extra_state)|{
 
                     let mut operation_state_map = Map::new();
-                    operation_state_map.insert("completed".to_string(), Value::Bool(*completed));
+
+                    operation_state_map.insert("status".to_string(), Value::String(status.to_string()));
                     match extra_state {
                         Some(TestProcessOperationExtraState::PlacementOperation { placements_state }) => {
                             
@@ -238,7 +240,7 @@ impl<'a> TestProjectBuilder<'a> {
         self
     }
 
-    pub fn with_phase_states(mut self, phase_states: &'a [(&'a str, &'a [(&'a str, bool, Option<TestProcessOperationExtraState>)])]) -> Self {
+    pub fn with_phase_states(mut self, phase_states: &'a [(&'a str, &'a [(&'a str, TestProcessOperationStatus, Option<TestProcessOperationExtraState>)])]) -> Self {
         self.phase_states = Some(phase_states);
         self
     }
@@ -286,6 +288,23 @@ impl<'a> TestProjectBuilder<'a> {
 
     pub fn new() -> Self {
         Default::default()
+    }
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub enum TestProcessOperationStatus {
+    Pending,
+    Incomplete,
+    Complete
+}
+
+impl Display for TestProcessOperationStatus {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TestProcessOperationStatus::Pending => write!(f, "Pending"),
+            TestProcessOperationStatus::Incomplete => write!(f, "Incomplete"),
+            TestProcessOperationStatus::Complete => write!(f, "Complete"),
+        }
     }
 }
 

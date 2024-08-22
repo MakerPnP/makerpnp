@@ -51,10 +51,23 @@ pub enum ProcessError {
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, Default, PartialEq)]
 pub struct ProcessOperationState {
-    pub completed: bool,
+    pub status: ProcessOperationStatus,
     
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra: Option<ProcessOperationExtraState>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub enum ProcessOperationStatus {
+    Pending,
+    Incomplete,
+    Complete
+}
+
+impl Default for ProcessOperationStatus {
+    fn default() -> Self {
+        Self::Pending
+    }
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]

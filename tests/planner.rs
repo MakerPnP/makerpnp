@@ -17,7 +17,7 @@ mod operation_sequence_1 {
     use crate::common::load_out_builder::{LoadOutCSVBuilder, TestLoadOutRecord};
     use crate::common::operation_history::{TestOperationHistoryItem, TestOperationHistoryKind, TestOperationHistoryPlacementOperation};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
-    use crate::common::project_builder::{TestPlacementsState, TestProcessOperationExtraState, TestProjectBuilder};
+    use crate::common::project_builder::{TestProcessOperationStatus, TestPlacementsState, TestProcessOperationExtraState, TestProjectBuilder};
     use crate::common::project_report_builder::{ProjectReportBuilder, TestIssue, TestIssueKind, TestIssueSeverity, TestPart, TestPcb, TestPcbUnitAssignment, TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOperationKind, TestPhaseOperationOverview, TestPhaseOverview, TestPhaseSpecification};
 
     /// A context, which will be dropped when the tests are completed.
@@ -510,7 +510,7 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)])
+                    ("top_1", &[("LoadPcbs", TestProcessOperationStatus::Pending, None), ("AutomatedPnp", TestProcessOperationStatus::Pending, None), ("ReflowComponents", TestProcessOperationStatus::Pending, None)])
                 ]
             )
             .with_placements(&[
@@ -643,8 +643,8 @@ mod operation_sequence_1 {
             )
             .with_phase_states(
                 &[
-                    ("bottom_1", &[("LoadPcbs", false, None), ("ManuallySolderComponents", false, None)]),
-                    ("top_1", &[("LoadPcbs", false, None), ("AutomatedPnp", false, None), ("ReflowComponents", false, None)]),
+                    ("bottom_1", &[("LoadPcbs", TestProcessOperationStatus::Pending, None), ("ManuallySolderComponents", TestProcessOperationStatus::Pending, None)]),
+                    ("top_1", &[("LoadPcbs", TestProcessOperationStatus::Pending, None), ("AutomatedPnp", TestProcessOperationStatus::Pending, None), ("ReflowComponents", TestProcessOperationStatus::Pending, None)]),
                 ]
             )
             .with_placements(&[
@@ -777,13 +777,13 @@ mod operation_sequence_1 {
             .with_phase_states(
                 &[
                     ("bottom_1", &[
-                        ("LoadPcbs", false, None),
-                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("ManuallySolderComponents", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
                     ]),
                     ("top_1", &[
-                        ("LoadPcbs", false, None),
-                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
-                        ("ReflowComponents", false, None)
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("AutomatedPnp", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", TestProcessOperationStatus::Pending, None)
                     ]),
                 ]
             )
@@ -884,9 +884,9 @@ mod operation_sequence_1 {
             "Assigning placement to phase. phase: top_1, placement_path: panel=1::unit=1::ref_des=R3",
             // all phase status should be updated
             "Updating phase status. phase: bottom_1\n",
-            "Phase operation complete. phase: bottom_1, operation: ManuallySolderComponents\n",
+            "Phase operation pending. phase: bottom_1, operation: ManuallySolderComponents\n",
             "Updating phase status. phase: top_1\n",
-            "Phase operation incomplete. phase: top_1, operation: AutomatedPnp\n",
+            "Phase operation pending. phase: top_1, operation: AutomatedPnp\n",
             // part process should be updated
             "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: [\"pnp\"]",
             "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: [\"pnp\"]",
@@ -1007,13 +1007,13 @@ mod operation_sequence_1 {
             .with_phase_states(
                 &[
                     ("bottom_1", &[
-                        ("LoadPcbs", false, None),
-                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("ManuallySolderComponents", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
                     ]),
                     ("top_1", &[
-                        ("LoadPcbs", false, None),
-                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
-                        ("ReflowComponents", false, None)
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("AutomatedPnp", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", TestProcessOperationStatus::Pending, None)
                     ]),
                 ]
             )
@@ -1153,14 +1153,14 @@ mod operation_sequence_1 {
                     TestPhaseOperationOverview {
                         operation: TestPhaseOperationKind::PlaceComponents, 
                         message: "0/3 placements placed".to_string(),
-                        complete: false,
+                        status: TestProcessOperationStatus::Pending,
                     }
                 ]},
-                TestPhaseOverview { phase_name: "bottom_1".to_string(), status: "Complete".to_string(), process: "manual".to_string(), operations_overview: vec![
+                TestPhaseOverview { phase_name: "bottom_1".to_string(), status: "Incomplete".to_string(), process: "manual".to_string(), operations_overview: vec![
                     TestPhaseOperationOverview { 
                         operation: TestPhaseOperationKind::ManuallySolderComponents,
                         message: "0/0 placements placed".to_string(),
-                        complete: true,
+                        status: TestProcessOperationStatus::Pending,
                     }
                 ]},
             ])
@@ -1341,13 +1341,13 @@ mod operation_sequence_1 {
             .with_phase_states(
                 &[
                     ("bottom_1", &[
-                        ("LoadPcbs", false, None),
-                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("ManuallySolderComponents", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
                     ]),
                     ("top_1", &[
-                        ("LoadPcbs", true, None),
-                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
-                        ("ReflowComponents", false, None)
+                        ("LoadPcbs", TestProcessOperationStatus::Complete, None),
+                        ("AutomatedPnp", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", TestProcessOperationStatus::Pending, None)
                     ]),
                 ]
             )
@@ -1397,7 +1397,7 @@ mod operation_sequence_1 {
 
         // and
         let operation_expectations = vec![
-            ("require", Some(("top_1".to_string(), TestOperationHistoryKind::LoadPcbs { completed: true }))),
+            ("require", Some(("top_1".to_string(), TestOperationHistoryKind::LoadPcbs { status: TestProcessOperationStatus::Complete }))),
             ("eof", None),
         ];
 
@@ -1485,13 +1485,13 @@ mod operation_sequence_1 {
             .with_phase_states(
                 &[
                     ("bottom_1", &[
-                        ("LoadPcbs", false, None),
-                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("ManuallySolderComponents", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
                     ]),
                     ("top_1", &[
-                        ("LoadPcbs", true, None),
-                        ("AutomatedPnp", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 3, total: 3 }})),
-                        ("ReflowComponents", false, None)
+                        ("LoadPcbs", TestProcessOperationStatus::Complete, None),
+                        ("AutomatedPnp", TestProcessOperationStatus::Complete, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 3, total: 3 }})),
+                        ("ReflowComponents", TestProcessOperationStatus::Pending, None)
                     ]),
                 ]
             )
@@ -1637,14 +1637,13 @@ mod operation_sequence_1 {
             .with_phase_states(
                 &[
                     ("bottom_1", &[
-                        ("LoadPcbs", false, None),
-                        // FIXME after resetting the state, the operation should not be complete, consider adding a 'pending' state, since there are no placements for this phase yet.
-                        ("ManuallySolderComponents", true, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("ManuallySolderComponents", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 0 }}))
                     ]),
                     ("top_1", &[
-                        ("LoadPcbs", false, None),
-                        ("AutomatedPnp", false, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
-                        ("ReflowComponents", false, None)
+                        ("LoadPcbs", TestProcessOperationStatus::Pending, None),
+                        ("AutomatedPnp", TestProcessOperationStatus::Pending, Some(TestProcessOperationExtraState::PlacementOperation { placements_state: TestPlacementsState { placed: 0, total: 3 }})),
+                        ("ReflowComponents", TestProcessOperationStatus::Pending, None)
                     ]),
                 ]
             )

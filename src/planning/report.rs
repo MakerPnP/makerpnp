@@ -12,7 +12,7 @@ use std::io::Write;
 use crate::planning::design::{DesignName, DesignVariant};
 use crate::planning::pcb::{Pcb, PcbKind};
 use crate::planning::placement::{PlacementState, PlacementStatus};
-use crate::planning::process::{ProcessOperationExtraState, ProcessOperationKind};
+use crate::planning::process::{ProcessOperationExtraState, ProcessOperationKind, ProcessOperationStatus};
 use crate::planning::project::Project;
 use crate::planning::reference::Reference;
 use crate::planning::variant::VariantName;
@@ -58,22 +58,22 @@ pub fn project_generate_report(project: &Project, path: &PathBuf, name: &String,
                 let overview = match (operation, &operation_state.extra) {
 
                     (ProcessOperationKind::AutomatedPnp, Some(ProcessOperationExtraState::PlacementOperation { placements_state })) => {
-                        if phase_status == PhaseStatus::Complete && !operation_state.completed {
+                        if phase_status == PhaseStatus::Complete && operation_state.status != ProcessOperationStatus::Complete {
                             phase_status = PhaseStatus::Incomplete;
                         }
                         
                         let placements_message = format!("{}/{} placements placed", placements_state.placed, placements_state.total);
                         
-                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), complete: operation_state.completed })
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::PlaceComponents, message: placements_message.clone(), status: operation_state.status.clone() })
                     },
                     (ProcessOperationKind::ManuallySolderComponents, Some(ProcessOperationExtraState::PlacementOperation { placements_state })) => {
-                        if phase_status == PhaseStatus::Complete && !operation_state.completed {
+                        if phase_status == PhaseStatus::Complete && operation_state.status != ProcessOperationStatus::Complete {
                             phase_status = PhaseStatus::Incomplete;
                         }
 
                         let placements_message = format!("{}/{} placements placed", placements_state.placed, placements_state.total);
 
-                        Some(PhaseOperationOverview { operation: PhaseOperationKind::ManuallySolderComponents, message: placements_message.clone(), complete: operation_state.completed })
+                        Some(PhaseOperationOverview { operation: PhaseOperationKind::ManuallySolderComponents, message: placements_message.clone(), status: operation_state.status.clone() })
                     },
                     (_, _) => None,
                 };
@@ -606,7 +606,7 @@ pub struct PhaseSpecification {
 pub struct PhaseOperationOverview {
     pub operation: PhaseOperationKind,
     pub message: String,
-    pub complete: bool,
+    pub status: ProcessOperationStatus,
 }
 
 #[serde_as]

@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use time::serde::rfc3339;
 use time::{OffsetDateTime};
+use crate::common::project_builder::TestProcessOperationStatus;
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
 pub enum TestOperationHistoryPlacementOperation {
@@ -10,7 +11,8 @@ pub enum TestOperationHistoryPlacementOperation {
 
 #[derive(Debug, Clone, serde::Deserialize, PartialEq)]
 pub enum TestOperationHistoryKind {
-    LoadPcbs { completed: bool },
+    LoadPcbs { status: TestProcessOperationStatus },
+    // FUTURE add support for other kinds that can be used, see `OperationHistoryKind` 
     PlacementOperation { object_path: String, operation: TestOperationHistoryPlacementOperation },
 }
 

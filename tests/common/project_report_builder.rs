@@ -1,4 +1,5 @@
 use serde::Serialize;
+use crate::common::project_builder::TestProcessOperationStatus;
 
 #[derive(Default)]
 pub struct ProjectReportBuilder {
@@ -69,7 +70,7 @@ pub struct TestPhaseOverview {
 pub struct TestPhaseOperationOverview {
     pub operation: TestPhaseOperationKind,
     pub message: String,
-    pub complete: bool
+    pub status: TestProcessOperationStatus,
 }
 
 #[derive(Clone, serde::Serialize)]

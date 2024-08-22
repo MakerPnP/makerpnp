@@ -25,7 +25,7 @@ use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseError, PhaseOrderings, PhaseState};
 use crate::planning::placement::{PlacementOperation, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::{PlacementsState, Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationExtraState, ProcessOperationKind, ProcessOperationSetItem, ProcessOperationState};
+use crate::planning::process::{PlacementsState, Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationExtraState, ProcessOperationKind, ProcessOperationSetItem, ProcessOperationState, ProcessOperationStatus};
 use crate::planning::{operation_history, placement, report};
 use crate::planning::operation_history::{OperationHistoryItem, OperationHistoryKind};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
@@ -720,8 +720,15 @@ pub fn update_phase_operation_states(project: &mut Project) -> bool {
                         state
                     });
 
-                let completed = placements_state.are_all_placements_placed();
-                Some((placements_state, completed))
+                let status = if placements_state.total == 0 || placements_state.placed == 0 {
+                    ProcessOperationStatus::Pending
+                } else if placements_state.are_all_placements_placed() {
+                    ProcessOperationStatus::Complete
+                } else {
+                    ProcessOperationStatus::Incomplete
+                };
+
+                Some((placements_state, status))
             } else {
                 None
             };
@@ -731,12 +738,12 @@ pub fn update_phase_operation_states(project: &mut Project) -> bool {
             let original_operation_state = operation_state.clone();
 
             match (&maybe_state, operation) {
-                (Some((placements_state, completed)), ProcessOperationKind::AutomatedPnp) => {
-                    operation_state.completed = *completed;
+                (Some((placements_state, status)), ProcessOperationKind::AutomatedPnp) => {
+                    operation_state.status = status.clone();
                     operation_state.extra = Some(ProcessOperationExtraState::PlacementOperation { placements_state: placements_state.clone() });
-                },
-                (Some((placements_state, completed)), ProcessOperationKind::ManuallySolderComponents) => {
-                    operation_state.completed = *completed;
+                }
+                (Some((placements_state, status)), ProcessOperationKind::ManuallySolderComponents) => {
+                    operation_state.status = status.clone();
                     operation_state.extra = Some(ProcessOperationExtraState::PlacementOperation { placements_state: placements_state.clone() });
                 },
                 (_, _) => {}
@@ -747,10 +754,11 @@ pub fn update_phase_operation_states(project: &mut Project) -> bool {
             if phase_operation_modified {
                 info!("Updating phase status. phase: {}", reference);
 
-                if let Some((_maybe_state, completed)) = maybe_state {
-                    match completed {
-                        true => info!("Phase operation complete. phase: {}, operation: {:?}", reference, operation),
-                        false => info!("Phase operation incomplete. phase: {}, operation: {:?}", reference, operation),
+                if let Some((_maybe_state, status)) = maybe_state {
+                    match status {
+                        ProcessOperationStatus::Complete => info!("Phase operation complete. phase: {}, operation: {:?}", reference, operation),
+                        ProcessOperationStatus::Incomplete => info!("Phase operation incomplete. phase: {}, operation: {:?}", reference, operation),
+                        ProcessOperationStatus::Pending => info!("Phase operation pending. phase: {}, operation: {:?}", reference, operation),
                     }
                 }
             }
@@ -780,9 +788,9 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
 
     match set_item {
         ProcessOperationSetItem::Completed => {
-            if !state.completed {
+            if state.status.ne(&ProcessOperationStatus::Complete) {
 
-                state.completed = true;
+                state.status = ProcessOperationStatus::Complete;
                 modified = true;
             }
         }
@@ -815,10 +823,10 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
 
 fn build_history_operation_kind(operation: &ProcessOperationKind, state: &ProcessOperationState) -> OperationHistoryKind {
     match operation {
-        ProcessOperationKind::LoadPcbs => OperationHistoryKind::LoadPcbs { completed: state.completed },
-        ProcessOperationKind::AutomatedPnp => OperationHistoryKind::AutomatedPnp { completed: state.completed },
-        ProcessOperationKind::ReflowComponents => OperationHistoryKind::ReflowComponents { completed: state.completed },
-        ProcessOperationKind::ManuallySolderComponents => OperationHistoryKind::ManuallySolderComponents { completed: state.completed },
+        ProcessOperationKind::LoadPcbs => OperationHistoryKind::LoadPcbs { status: state.status.clone() },
+        ProcessOperationKind::AutomatedPnp => OperationHistoryKind::AutomatedPnp { status: state.status.clone() },
+        ProcessOperationKind::ReflowComponents => OperationHistoryKind::ReflowComponents { status: state.status.clone() },
+        ProcessOperationKind::ManuallySolderComponents => OperationHistoryKind::ManuallySolderComponents { status: state.status.clone() },
     }
 }
 
@@ -826,18 +834,19 @@ fn build_history_operation_kind(operation: &ProcessOperationKind, state: &Proces
 mod build_history_operation_kind {
     use rstest::rstest;
     use crate::planning::operation_history::OperationHistoryKind;
-    use crate::planning::process::{ProcessOperationKind, ProcessOperationState};
+    use crate::planning::process::{ProcessOperationKind, ProcessOperationState, ProcessOperationStatus};
     use crate::planning::project::build_history_operation_kind;
 
     #[rstest]
-    #[case(true)]
-    #[case(false)]
-    pub fn for_load_pcbs(#[case] completed: bool) {
+    #[case(ProcessOperationStatus::Pending)]
+    #[case(ProcessOperationStatus::Incomplete)]
+    #[case(ProcessOperationStatus::Complete)]
+    pub fn for_load_pcbs(#[case] status: ProcessOperationStatus) {
         // given
-        let state = ProcessOperationState { completed, extra: None };
+        let state = ProcessOperationState { status: status.clone(), extra: None };
         
         // and
-        let expected_result: OperationHistoryKind = OperationHistoryKind::LoadPcbs { completed }; 
+        let expected_result: OperationHistoryKind = OperationHistoryKind::LoadPcbs { status: status.clone() }; 
         
         // when
         let result = build_history_operation_kind(&ProcessOperationKind::LoadPcbs, &state);
@@ -847,14 +856,15 @@ mod build_history_operation_kind {
     }
 
     #[rstest]
-    #[case(true)]
-    #[case(false)]
-    pub fn for_automated_pnp(#[case] completed: bool) {
+    #[case(ProcessOperationStatus::Pending)]
+    #[case(ProcessOperationStatus::Incomplete)]
+    #[case(ProcessOperationStatus::Complete)]
+    pub fn for_automated_pnp(#[case] status: ProcessOperationStatus) {
         // given
-        let state = ProcessOperationState { completed, extra: None };
+        let state = ProcessOperationState { status: status.clone(), extra: None };
 
         // and
-        let expected_result: OperationHistoryKind = OperationHistoryKind::AutomatedPnp { completed };
+        let expected_result: OperationHistoryKind = OperationHistoryKind::AutomatedPnp { status: status.clone() };
 
         // when
         let result = build_history_operation_kind(&ProcessOperationKind::AutomatedPnp, &state);
@@ -864,14 +874,15 @@ mod build_history_operation_kind {
     }
 
     #[rstest]
-    #[case(true)]
-    #[case(false)]
-    pub fn for_manually_solder_components(#[case] completed: bool) {
+    #[case(ProcessOperationStatus::Pending)]
+    #[case(ProcessOperationStatus::Incomplete)]
+    #[case(ProcessOperationStatus::Complete)]
+    pub fn for_manually_solder_components(#[case] status: ProcessOperationStatus) {
         // given
-        let state = ProcessOperationState { completed, extra: None };
+        let state = ProcessOperationState { status: status.clone(), extra: None };
 
         // and
-        let expected_result: OperationHistoryKind = OperationHistoryKind::ManuallySolderComponents { completed };
+        let expected_result: OperationHistoryKind = OperationHistoryKind::ManuallySolderComponents { status: status.clone() };
 
         // when
         let result = build_history_operation_kind(&ProcessOperationKind::ManuallySolderComponents, &state);
@@ -881,14 +892,15 @@ mod build_history_operation_kind {
     }
 
     #[rstest]
-    #[case(true)]
-    #[case(false)]
-    pub fn for_reflow_components(#[case] completed: bool) {
+    #[case(ProcessOperationStatus::Pending)]
+    #[case(ProcessOperationStatus::Incomplete)]
+    #[case(ProcessOperationStatus::Complete)]
+    pub fn for_reflow_components(#[case] status: ProcessOperationStatus) {
         // given
-        let state = ProcessOperationState { completed, extra: None };
+        let state = ProcessOperationState { status: status.clone(), extra: None };
 
         // and
-        let expected_result: OperationHistoryKind = OperationHistoryKind::ReflowComponents { completed };
+        let expected_result: OperationHistoryKind = OperationHistoryKind::ReflowComponents { status: status.clone() };
 
         // when
         let result = build_history_operation_kind(&ProcessOperationKind::ReflowComponents, &state);
@@ -943,7 +955,7 @@ fn reset_placement_operations(project: &mut Project) {
 fn reset_phase_operations(project: &mut Project) {
     for (reference, phase_state) in project.phase_states.iter_mut() {
         for (_kind, state) in phase_state.operation_state.iter_mut() {
-            state.completed = false;
+            state.status = ProcessOperationStatus::Pending;
         }
         info!("Phase operations reset. phase: {}", reference);
     }
