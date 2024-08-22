@@ -15,11 +15,12 @@ use crate::pnp::object_path::ObjectPath;
 
 #[serde_as]
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[cfg_attr(test, derive(PartialEq))]
 pub enum OperationHistoryKind {
     LoadPcbs { completed: bool },
-    AutomatedPnp,
-    ReflowComponents,
-    ManuallySolderComponents,
+    AutomatedPnp { completed: bool },
+    ReflowComponents { completed: bool },
+    ManuallySolderComponents { completed: bool },
     PlacementOperation {
         #[serde_as(as = "DisplayFromStr")]
         object_path: ObjectPath,
@@ -66,6 +67,6 @@ pub fn read_or_default(phase_log_path: &PathBuf) -> Result<Vec<OperationHistoryI
     let file = File::open(phase_log_path.clone())?;
 
     let operation_history = serde_json::from_reader(file)?;
-    
+
     Ok(operation_history)
 }

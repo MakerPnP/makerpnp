@@ -25,7 +25,7 @@ use crate::planning::part::PartState;
 use crate::planning::pcb::{Pcb, PcbKind, PcbSide};
 use crate::planning::phase::{Phase, PhaseError, PhaseOrderings, PhaseState};
 use crate::planning::placement::{PlacementOperation, PlacementSortingItem, PlacementSortingMode, PlacementState, PlacementStatus};
-use crate::planning::process::{PlacementsState, Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationExtraState, ProcessOperationKind, ProcessOperationSetItem};
+use crate::planning::process::{PlacementsState, Process, ProcessError, ProcessName, ProcessNameError, ProcessOperationExtraState, ProcessOperationKind, ProcessOperationSetItem, ProcessOperationState};
 use crate::planning::{operation_history, placement, report};
 use crate::planning::operation_history::{OperationHistoryItem, OperationHistoryKind};
 use crate::planning::report::{IssueKind, IssueSeverity, ProjectReportIssue};
@@ -790,12 +790,7 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
     }
 
     if modified {
-        let history_operation = match operation {
-            ProcessOperationKind::LoadPcbs => OperationHistoryKind::LoadPcbs { completed: state.completed },
-            ProcessOperationKind::AutomatedPnp => OperationHistoryKind::AutomatedPnp {},
-            ProcessOperationKind::ReflowComponents => OperationHistoryKind::ReflowComponents {},
-            ProcessOperationKind::ManuallySolderComponents => OperationHistoryKind::ManuallySolderComponents {},
-        };
+        let history_operation = build_history_operation_kind(&operation, state);
 
         let now = OffsetDateTime::now_utc();
 
@@ -817,6 +812,92 @@ pub fn update_phase_operation(project: &mut Project, path: &PathBuf, phase_refer
     }
 
     Ok(modified)
+}
+
+fn build_history_operation_kind(operation: &ProcessOperationKind, state: &ProcessOperationState) -> OperationHistoryKind {
+    match operation {
+        ProcessOperationKind::LoadPcbs => OperationHistoryKind::LoadPcbs { completed: state.completed },
+        ProcessOperationKind::AutomatedPnp => OperationHistoryKind::AutomatedPnp { completed: state.completed },
+        ProcessOperationKind::ReflowComponents => OperationHistoryKind::ReflowComponents { completed: state.completed },
+        ProcessOperationKind::ManuallySolderComponents => OperationHistoryKind::ManuallySolderComponents { completed: state.completed },
+    }
+}
+
+#[cfg(test)]
+mod build_history_operation_kind {
+    use rstest::rstest;
+    use crate::planning::operation_history::OperationHistoryKind;
+    use crate::planning::process::{ProcessOperationKind, ProcessOperationState};
+    use crate::planning::project::build_history_operation_kind;
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    pub fn for_load_pcbs(#[case] completed: bool) {
+        // given
+        let state = ProcessOperationState { completed, extra: None };
+        
+        // and
+        let expected_result: OperationHistoryKind = OperationHistoryKind::LoadPcbs { completed }; 
+        
+        // when
+        let result = build_history_operation_kind(&ProcessOperationKind::LoadPcbs, &state);
+        
+        // then
+        assert_eq!(result, expected_result)
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    pub fn for_automated_pnp(#[case] completed: bool) {
+        // given
+        let state = ProcessOperationState { completed, extra: None };
+
+        // and
+        let expected_result: OperationHistoryKind = OperationHistoryKind::AutomatedPnp { completed };
+
+        // when
+        let result = build_history_operation_kind(&ProcessOperationKind::AutomatedPnp, &state);
+
+        // then
+        assert_eq!(result, expected_result)
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    pub fn for_manually_solder_components(#[case] completed: bool) {
+        // given
+        let state = ProcessOperationState { completed, extra: None };
+
+        // and
+        let expected_result: OperationHistoryKind = OperationHistoryKind::ManuallySolderComponents { completed };
+
+        // when
+        let result = build_history_operation_kind(&ProcessOperationKind::ManuallySolderComponents, &state);
+
+        // then
+        assert_eq!(result, expected_result)
+    }
+
+    #[rstest]
+    #[case(true)]
+    #[case(false)]
+    pub fn for_reflow_components(#[case] completed: bool) {
+        // given
+        let state = ProcessOperationState { completed, extra: None };
+
+        // and
+        let expected_result: OperationHistoryKind = OperationHistoryKind::ReflowComponents { completed };
+
+        // when
+        let result = build_history_operation_kind(&ProcessOperationKind::ReflowComponents, &state);
+
+        // then
+        assert_eq!(result, expected_result)
+    }
+
 }
 
 pub fn update_placement_orderings(project: &mut Project, reference: &Reference, placement_orderings: &Vec<PlacementSortingItem>) -> anyhow::Result<bool> {

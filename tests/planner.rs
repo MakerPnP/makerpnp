@@ -1953,7 +1953,7 @@ mod help {
 
             Options:
                   --phase <PHASE>          Phase reference (e.g. 'top_1')
-                  --operation <OPERATION>  The operation to update [possible values: loadpcbs]
+                  --operation <OPERATION>  The operation to update [possible values: loadpcbs, automatedpnp, reflowcomponents, manuallysoldercomponents]
                   --set <SET>              The process operation to set [possible values: completed]
               -v, --verbose...             Increase logging verbosity
               -q, --quiet...               Decrease logging verbosity

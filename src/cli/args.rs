@@ -113,13 +113,39 @@ impl From<PlacementOperationArg> for PlacementOperation {
 pub enum ProcessOperationArg {
     #[value(name("loadpcbs"))]
     LoadPcbs,
+    #[value(name("automatedpnp"))]
+    AutomatedPnp,
+    #[value(name("reflowcomponents"))]
+    ReflowComponents,
+    #[value(name("manuallysoldercomponents"))]
+    ManuallySolderComponents,
 }
 
 impl From<ProcessOperationArg> for ProcessOperationKind {
     fn from(value: ProcessOperationArg) -> Self {
         match value {
-            ProcessOperationArg::LoadPcbs => ProcessOperationKind::LoadPcbs
+            ProcessOperationArg::LoadPcbs => ProcessOperationKind::LoadPcbs,
+            ProcessOperationArg::AutomatedPnp => ProcessOperationKind::AutomatedPnp,
+            ProcessOperationArg::ReflowComponents => ProcessOperationKind::ReflowComponents,
+            ProcessOperationArg::ManuallySolderComponents => ProcessOperationKind::ManuallySolderComponents,
         }
+    }
+}
+
+#[cfg(test)]
+mod from_process_operation_arg_for_process_operation_kind_tests {
+    use rstest::rstest;
+    use crate::cli::args::ProcessOperationArg;
+    use crate::planning::process::ProcessOperationKind;
+
+    #[rstest]
+    #[case(ProcessOperationArg::LoadPcbs, ProcessOperationKind::LoadPcbs)]
+    #[case(ProcessOperationArg::AutomatedPnp, ProcessOperationKind::AutomatedPnp)]
+    #[case(ProcessOperationArg::ReflowComponents, ProcessOperationKind::ReflowComponents)]
+    #[case(ProcessOperationArg::ManuallySolderComponents, ProcessOperationKind::ManuallySolderComponents)]
+    pub fn from(#[case] arg: ProcessOperationArg, #[case] expected_kind: ProcessOperationKind) {
+        // expect 
+        assert_eq!(ProcessOperationKind::from(arg), expected_kind)
     }
 }
 
