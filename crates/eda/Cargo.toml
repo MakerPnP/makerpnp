@@ -1,0 +1,20 @@
+[package]
+name = "eda"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pnp = { path = "../pnp" }
+criteria = { path = "../criteria" }
+#util = { path = "../util" }
+
+thiserror = { version = "1.0.61" }
+regex = "1.10.6"
+
+rust_decimal = { version = "1.35.0"}
+rust_decimal_macros = { version = "1.35"}
+
+serde = { version = "1.0.203", features = ["derive"] }
+
+[dev-dependencies]
+rstest = { version = "0.22.0" }

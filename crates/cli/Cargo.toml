@@ -1,0 +1,28 @@
+[package]
+name = "cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+planning = { path = "../planning" }
+eda = { path = "../eda" }
+pnp = { path = "../pnp" }
+util = { path = "../util" }
+
+clap = { version = "4.5.8", features = ["derive", "env"] }
+clap-verbosity-flag = { version = "2.2.1" }
+
+tracing = { version = "0.1.40", optional = true }
+tracing-subscriber = { version = "0.3.18", optional = true }
+# only for `as_trace`
+tracing-log = { version = "0.2.0" }
+anyhow = "1.0.86"
+
+[dev-dependencies]
+rstest = { version = "0.22.0" }
+
+[features]
+tracing = [
+    "dep:tracing",
+    "dep:tracing-subscriber",
+]

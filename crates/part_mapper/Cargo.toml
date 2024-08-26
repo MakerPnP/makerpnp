@@ -1,0 +1,16 @@
+[package]
+name = "part_mapper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pnp = { path = "../pnp"}
+assembly = { path = "../assembly"}
+eda = { path = "../eda"}
+criteria = { path = "../criteria"}
+util = { path = "../util"}
+
+regex = "1.10.6"
+
+[features]
+testing = []

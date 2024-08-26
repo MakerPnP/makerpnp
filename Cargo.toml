@@ -1,61 +1,20 @@
-[package]
-name = "makerpnp"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+# Due to the requirement for test dependencies, binaries we need to use the resolver otherwise
+# the "testing" feature gets pulled in when you don't want it to.
+# See https://github.com/rust-lang/cargo/issues/4866
+# See https://doc.rust-lang.org/beta/cargo/reference/resolver.html#resolver-versions
+resolver = "2"
 
-[dependencies]
-thiserror = { version = "1.0.61" }
-heck = { version = "0.5.0" }
-regex = { version = "1.10.5" }
-anyhow = { version = "1.0.86" }
-csv = { version = "1.3.0" }
-rust_decimal = { version = "1.35.0"}
-rust_decimal_macros = { version = "1.35"}
-indexmap = { version = "2.4.0", features = ["serde"] }
-
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = { version = "1.0.120", features = ["preserve_order"] }
-serde_with = { version = "3.9.0" }
-
-tracing = { version = "0.1.40" }
-tracing-subscriber = { version = "0.3.18" }
-# only for `as_trace`
-tracing-log = { version = "0.2.0" }
-
-clap = { version = "4.5.8", features = ["derive", "env"], optional = true }
-clap-verbosity-flag = { version = "2.2.1", optional = true }
-argfile = { version = "0.2.1", optional = true }
-termtree = { version = "0.4.1", optional = true }
-time = { version = "0.3.36", features = ["serde", "serde-well-known"] }
-
-[dev-dependencies]
-predicates = {  version = "3.1.0" }
-predicates-tree = { version = "1.0.9" }
-assert_cmd = { version = "2.0.14" }
-tempfile = { version = "3.10.1" }
-indoc = { version = "2.0.5" }
-csv = { version = "1.3.0" }
-serde = { version = "1.0.203", features = ["derive"] }
-assert_fs = { version = "1.1.1" }
-rstest = { version = "0.22.0" }
-
-[features]
-cli = [
-    "dep:clap",
-    "dep:clap-verbosity-flag",
-    "dep:argfile",
-    "dep:termtree",
+members = [ "crates/cli",
+    "crates/pnp",
+    "crates/cli",
+    "crates/planning",
+    "crates/stores",
+    "crates/part_mapper",
+    "crates/assembly",
+    "crates/eda",
+    "crates/util",
+    "crates/criteria",
+    "crates/variantbuilder",
+    "crates/planner",
 ]
-
-[[bin]]
-name = "variantbuilder"
-test = true
-bench = false
-required-features = ["cli"]
-
-
-[[bin]]
-name = "planner"
-test = true
-bench = false
-required-features = ["cli"]

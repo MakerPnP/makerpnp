@@ -1,0 +1,30 @@
+[package]
+name = "planning"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pnp = { path = "../pnp" }
+util = { path = "../util" }
+
+anyhow = { version = "1.0.86" }
+#decimal = "2.1.0"
+thiserror = { version = "1.0.61" }
+regex = { version = "1.10.5" }
+time = { version = "0.3.36", features = ["serde", "serde-well-known"] }
+
+rust_decimal = { version = "1.35.0"}
+rust_decimal_macros = { version = "1.35"}
+
+serde = { version = "1.0.203", features = ["derive"] }
+serde_json = { version = "1.0.120", features = ["preserve_order"] }
+serde_with = { version = "3.9.0" }
+
+tracing = { version = "0.1.40"}
+
+indexmap = { version = "2.4.0", features = ["serde"] }
+heck = "0.5.0"
+csv = "1.3.0"
+
+[dev-dependencies]
+rstest = { version = "0.22.0" }
