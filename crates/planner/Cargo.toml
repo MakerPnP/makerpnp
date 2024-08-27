@@ -16,6 +16,12 @@ argfile = { workspace = true }
 regex = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+serde = { workspace = true }
+
+crux_core = { workspace = true }
+crossbeam-channel = { workspace = true }
 
 [dev-dependencies]
 util = { path = "../util", features = ["testing"]}
