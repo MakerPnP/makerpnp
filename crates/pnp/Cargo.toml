@@ -1,0 +1,16 @@
+[package]
+name = "pnp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = { workspace = true }
+rust_decimal = { workspace = true}
+rust_decimal_macros = { workspace = true }
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+serde_with = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

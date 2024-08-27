@@ -1,0 +1,36 @@
+[package]
+name = "stores"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+assembly = { path = "../assembly"}
+criteria = { path = "../criteria"}
+pnp = { path = "../pnp"}
+eda = { path = "../eda"}
+util = { path = "../util"}
+planning = { path = "../planning"}
+part_mapper = { path = "../part_mapper"}
+
+anyhow = { workspace = true }
+regex = { workspace = true }
+thiserror = { workspace = true }
+
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+
+csv = { workspace = true }
+
+serde = { workspace = true , features = ["derive"] }
+
+tracing = { workspace = true }
+heck = { workspace = true }
+
+[dev-dependencies]
+assert_fs = { workspace = true }
+stores = { path = ".", features = ["testing"] }
+
+[features]
+testing = [
+    "part_mapper/testing"
+]

@@ -1,0 +1,37 @@
+[package]
+name = "variantbuilder"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cli = { path = "../cli"}
+assembly = { path = "../assembly"}
+part_mapper = { path = "../part_mapper"}
+pnp = { path = "../pnp"}
+eda = { path = "../eda"}
+stores = { path = "../stores"}
+util = { path = "../util"}
+
+clap = { workspace = true, features = ["derive"] }
+clap-verbosity-flag = { workspace = true }
+argfile = { workspace = true }
+tracing = "0.1.40"
+anyhow = "1.0.86"
+csv = { workspace = true }
+termtree = { workspace = true }
+thiserror = "1.0.63"
+
+[dev-dependencies]
+util = { path = "../util", features = ["testing"]}
+
+assert_cmd = { workspace = true }
+assert_fs = { workspace = true }
+csv = { workspace = true }
+indoc = { workspace = true }
+tempfile = { workspace = true }
+predicates = { workspace = true }
+predicates-tree = { workspace = true }
+rust_decimal = { workspace = true}
+rust_decimal_macros = { workspace = true}
+
+serde = { workspace = true, features = ["derive"] }

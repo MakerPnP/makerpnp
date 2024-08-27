@@ -1,0 +1,20 @@
+[package]
+name = "eda"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pnp = { path = "../pnp" }
+criteria = { path = "../criteria" }
+#util = { path = "../util" }
+
+thiserror = { workspace = true }
+regex = { workspace = true }
+
+rust_decimal = { workspace = true}
+rust_decimal_macros = { workspace = true}
+
+serde = { workspace = true, features = ["derive"] }
+
+[dev-dependencies]
+rstest = { workspace = true }

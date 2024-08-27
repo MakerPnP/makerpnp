@@ -1,0 +1,32 @@
+[package]
+name = "planner"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cli = { path = "../cli", features = ["tracing"]}
+planning = { path = "../planning"}
+pnp = { path = "../pnp"}
+stores = { path = "../stores"}
+util = { path = "../util"}
+
+clap = { workspace = true, features = ["derive"] }
+clap-verbosity-flag = { workspace = true }
+argfile = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+util = { path = "../util", features = ["testing"]}
+
+assert_cmd = { workspace = true  }
+tempfile = { workspace = true  }
+indoc = { workspace = true  }
+predicates = { workspace = true   }
+csv = { workspace = true  }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true , features = ["derive"] }
+serde_json = { workspace = true  }
+time = { workspace = true  }

@@ -1,0 +1,28 @@
+[package]
+name = "planning"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pnp = { path = "../pnp" }
+util = { path = "../util" }
+
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+time = { workspace = true, features = ["serde", "serde-well-known"] }
+
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true,  features = ["derive"] }
+serde_json = { workspace = true,  features = ["preserve_order"] }
+serde_with = { workspace = true }
+
+tracing = { workspace = true }
+
+indexmap = { workspace = true, features = ["serde"] }
+heck = { workspace = true }
+csv = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }
