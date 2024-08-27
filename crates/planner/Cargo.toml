@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 cli = { path = "../cli", features = ["tracing"]}
 planning = { path = "../planning"}
+planner_app = { path = "../planner_app" }
 pnp = { path = "../pnp"}
 stores = { path = "../stores"}
 util = { path = "../util"}

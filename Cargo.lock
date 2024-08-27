@@ -975,6 +975,7 @@ dependencies = [
  "crux_core",
  "csv",
  "indoc",
+ "planner_app",
  "planning",
  "pnp",
  "predicates",
@@ -989,6 +990,20 @@ dependencies = [
  "time",
  "tracing",
  "util",
+]
+
+[[package]]
+name = "planner_app"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossbeam-channel",
+ "crux_core",
+ "planning",
+ "pnp",
+ "serde",
+ "thiserror",
+ "tracing",
 ]
 
 [[package]]

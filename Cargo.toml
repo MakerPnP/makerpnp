@@ -17,6 +17,7 @@ members = [ "crates/cli",
     "crates/criteria",
     "crates/variantbuilder",
     "crates/planner",
+    "crates/planner_app",
 ]
 
 [workspace.dependencies]

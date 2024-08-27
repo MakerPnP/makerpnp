@@ -214,6 +214,8 @@ impl Default for Project {
 
 #[derive(Error, Debug)]
 pub enum PcbOperationError {
+    #[error("Unknown error")]
+    Unknown
 }
 
 pub fn add_pcb(project: &mut Project, kind: PcbKind, name: String) -> Result<(), PcbOperationError> {
