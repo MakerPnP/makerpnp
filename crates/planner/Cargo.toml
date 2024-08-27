@@ -10,23 +10,23 @@ pnp = { path = "../pnp"}
 stores = { path = "../stores"}
 util = { path = "../util"}
 
-clap = { version = "4.5.16", features = ["derive"] }
-clap-verbosity-flag = { version = "2.2.1" }
-argfile = { version = "0.2.1"}
-regex = "1.10.6"
-tracing = "0.1.40"
-anyhow = "1.0.86"
+clap = { workspace = true, features = ["derive"] }
+clap-verbosity-flag = { workspace = true }
+argfile = { workspace = true }
+regex = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
 
 [dev-dependencies]
 util = { path = "../util", features = ["testing"]}
 
-assert_cmd = { version = "2.0.14" }
-tempfile = { version = "3.10.1" }
-indoc = { version = "2.0.5" }
-predicates = {  version = "3.1.0" }
-csv = { version = "1.3.0" }
-rust_decimal = { version = "1.35.0"}
-rust_decimal_macros = { version = "1.35"}
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = { version = "1.0.127" }
-time = { version = "0.3.36" }
+assert_cmd = { workspace = true  }
+tempfile = { workspace = true  }
+indoc = { workspace = true  }
+predicates = { workspace = true   }
+csv = { workspace = true  }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true , features = ["derive"] }
+serde_json = { workspace = true  }
+time = { workspace = true  }

@@ -8,13 +8,13 @@ pnp = { path = "../pnp" }
 criteria = { path = "../criteria" }
 #util = { path = "../util" }
 
-thiserror = { version = "1.0.61" }
-regex = "1.10.6"
+thiserror = { workspace = true }
+regex = { workspace = true }
 
-rust_decimal = { version = "1.35.0"}
-rust_decimal_macros = { version = "1.35"}
+rust_decimal = { workspace = true}
+rust_decimal_macros = { workspace = true}
 
-serde = { version = "1.0.203", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
-rstest = { version = "0.22.0" }
+rstest = { workspace = true }

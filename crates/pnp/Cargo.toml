@@ -4,14 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-decimal = "2.1.0"
-thiserror = { version = "1.0.61" }
-rust_decimal = { version = "1.35.0"}
-rust_decimal_macros = { version = "1.35"}
+thiserror = { workspace = true }
+rust_decimal = { workspace = true}
+rust_decimal_macros = { workspace = true }
 
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = { version = "1.0.120", features = ["preserve_order"] }
-serde_with = { version = "3.9.0" }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["preserve_order"] }
+serde_with = { workspace = true }
 
 [dev-dependencies]
-rstest = { version = "0.22.0" }
+rstest = { workspace = true }

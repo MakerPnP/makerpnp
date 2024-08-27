@@ -7,24 +7,22 @@ edition = "2021"
 pnp = { path = "../pnp" }
 util = { path = "../util" }
 
-anyhow = { version = "1.0.86" }
-#decimal = "2.1.0"
-thiserror = { version = "1.0.61" }
-regex = { version = "1.10.5" }
-time = { version = "0.3.36", features = ["serde", "serde-well-known"] }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+regex = { workspace = true }
+time = { workspace = true, features = ["serde", "serde-well-known"] }
 
-rust_decimal = { version = "1.35.0"}
-rust_decimal_macros = { version = "1.35"}
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }
+serde = { workspace = true,  features = ["derive"] }
+serde_json = { workspace = true,  features = ["preserve_order"] }
+serde_with = { workspace = true }
 
-serde = { version = "1.0.203", features = ["derive"] }
-serde_json = { version = "1.0.120", features = ["preserve_order"] }
-serde_with = { version = "3.9.0" }
+tracing = { workspace = true }
 
-tracing = { version = "0.1.40"}
-
-indexmap = { version = "2.4.0", features = ["serde"] }
-heck = "0.5.0"
-csv = "1.3.0"
+indexmap = { workspace = true, features = ["serde"] }
+heck = { workspace = true }
+csv = { workspace = true }
 
 [dev-dependencies]
-rstest = { version = "0.22.0" }
+rstest = { workspace = true }

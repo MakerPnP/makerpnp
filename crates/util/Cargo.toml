@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { version = "1.0.203", features = ["derive"] }
-tempfile = { version = "3.10.1", optional = true }
-predicates = { version = "3.1.2", optional = true }
+serde = { workspace = true, features = ["derive"] }
+tempfile = { workspace = true, optional = true }
+predicates = { workspace = true, optional = true }
 
 [features]
 testing = [

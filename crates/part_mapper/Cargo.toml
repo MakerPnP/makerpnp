@@ -10,7 +10,7 @@ eda = { path = "../eda"}
 criteria = { path = "../criteria"}
 util = { path = "../util"}
 
-regex = "1.10.6"
+regex = { workspace = true }
 
 [features]
 testing = []
