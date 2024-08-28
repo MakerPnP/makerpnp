@@ -63,23 +63,6 @@ fn main() -> anyhow::Result<()>{
             let project_file_path = project::build_project_file_path(&project_name, &opts.path);
 
             match opts.command {
-                Command::GenerateArtifacts { } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    let modified = project::update_phase_operation_states(&mut project);
-
-                    let phase_load_out_item_map = project.phases.iter().try_fold(BTreeMap::<Reference, Vec<LoadOutItem>>::new(), |mut map, (reference, phase) | {
-                        let load_out_items = stores::load_out::load_items(&LoadOutSource::from_str(&phase.load_out_source).unwrap())?;
-                        map.insert(reference.clone(), load_out_items);
-                        Ok::<BTreeMap<Reference, Vec<LoadOutItem>>, anyhow::Error>(map)
-                    })?;
-
-                    project::generate_artifacts(&project, &opts.path, &project_name, phase_load_out_item_map)?;
-
-                    if modified {
-                        project::save(&project, &project_file_path)?;
-                    }
-                },
                 Command::RecordPhaseOperation { phase: reference, operation, set } => {
                     let mut project = project::load(&project_file_path)?;
 

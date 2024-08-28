@@ -232,6 +232,9 @@ impl TryFrom<Opts> for Event {
                 }),
             Command::SetPlacementOrdering { phase, placement_orderings } =>
                 Ok(Event::SetPlacementOrdering { phase, placement_orderings }),
+            Command::GenerateArtifacts { } => 
+                Ok(Event::GenerateArtifacts),
+            
             _ => Err(EventError::UnknownEvent { opts })
         }
     }
