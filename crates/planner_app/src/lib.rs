@@ -101,7 +101,7 @@ impl App for Planner {
                         },
                     }
                 } else {
-                    model.error.replace(anyhow!("Attempt to save without project, name and path").into());
+                    model.error.replace(anyhow!("project, name and path required").into());
                 }
             },
             Event::AddPcb { kind, name } => {
@@ -116,7 +116,7 @@ impl App for Planner {
                     }
                     self.update(Event::Save {}, model, caps);
                 } else {
-                    todo!()
+                    model.error.replace(anyhow!("project required").into());
                 }
             },
             Event::AssignVariantToUnit { design, variant, unit } => {
@@ -142,7 +142,7 @@ impl App for Planner {
                         model.error.replace(e.into());
                     };
                 } else {
-                    todo!()
+                    model.error.replace(anyhow!("project and path required").into());
                 }
             }
         }
