@@ -1,30 +1,11 @@
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::path::PathBuf;
-use std::str::FromStr;
 use std::sync::Arc;
-use anyhow::{anyhow, bail};
-use clap::{Parser, Subcommand, ArgGroup};
-use clap_verbosity_flag::{InfoLevel, Verbosity};
-use crossbeam_channel::unbounded;
-use regex::Regex;
-use tracing::{info, trace};
-use {cli, planning};
-use cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg, ProcessOperationArg, ProcessOperationSetArg};
+use anyhow::bail;
+use clap::Parser;
 use planner_app::{Effect, Event};
-use planning::design::{DesignName, DesignVariant};
-use planning::reference::Reference;
-use planning::placement::PlacementSortingItem;
-use planning::process::ProcessName;
-use planning::project::{PartStateError, ProcessFactory, Project};
-use planning::project;
-use planning::phase::PhaseError;
-use planning::variant::VariantName;
-use pnp::load_out::LoadOutItem;
-use pnp::object_path::ObjectPath;
-use stores::load_out::LoadOutSource;
+use crossbeam_channel::unbounded;
+
 use crate::core::Core;
-use crate::opts::{Command, EventError, Opts};
+use crate::opts::{EventError, Opts};
 
 mod core;
 mod opts;
@@ -57,49 +38,6 @@ fn main() -> anyhow::Result<()>{
             }
             
             run_loop(&core, event)?;
-        },
-        Err(EventError::UnknownEvent { opts }) => {
-            let project_name = &opts.project.unwrap();
-            let project_file_path = project::build_project_file_path(&project_name, &opts.path);
-
-            match opts.command {
-                Command::RecordPhaseOperation { phase: reference, operation, set } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    let modified = project::update_phase_operation(&mut project, &opts.path, &reference, operation.into(), set.into())?;
-
-                    if modified {
-                        project::save(&project, &project_file_path)?;
-                    }
-                },
-                Command::RecordPlacementsOperation { object_path_patterns, operation } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    let modified = project::update_placements_operation(&mut project, &opts.path, object_path_patterns, operation.into())?;
-
-                    if modified {
-                        project::save(&project, &project_file_path)?;
-                    }
-                },
-                Command::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
-                    let project = project::load(&project_file_path)?;
-
-                    let phase = project.phases.get(&reference)
-                        .ok_or(PhaseError::UnknownPhase(reference))?.clone();
-
-                    let process = project.find_process(&phase.process)?.clone();
-
-                    stores::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
-                },
-                Command::ResetOperations { } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    project::reset_operations(&mut project)?;
-
-                    project::save(&project, &project_file_path)?;
-                },
-                _ => unreachable!(),
-            }
         },
         // clap configuration prevents this
         Err(EventError::MissingProjectName) => unreachable!(),

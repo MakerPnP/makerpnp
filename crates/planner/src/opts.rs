@@ -1,30 +1,17 @@
-use thiserror::Error;
-use planner_app::Event;
-
-use std::collections::BTreeMap;
-use std::error::Error;
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Arc;
-use anyhow::{anyhow, bail};
 use clap::{Parser, Subcommand, ArgGroup};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use crossbeam_channel::unbounded;
-use regex::Regex;
-use tracing::{info, trace};
-use {cli, planning};
 use cli::args::{PcbKindArg, PcbSideArg, PlacementOperationArg, ProcessOperationArg, ProcessOperationSetArg};
-use planning::design::{DesignName, DesignVariant};
+use planner_app::Event;
+use planning::design::DesignName;
 use planning::reference::Reference;
 use planning::placement::PlacementSortingItem;
 use planning::process::ProcessName;
-use planning::project::{PartStateError, ProcessFactory, Project};
-use planning::project;
-use planning::phase::PhaseError;
 use planning::variant::VariantName;
-use pnp::load_out::LoadOutItem;
 use pnp::object_path::ObjectPath;
+use regex::Regex;
+use std::path::PathBuf;
 use stores::load_out::LoadOutSource;
+use thiserror::Error;
 
 #[derive(Parser, Debug)]
 #[command(name = "planner")]
@@ -195,8 +182,6 @@ pub(crate) enum Command {
 
 #[derive(Error, Debug)]
 pub enum EventError {
-    #[error("Unknown event")]
-    UnknownEvent { opts: Opts },
     #[error("Missing project name")]
     MissingProjectName,
 }
@@ -242,7 +227,16 @@ impl TryFrom<Opts> for Event {
                     mpn,
                 }),
             
-            _ => Err(EventError::UnknownEvent { opts })
+            Command::RecordPhaseOperation { phase, operation, set } => 
+                Ok(Event::RecordPhaseOperation {
+                    phase,
+                    operation: operation.into(),
+                    set: set.into(),
+                }),
+            Command::RecordPlacementsOperation { object_path_patterns, operation } =>
+                Ok(Event::RecordPlacementsOperation { object_path_patterns, operation: operation.into() }),
+            Command::ResetOperations { } => 
+                Ok(Event::ResetOperations {} ),
         }
     }
 }

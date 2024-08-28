@@ -20,7 +20,7 @@ pub fn update(core: &Core, event: Event, tx: &Arc<Sender<Effect>>) -> anyhow::Re
     Ok(())
 }
 
-pub fn process_effect(core: &Core, effect: Effect, tx: &Arc<Sender<Effect>>) -> anyhow::Result<()> {
+pub fn process_effect(_core: &Core, effect: Effect, tx: &Arc<Sender<Effect>>) -> anyhow::Result<()> {
     debug!("effect: {:?}", effect);
 
     match effect {
