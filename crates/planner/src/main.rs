@@ -63,22 +63,6 @@ fn main() -> anyhow::Result<()>{
             let project_file_path = project::build_project_file_path(&project_name, &opts.path);
 
             match opts.command {
-                Command::CreatePhase { process: process_name, reference, load_out, pcb_side: pcb_side_arg } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    let pcb_side = pcb_side_arg.into();
-
-                    let process_name_str = process_name.to_string();
-                    let process = ProcessFactory::by_name(process_name_str.as_str())?;
-
-                    project.ensure_process(&process)?;
-
-                    stores::load_out::ensure_load_out(&load_out)?;
-
-                    project.update_phase(reference, process.name.clone(), load_out.to_string(), pcb_side)?;
-
-                    project::save(&project, &project_file_path)?;
-                },
                 Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
                     let mut project = project::load(&project_file_path)?;
 

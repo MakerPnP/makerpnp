@@ -215,6 +215,13 @@ impl TryFrom<Opts> for Event {
                 Ok(Event::AssignVariantToUnit { design, variant, unit }),
             Command::AssignProcessToParts { process, manufacturer, mpn } =>
                 Ok(Event::AssignProcessToParts { process, manufacturer, mpn }),
+            Command::CreatePhase { process, reference, load_out, pcb_side } =>
+                Ok(Event::CreatePhase {
+                    process,
+                    reference,
+                    load_out,
+                    pcb_side: pcb_side.into(),
+                }),
             _ => Err(EventError::UnknownEvent { opts })
         }
     }

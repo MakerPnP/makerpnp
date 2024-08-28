@@ -9,11 +9,14 @@ use tracing::info;
 use planning::design::{DesignName, DesignVariant};
 use planning::process::ProcessName;
 use planning::project;
-use planning::project::Project;
+use planning::project::{ProcessFactory, Project};
+use planning::reference::Reference;
 use planning::variant::VariantName;
 use pnp::object_path::ObjectPath;
 use pnp::part::Part;
-use pnp::pcb::PcbKind;
+use pnp::pcb::{PcbKind, PcbSide};
+use stores::load_out::LoadOutSource;
+
 extern crate serde_regex;
 
 #[derive(Default)]
@@ -52,15 +55,28 @@ pub enum Event {
         project_name: String,
         path: PathBuf,
     },
-    AddPcb { kind: PcbKind, name: String },
-    AssignVariantToUnit { design: DesignName, variant: VariantName, unit: ObjectPath },
+    AddPcb { 
+        kind: PcbKind,
+        name: String,
+    },
+    AssignVariantToUnit { 
+        design: DesignName, 
+        variant: VariantName, 
+        unit: ObjectPath,
+    },
     RefreshFromDesignVariants,
     AssignProcessToParts { 
         process: ProcessName,
         #[serde(with = "serde_regex")]
         manufacturer: Regex,
         #[serde(with = "serde_regex")]
-        mpn: Regex
+        mpn: Regex,
+    },
+    CreatePhase {
+        process: ProcessName,
+        reference: Reference,
+        load_out: LoadOutSource,
+        pcb_side: PcbSide,
     },
 }
 
@@ -150,6 +166,7 @@ impl App for Planner {
                     if let Err(e) = Self::refresh_project(project, path) {
                         model.error.replace(e.into());
                     };
+                    model.modified = true;
                 } else {
                     model.error.replace(anyhow!("project and path required").into());
                 }
@@ -163,8 +180,30 @@ impl App for Planner {
 
                         project::update_applicable_processes(project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
                         
-                        self.update(Event::Save {}, model, caps);
-                    }
+                        self.update(Event::Save {}, model, caps); // TODO remove this?
+                    } // TODO error handling
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+            },
+            Event::CreatePhase { process: process_name, reference, load_out, pcb_side } => {
+                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                        let process_name_str = process_name.to_string();
+                        let process = ProcessFactory::by_name(process_name_str.as_str())?;
+
+                        project.ensure_process(&process)?;
+                        model.modified = true;
+
+                        stores::load_out::ensure_load_out(&load_out)?;
+
+                        project.update_phase(reference, process.name.clone(), load_out.to_string(), pcb_side)?;
+
+                        self.update(Event::Save {}, model, caps); // TODO remove this?
+                    } // TODO error handling
                     Ok(())
                 };
 
