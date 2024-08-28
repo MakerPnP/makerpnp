@@ -16,7 +16,7 @@ members = [ "crates/cli",
     "crates/util",
     "crates/criteria",
     "crates/variantbuilder",
-    "crates/planner",
+    "crates/planner_cli",
     "crates/planner_app",
 ]
 
