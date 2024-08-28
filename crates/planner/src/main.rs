@@ -63,17 +63,6 @@ fn main() -> anyhow::Result<()>{
             let project_file_path = project::build_project_file_path(&project_name, &opts.path);
 
             match opts.command {
-                Command::AssignVariantToUnit { design, variant, unit } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
-
-                    let unique_design_variants = project.unique_design_variants();
-                    let design_variant_placement_map = stores::placements::load_all_placements(&unique_design_variants, &opts.path)?;
-                    let _all_parts = project::refresh_from_design_variants(&mut project, design_variant_placement_map);
-
-                    project::save(&project, &project_file_path)?;
-                },
                 Command::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
                     let mut project = project::load(&project_file_path)?;
 
