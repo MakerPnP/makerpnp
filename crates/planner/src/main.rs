@@ -63,19 +63,6 @@ fn main() -> anyhow::Result<()>{
             let project_file_path = project::build_project_file_path(&project_name, &opts.path);
 
             match opts.command {
-                Command::SetPlacementOrdering { phase: reference, placement_orderings } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    let unique_design_variants = project.unique_design_variants();
-                    let design_variant_placement_map = stores::placements::load_all_placements(&unique_design_variants, &opts.path)?;
-                    let _all_parts = project::refresh_from_design_variants(&mut project, design_variant_placement_map);
-
-                    let modified = project::update_placement_orderings(&mut project, &reference, &placement_orderings)?;
-
-                    if modified {
-                        project::save(&project, &project_file_path)?;
-                    }
-                },
                 Command::GenerateArtifacts { } => {
                     let mut project = project::load(&project_file_path)?;
 

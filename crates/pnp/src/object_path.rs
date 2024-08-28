@@ -1,6 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
-use serde_with::{DeserializeFromStr, serde_as, SerializeDisplay};
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 use crate::pcb::PcbKind;
 

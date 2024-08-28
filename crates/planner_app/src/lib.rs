@@ -9,6 +9,7 @@ use regex::Regex;
 use tracing::{info, trace};
 use planning::design::{DesignName, DesignVariant};
 use planning::phase::PhaseError;
+use planning::placement::PlacementSortingItem;
 use planning::process::ProcessName;
 use planning::project;
 use planning::project::{PartStateError, ProcessFactory, Project};
@@ -85,6 +86,11 @@ pub enum Event {
         #[serde(with = "serde_regex")]
         placements: Regex,
     },
+    SetPlacementOrdering {
+        phase: Reference,
+        placement_orderings: Vec<PlacementSortingItem>
+    },
+
 }
 
 impl App for Planner {
@@ -153,7 +159,7 @@ impl App for Planner {
                 }
             },
             Event::AssignVariantToUnit { design, variant, unit } => {
-                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
                     if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
                         project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
                         model.modified = true;
@@ -179,7 +185,7 @@ impl App for Planner {
                 }
             },
             Event::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
-                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
                     if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
                         let process = project.find_process(&process_name)?.clone();
                         let all_parts = Self::refresh_project(project, path)?;
@@ -188,7 +194,9 @@ impl App for Planner {
                         project::update_applicable_processes(project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
                         
                         self.update(Event::Save {}, model, caps); // TODO remove this?
-                    } // TODO error handling
+                    } else {
+                        model.error.replace(anyhow!("project and path required").into());
+                    }
                     Ok(())
                 };
 
@@ -197,8 +205,8 @@ impl App for Planner {
                 };
             },
             Event::CreatePhase { process: process_name, reference, load_out, pcb_side } => {
-                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(project) = &mut model.project {
                         let process_name_str = process_name.to_string();
                         let process = ProcessFactory::by_name(process_name_str.as_str())?;
 
@@ -210,7 +218,9 @@ impl App for Planner {
                         project.update_phase(reference, process.name.clone(), load_out.to_string(), pcb_side)?;
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
-                    } // TODO error handling
+                    } else {
+                        model.error.replace(anyhow!("project required").into());
+                    }
                     Ok(())
                 };
 
@@ -219,9 +229,9 @@ impl App for Planner {
                 };
             },
             Event::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
-                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
                     if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
-                        let all_parts = Self::refresh_project(project, path)?;
+                        let _all_parts = Self::refresh_project(project, path)?;
                         model.modified = true;
 
 
@@ -243,14 +253,40 @@ impl App for Planner {
                         stores::load_out::add_parts_to_load_out(&LoadOutSource::from_str(&phase.load_out_source).unwrap(), parts)?;
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
-                    } // TODO error handling
+                    } else {
+                        model.error.replace(anyhow!("project and path required").into());
+                    }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
                     model.error.replace(e.into());
                 };
-                
+            },
+            Event::SetPlacementOrdering { phase: reference, placement_orderings } => {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                        let _all_parts = Self::refresh_project(project, path)?;
+                        model.modified = true;
+
+                        let unique_design_variants = project.unique_design_variants();
+                        let design_variant_placement_map = stores::placements::load_all_placements(&unique_design_variants, path)?;
+                        let _all_parts = project::refresh_from_design_variants(project, design_variant_placement_map);
+
+                        model.modified = project::update_placement_orderings(project, &reference, &placement_orderings)?;
+
+                        if model.modified {
+                            self.update(Event::Save {}, model, caps); // TODO remove this?
+                        }
+                    } else {
+                        model.error.replace(anyhow!("project and path required").into());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
             }
         }
 
