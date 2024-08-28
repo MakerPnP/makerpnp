@@ -205,12 +205,16 @@ impl TryFrom<Opts> for Event {
 
     fn try_from(opts: Opts) -> Result<Self, Self::Error> {
         let project_name = opts.project.as_ref().unwrap();
-        let project_file_path = project::build_project_file_path(project_name, &opts.path);
 
         match opts.command {
-            Command::Create { } => Ok(Event::CreateProject { project_name: project_name.clone(), path: opts.path.clone() }),
-            Command::AddPcb { kind, name } => Ok(Event::AddPcb { kind: kind.into(), name: name.to_string() }),
-            Command::AssignVariantToUnit { design, variant, unit } => Ok(Event::AssignVariantToUnit { design, variant, unit }),
+            Command::Create { } => 
+                Ok(Event::CreateProject { project_name: project_name.clone(), path: opts.path.clone() }),
+            Command::AddPcb { kind, name } => 
+                Ok(Event::AddPcb { kind: kind.into(), name: name.to_string() }),
+            Command::AssignVariantToUnit { design, variant, unit } => 
+                Ok(Event::AssignVariantToUnit { design, variant, unit }),
+            Command::AssignProcessToParts { process, manufacturer, mpn } =>
+                Ok(Event::AssignProcessToParts { process, manufacturer, mpn }),
             _ => Err(EventError::UnknownEvent { opts })
         }
     }

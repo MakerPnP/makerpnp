@@ -4,14 +4,17 @@ use anyhow::anyhow;
 use crux_core::App;
 use crux_core::macros::Effect;
 use crux_core::render::Render;
+use regex::Regex;
 use tracing::info;
 use planning::design::{DesignName, DesignVariant};
+use planning::process::ProcessName;
 use planning::project;
 use planning::project::Project;
 use planning::variant::VariantName;
 use pnp::object_path::ObjectPath;
 use pnp::part::Part;
 use pnp::pcb::PcbKind;
+extern crate serde_regex;
 
 #[derive(Default)]
 pub struct Planner;
@@ -23,7 +26,7 @@ pub struct Model {
 
     project: Option<Project>,
     modified: bool,
-    
+
     error: Option<Box<dyn Error>>
 }
 
@@ -52,6 +55,13 @@ pub enum Event {
     AddPcb { kind: PcbKind, name: String },
     AssignVariantToUnit { design: DesignName, variant: VariantName, unit: ObjectPath },
     RefreshFromDesignVariants,
+    AssignProcessToParts { 
+        process: ProcessName,
+        #[serde(with = "serde_regex")]
+        manufacturer: Regex,
+        #[serde(with = "serde_regex")]
+        mpn: Regex
+    },
 }
 
 impl App for Planner {
@@ -92,11 +102,11 @@ impl App for Planner {
                     let project_file_path = project::build_project_file_path(&project_name, path);
 
                     match project::save(project, &project_file_path) {
-                        Ok(_) => { 
+                        Ok(_) => {
                             info!("Created job: {}", project.name);
                             model.modified = false;
                         },
-                        Err(e) => { 
+                        Err(e) => {
                             model.error.replace(e.into());
                         },
                     }
@@ -107,7 +117,7 @@ impl App for Planner {
             Event::AddPcb { kind, name } => {
                 if let Some(project) = &mut model.project {
                     match project::add_pcb(project, kind.clone().into(), name) {
-                        Ok(_) => { 
+                        Ok(_) => {
                             model.modified = true;
 
                             self.update(Event::Save {}, model, caps); // TODO remove this?
@@ -123,18 +133,17 @@ impl App for Planner {
                 let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
                     if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
                         project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
-
                         model.modified = true;
                         let _all_parts = Self::refresh_project(project, path)?;
 
-                        self.update(Event::Save {}, model, caps);
+                        self.update(Event::Save {}, model, caps); // TODO remove this?
                     }
                     Ok(())
                 };
-                
+
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into()); 
-                };                  
+                    model.error.replace(e.into());
+                };
             },
             Event::RefreshFromDesignVariants => {
                 if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
@@ -144,6 +153,24 @@ impl App for Planner {
                 } else {
                     model.error.replace(anyhow!("project and path required").into());
                 }
+            },
+            Event::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
+                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                        let process = project.find_process(&process_name)?.clone();
+                        let all_parts = Self::refresh_project(project, path)?;
+                        model.modified = true;
+
+                        project::update_applicable_processes(project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
+                        
+                        self.update(Event::Save {}, model, caps);
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
             }
         }
 
