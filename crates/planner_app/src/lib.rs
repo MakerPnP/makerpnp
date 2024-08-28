@@ -1,15 +1,17 @@
 use std::error::Error;
 use std::path::PathBuf;
+use std::str::FromStr;
 use anyhow::anyhow;
 use crux_core::App;
 use crux_core::macros::Effect;
 use crux_core::render::Render;
 use regex::Regex;
-use tracing::info;
+use tracing::{info, trace};
 use planning::design::{DesignName, DesignVariant};
+use planning::phase::PhaseError;
 use planning::process::ProcessName;
 use planning::project;
-use planning::project::{ProcessFactory, Project};
+use planning::project::{PartStateError, ProcessFactory, Project};
 use planning::reference::Reference;
 use planning::variant::VariantName;
 use pnp::object_path::ObjectPath;
@@ -77,6 +79,11 @@ pub enum Event {
         reference: Reference,
         load_out: LoadOutSource,
         pcb_side: PcbSide,
+    },
+    AssignPlacementsToPhase {
+        phase: Reference,
+        #[serde(with = "serde_regex")]
+        placements: Regex,
     },
 }
 
@@ -210,6 +217,40 @@ impl App for Planner {
                 if let Err(e) = try_fn(model) {
                     model.error.replace(e.into());
                 };
+            },
+            Event::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
+                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                        let all_parts = Self::refresh_project(project, path)?;
+                        model.modified = true;
+
+
+                        let phase = project.phases.get(&reference)
+                            .ok_or(PhaseError::UnknownPhase(reference))?.clone();
+
+                        let parts = project::assign_placements_to_phase(project, &phase, placements_pattern);
+                        trace!("Required load_out parts: {:?}", parts);
+
+                        let _modified = project::update_phase_operation_states(project);
+
+                        for part in parts.iter() {
+                            let part_state = project.part_states.get_mut(&part)
+                                .ok_or_else(|| PartStateError::NoPartStateFound { part: part.clone() })?;
+
+                            project::add_process_to_part(part_state, part, phase.process.clone());
+                        }
+
+                        stores::load_out::add_parts_to_load_out(&LoadOutSource::from_str(&phase.load_out_source).unwrap(), parts)?;
+
+                        self.update(Event::Save {}, model, caps); // TODO remove this?
+                    } // TODO error handling
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+                
             }
         }
 

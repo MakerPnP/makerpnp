@@ -63,32 +63,6 @@ fn main() -> anyhow::Result<()>{
             let project_file_path = project::build_project_file_path(&project_name, &opts.path);
 
             match opts.command {
-                Command::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
-                    let mut project = project::load(&project_file_path)?;
-
-                    let unique_design_variants = project.unique_design_variants();
-                    let design_variant_placement_map = stores::placements::load_all_placements(&unique_design_variants, &opts.path)?;
-                    let _all_parts = project::refresh_from_design_variants(&mut project, design_variant_placement_map);
-
-                    let phase = project.phases.get(&reference)
-                        .ok_or(PhaseError::UnknownPhase(reference))?.clone();
-
-                    let parts = project::assign_placements_to_phase(&mut project, &phase, placements_pattern);
-                    trace!("Required load_out parts: {:?}", parts);
-
-                    let _modified = project::update_phase_operation_states(&mut project);
-
-                    for part in parts.iter() {
-                        let part_state = project.part_states.get_mut(&part)
-                            .ok_or_else(|| PartStateError::NoPartStateFound { part: part.clone() })?;
-
-                        project::add_process_to_part(part_state, part, phase.process.clone());
-                    }
-
-                    stores::load_out::add_parts_to_load_out(&LoadOutSource::from_str(&phase.load_out_source).unwrap(), parts)?;
-
-                    project::save(&project, &project_file_path)?;
-                },
                 Command::SetPlacementOrdering { phase: reference, placement_orderings } => {
                     let mut project = project::load(&project_file_path)?;
 
@@ -156,7 +130,9 @@ fn main() -> anyhow::Result<()>{
                 },
                 _ => unreachable!(),
             }
-        }
+        },
+        // clap configuration prevents this
+        Err(EventError::MissingProjectName) => unreachable!(),
     }
     
     Ok(())

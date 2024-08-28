@@ -32,8 +32,8 @@ use stores::load_out::LoadOutSource;
 #[command(version, about, long_about = None)]
 #[command(group(
     ArgGroup::new("requires_project")
-    .args(&["project"])
-    .required(true)
+        .args(&["project"])
+        .required(true)
 ))]
 pub(crate) struct Opts {
     #[command(subcommand)]
@@ -47,7 +47,6 @@ pub(crate) struct Opts {
     #[arg(long, default_value = ".")]
     pub(crate) path: PathBuf,
 
-    // See also "Reference: CLAP-1" below. 
     /// Project name
     #[arg(long, value_name = "PROJECT_NAME")]
     pub(crate) project: Option<String>,
@@ -197,18 +196,22 @@ pub(crate) enum Command {
 #[derive(Error, Debug)]
 pub enum EventError {
     #[error("Unknown event")]
-    UnknownEvent { opts: Opts }
+    UnknownEvent { opts: Opts },
+    #[error("Missing project name")]
+    MissingProjectName,
 }
 
 impl TryFrom<Opts> for Event {
     type Error = EventError;
 
     fn try_from(opts: Opts) -> Result<Self, Self::Error> {
-        let project_name = opts.project.as_ref().unwrap();
 
         match opts.command {
-            Command::Create { } => 
-                Ok(Event::CreateProject { project_name: project_name.clone(), path: opts.path.clone() }),
+            Command::Create { } => {
+                let project_name = opts.project.ok_or(EventError::MissingProjectName)?;
+
+                Ok(Event::CreateProject { project_name, path: opts.path })
+            },
             Command::AddPcb { kind, name } => 
                 Ok(Event::AddPcb { kind: kind.into(), name: name.to_string() }),
             Command::AssignVariantToUnit { design, variant, unit } => 
@@ -221,6 +224,11 @@ impl TryFrom<Opts> for Event {
                     reference,
                     load_out,
                     pcb_side: pcb_side.into(),
+                }),
+            Command::AssignPlacementsToPhase { phase, placements } =>
+                Ok(Event::AssignPlacementsToPhase {
+                    phase,
+                    placements,
                 }),
             _ => Err(EventError::UnknownEvent { opts })
         }
