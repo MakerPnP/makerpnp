@@ -7,11 +7,12 @@ use crux_core::App;
 use crux_core::macros::Effect;
 use crux_core::render::Render;
 use regex::Regex;
+use serde_with::serde_as;
 use tracing::{info, trace};
 use planning::design::{DesignName, DesignVariant};
 use planning::phase::PhaseError;
-use planning::placement::PlacementSortingItem;
-use planning::process::ProcessName;
+use planning::placement::{PlacementOperation, PlacementSortingItem};
+use planning::process::{ProcessName, ProcessOperationKind, ProcessOperationSetItem};
 use planning::project;
 use planning::project::{PartStateError, ProcessFactory, Project};
 use planning::reference::Reference;
@@ -39,7 +40,7 @@ pub struct ModelProject {
 #[derive(Default)]
 pub struct Model {
     model_project: Option<ModelProject>,
-    
+
     error: Option<Box<dyn Error>>
 }
 
@@ -53,6 +54,7 @@ pub struct ViewModel {
     pub error: Option<String>
 }
 
+#[serde_as]
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub enum Event {
     None, // TODO REMOVE
@@ -65,17 +67,17 @@ pub enum Event {
         project_name: String,
         path: PathBuf,
     },
-    AddPcb { 
+    AddPcb {
         kind: PcbKind,
         name: String,
     },
-    AssignVariantToUnit { 
-        design: DesignName, 
-        variant: VariantName, 
+    AssignVariantToUnit {
+        design: DesignName,
+        variant: VariantName,
         unit: ObjectPath,
     },
     RefreshFromDesignVariants,
-    AssignProcessToParts { 
+    AssignProcessToParts {
         process: ProcessName,
         #[serde(with = "serde_regex")]
         manufacturer: Regex,
@@ -93,11 +95,33 @@ pub enum Event {
         #[serde(with = "serde_regex")]
         placements: Regex,
     },
+    AssignFeederToLoadOutItem {
+        phase: Reference,
+        feeder_reference: Reference,
+        #[serde(with = "serde_regex")]
+        manufacturer: Regex,
+        #[serde(with = "serde_regex")]
+        mpn: Regex,
+    },
     SetPlacementOrdering {
         phase: Reference,
         placement_orderings: Vec<PlacementSortingItem>
     },
     GenerateArtifacts,
+    RecordPhaseOperation {
+        phase: Reference,
+        operation: ProcessOperationKind,
+        set: ProcessOperationSetItem,
+    },
+    /// Record placements operation
+    RecordPlacementsOperation {
+        #[serde(with = "serde_regex")]
+        object_path_patterns: Vec<Regex>,
+        operation: PlacementOperation,
+    },
+    /// Reset operations
+    ResetOperations {
+    }
 }
 
 impl App for Planner {
@@ -123,7 +147,7 @@ impl App for Planner {
             Event::Load { project_name, path } => {
 
                 let project_file_path = project::build_project_file_path(&project_name, &path);
-                
+
                 match project::load(&project_file_path) {
                     Ok(project) => {
                         model.model_project.replace(ModelProject {
@@ -206,7 +230,7 @@ impl App for Planner {
                         *modified = true;
 
                         project::update_applicable_processes(project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
-                        
+
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
                         model.error.replace(anyhow!("project required").into());
@@ -276,12 +300,31 @@ impl App for Planner {
                     model.error.replace(e.into());
                 };
             },
+            Event::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(ModelProject { project, .. }) = &mut model.model_project {
+                        let phase = project.phases.get(&reference)
+                            .ok_or(PhaseError::UnknownPhase(reference))?.clone();
+
+                        let process = project.find_process(&phase.process)?.clone();
+
+                        stores::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
+                    } else {
+                        model.error.replace(anyhow!("project and path required").into());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+            },
             Event::SetPlacementOrdering { phase: reference, placement_orderings } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
                     if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
                         let _all_parts = Self::refresh_project(project, path)?;
                         *modified = true;
-                        
+
                         *modified = project::update_placement_orderings(project, &reference, &placement_orderings)?;
 
                         if *modified {
@@ -313,6 +356,56 @@ impl App for Planner {
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
+                    } else {
+                        model.error.replace(anyhow!("project required").into());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+            },
+            Event::RecordPhaseOperation { phase: reference, operation, set } => {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
+                        *modified = project::update_phase_operation(project, path, &reference, operation.into(), set.into())?;
+                        if *modified {
+                            self.update(Event::Save {}, model, caps); // TODO remove this?
+                        }
+                    } else {
+                        model.error.replace(anyhow!("project required").into());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+            },
+            Event::RecordPlacementsOperation { object_path_patterns, operation } => {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
+                        *modified = project::update_placements_operation(project, path, object_path_patterns, operation.into())?;
+                        if *modified {
+                            self.update(Event::Save {}, model, caps); // TODO remove this?
+                        }
+                    } else {
+                        model.error.replace(anyhow!("project required").into());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+            },
+            Event::ResetOperations { } => {
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(ModelProject { project, modified, .. }) = &mut model.model_project {
+                        project::reset_operations(project)?;
+                        *modified = true;
+                        self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
                         model.error.replace(anyhow!("project required").into());
                     }

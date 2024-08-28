@@ -234,6 +234,13 @@ impl TryFrom<Opts> for Event {
                 Ok(Event::SetPlacementOrdering { phase, placement_orderings }),
             Command::GenerateArtifacts { } => 
                 Ok(Event::GenerateArtifacts),
+            Command::AssignFeederToLoadOutItem { phase, feeder_reference, manufacturer, mpn } =>
+                Ok(Event::AssignFeederToLoadOutItem {
+                    phase,
+                    feeder_reference,
+                    manufacturer,
+                    mpn,
+                }),
             
             _ => Err(EventError::UnknownEvent { opts })
         }

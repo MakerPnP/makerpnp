@@ -1004,6 +1004,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_regex",
+ "serde_with",
  "stores",
  "thiserror",
  "tracing",

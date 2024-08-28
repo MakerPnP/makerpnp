@@ -8,12 +8,14 @@ planning = { path = "../planning" }
 pnp = { path = "../pnp"}
 stores = { path = "../stores"}
 
-crux_core = { workspace = true }
 thiserror = { workspace = true }
 anyhow = { workspace = true }
-serde = { workspace = true }
 tracing = { workspace = true }
-crossbeam-channel = { workspace = true }
 regex = { workspace = true }
 
-serde_regex = "1.1.0"
+serde = { workspace = true }
+serde_regex = { workspace = true }
+serde_with = { workspace = true }
+
+crux_core = { workspace = true }
+crossbeam-channel = { workspace = true }

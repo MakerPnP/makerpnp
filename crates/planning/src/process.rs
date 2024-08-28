@@ -87,6 +87,7 @@ impl PlacementsState {
     }
 }
 
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub enum ProcessOperationSetItem {
     Completed
 }
