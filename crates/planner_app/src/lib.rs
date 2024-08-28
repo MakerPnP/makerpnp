@@ -5,8 +5,12 @@ use crux_core::App;
 use crux_core::macros::Effect;
 use crux_core::render::Render;
 use tracing::info;
+use planning::design::{DesignName, DesignVariant};
 use planning::project;
 use planning::project::Project;
+use planning::variant::VariantName;
+use pnp::object_path::ObjectPath;
+use pnp::part::Part;
 use pnp::pcb::PcbKind;
 
 #[derive(Default)]
@@ -14,7 +18,8 @@ pub struct Planner;
 
 #[derive(Default)]
 pub struct Model {
-    project_file_path: Option<PathBuf>,
+    path: Option<PathBuf>,
+    name: Option<String>,
 
     project: Option<Project>,
     modified: bool,
@@ -34,16 +39,19 @@ pub struct ViewModel {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub enum Event {
-    None, // we can't instantiate an empty enum, so let's have a dummy variant for now
+    None, // TODO REMOVE
     CreateProject {
         project_name: String,
-        project_file_path: PathBuf,
+        path: PathBuf,
     },
     Save,
     Load {
-        project_file_path: PathBuf,
+        project_name: String,
+        path: PathBuf,
     },
     AddPcb { kind: PcbKind, name: String },
+    AssignVariantToUnit { design: DesignName, variant: VariantName, unit: ObjectPath },
+    RefreshFromDesignVariants,
 }
 
 impl App for Planner {
@@ -55,44 +63,88 @@ impl App for Planner {
     fn update(&self, event: Self::Event, model: &mut Self::Model, caps: &Self::Capabilities) {
         match event {
             Event::None => {}
-            Event::CreateProject { project_name, project_file_path} => {
+            Event::CreateProject { project_name, path} => {
                 let project = Project::new(project_name.to_string());
                 model.project.replace(project);
-                model.project_file_path.replace(project_file_path);
+                model.path.replace(path);
+                model.name.replace(project_name);
+                model.modified = true;
 
-                self.update(Event::Save {}, model, caps);
+                self.update(Event::Save {}, model, caps); // TODO remove this?
             },
-            Event::Load { project_file_path } => {
-                if let Ok(project) = project::load(&project_file_path) {
-                    model.project.replace(project);
-                    model.project_file_path.replace(project_file_path);
-                } else {
-                    todo!()
+            Event::Load { project_name, path } => {
+
+                let project_file_path = project::build_project_file_path(&project_name, &path);
+                model.path.replace(path);
+                model.name.replace(project_name);
+
+                match project::load(&project_file_path) {
+                    Ok(project) => {
+                        model.project.replace(project);
+                    },
+                    Err(e) => {
+                        model.error.replace(e.into());
+                    }
                 }
             },
             Event::Save => {
-                if let (Some(project), Some(profile_file_path)) = (&model.project, &model.project_file_path) {
-                    match project::save(project, profile_file_path) {
-                        Ok(_) => { info!("Created job: {}", project.name); },
-                        Err(e) => { model.error.replace(e.into()); },
+                if let (Some(project), Some(path), Some(project_name)) = (&model.project, &model.path, &model.name) {
+                    let project_file_path = project::build_project_file_path(&project_name, path);
 
+                    match project::save(project, &project_file_path) {
+                        Ok(_) => { 
+                            info!("Created job: {}", project.name);
+                            model.modified = false;
+                        },
+                        Err(e) => { 
+                            model.error.replace(e.into());
+                        },
                     }
                 } else {
-                    model.error.replace(anyhow!("Attempt to save without project and path").into());
+                    model.error.replace(anyhow!("Attempt to save without project, name and path").into());
                 }
             },
             Event::AddPcb { kind, name } => {
-
                 if let Some(project) = &mut model.project {
                     match project::add_pcb(project, kind.clone().into(), name) {
-                        Ok(_) => { model.modified = true; },
+                        Ok(_) => { 
+                            model.modified = true;
+
+                            self.update(Event::Save {}, model, caps); // TODO remove this?
+                        },
                         Err(e) => { model.error.replace(Box::new(e)); },
                     }
                     self.update(Event::Save {}, model, caps);
                 } else {
                     todo!()
                 }
-            },            
+            },
+            Event::AssignVariantToUnit { design, variant, unit } => {
+                let mut try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                        project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
+
+                        model.modified = true;
+                        let _all_parts = Self::refresh_project(project, path)?;
+
+                        self.update(Event::Save {}, model, caps);
+                    }
+                    Ok(())
+                };
+                
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into()); 
+                };                  
+            },
+            Event::RefreshFromDesignVariants => {
+                if let (Some(project), Some(path)) = (&mut model.project, &model.path) {
+                    if let Err(e) = Self::refresh_project(project, path) {
+                        model.error.replace(e.into());
+                    };
+                } else {
+                    todo!()
+                }
+            }
         }
 
         caps.render.render();
@@ -108,6 +160,19 @@ impl App for Planner {
         ViewModel {
             error
         }
+    }
+}
+
+impl Planner {
+    fn refresh_project(project: &mut Project, path: &PathBuf) -> anyhow::Result<Vec<Part>> {
+        let unique_design_variants = project.unique_design_variants();
+        let design_variant_placement_map = stores::placements::load_all_placements(
+            &unique_design_variants,
+            path
+        )?;
+        let all_parts = project::refresh_from_design_variants(project, design_variant_placement_map);
+
+        Ok(all_parts)
     }
 }
 

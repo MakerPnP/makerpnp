@@ -1002,6 +1002,7 @@ dependencies = [
  "planning",
  "pnp",
  "serde",
+ "stores",
  "thiserror",
  "tracing",
 ]

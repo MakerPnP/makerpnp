@@ -39,8 +39,8 @@ fn main() -> anyhow::Result<()>{
 
     cli::tracing::configure_tracing(opts.trace.clone(), opts.verbose.clone())?;
 
-    let project_name = &opts.project.clone().unwrap();
-    let project_file_path = project::build_project_file_path(&project_name, &opts.path);
+    let project_name = opts.project.clone().unwrap();
+    let path = opts.path.clone();
 
     let event: Result<Event, _> = Event::try_from(opts);
     
@@ -53,7 +53,7 @@ fn main() -> anyhow::Result<()>{
                 _ => true,
             };
             if should_load_first {
-                run_loop(&core, Event::Load { project_file_path })?;
+                run_loop(&core, Event::Load { project_name, path })?;
             }
             
             run_loop(&core, event)?;

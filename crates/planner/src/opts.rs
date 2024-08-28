@@ -208,8 +208,9 @@ impl TryFrom<Opts> for Event {
         let project_file_path = project::build_project_file_path(project_name, &opts.path);
 
         match opts.command {
-            Command::Create { } => Ok(Event::CreateProject { project_name: project_name.clone(), project_file_path }),
+            Command::Create { } => Ok(Event::CreateProject { project_name: project_name.clone(), path: opts.path.clone() }),
             Command::AddPcb { kind, name } => Ok(Event::AddPcb { kind: kind.into(), name: name.to_string() }),
+            Command::AssignVariantToUnit { design, variant, unit } => Ok(Event::AssignVariantToUnit { design, variant, unit }),
             _ => Err(EventError::UnknownEvent { opts })
         }
     }
