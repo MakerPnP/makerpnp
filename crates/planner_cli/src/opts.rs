@@ -14,8 +14,8 @@ use stores::load_out::LoadOutSource;
 use thiserror::Error;
 
 #[derive(Parser, Debug)]
-#[command(name = "planner")]
-#[command(bin_name = "planner")]
+#[command(name = "planner_cli")]
+#[command(bin_name = "planner_cli")]
 #[command(version, about, long_about = None)]
 #[command(group(
     ArgGroup::new("requires_project")
