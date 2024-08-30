@@ -61,4 +61,5 @@ crux_core = { version = "0.9.0-rc.1" }
 dioxus = { version = "0.5.6" }
 dioxus-router = { version = "0.5.6" }
 dioxus-logger = { version = "0.5.1" }
+dioxus-sdk = { version = "0.5"}
 freya = { version = "0.2.2" }

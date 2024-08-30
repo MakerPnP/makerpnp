@@ -10,5 +10,7 @@ freya = { workspace = true }
 dioxus = { workspace = true, features = ["macro", "hooks"], default-features = false }
 dioxus-router = { workspace = true, default-features = false }
 dioxus-logger = { workspace = true }
+dioxus-sdk = { workspace = true, features = ["i18n"] }
 console_error_panic_hook = "0.1.7"
 futures-util = "0.3.30"
+indexmap = { workspace = true }
