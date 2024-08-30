@@ -20,6 +20,7 @@ use dioxus_sdk::{
 use unic_langid::LanguageIdentifier;
 
 use dioxus_router::prelude::{Outlet, Routable, Router};
+use dioxus_sdk::i18n::UseI18;
 
 mod app_core;
 
@@ -144,6 +145,18 @@ fn PageNotFound() -> Element {
         }
     )
 }
+fn use_change_language() -> Signal<Box<(impl FnMut(LanguagePair) + 'static)>> {
+    let mut i18n = use_i18();
+
+    let closure = move |language_pair: LanguagePair| {
+        let mut guard = SELECTED_LANGUAGE.lock().unwrap();
+
+        i18n.set_language(language_pair.code.parse().unwrap());
+        (*guard).replace(language_pair);
+    };
+    
+    use_signal(move || Box::new(closure))
+}
 
 #[allow(non_snake_case)]
 fn AppSidebar() -> Element {
@@ -168,14 +181,11 @@ fn AppSidebar() -> Element {
     };
     
     let mut current_language_signal = use_signal(|| {
-        // WTF goes here ???
-
         let selected_language_binding = selected_language();
         let selected_language = selected_language_binding;
 
         selected_language
     });
-
     
     let languages_hooked = use_hook(|| {
         let language_set_binding = languages();
@@ -184,6 +194,8 @@ fn AppSidebar() -> Element {
         // FIXME avoid cloning
         language_set.clone()
     });
+
+    let mut change_lang = use_change_language();
 
     rsx!(
         NativeRouter {
@@ -226,10 +238,7 @@ fn AppSidebar() -> Element {
                                     value: language.code.clone(),
                                     onclick: {
                                         to_owned![language];
-                                        move |_| {
-                                            change_language(&language);
-                                            current_language_signal.set(language.clone());
-                                        }
+                                        move |_| change_lang.write()(language.clone())
                                     },
                                     label { "{language.name}" }
                                 }
