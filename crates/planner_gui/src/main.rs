@@ -7,8 +7,8 @@ use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 use freya::prelude::*;
 use dioxus_logger::tracing::{debug, Level};
-use planner_app::ViewModel;
-use crate::app_core::CoreService;
+use dioxus_logger::tracing::subscriber::set_global_default;
+use dioxus_router::prelude::{Outlet, Routable, Router};
 use dioxus_sdk::{
     i18n::{
         use_i18,
@@ -18,8 +18,12 @@ use dioxus_sdk::{
     translate,
 };
 use unic_langid::LanguageIdentifier;
+use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
-use dioxus_router::prelude::{Outlet, Routable, Router};
+use planner_app::ViewModel;
+use crate::app_core::CoreService;
 
 mod app_core;
 
@@ -276,7 +280,15 @@ static EN_US: &str = include_str!("../assets/i18n/en-US.json");
 static ES_ES: &str = include_str!("../assets/i18n/es-ES.json");
 
 fn main() {
-    dioxus_logger::init(Level::DEBUG).expect("failed to init logger");
+
+    // run with environment variable `RUST_LOG=dioxus_core::virtual_dom=warn` to suppress the spammy dioxus_core info messages.
+    tracing_subscriber::registry()
+        .with(fmt::layer())
+        .with(EnvFilter::from_default_env())
+        .init();
+
+    //dioxus_logger::init(Level::DEBUG).expect("failed to init logger");
+
     console_error_panic_hook::set_once();
     
     launch_cfg(
