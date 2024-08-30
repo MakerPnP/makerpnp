@@ -20,7 +20,6 @@ use dioxus_sdk::{
 use unic_langid::LanguageIdentifier;
 
 use dioxus_router::prelude::{Outlet, Routable, Router};
-use dioxus_sdk::i18n::UseI18;
 
 mod app_core;
 
@@ -180,7 +179,7 @@ fn AppSidebar() -> Element {
         app_core.send(planner_app::Event::Save );
     };
     
-    let mut current_language_signal = use_signal(|| {
+    let current_language_signal = use_signal(|| {
         let selected_language_binding = selected_language();
         let selected_language = selected_language_binding;
 
