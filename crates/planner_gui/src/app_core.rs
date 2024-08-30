@@ -3,7 +3,7 @@ use dioxus::prelude::{Signal, UnboundedReceiver};
 use dioxus::prelude::Writable;
 use dioxus_logger::tracing::debug;
 use dioxus_router::prelude::use_navigator;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::StreamExt;
 use planner_app::{Effect, Event, NavigationOperation, Planner, ViewModel};
 
 type Core = Rc<planner_app::Core<Effect, Planner>>;

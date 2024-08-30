@@ -3,13 +3,10 @@
     windows_subsystem = "windows"
 )]
 
-use std::ops::Index;
-use std::rc::Rc;
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 use freya::prelude::*;
 use dioxus_logger::tracing::{debug, Level};
-use freya::dioxus_core::AttributeValue;
 use planner_app::ViewModel;
 use crate::app_core::CoreService;
 use dioxus_sdk::{
@@ -22,8 +19,7 @@ use dioxus_sdk::{
 };
 use unic_langid::LanguageIdentifier;
 
-use dioxus_router::prelude::{Outlet, Routable, Router, use_navigator};
-use indexmap::IndexMap;
+use dioxus_router::prelude::{Outlet, Routable, Router};
 
 mod app_core;
 
@@ -42,7 +38,7 @@ fn initialise_languages() {
     let first_language_identifier: LanguageIdentifier = first_language.code.parse().unwrap();
     
     use_init_i18n(first_language_identifier.clone(), first_language_identifier, || {
-        languages.iter().map(|LanguagePair { code, name }|{
+        languages.iter().map(|LanguagePair { code, name: _name }|{
             match code.as_str() {
                 "en-US" => Language::from_str(EN_US).unwrap(),
                 "es-ES" => Language::from_str(ES_ES).unwrap(),
@@ -119,7 +115,7 @@ pub enum Route {
 }
 
 #[allow(non_snake_case)]
-#[component]
+//#[component]
 fn Home() -> Element {
     rsx!(
         label {
@@ -129,7 +125,7 @@ fn Home() -> Element {
 }
 
 #[allow(non_snake_case)]
-#[component]
+//#[component]
 fn Overview() -> Element {
     rsx!(
         label {
@@ -140,7 +136,7 @@ fn Overview() -> Element {
 
 
 #[allow(non_snake_case)]
-#[component]
+//#[component]
 fn PageNotFound() -> Element {
     rsx!(
         label {
@@ -239,7 +235,7 @@ fn AppSidebar() -> Element {
                                 }
                             }
                         }
-                    //}
+                    }
                 }
             },
 

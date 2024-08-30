@@ -3,7 +3,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::anyhow;
-use crux_core::{App, Capability};
+use crux_core::App;
 use crux_core::capability::{CapabilityContext, Operation};
 use crux_core::macros::{Capability, Effect};
 use crux_core::render::Render;
@@ -536,7 +536,7 @@ pub enum NavigationResult {
 }
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
-enum NavigationResponse {
+pub enum NavigationResponse {
     Navigate { previous: String }
 }
 
@@ -545,9 +545,9 @@ impl NavigationResult {
         match self {
             NavigationResult::Ok { response } => match response {
                 NavigationResponse::Navigate { previous } => Ok(previous.into()),
-                _ => {
-                    panic!("attempt to convert NavigationResponse other than Ok to Option<String>")
-                }
+                // _ => {
+                //     panic!("attempt to convert NavigationResponse other than Ok to Option<String>")
+                // }
             },
             NavigationResult::Err { error } => Err(error.clone()),
         }

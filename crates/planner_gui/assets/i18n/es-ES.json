@@ -3,8 +3,10 @@
     "texts": {
         "messages": {
             "toolbar": {
-                "button.create": "Crear",
-                "button.save": "Guardar"
+                "button": {
+                    "create": "Crear",
+                    "save": "Guardar"
+                }
             }
         }
     }
