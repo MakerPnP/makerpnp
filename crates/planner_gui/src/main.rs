@@ -113,46 +113,6 @@ fn AppSidebar() -> Element {
     )
 }
                     
-#[cfg(cruft)]
-//#[component]
-fn app() -> Element {
-
-    let view = use_signal(ViewModel::default);
-
-    let core = use_coroutine(|mut rx| {
-        let svc = CoreService::new(view);
-        async move { svc.run(&mut rx).await }
-    });
-
-    let onclick = move |_| {
-        //core.send(planner_app::Event::CreateProject { project_name: "test".to_string(), path: Default::default() } );
-        core.send(planner_app::Event::Save );
-    };
-
-    let show_error = move || {
-        let view_model = view.read();
-
-        let message = if let Some(error) = &view_model.error {
-            format!("{:?}", error)
-        } else {
-            "No error".to_string()
-        };
-
-        message
-    };
-
-    rsx!(
-        Sidebar {
-            
-        }
-        label {
-            onclick,
-            //"Create"
-            "{show_error()}"
-        }
-    )
-}
-
 fn main() {
     dioxus_logger::init(Level::DEBUG).expect("failed to init logger");
     console_error_panic_hook::set_once();
