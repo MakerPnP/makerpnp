@@ -236,7 +236,7 @@ fn AppSidebar() -> Element {
                     rect {
                         direction: "vertical",
                         Dropdown {
-                            value: current_language_signal.read().name.clone(),
+                            value: format!("\u{f1ab}"),
                             for language in languages_hooked {
                                 DropdownItem {
                                     value: language.code.clone(),
