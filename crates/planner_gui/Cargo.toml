@@ -14,3 +14,4 @@ dioxus-sdk = { workspace = true, features = ["i18n"] }
 console_error_panic_hook = "0.1.7"
 futures-util = "0.3.30"
 indexmap = { workspace = true }
+unic-langid = { version = "0.9.5" }

@@ -3780,6 +3780,7 @@ dependencies = [
  "futures-util",
  "indexmap 2.4.0",
  "planner_app",
+ "unic-langid",
 ]
 
 [[package]]

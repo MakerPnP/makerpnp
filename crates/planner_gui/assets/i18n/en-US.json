@@ -2,8 +2,12 @@
     "id": "en-US",
     "texts": {
         "messages": {
-            "hello_world": "Hello World!"
-        },
-        "messages.hello": "Hello {name}"
+            "toolbar": {
+                "button": {
+                    "create": "Create",
+                    "save": "Save"
+                }
+            }
+        }
     }
 }
