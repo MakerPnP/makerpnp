@@ -229,7 +229,7 @@ fn AppSidebar() -> Element {
                     main_align: "end",
                     // FIXME this additional rect is required because the dropdown inherits the direction from the parent
                     rect {
-                       direction: "vertical",
+                        direction: "vertical",
                         Dropdown {
                             value: current_language_signal.read().name.clone(),
                             for language in languages_hooked {
