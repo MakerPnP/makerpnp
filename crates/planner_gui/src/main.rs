@@ -26,9 +26,12 @@ use crate::app_core::CoreService;
 
 mod app_core;
 
-static LANGUAGES: Mutex<Option<Vec<LanguagePair>>> = Mutex::new(None);
+static LANGUAGES: Mutex<Vec<LanguagePair>> = Mutex::new(Vec::new());
 static SELECTED_LANGUAGE: Mutex<Option<LanguagePair>> = Mutex::new(None);
 
+// TODO make loading languages dynamic so that translators don't have to re-compile to test.
+//      the code is prepared for this by using the two mutexes above instead of using
+//      static constants.
 fn initialise_languages() {
 
     let languages: Vec<LanguagePair> = vec![
@@ -37,7 +40,6 @@ fn initialise_languages() {
     ];
     
     let first_language: &LanguagePair = languages.first().unwrap();
-
     let first_language_identifier: LanguageIdentifier = first_language.code.parse().unwrap();
     
     use_init_i18n(first_language_identifier.clone(), first_language_identifier, || {
@@ -54,7 +56,7 @@ fn initialise_languages() {
     (*guard).replace(first_language.clone());
 
     let mut guard = LANGUAGES.lock().unwrap();
-    (*guard).replace(languages);
+    (*guard).extend(languages);
     
 }
 
@@ -68,7 +70,7 @@ fn change_language(language_pair: &LanguagePair) {
     i18n.set_language(language_pair.code.parse().unwrap());
 }
 
-fn languages() -> MutexGuard<'static, Option<Vec<LanguagePair>>> {
+fn languages() -> MutexGuard<'static, Vec<LanguagePair>> {
     
     let guard = LANGUAGES.lock().expect("not locked");
     
@@ -190,11 +192,11 @@ fn AppSidebar() -> Element {
     });
     
     let languages_hooked = use_hook(|| {
-        let language_set_binding = languages();
-        let language_set = language_set_binding.as_ref().unwrap();
+        let languages_binding = languages();
+        let languages = &(*languages_binding);
 
         // FIXME avoid cloning
-        language_set.clone()
+        languages.clone()
     });
 
     let mut change_lang = use_change_language();
