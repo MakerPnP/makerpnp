@@ -6,8 +6,7 @@
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 use freya::prelude::*;
-use dioxus_logger::tracing::{debug, Level};
-use dioxus_logger::tracing::subscriber::set_global_default;
+use dioxus_logger::tracing::debug;
 use dioxus_router::prelude::{Outlet, Routable, Router};
 use dioxus_sdk::{
     i18n::{
@@ -286,8 +285,6 @@ fn main() {
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
-
-    //dioxus_logger::init(Level::DEBUG).expect("failed to init logger");
 
     console_error_panic_hook::set_once();
     
