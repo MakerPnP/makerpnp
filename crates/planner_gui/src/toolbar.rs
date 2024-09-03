@@ -7,7 +7,7 @@ use freya::prelude::*;
 use tracing::debug;
 use planner_app::ViewModel;
 use crate::app_core::CoreService;
-use crate::{languages, use_change_language};
+use crate::languages;
 
 #[allow(non_snake_case)]
 pub fn ToolBar() -> Element {
@@ -31,14 +31,14 @@ pub fn ToolBar() -> Element {
     };
 
     let languages_hooked = use_hook(|| {
-        let languages_binding = languages();
+        let languages_binding = languages::languages();
         let languages = &(*languages_binding);
 
         // FIXME avoid cloning
         languages.clone()
     });
 
-    let mut change_lang = use_change_language();
+    let mut change_lang = languages::use_change_language();
 
     rsx!(
         rect {
