@@ -4,6 +4,7 @@ use dioxus::prelude::Writable;
 use dioxus_logger::tracing::debug;
 use dioxus_router::prelude::use_navigator;
 use futures_util::StreamExt;
+use tracing::{error, info};
 use planner_app::{Effect, Event, NavigationOperation, Planner, ViewModel};
 
 type Core = Rc<planner_app::Core<Effect, Planner>>;
@@ -51,11 +52,17 @@ fn process_effect(core: &Core, effect: Effect, view: &mut Signal<ViewModel>) {
             let navigator = use_navigator();
             match request.operation {
                 NavigationOperation::Navigate { path } => {
-                    navigator.push(path);
+                    info!("navigating to: {}", path);
+
+                    // FIXME this api usage feels very wrong, since `push` returns an optional error instead of a result.
+                    navigator.push(path)
+                        .and_then(|error|{
+                            error!("navigation error. reason: {:?}", error);
+                            Some(error)
+                        });
+                        
                 }
             }
-
-            // TODO use the router to navigate
         }
     }
 }

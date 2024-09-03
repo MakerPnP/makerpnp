@@ -38,10 +38,10 @@ fn app() -> Element {
 #[rustfmt::skip]
 pub enum TabRoute {
     #[layout(AppTabsBar)]
-    #[route("/")]
-    EmptyTab,
-    #[route("/:tab")]
-    DocumentTab { tab: String },
+        #[route("/")]
+        EmptyTab,
+        #[route("/:tab")]
+        DocumentTab { tab: String },
     #[end_layout]
     #[route("/..route")]
     TabNotFound { },
@@ -142,10 +142,10 @@ fn AppTabsBar() -> Element {
 #[rustfmt::skip]
 pub enum DocumentRoute {
     #[layout(DocumentRouteLayout)]
-    #[route("/")]
-    Home,
-    #[route("/project/overview")]
-    Overview,
+        #[route("/")]
+        Home,
+        #[route("/project/overview")]
+        Overview,
     #[end_layout]
     #[route("/..route")]
     PageNotFound { },
@@ -184,7 +184,7 @@ fn PageNotFound() -> Element {
 
 #[allow(non_snake_case)]
 fn DocumentRouteLayout() -> Element {
-    
+
     rsx!(
         NativeRouter {
             DocumentLayout {}
@@ -237,9 +237,9 @@ fn main() {
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
-    
+
     info!("Started");
-    
+
     console_error_panic_hook::set_once();
     
     launch_cfg(

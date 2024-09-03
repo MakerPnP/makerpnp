@@ -22,7 +22,10 @@ pub fn ToolBar() -> Element {
 
     let on_click_create = move |_| {
         debug!("create clicked");
-        app_core.send(planner_app::Event::CreateProject { project_name: "test".to_string(), path: Default::default() } );
+        app_core.send(planner_app::Event::CreateProject { 
+            project_name: "test".to_string(), 
+            path: Default::default() 
+        });
     };
 
     let on_click_save = move |_| {
