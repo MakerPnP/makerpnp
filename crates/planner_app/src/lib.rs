@@ -55,7 +55,13 @@ pub struct Capabilities {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
+pub struct ProjectOperationView {
+    pub name: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
 pub struct ProjectOperationViewModel {
+    pub project: Option<ProjectOperationView>,
     pub error: Option<String>
 }
 
@@ -446,7 +452,14 @@ impl App for Planner {
             Some(error) => Some(format!("{:?}", error)),
         };
 
+        let project: Option<ProjectOperationView> = model.model_project.as_ref().map(|project| {
+            ProjectOperationView {
+                name: project.name.clone()
+            }
+        });
+        
         ProjectOperationViewModel {
+            project,
             error
         }
     }

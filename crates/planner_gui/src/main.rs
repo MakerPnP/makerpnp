@@ -6,6 +6,7 @@
 use tracing::info;
 use freya::prelude::*;
 use dioxus_router::prelude::{Outlet, Routable, Router, use_route};
+use dioxus_router::routable::ToRouteSegments;
 use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -28,7 +29,6 @@ fn app() -> Element {
         rect {
            font_family: "Arimo Nerd",
             Router::<TabRoute> {}
-            Router::<DocumentRoute> {}
         }
     )
 }
@@ -43,8 +43,12 @@ pub enum TabRoute {
         #[route("/:tab")]
         DocumentTab { tab: String },
     #[end_layout]
-    #[route("/..route")]
-    TabNotFound { },
+    
+    // currently there's compile errors in freya when attempting to use route: Vec<String>
+    #[route("/fixme")]
+    TabFixme,
+    // #[route("/:..route")]
+    // TabRouteNotFound { route: Vec<String>  },
 }
 
 #[allow(non_snake_case)]
@@ -69,10 +73,19 @@ fn EmptyTab() -> Element {
 }
 
 #[allow(non_snake_case)]
-fn TabNotFound() -> Element {
+fn TabRouteNotFound(_route: Vec<String>) -> Element {
     rsx!(
         label {
             "Tab not found"
+        }
+    )
+}
+
+#[allow(non_snake_case)]
+fn TabFixme() -> Element {
+    rsx!(
+        label {
+            "FIXME"
         }
     )
 }
@@ -143,38 +156,32 @@ fn AppTabsBar() -> Element {
 pub enum DocumentRoute {
     #[layout(DocumentRouteLayout)]
         #[route("/")]
-        Home,
-        #[route("/project/overview")]
-        Overview,
+        DocumentOverview,
     #[end_layout]
-    #[route("/..route")]
-    PageNotFound { },
+    
+    // currently there's compile errors in freya when attempting to use route: Vec<String>
+    #[route("/Fixme")]
+    DocumentFixme,
+    // #[route("/:..route")]
+    // DocumentRouteNotFound { route: Vec<String>  },
 }
 
 #[allow(non_snake_case)]
 //#[component]
-fn Home() -> Element {
+fn DocumentOverview() -> Element {
+    let view = use_signal(ProjectOperationViewModel::default);
+
     rsx!(
         label {
-            "Home"
+            { format!("Name: {}", view.read().project.as_ref().unwrap().name) }
         }
     )
 }
 
-#[allow(non_snake_case)]
-//#[component]
-fn Overview() -> Element {
-    rsx!(
-        label {
-            "Overview"
-        }
-    )
-}
-
 
 #[allow(non_snake_case)]
 //#[component]
-fn PageNotFound() -> Element {
+fn DocumentRouteNotFound(_route: Vec<String>) -> Element {
     rsx!(
         label {
             "Not Found"
@@ -183,9 +190,20 @@ fn PageNotFound() -> Element {
 }
 
 #[allow(non_snake_case)]
+fn DocumentFixme() -> Element {
+    rsx!(
+        label {
+            "FIXME"
+        }
+    )
+}
+
+
+#[allow(non_snake_case)]
 fn DocumentRouteLayout() -> Element {
 
     rsx!(
+        Router::<DocumentRoute> {}
         NativeRouter {
             DocumentLayout {}
         }
@@ -194,12 +212,10 @@ fn DocumentRouteLayout() -> Element {
 
 #[allow(non_snake_case)]
 fn DocumentLayout() -> Element {
-
-    let _view = use_signal(ProjectOperationViewModel::default);
-
     // TODO get the current document?
-    let document_path: DocumentRoute = use_route();
-    info!("document_path: {}", document_path);
+    // FIXME broken, causes panic
+    // let document_path: DocumentRoute = use_route();
+    // info!("document_path: {}", document_path);
     rsx!(
 
         Sidebar {
