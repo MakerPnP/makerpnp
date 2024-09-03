@@ -161,7 +161,7 @@ impl App for Planner {
             },
             Event::CreatedProject(Ok(_)) => {
                 default_render = false;
-                caps.navigate.navigate("/project/overview".to_string(), |_| Event::None);
+                caps.navigate.navigate("/".to_string(), |_| Event::None);
             },
             Event::CreatedProject(Err(error)) => {
                 model.error.replace(anyhow!("creating project failed. cause: {:?}", error).into());
