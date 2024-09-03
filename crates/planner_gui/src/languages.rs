@@ -4,7 +4,7 @@ use dioxus::prelude::{Signal, use_signal};
 use dioxus_sdk::i18n::{Language, use_i18, use_init_i18n};
 use unic_langid::LanguageIdentifier;
 // TODO make loading languages dynamic so that translators don't have to re-compile to test.
-//      the code is prepared for this by using the two mutexes above instead of using
+//      the code is prepared for this by using the two mutexes below instead of using
 //      static constants.
 
 static EN_US: &str = include_str!("../assets/i18n/en-US.json");
