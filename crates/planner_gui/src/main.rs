@@ -184,13 +184,6 @@ fn AppSidebar() -> Element {
         app_core.send(planner_app::Event::Save );
     };
     
-    let current_language_signal = use_signal(|| {
-        let selected_language_binding = selected_language();
-        let selected_language = selected_language_binding;
-
-        selected_language
-    });
-    
     let languages_hooked = use_hook(|| {
         let languages_binding = languages();
         let languages = &(*languages_binding);
