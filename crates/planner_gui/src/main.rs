@@ -5,8 +5,8 @@
 
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
+use tracing::{info, debug};
 use freya::prelude::*;
-use dioxus_logger::tracing::{debug, info};
 use dioxus_router::prelude::{Outlet, Routable, Router, use_route};
 use dioxus_sdk::{
     i18n::{
@@ -397,12 +397,12 @@ static ES_ES: &str = include_str!("../assets/i18n/es-ES.json");
 
 fn main() {
 
-    // run with environment variable `RUST_LOG=dioxus_core::virtual_dom=warn` to suppress the spammy dioxus_core info messages.
+    // run with environment variable `RUST_LOG=info,dioxus_core::virtual_dom=warn` to suppress the spammy dioxus_core info messages but keep the main logging.
     tracing_subscriber::registry()
         .with(fmt::layer())
         .with(EnvFilter::from_default_env())
         .init();
-
+    
     info!("Started");
     
     console_error_panic_hook::set_once();

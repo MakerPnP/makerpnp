@@ -15,3 +15,4 @@ console_error_panic_hook = "0.1.7"
 futures-util = "0.3.30"
 unic-langid = { version = "0.9.5" }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing = "0.1.40"

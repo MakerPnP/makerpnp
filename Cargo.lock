@@ -4114,6 +4114,7 @@ dependencies = [
  "freya",
  "futures-util",
  "planner_app",
+ "tracing",
  "tracing-subscriber",
  "unic-langid",
 ]
