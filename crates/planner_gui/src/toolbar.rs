@@ -5,13 +5,13 @@ use dioxus_sdk::i18n::use_i18;
 use dioxus_sdk::translate;
 use freya::prelude::*;
 use tracing::debug;
-use planner_app::ViewModel;
+use planner_app::ProjectOperationViewModel;
 use crate::app_core::CoreService;
 use crate::languages;
 
 #[allow(non_snake_case)]
 pub fn ToolBar() -> Element {
-    let view = use_signal(ViewModel::default);
+    let view = use_signal(ProjectOperationViewModel::default);
 
     let i18n = use_i18();
 

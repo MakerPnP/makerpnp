@@ -9,7 +9,7 @@ use dioxus_router::prelude::{Outlet, Routable, Router, use_route};
 use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-use planner_app::ViewModel;
+use planner_app::ProjectOperationViewModel;
 
 use crate::toolbar::ToolBar;
 
@@ -195,7 +195,7 @@ fn DocumentRouteLayout() -> Element {
 #[allow(non_snake_case)]
 fn DocumentLayout() -> Element {
 
-    let _view = use_signal(ViewModel::default);
+    let _view = use_signal(ProjectOperationViewModel::default);
 
     // TODO get the current document?
     let document_path: DocumentRoute = use_route();

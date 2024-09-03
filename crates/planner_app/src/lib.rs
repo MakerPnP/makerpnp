@@ -55,7 +55,7 @@ pub struct Capabilities {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
-pub struct ViewModel {
+pub struct ProjectOperationViewModel {
     pub error: Option<String>
 }
 
@@ -133,7 +133,7 @@ pub enum Event {
 impl App for Planner {
     type Event = Event;
     type Model = Model;
-    type ViewModel = ViewModel;
+    type ViewModel = ProjectOperationViewModel;
     type Capabilities = Capabilities;
 
     fn update(&self, event: Self::Event, model: &mut Self::Model, caps: &Self::Capabilities) {
@@ -446,7 +446,7 @@ impl App for Planner {
             Some(error) => Some(format!("{:?}", error)),
         };
 
-        ViewModel {
+        ProjectOperationViewModel {
             error
         }
     }
@@ -484,7 +484,7 @@ mod app_tests {
 
         // Make sure the view matches our expectations
         let actual_view = &hello.view(&model);
-        let expected_view = ViewModel::default();
+        let expected_view = ProjectOperationViewModel::default();
         assert_eq!(actual_view, &expected_view);
     }
 }
