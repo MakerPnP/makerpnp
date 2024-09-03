@@ -27,8 +27,9 @@ fn app() -> Element {
 
     rsx!(
         rect {
-           font_family: "Arimo Nerd",
+            font_family: "Arimo Nerd",
             Router::<TabRoute> {}
+            Router::<DocumentRoute> {}
         }
     )
 }
@@ -203,7 +204,6 @@ fn DocumentFixme() -> Element {
 fn DocumentRouteLayout() -> Element {
 
     rsx!(
-        Router::<DocumentRoute> {}
         NativeRouter {
             DocumentLayout {}
         }
