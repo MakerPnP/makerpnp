@@ -6,8 +6,8 @@
 use std::str::FromStr;
 use std::sync::{Mutex, MutexGuard};
 use freya::prelude::*;
-use dioxus_logger::tracing::debug;
-use dioxus_router::prelude::{Outlet, Routable, Router};
+use dioxus_logger::tracing::{debug, info};
+use dioxus_router::prelude::{Outlet, Routable, Router, use_route};
 use dioxus_sdk::{
     i18n::{
         use_i18,
@@ -101,15 +101,196 @@ fn app() -> Element {
     rsx!(
         rect {
            font_family: "Arimo Nerd",
-            Router::<Route> {}
+            Router::<TabRoute> {}
+            Router::<DocumentRoute> {}
         }
     )
 }
 
+
 #[derive(Routable, Clone, PartialEq)]
 #[rustfmt::skip]
-pub enum Route {
-    #[layout(AppSidebar)]
+pub enum TabRoute {
+    #[layout(AppTabsBar)]
+    #[route("/")]
+    EmptyTab,
+    #[route("/:tab")]
+    DocumentTab { tab: String },
+    #[end_layout]
+    #[route("/..route")]
+    TabNotFound { },
+}
+
+#[allow(non_snake_case)]
+#[component]
+fn DocumentTab(tab: String) -> Element {
+    let tab_path: TabRoute = use_route();
+    info!("tab_path: {}", tab_path);
+
+    DocumentRouteLayout()
+}
+
+#[allow(non_snake_case)]
+fn EmptyTab() -> Element {
+    let tab_path: TabRoute = use_route();
+    info!("tab_path: {}", tab_path);
+
+    rsx!(
+        label {
+            "Empty tab"
+        }
+    )
+}
+
+#[allow(non_snake_case)]
+fn TabNotFound() -> Element {
+    rsx!(
+        label {
+            "Tab not found"
+        }
+    )
+}
+
+#[allow(non_snake_case)]
+fn AppTabsBar() -> Element {
+    let view = use_signal(ViewModel::default);
+
+    let i18n = use_i18();
+
+    let app_core = use_coroutine(|mut rx| {
+        let svc = CoreService::new(view);
+        async move { svc.run(&mut rx).await }
+    });
+
+    let on_click_create = move |_| {
+        debug!("create clicked");
+        app_core.send(planner_app::Event::CreateProject { project_name: "test".to_string(), path: Default::default() } );
+    };
+
+    let on_click_save = move |_| {
+        debug!("save clicked");
+        app_core.send(planner_app::Event::Save );
+    };
+
+    let languages_hooked = use_hook(|| {
+        let languages_binding = languages();
+        let languages = &(*languages_binding);
+
+        // FIXME avoid cloning
+        languages.clone()
+    });
+
+    let mut change_lang = use_change_language();
+
+    rsx!(
+        NativeRouter {
+            rect {
+                width: "100%",
+                height: "44",
+                direction: "horizontal",
+                background: "#3C3F41",
+
+                rect {
+                    width: "60%",
+                    direction: "horizontal",
+                    Button {
+                        onclick: on_click_create,
+                        label {
+                            {format!("\u{ea7b} {}", translate!(i18n, "messages.toolbar.button.create"))}
+                        }
+                    },
+                    Button {
+                        onclick: on_click_save,
+                        label {
+                            {format!("\u{e27c} {}", translate!(i18n, "messages.toolbar.button.save"))}
+                        }
+                    },
+                },
+                // TODO instead of specifying two rects, each with a width, have a spacer element here which takes
+                //      up the remaining space so that the first rect is left justified and the second rect is right justified.
+                //      and so that the window cannot be resized smaller than the width of the elements in the two rects.
+                rect {
+                    width: "40%",
+                    direction: "horizontal",
+                    main_align: "end",
+                    // FIXME this additional rect is required because the dropdown inherits the direction from the parent
+                    rect {
+                        direction: "vertical",
+                        Dropdown {
+                            value: format!("\u{f1ab}"),
+                            for language in languages_hooked {
+                                DropdownItem {
+                                    value: language.code.clone(),
+                                    onclick: {
+                                        to_owned![language];
+                                        move |_| change_lang.write()(language.clone())
+                                    },
+                                    label { "{language.name}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+
+            Tabsbar {
+                Link {
+                    to: TabRoute::EmptyTab,
+                    ActivableRoute {
+                        route: TabRoute::EmptyTab,
+                        exact: true,
+                        Tab {
+                            label {
+                                "Empty tab"
+                            }
+                        }
+                    }
+                },
+                Link {
+                    to: TabRoute::DocumentTab { tab: "document_1".into() },
+                    ActivableRoute {
+                        route: TabRoute::DocumentTab { tab: "document_1".into() },
+                        exact: true,
+                        Tab {
+                            label {
+                                "Document 1"
+                            }
+                        }
+                    }
+                },
+                Link {
+                    to: TabRoute::DocumentTab { tab: "document_2".into() },
+                    ActivableRoute {
+                        route: TabRoute::DocumentTab { tab: "document_2".into() },
+                        exact: true,
+                        Tab {
+                            label {
+                                "Document 2"
+                            }
+                        }
+                    }
+                },
+            },
+
+            Body {
+                rect {
+                    main_align: "center",
+                    cross_align: "center",
+                    width: "100%",
+                    height: "100%",
+                    Outlet::<TabRoute> {  }
+                }
+            }
+        }
+    )
+}
+
+
+
+#[derive(Routable, Clone, PartialEq)]
+#[rustfmt::skip]
+pub enum DocumentRoute {
+    #[layout(DocumentRouteLayout)]
     #[route("/")]
     Home,
     #[route("/project/overview")]
@@ -163,104 +344,45 @@ fn use_change_language() -> Signal<Box<(impl FnMut(LanguagePair) + 'static)>> {
 }
 
 #[allow(non_snake_case)]
-fn AppSidebar() -> Element {
-
-    let i18n = use_i18();
+fn DocumentRouteLayout() -> Element {
     
-    let view = use_signal(ViewModel::default);
-
-    let app_core = use_coroutine(|mut rx| {
-        let svc = CoreService::new(view);
-        async move { svc.run(&mut rx).await }
-    });
-
-    let on_click_create = move |_| {
-        debug!("create clicked");
-        app_core.send(planner_app::Event::CreateProject { project_name: "test".to_string(), path: Default::default() } );
-    };
-
-    let on_click_save = move |_| {
-        debug!("save clicked");
-        app_core.send(planner_app::Event::Save );
-    };
-    
-    let languages_hooked = use_hook(|| {
-        let languages_binding = languages();
-        let languages = &(*languages_binding);
-
-        // FIXME avoid cloning
-        languages.clone()
-    });
-
-    let mut change_lang = use_change_language();
-
     rsx!(
         NativeRouter {
-            rect {
-                width: "100%",
-                height: "32px",
-                direction: "horizontal",
-                background: "#3C3F41",
+            DocumentLayout {}
+        }
+    )
+}
 
-                rect {
-                    width: "60%",
-                    direction: "horizontal",
-                    Button {
-                        onclick: on_click_create,
-                        label {
-                            {format!("\u{ea7b} {}", translate!(i18n, "messages.toolbar.button.create"))}
-                        }
-                    },
-                    Button {
-                        onclick: on_click_save,
-                        label {
-                            {format!("\u{e27c} {}", translate!(i18n, "messages.toolbar.button.save"))}
-                        }
-                    },
+#[allow(non_snake_case)]
+fn DocumentLayout() -> Element {
+
+    let view = use_signal(ViewModel::default);
+
+    // TODO get the current document?
+    let document_path: DocumentRoute = use_route();
+    info!("document_path: {}", document_path);
+    rsx!(
+
+        Sidebar {
+            sidebar: rsx!(
+                SidebarItem {
+                    label {
+                        "TODO_1"
+                    }
                 },
-                // TODO instead of specifying two rects, each with a width, have a spacer element here which takes
-                //      up the remaining space so that the first rect is left justified and the second rect is right justified.
-                //      and so that the window cannot be resized smaller than the width of the elements in the two rects.
+                SidebarItem {
+                    label {
+                        "TODO_2"
+                    }
+                },
+            ),
+            Body {
                 rect {
-                    width: "40%",
-                    direction: "horizontal",
-                    main_align: "end",
-                    // FIXME this additional rect is required because the dropdown inherits the direction from the parent
-                    rect {
-                        direction: "vertical",
-                        Dropdown {
-                            value: format!("\u{f1ab}"),
-                            for language in languages_hooked {
-                                DropdownItem {
-                                    value: language.code.clone(),
-                                    onclick: {
-                                        to_owned![language];
-                                        move |_| change_lang.write()(language.clone())
-                                    },
-                                    label { "{language.name}" }
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-
-            Sidebar {
-                sidebar: rsx!(
-                    SidebarItem {
-                        label {
-                            "TODO"
-                        }
-                    },
-                ),
-                Body {
-                    rect {
-                        main_align: "center",
-                        cross_align: "center",
-                        width: "100%",
-                        height: "100%",
-                        Outlet::<Route> {  }
-                    }
+                    main_align: "center",
+                    cross_align: "center",
+                    width: "100%",
+                    height: "100%",
+                    Outlet::<DocumentRoute> {  }
                 }
             }
         }
@@ -281,12 +403,13 @@ fn main() {
         .with(EnvFilter::from_default_env())
         .init();
 
+    info!("Started");
+    
     console_error_panic_hook::set_once();
     
     launch_cfg(
         app,
-        LaunchConfig::<()>::builder()
-            .with_font("Arimo Nerd", ARIMO_NERD_FONT)
-            .build(),
+        LaunchConfig::<()>::new()
+            .with_font("Arimo Nerd", ARIMO_NERD_FONT),
     );
 }
