@@ -1,0 +1,18 @@
+[package]
+name = "planner_gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+planner_app = { path = "../planner_app" }
+
+freya = { workspace = true }
+dioxus = { workspace = true, features = ["macro", "hooks"], default-features = false }
+dioxus-router = { workspace = true, default-features = false }
+dioxus-logger = { workspace = true }
+dioxus-sdk = { workspace = true, features = ["i18n"] }
+console_error_panic_hook = "0.1.7"
+futures-util = "0.3.30"
+unic-langid = { version = "0.9.5" }
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing = "0.1.40"

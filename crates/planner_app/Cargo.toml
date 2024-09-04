@@ -1,0 +1,21 @@
+[package]
+name = "planner_app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+planning = { path = "../planning" }
+pnp = { path = "../pnp"}
+stores = { path = "../stores"}
+
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+regex = { workspace = true }
+
+serde = { workspace = true }
+serde_regex = { workspace = true }
+serde_with = { workspace = true }
+
+crux_core = { workspace = true }
+crossbeam-channel = { workspace = true }

@@ -1,0 +1,13 @@
+{
+    "id": "en-US",
+    "texts": {
+        "messages": {
+            "toolbar": {
+                "button": {
+                    "create": "Create",
+                    "save": "Save"
+                }
+            }
+        }
+    }
+}
