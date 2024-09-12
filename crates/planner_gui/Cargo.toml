@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 planner_app = { path = "../planner_app" }
 
-vizia = { git = "https://github.com/vizia/vizia.git", rev = "7dccf72a9fe4e2c15569ce453e547fce49e20032" }
+vizia = { git = "https://github.com/vizia/vizia.git", rev = "ae5770340fecc191ab01f0e785bc1a7a914d8d65" }
 
 fluent = "0.16.1"
 
