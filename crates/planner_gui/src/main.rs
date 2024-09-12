@@ -4,17 +4,50 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use vizia::prelude::*;
 use crate::app_core::CoreService;
+use crate::language::LanguagePair;
 
 mod app_core;
+mod language {
+    use vizia::prelude::*;
 
+    #[derive(Clone)]
+    pub struct LanguagePair {
+        pub code: String,
+        pub name: String,
+    }
+
+    pub fn load_languages(languages: &[LanguagePair], cx: &mut Context) {
+        for pair in languages {
+            match pair.code.as_str() {
+                "en-US" => {
+                    cx.add_translation(
+                        "en-US".parse().unwrap(),
+                        include_str!("../resources/translations/en-US/planner.ftl").to_owned(),
+                    );
+                },
+                "es-ES" => {
+                    cx.add_translation(
+                        "es-ES".parse().unwrap(),
+                        include_str!("../resources/translations/es-ES/planner.ftl").to_owned(),
+                    );
+                },
+                _ => unreachable!()
+            }
+        }
+
+    }
+}
 
 enum ProjectEvent {
     Create {},
 }
 
+
 #[derive(Lens)]
 pub struct AppData {
     core: CoreService,
+    languages: Vec<LanguagePair>,
+    selected_language_index: usize
 }
 
 impl AppData {
@@ -49,16 +82,47 @@ fn main() -> Result<(), ApplicationError> {
     let core = CoreService::new();
     
     Application::new(|cx| {
+
+        let languages: Vec<LanguagePair> = vec![
+            LanguagePair { code: "en-US".to_string(), name: "English (United-States)".to_string() },
+            LanguagePair { code: "es-ES".to_string(), name: "Español (España)".to_string() },
+        ];
+        
+        let selected_language_index = 0;
+
+        language::load_languages(languages.as_slice(), cx);
+        
         let app_data = AppData {
-            core
+            core,
+            languages,
+            selected_language_index,
         };
         app_data.build(cx);
         
-        Button::new(cx, |cx| Label::new(cx, "Create project"))
-            .on_press(|ecx|{
-                ecx.emit(ProjectEvent::Create {})
-            });
-        
+        HStack::new(cx, |cx| {
+
+            Button::new(cx, |cx| Label::new(cx, Localized::new("action-project-create")))
+                .on_press(|ecx|{
+                    ecx.emit(ProjectEvent::Create {})
+                })
+                .width(Stretch(2.0)); // FIXME if this is too small, content overflows
+
+            Element::new(cx)
+                .width(Stretch(7.0));
+            
+            PickList::new(
+                cx,
+                //AppData::languages,
+                AppData::languages.map(|languages| {
+                    languages.iter().map(|language|language.name.clone()).collect::<Vec<_>>()
+                }),
+                AppData::selected_language_index,
+                true
+            )
+                .width(Stretch(3.0)); // FIXME if this is too small, content overflows
+            
+        })
+            .width(Stretch(1.0));
     })
         .title("Planner")
         .run()

@@ -8,7 +8,9 @@ planner_app = { path = "../planner_app" }
 
 vizia = { git = "https://github.com/vizia/vizia.git", rev = "7dccf72a9fe4e2c15569ce453e547fce49e20032" }
 
-futures-util = "0.3.30"
+fluent = "0.16.1"
+
+#futures-util = "0.3.30"
 
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing = "0.1.40"
