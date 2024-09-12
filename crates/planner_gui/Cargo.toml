@@ -1,0 +1,14 @@
+[package]
+name = "planner_gui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+planner_app = { path = "../planner_app" }
+
+vizia = { git = "https://github.com/vizia/vizia.git", rev = "7dccf72a9fe4e2c15569ce453e547fce49e20032" }
+
+futures-util = "0.3.30"
+
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+tracing = "0.1.40"
