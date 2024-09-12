@@ -115,7 +115,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -128,6 +128,7 @@ mod operation_sequence_1 {
             ctx.trace_log_arg.as_str(),
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
+            "-vvv",
             "create",
         ]);
         println!("args: {:?}", args);
@@ -164,7 +165,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -218,7 +219,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let design_a_variant_a_placements_csv_content = indoc! {r#"
@@ -344,7 +345,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         let design_a_variant_a_placements_csv_content = indoc! {r#"
             "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
@@ -476,7 +477,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -608,7 +609,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -741,7 +742,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -919,7 +920,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
         
         // and
         let args = prepare_args(vec![
@@ -973,7 +974,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -1108,7 +1109,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_phase_1_placements_content = PhasePlacementsCSVBuilder::new()
@@ -1307,7 +1308,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -1451,7 +1452,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -1603,7 +1604,7 @@ mod operation_sequence_1 {
         let ctx = ctx_guard.1.as_mut().unwrap();
 
         // and
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_project_content = TestProjectBuilder::new()
@@ -1766,11 +1767,11 @@ mod help {
     #[test]
     fn no_args() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
-            Usage: planner [OPTIONS] <--project <PROJECT_NAME>> <COMMAND>
+            Usage: planner_cli [OPTIONS] <--project <PROJECT_NAME>> <COMMAND>
 
             Commands:
               create                          Create a new job
@@ -1809,13 +1810,13 @@ mod help {
     #[test]
     fn help_for_create() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Create a new job
 
-            Usage: planner <--project <PROJECT_NAME>> create [OPTIONS]
+            Usage: planner_cli <--project <PROJECT_NAME>> create [OPTIONS]
 
             Options:
               -v, --verbose...  Increase logging verbosity
@@ -1835,13 +1836,13 @@ mod help {
     #[test]
     fn help_for_add_pcb() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Add a PCB
 
-            Usage: planner <--project <PROJECT_NAME>> add-pcb [OPTIONS] --kind <KIND> --name <NAME>
+            Usage: planner_cli <--project <PROJECT_NAME>> add-pcb [OPTIONS] --kind <KIND> --name <NAME>
 
             Options:
                   --kind <KIND>  PCB kind [possible values: single, panel]
@@ -1863,13 +1864,13 @@ mod help {
     #[test]
     fn help_for_assign_variant_to_unit() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Assign a design variant to a PCB unit
 
-            Usage: planner <--project <PROJECT_NAME>> assign-variant-to-unit [OPTIONS] --design <DESIGN_NAME> --variant <VARIANT_NAME> --unit <OBJECT_PATH>
+            Usage: planner_cli <--project <PROJECT_NAME>> assign-variant-to-unit [OPTIONS] --design <DESIGN_NAME> --variant <VARIANT_NAME> --unit <OBJECT_PATH>
 
             Options:
                   --design <DESIGN_NAME>    Name of the design
@@ -1892,13 +1893,13 @@ mod help {
     #[test]
     fn help_for_assign_process_to_parts() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Assign a process to parts
 
-            Usage: planner <--project <PROJECT_NAME>> assign-process-to-parts [OPTIONS] --process <PROCESS> --manufacturer <MANUFACTURER> --mpn <MPN>
+            Usage: planner_cli <--project <PROJECT_NAME>> assign-process-to-parts [OPTIONS] --process <PROCESS> --manufacturer <MANUFACTURER> --mpn <MPN>
 
             Options:
                   --process <PROCESS>            Process name
@@ -1921,13 +1922,13 @@ mod help {
     #[test]
     fn help_for_create_phase() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Create a phase
 
-            Usage: planner <--project <PROJECT_NAME>> create-phase [OPTIONS] --process <PROCESS> --reference <REFERENCE> --load-out <LOAD_OUT> --pcb-side <PCB_SIDE>
+            Usage: planner_cli <--project <PROJECT_NAME>> create-phase [OPTIONS] --process <PROCESS> --reference <REFERENCE> --load-out <LOAD_OUT> --pcb-side <PCB_SIDE>
 
             Options:
                   --process <PROCESS>      Process name
@@ -1951,13 +1952,13 @@ mod help {
     #[test]
     fn help_for_assign_placements_to_phase() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Assign placements to a phase
 
-            Usage: planner <--project <PROJECT_NAME>> assign-placements-to-phase [OPTIONS] --phase <PHASE> --placements <PLACEMENTS>
+            Usage: planner_cli <--project <PROJECT_NAME>> assign-placements-to-phase [OPTIONS] --phase <PHASE> --placements <PLACEMENTS>
 
             Options:
                   --phase <PHASE>            Phase reference (e.g. 'top_1')
@@ -1979,13 +1980,13 @@ mod help {
     #[test]
     fn help_for_assign_feeder_to_load_out_item() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Assign feeder to load-out item
 
-            Usage: planner <--project <PROJECT_NAME>> assign-feeder-to-load-out-item [OPTIONS] --phase <PHASE> --feeder-reference <FEEDER_REFERENCE> --manufacturer <MANUFACTURER> --mpn <MPN>
+            Usage: planner_cli <--project <PROJECT_NAME>> assign-feeder-to-load-out-item [OPTIONS] --phase <PHASE> --feeder-reference <FEEDER_REFERENCE> --manufacturer <MANUFACTURER> --mpn <MPN>
 
             Options:
                   --phase <PHASE>                        Phase reference (e.g. 'top_1')
@@ -2009,13 +2010,13 @@ mod help {
     #[test]
     fn help_for_set_placement_ordering() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Set placement ordering for a phase
 
-            Usage: planner <--project <PROJECT_NAME>> set-placement-ordering [OPTIONS] --phase <PHASE>
+            Usage: planner_cli <--project <PROJECT_NAME>> set-placement-ordering [OPTIONS] --phase <PHASE>
 
             Options:
                   --phase <PHASE>
@@ -2043,13 +2044,13 @@ mod help {
     #[test]
     fn help_for_generate_artifacts() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Generate artifacts
 
-            Usage: planner <--project <PROJECT_NAME>> generate-artifacts [OPTIONS]
+            Usage: planner_cli <--project <PROJECT_NAME>> generate-artifacts [OPTIONS]
 
             Options:
               -v, --verbose...  Increase logging verbosity
@@ -2069,13 +2070,13 @@ mod help {
     #[test]
     fn help_for_record_phase_operation() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Record phase operation
 
-            Usage: planner <--project <PROJECT_NAME>> record-phase-operation [OPTIONS] --phase <PHASE> --operation <OPERATION> --set <SET>
+            Usage: planner_cli <--project <PROJECT_NAME>> record-phase-operation [OPTIONS] --phase <PHASE> --operation <OPERATION> --set <SET>
 
             Options:
                   --phase <PHASE>          Phase reference (e.g. 'top_1')
@@ -2098,13 +2099,13 @@ mod help {
     #[test]
     fn help_for_record_placements_operation() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Record placements operation
 
-            Usage: planner <--project <PROJECT_NAME>> record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation <OPERATION>
+            Usage: planner_cli <--project <PROJECT_NAME>> record-placements-operation [OPTIONS] --object-path-patterns <OBJECT_PATH_PATTERNS>... --operation <OPERATION>
 
             Options:
                   --object-path-patterns <OBJECT_PATH_PATTERNS>...
@@ -2131,13 +2132,13 @@ mod help {
     #[test]
     fn help_for_reset_operations() {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner"));
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
         // and
         let expected_output = indoc! {"
             Reset operations
 
-            Usage: planner <--project <PROJECT_NAME>> reset-operations [OPTIONS]
+            Usage: planner_cli <--project <PROJECT_NAME>> reset-operations [OPTIONS]
 
             Options:
               -v, --verbose...  Increase logging verbosity
