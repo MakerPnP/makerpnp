@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use anyhow::bail;
 use clap::Parser;
-use planner_app::{Effect, Event};
+use planner_app::{Effect, Event, NavigationOperation};
 use crossbeam_channel::unbounded;
-
+use tracing::{debug, trace};
 use crate::core::Core;
 use crate::opts::{EventError, Opts};
 
@@ -52,11 +52,21 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
     core::update(&core, event, &Arc::new(tx))?;
 
     while let Ok(effect) = rx.recv() {
+        trace!("run_loop. effect: {:?}", effect);
         match effect {
             _render @ Effect::Render(_) => {
                 let view = core.view();
                 if let Some(error) = view.error {
                     bail!(error)
+                }
+            },
+            Effect::Navigator(request) => {
+                // FIXME What goes here?
+                let operation = request.operation;
+                match operation {
+                    NavigationOperation::Navigate { path } => {
+                        debug!("navigate from run_loop. path: {}", path)
+                    }
                 }
             },
         }

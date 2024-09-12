@@ -4,7 +4,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::anyhow;
 use crux_core::App;
-use crux_core::macros::Effect;
+use crux_core::capability::{CapabilityContext, Operation};
+use crux_core::macros::{Capability, Effect};
 use crux_core::render::Render;
 use regex::Regex;
 use serde_with::serde_as;
@@ -22,6 +23,9 @@ use pnp::object_path::ObjectPath;
 use pnp::part::Part;
 use pnp::pcb::{PcbKind, PcbSide};
 use stores::load_out::LoadOutSource;
+
+pub use crux_core::Core;
+use thiserror::Error;
 
 extern crate serde_regex;
 
@@ -47,10 +51,17 @@ pub struct Model {
 #[derive(Effect)]
 pub struct Capabilities {
     render: Render<Event>,
+    navigate: Navigator<Event>
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
-pub struct ViewModel {
+pub struct ProjectOperationView {
+    pub name: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
+pub struct ProjectOperationViewModel {
+    pub project: Option<ProjectOperationView>,
     pub error: Option<String>
 }
 
@@ -62,6 +73,7 @@ pub enum Event {
         project_name: String,
         path: PathBuf,
     },
+    CreatedProject(Result<(), ()>),
     Save,
     Load {
         project_name: String,
@@ -127,10 +139,11 @@ pub enum Event {
 impl App for Planner {
     type Event = Event;
     type Model = Model;
-    type ViewModel = ViewModel;
+    type ViewModel = ProjectOperationViewModel;
     type Capabilities = Capabilities;
 
     fn update(&self, event: Self::Event, model: &mut Self::Model, caps: &Self::Capabilities) {
+        let mut default_render = true;
         match event {
             Event::None => {}
             Event::CreateProject { project_name, path} => {
@@ -142,7 +155,16 @@ impl App for Planner {
                     modified: true,
                 });
 
+                default_render = false;
                 self.update(Event::Save {}, model, caps); // TODO remove this?
+                self.update( Event::CreatedProject(Ok(())), model, caps);
+            },
+            Event::CreatedProject(Ok(_)) => {
+                default_render = false;
+                caps.navigate.navigate("/".to_string(), |_| Event::None);
+            },
+            Event::CreatedProject(Err(error)) => {
+                model.error.replace(anyhow!("creating project failed. cause: {:?}", error).into());
             },
             Event::Load { project_name, path } => {
 
@@ -418,7 +440,9 @@ impl App for Planner {
             },
         }
 
-        caps.render.render();
+        if default_render {
+            caps.render.render();
+        }
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
@@ -428,7 +452,14 @@ impl App for Planner {
             Some(error) => Some(format!("{:?}", error)),
         };
 
-        ViewModel {
+        let project: Option<ProjectOperationView> = model.model_project.as_ref().map(|project| {
+            ProjectOperationView {
+                name: project.name.clone()
+            }
+        });
+        
+        ProjectOperationViewModel {
+            project,
             error
         }
     }
@@ -466,7 +497,88 @@ mod app_tests {
 
         // Make sure the view matches our expectations
         let actual_view = &hello.view(&model);
-        let expected_view = ViewModel::default();
+        let expected_view = ProjectOperationViewModel::default();
         assert_eq!(actual_view, &expected_view);
     }
+}
+
+#[derive(Capability)]
+struct Navigator<Ev> {
+    context: CapabilityContext<NavigationOperation, Ev>,
+}
+
+impl<Ev> Navigator<Ev> {
+    pub fn new(context: CapabilityContext<NavigationOperation, Ev>) -> Self {
+        Self {
+            context,
+        }
+    }
+}
+impl<Ev: 'static> Navigator<Ev> {
+
+    pub fn navigate<F>(&self, path: String, make_event: F)
+    where
+        F: FnOnce(Result<Option<String>, NavigationError>) -> Ev + Send + Sync + 'static,
+    {
+        self.context.spawn({
+            let context = self.context.clone();
+            async move {
+                let response = navigate(&context, path).await;
+                context.update_app(make_event(response))
+            }
+        });
+    }
+}
+
+
+async fn navigate<Ev: 'static>(
+    context: &CapabilityContext<NavigationOperation, Ev>,
+    path: String,
+) -> Result<Option<String>, NavigationError> {
+    context
+        .request_from_shell(NavigationOperation::Navigate { path })
+        .await
+        .unwrap_set()
+}
+
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub enum NavigationResult {
+    Ok { response: NavigationResponse },
+    Err { error: NavigationError },
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub enum NavigationResponse {
+    Navigate { previous: String }
+}
+
+impl NavigationResult {
+    fn unwrap_set(self) -> Result<Option<String>, NavigationError> {
+        match self {
+            NavigationResult::Ok { response } => match response {
+                NavigationResponse::Navigate { previous } => Ok(previous.into()),
+                // _ => {
+                //     panic!("attempt to convert NavigationResponse other than Ok to Option<String>")
+                // }
+            },
+            NavigationResult::Err { error } => Err(error.clone()),
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub enum NavigationOperation {
+    Navigate { path: String }
+}
+
+impl Operation for NavigationOperation {
+    type Output = NavigationResult;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Error)]
+#[serde(rename_all = "camelCase")]
+pub enum NavigationError {
+    #[error("other error: {message}")]
+    Other { message: String },
 }
