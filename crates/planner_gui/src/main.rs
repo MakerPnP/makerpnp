@@ -43,6 +43,10 @@ enum ProjectEvent {
 }
 
 
+enum ApplicationEvent {
+    ChangeLanguage { index: usize }
+}
+
 #[derive(Lens)]
 pub struct AppData {
     core: CoreService,
@@ -65,7 +69,16 @@ impl Model for AppData {
                     })
                 }
             }
-        })
+        });
+        event.map(|event, meta| {
+            match event {
+                ApplicationEvent::ChangeLanguage { index } => {
+                    let language_pair: &LanguagePair = self.languages.get(*index).as_ref().unwrap();
+
+                    EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap());
+                }
+            }
+        });
     }
 }
 
@@ -80,25 +93,25 @@ fn main() -> Result<(), ApplicationError> {
     info!("Started");
 
     let core = CoreService::new();
-    
+
     Application::new(|cx| {
 
         let languages: Vec<LanguagePair> = vec![
             LanguagePair { code: "en-US".to_string(), name: "English (United-States)".to_string() },
             LanguagePair { code: "es-ES".to_string(), name: "Español (España)".to_string() },
         ];
-        
+
         let selected_language_index = 0;
 
         language::load_languages(languages.as_slice(), cx);
-        
+
         let app_data = AppData {
             core,
             languages,
             selected_language_index,
         };
         app_data.build(cx);
-        
+
         HStack::new(cx, |cx| {
 
             Button::new(cx, |cx| Label::new(cx, Localized::new("action-project-create")))
@@ -109,18 +122,20 @@ fn main() -> Result<(), ApplicationError> {
 
             Element::new(cx)
                 .width(Stretch(7.0));
-            
+
             PickList::new(
                 cx,
-                //AppData::languages,
                 AppData::languages.map(|languages| {
                     languages.iter().map(|language|language.name.clone()).collect::<Vec<_>>()
                 }),
                 AppData::selected_language_index,
                 true
             )
+                .on_select(|ecx, index|{
+                    ecx.emit(ApplicationEvent::ChangeLanguage { index })
+                })
                 .width(Stretch(3.0)); // FIXME if this is too small, content overflows
-            
+
         })
             .width(Stretch(1.0));
     })
