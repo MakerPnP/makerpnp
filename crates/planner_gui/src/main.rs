@@ -344,8 +344,10 @@ mod document {
                     //
                     VStack::new(cx, |cx| {
 
+                        let loading_message = Localized::new("spinner-loading").to_string_local(cx);
                         Label::new(cx, DocumentContainer::content.map(move |content| {
-                            content.content.clone().unwrap_or("Loading...".to_string())
+                            // FIXME why do we need to clone things all the time
+                            content.content.clone().unwrap_or(loading_message.clone())
                         }))
                             .text_align(TextAlign::Center);
                     })
