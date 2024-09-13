@@ -1,6 +1,7 @@
 use vizia::prelude::*;
 use crate::document::{Document, DocumentContainer, DocumentRouteEvent};
 use crate::route::Route;
+use crate::tabbed_document_container::TabbedDocument;
 
 #[derive(Clone, Data)]
 pub enum TabKind {
@@ -93,15 +94,18 @@ impl TabKind {
             TabKind::Document(document_tab) => { document_tab.document.name.clone() }
         }
     }
+}
 
-    pub fn build_tab(&self) -> TabPair {
+impl TabbedDocument for TabKind {
+
+    fn build_tab(&self) -> TabPair {
         match self {
             TabKind::Home(tab) => tab.build_tab(self.name()),
             TabKind::Document(tab) => tab.build_tab(),
         }
     }
 
-    pub fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
+    fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
         match self {
             TabKind::Home(tab) => tab.event(cx, event),
             TabKind::Document(tab) => tab.event(cx, event)

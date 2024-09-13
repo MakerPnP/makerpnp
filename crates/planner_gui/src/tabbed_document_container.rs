@@ -1,13 +1,18 @@
 use tracing::trace;
 use vizia::prelude::*;
-use crate::tabbed_ui::TabKind;
 
-#[derive(Lens)]
-pub struct MultiDocumentContainer {
-    tabs: Vec<TabKind>,
+pub trait TabbedDocument {
+    fn event(&mut self, cx: &mut EventContext, event: &mut Event);
+    fn build_tab(&self) -> TabPair;
 }
 
-impl View for MultiDocumentContainer {
+#[derive(Lens)]
+pub struct TabbedDocumentContainer<T: TabbedDocument + 'static>
+{
+    tabs: Vec<T>,
+}
+
+impl<T: TabbedDocument + 'static> View for TabbedDocumentContainer<T> {
     fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
         trace!("event: {:?}", &event);
         for tab in self.tabs.iter_mut() {
@@ -16,12 +21,12 @@ impl View for MultiDocumentContainer {
     }
 }
 
-impl MultiDocumentContainer {
-    pub fn new(cx: &mut Context, tabs: Vec<TabKind>) -> Handle<Self> {
+impl<T: TabbedDocument + Clone + 'static> TabbedDocumentContainer<T> {
+    pub fn new(cx: &mut Context, tabs: Vec<T>) -> Handle<Self> {
         Self {
             tabs,
         }.build(cx, |cx| {
-            TabView::new(cx, MultiDocumentContainer::tabs, |cx, tab_kind_lens| {
+            TabView::new(cx, TabbedDocumentContainer::<T>::tabs, |cx, tab_kind_lens| {
                 tab_kind_lens.get(cx).build_tab()
             })
                 .background_color(Color::lightgray())

@@ -8,7 +8,7 @@ use document::Document;
 use crate::language::LanguagePair;
 use route::Route;
 use tabbed_ui::{DocumentTab, HomeTab, TabKind};
-use crate::multi_document_container::MultiDocumentContainer;
+use crate::tabbed_document_container::TabbedDocumentContainer;
 
 mod app_core;
 mod document;
@@ -16,7 +16,7 @@ mod tabbed_ui;
 mod route;
 mod language;
 
-mod multi_document_container;
+mod tabbed_document_container;
 
 enum ProjectEvent {
     Create {},
@@ -132,7 +132,7 @@ fn main() -> Result<(), ApplicationError> {
             //
             // Tab container
             //
-            MultiDocumentContainer::new(cx, create_tabs())
+            TabbedDocumentContainer::new(cx, create_tabs())
                 .width(Percentage(100.0))
                 .height(Stretch(1.0));
 
