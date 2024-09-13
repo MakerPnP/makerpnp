@@ -77,8 +77,10 @@ impl Model for AppData {
             match event {
                 ApplicationEvent::ChangeLanguage { index } => {
                     let language_pair: &LanguagePair = self.languages.get(*index).as_ref().unwrap();
+                    info!("change language. index: {}, name: {}, code: {}", index, language_pair.name, language_pair.code);
+                    self.selected_language_index = *index;
 
-                    EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap());
+                    cx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
                 }
             }
         });
