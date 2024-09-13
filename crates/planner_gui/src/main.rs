@@ -7,12 +7,14 @@ use crate::app_core::CoreService;
 use document::Document;
 use crate::language::LanguagePair;
 use route::Route;
-use tabbed_ui::{DocumentTab, HomeTab, TabKind};
+use tabs::TabKind;
+use tabs::document::DocumentTab;
+use tabs::home::HomeTab;
 use crate::tabbed_document_container::TabbedDocumentContainer;
 
+mod tabs;
 mod app_core;
 mod document;
-mod tabbed_ui;
 mod route;
 mod language;
 
