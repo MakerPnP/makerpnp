@@ -6,12 +6,12 @@ use anyhow::anyhow;
 use crux_core::App;
 use crux_core::capability::{CapabilityContext, Operation};
 use crux_core::macros::{Capability, Effect};
-use crux_core::render::Render;
+use crux_core::render::{Render, RenderOperation};
 use regex::Regex;
 use serde_with::serde_as;
 use tracing::{info, trace};
 use planning::design::{DesignName, DesignVariant};
-use planning::phase::PhaseError;
+use planning::phase::{Phase, PhaseError};
 use planning::placement::{PlacementOperation, PlacementSortingItem};
 use planning::process::{ProcessName, ProcessOperationKind, ProcessOperationSetItem};
 use planning::project;
@@ -26,6 +26,10 @@ use stores::load_out::LoadOutSource;
 
 pub use crux_core::Core;
 use thiserror::Error;
+use pnp::placement::Placement;
+use crate::view_renderer::ViewRenderer;
+
+pub mod view_renderer; 
 
 extern crate serde_regex;
 
@@ -44,19 +48,61 @@ pub struct ModelProject {
 #[derive(Default)]
 pub struct Model {
     model_project: Option<ModelProject>,
-
+ 
     error: Option<Box<dyn Error>>
 }
 
 #[derive(Effect)]
 pub struct Capabilities {
+    // TODO remove 'render'
     render: Render<Event>,
+    view: ViewRenderer<Event>,
     navigate: Navigator<Event>
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
 pub struct ProjectOperationView {
     pub name: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub struct PhaseOverview {
+    pub reference: Reference,
+    pub process: ProcessName,
+    pub load_out_source: String,
+    pub pcb_side: PcbSide,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub struct PhasePlacementOrderings {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub placement_orderings: Vec<PlacementSortingItem>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub struct PlacementsList {
+    // FUTURE consider introducing PlacementListItem, a subset of Placement
+    placements: Vec<Placement>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone, Eq)]
+struct ProjectTreeItem {
+    name: String,
+    path: String,
+    
+}
+#[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug, Clone, Eq)]
+struct ProjectTree {
+    items: Vec<ProjectTreeItem>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub enum ProjectView {
+    ProjectTree(ProjectTree),
+    Placements(PlacementsList),
+    PhaseOverview(PhaseOverview),
+    PhasePlacementOrderings(PhasePlacementOrderings),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
@@ -133,7 +179,13 @@ pub enum Event {
     },
     /// Reset operations
     ResetOperations {
-    }
+    },
+    
+    //
+    // Views
+    //
+    ProjectTree { reference: String, path: PathBuf }
+    
 }
 
 impl App for Planner {
@@ -161,7 +213,8 @@ impl App for Planner {
             },
             Event::CreatedProject(Ok(_)) => {
                 default_render = false;
-                caps.navigate.navigate("/".to_string(), |_| Event::None);
+                
+                caps.navigate.navigate("/project/load/:path".to_string(), |_| Event::None);
             },
             Event::CreatedProject(Err(error)) => {
                 model.error.replace(anyhow!("creating project failed. cause: {:?}", error).into());
@@ -438,6 +491,42 @@ impl App for Planner {
                     model.error.replace(e.into());
                 };
             },
+            
+            Event::ProjectTree { reference, path } => {
+
+                default_render = false;
+                
+                // TODO use the path to find the right project to work on, for now use the only project
+                
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(ModelProject { project, modified, .. }) = &mut model.model_project {
+
+                        let mut project_tree = ProjectTree {
+                            items: vec![
+                                ProjectTreeItem { name: "Phases".to_string(), path: "/phases".to_string() }
+                            ],
+                        };
+                        
+                        for (reference, phase) in &project.phases {
+                            project_tree.items.push ( ProjectTreeItem { 
+                                name: reference.to_string(), 
+                                path: format!("/phases/{}", reference).to_string() }
+                            )
+                        }
+                        
+                        caps.view.view(reference, ProjectView::ProjectTree(project_tree), |_|Event::None)    
+                        
+                    } else {
+                        model.error.replace(anyhow!("project required").into());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(e.into());
+                };
+            }
+            
         }
 
         if default_render {

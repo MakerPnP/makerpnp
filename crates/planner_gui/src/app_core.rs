@@ -1,6 +1,7 @@
 use std::rc::Rc;
 use tracing::{error, info, debug};
 use planner_app::{Effect, Event, NavigationOperation, Planner, ProjectOperationViewModel};
+use planner_app::view_renderer::ViewRendererOperation;
 
 type Core = Rc<planner_app::Core<Effect, Planner>>;
 
@@ -27,13 +28,20 @@ impl CoreService {
 
 fn process_effect(core: &Core, effect: Effect) {
     debug!("core::process_effect. effect: {:?}", effect);
-    match &effect {
-        render @ Effect::Render(request) => {
+    match effect {
+        ref render @ Effect::Render(ref request) => {
             // TODO
-            
         }
         Effect::Navigator(request) => {
             // TODO
+        }
+        
+        Effect::ViewRenderer(request) => {
+            if let ViewRendererOperation::View { reference, view} = request.operation {
+                // find the tab with the reference
+                
+                // ask the tab to display the view?
+            }
         }
     }
 }
