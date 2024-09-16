@@ -56,6 +56,8 @@ pub struct PopupWindowState {
 enum NewProjectPopupEvent {
     SetName { text: String },
     SetPath { text: String },
+    Ok,
+    Cancel,
 }
 
 #[derive(Clone, Data, Default, Debug, Lens)]
@@ -65,14 +67,19 @@ pub struct NewProjectPopup {
 }
 
 impl NewProjectPopup {
-    pub fn on_close(self, ecx: &mut EventContext) {
-        ecx.emit(ApplicationEvent::CreateProject { name: self.name, path: PathBuf::from(self.path) });
-    }
 
-    pub fn on_event(&mut self, _ecx: &mut EventContext, event: &mut Event) {
-        event.map(|event, _| match event {
-            NewProjectPopupEvent::SetName { text } => self.name = text.clone(),
-            NewProjectPopupEvent::SetPath { text } => self.path = text.clone(),
+    pub fn on_event(&mut self, ecx: &mut EventContext, event: &mut Event) {
+        event.take(|event, _| match event {
+            NewProjectPopupEvent::SetName { text } => self.name = text,
+            NewProjectPopupEvent::SetPath { text } => self.path = text,
+            
+            NewProjectPopupEvent::Cancel => {
+                ecx.emit(ApplicationEvent::PopupClosed {})
+            }
+            NewProjectPopupEvent::Ok => {
+                ecx.emit(ApplicationEvent::PopupClosed {});
+                ecx.emit(ApplicationEvent::CreateProject { name: self.name.clone(), path: PathBuf::from(&self.path) });
+            }
         });
     }
     
@@ -90,17 +97,30 @@ impl NewProjectPopup {
                 let path_lens = kind_lens.then(NewProjectPopup::path);
 
                 Textbox::new(cx, name_lens)
-                    .width(Pixels(300.0))
+                    .width(Stretch(1.0))
                     // FIXME after clearing the text, the placeholder doesn't display if the lens value is non-empty
                     .placeholder("TODO (Name)")
-                    .on_edit(|cx, text| cx.emit(NewProjectPopupEvent::SetName { text }));
+                    .on_edit(|ecx, text| ecx.emit(NewProjectPopupEvent::SetName { text }));
 
                 Textbox::new(cx, path_lens)
-                    .width(Pixels(300.0))
+                    .width(Stretch(1.0))
                     // FIXME after clearing the text, the placeholder doesn't display if the lens value is non-empty
                     .placeholder("TODO (Path)")
-                    .on_edit(|cx, text| cx.emit(NewProjectPopupEvent::SetPath { text }));
+                    .on_edit(|ecx, text| ecx.emit(NewProjectPopupEvent::SetPath { text }));
 
+                HStack::new(cx, |cx|{
+                    Element::new(cx)
+                        .width(Stretch(2.0));
+                    Button::new(cx, |cx|Label::new(cx, "Cancel")) // TODO i18n
+                        .on_press(|ecx| ecx.emit(NewProjectPopupEvent::Cancel))
+                        .width(Stretch(0.95));
+                    Element::new(cx)
+                        .width(Stretch(0.1));
+                    Button::new(cx, |cx|Label::new(cx, "Ok")) // TODO i18n
+                        .on_press(|ecx| ecx.emit(NewProjectPopupEvent::Ok))
+                        .width(Stretch(0.95));
+                })
+                    .width(Stretch(1.0));
             })
                 .child_space(Pixels(20.0))
                 .child_top(Stretch(1.0))
@@ -108,7 +128,7 @@ impl NewProjectPopup {
                 .row_between(Pixels(12.0));
         })
             .on_close(|cx| {
-                cx.emit(ApplicationEvent::PopupClosed);
+                cx.emit(NewProjectPopupEvent::Cancel);
             })
             .title("TODO NewProjectPopup")
             .inner_size((400, 200))
@@ -120,12 +140,6 @@ impl PopupWindow {
     pub fn build<'a, L: Lens<Target = Option<PopupWindow>>>(&self, cx: &'a mut Context, lens: L) -> Handle<'a, Window> {
         match self {
             PopupWindow::NewProject(popup) => popup.build(cx, lens),
-        }
-    }
-
-    pub fn on_close(self, ecx: &mut EventContext) {
-        match self {
-            PopupWindow::NewProject(popup) => popup.on_close(ecx),
         }
     }
 
@@ -188,7 +202,6 @@ impl Model for AppData {
                 self.popup_window.enabled = false;
                 let popup = self.popup_window.kind.take().unwrap();
                 info!("popup closed, popup: {:?}", popup);
-                popup.on_close(ecx);
             },
         }});
         event.map(|event, meta| { match event {
