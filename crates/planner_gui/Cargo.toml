@@ -10,6 +10,8 @@ vizia = { git = "https://github.com/hydra/vizia.git", rev = "9dddbbb611d61dc2f42
 
 fluent = "0.16.1"
 
+base64 = { workspace = true }
+
 #futures-util = "0.3.30"
 
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }

@@ -19,3 +19,5 @@ serde_with = { workspace = true }
 
 crux_core = { workspace = true }
 crossbeam-channel = { workspace = true }
+
+base64 = { workspace = true }

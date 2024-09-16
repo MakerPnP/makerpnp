@@ -2372,6 +2372,7 @@ name = "planner_app"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "crossbeam-channel",
  "crux_core",
  "planning",
@@ -2420,8 +2421,10 @@ dependencies = [
 name = "planner_gui"
 version = "0.1.0"
 dependencies = [
+ "base64",
  "fluent",
  "planner_app",
+ "regex",
  "tracing",
  "tracing-subscriber",
  "vizia",
