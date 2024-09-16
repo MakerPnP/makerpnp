@@ -51,48 +51,63 @@ pub enum PopupWindow {
 #[derive(Clone, Debug, Default, Data, Lens)]
 pub struct PopupWindowState {
     enabled: bool,
-
-    #[lens(ignore)]
     kind: Option<PopupWindow>,
 }
 
 enum NewProjectPopupEvent {
-    SetName { text: String }
+    SetName { text: String },
+    SetPath { text: String },
 }
 
 #[derive(Clone, Data, Default, Debug)]
 struct NewProjectPopup {
     name: String,
-    path: PathBuf,
+    path: String,
 }
 
 impl NewProjectPopup {
     pub fn on_close(self, ecx: &mut EventContext) {
-        ecx.emit(ApplicationEvent::CreateProject { name: self.name, path: self.path });
+        ecx.emit(ApplicationEvent::CreateProject { name: self.name, path: PathBuf::from(self.path) });
     }
 
     pub fn on_event(&mut self, ecx: &mut EventContext, event: &mut Event) {
         event.map(|event, _| match event {
             NewProjectPopupEvent::SetName { text } => self.name = text.clone(),
+            NewProjectPopupEvent::SetPath { text } => self.path = text.clone(),
         });
     }
     
-    pub fn build<'a>(&self, cx: &'a mut Context, lens: Wrapper<popup_window>) -> Handle<'a, Window> {
+    pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<popup_window_state_derived_lenses::kind>>) -> Handle<'a, Window> {
         Window::popup(cx, true, |cx| {
             VStack::new(cx, |cx: &mut Context| {
-                let name_lens = lens.map(|state| { 
-                    match &state.kind {
+                let name_lens = lens.map(|kind| {
+                    match &kind {
                         Some(PopupWindow::NewProject(bar)) => {
                             bar.name.clone()
                         },
                         _ => unreachable!()
                     }
                 });
-                
+                let path_lens = lens.map(|kind| {
+                    match &kind {
+                        Some(PopupWindow::NewProject(bar)) => {
+                            bar.path.clone()
+                        },
+                        _ => unreachable!()
+                    }
+                });
+
                 Textbox::new(cx, name_lens)
                     .width(Pixels(300.0))
-                    .placeholder("TODO")
+                    // FIXME after clearing the text, the placeholder doesn't display if the lens value is non-empty
+                    .placeholder("TODO (Name)")
                     .on_edit(|cx, text| cx.emit(NewProjectPopupEvent::SetName { text }));
+
+                Textbox::new(cx, path_lens)
+                    .width(Pixels(300.0))
+                    // FIXME after clearing the text, the placeholder doesn't display if the lens value is non-empty
+                    .placeholder("TODO (Path)")
+                    .on_edit(|cx, text| cx.emit(NewProjectPopupEvent::SetPath { text }));
 
             })
                 .child_space(Pixels(20.0))
@@ -105,12 +120,12 @@ impl NewProjectPopup {
             })
             .title("TODO NewProjectPopup")
             .inner_size((400, 200))
-            //.position((500, 100))
+            .position((500, 100))
     }
 }
 
 impl PopupWindow {
-    pub fn build<'a>(&self, cx: &'a mut Context, lens: Wrapper<popup_window>) -> Handle<'a, Window> {
+    pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<popup_window_state_derived_lenses::kind>>) -> Handle<'a, Window> {
         match self {
             PopupWindow::NewProject(popup) => popup.build(cx, lens),
         }
@@ -167,7 +182,7 @@ impl Model for AppData {
                 ecx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
             },
             ApplicationEvent::ShowCreateProject {} => {
-                let popup = PopupWindow::NewProject(NewProjectPopup { name: "Test".to_string(), path: Default::default() });
+                let popup = PopupWindow::NewProject(NewProjectPopup { name: "Test Name".to_string(), path: "Test Path".to_string() });
                 self.popup_window.kind.replace(popup);
                 self.popup_window.enabled = true;
             },
@@ -302,8 +317,9 @@ fn make_popup(cx: &mut Context) {
     Binding::new(cx, AppData::popup_window.map(|s| s.enabled), |cx, enabled| {
         if enabled.get(cx) {
             let popup = AppData::popup_window.get(cx);
+
             if let Some(kind) = popup.kind {
-                kind.build(cx, AppData::popup_window);
+                kind.build(cx, AppData::popup_window.then(PopupWindowState::kind));
             }
         }
     });
