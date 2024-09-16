@@ -12,12 +12,10 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use vizia::prelude::*;
 use crate::app_core::CoreService;
-use document::Document;
 use regex::{Captures, Regex};
 use crate::language::LanguagePair;
 use route::Route;
 use tabs::TabKind;
-use tabs::document::DocumentTab;
 use tabs::home::HomeTab;
 use crate::project::Project;
 use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
@@ -25,7 +23,6 @@ use crate::tabs::project::ProjectTab;
 
 mod tabs;
 mod app_core;
-mod document;
 mod project;
 mod route;
 mod language;
@@ -363,10 +360,6 @@ pub fn create_tabs() -> Vec<TabKind>{
         TabKind::Home( HomeTab {
             route: Route(None)
         } ),
-        TabKind::Document( DocumentTab {
-            document: Document { id: "document_1".to_string(), name: "Document 1".to_string() },
-            route: Route(None),
-        }),
         TabKind::Project( ProjectTab {
             project: Project { id: "project_1".to_string(), name: "Project 1".to_string() },
             route: Route(None),
