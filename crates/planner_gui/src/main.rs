@@ -91,7 +91,7 @@ impl NewProjectPopup {
                 
                 Textbox::new(cx, name_lens)
                     .width(Pixels(300.0))
-                    .placeholder("TODO")
+                    .placeholder("FIXME Typing here causes the window to be re-created")
                     .on_edit(|cx, text| cx.emit(NewProjectPopupEvent::SetName { text }));
 
             })
@@ -103,7 +103,7 @@ impl NewProjectPopup {
             .on_close(|cx| {
                 cx.emit(ApplicationEvent::PopupClosed);
             })
-            .title("Set color...")
+            .title("TODO NewProjectPopup")
             .inner_size((400, 200))
             //.position((500, 100))
     }
