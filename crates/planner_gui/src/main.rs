@@ -77,7 +77,7 @@ impl NewProjectPopup {
         });
     }
     
-    pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<popup_window_state_derived_lenses::kind>>) -> Handle<'a, Window> {
+    pub fn build<'a, L: Lens<Target = Option<PopupWindow>>>(&self, cx: &'a mut Context, lens: L) -> Handle<'a, Window> {
         Window::popup(cx, true, |cx| {
             VStack::new(cx, |cx: &mut Context| {
                 let kind_lens = lens.map_ref(|optional_kind| {
@@ -86,7 +86,7 @@ impl NewProjectPopup {
                         _ => unreachable!()
                     }
                 });
-                
+
                 // this works, but not as readable as the alternative below
                 let name_lens = kind_lens.map_ref(|kind|&kind.name);
                 let path_lens = kind_lens.map_ref(|kind|&kind.path);
@@ -123,7 +123,7 @@ impl NewProjectPopup {
 }
 
 impl PopupWindow {
-    pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<popup_window_state_derived_lenses::kind>>) -> Handle<'a, Window> {
+    pub fn build<'a, L: Lens<Target = Option<PopupWindow>>>(&self, cx: &'a mut Context, lens: L) -> Handle<'a, Window> {
         match self {
             PopupWindow::NewProject(popup) => popup.build(cx, lens),
         }
