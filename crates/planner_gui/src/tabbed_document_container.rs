@@ -26,9 +26,9 @@ impl<T: TabbedDocument + Send + 'static> View for TabbedDocumentContainer<T> {
         }
         event.take(|event, _meta|{
             match event {
-                TabbedDocumentEvent::<T>::AddTab { tab: document } => {
+                TabbedDocumentEvent::<T>::AddTab { tab } => {
                     info!("AddTab");
-                    self.tabs.push(document);
+                    self.tabs.push(tab);
                 }
             }
         })

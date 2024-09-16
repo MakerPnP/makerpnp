@@ -39,6 +39,7 @@ fn process_effect(core: &Core, effect: Effect, ecx: &mut EventContext) {
         Effect::Navigator(request) => {
             match request.operation {
                 NavigationOperation::Navigate { path } => {
+                    // TODO use the path
                     let path = PathBuf::from("project-test.mpnp.json");
                     ecx.emit(ApplicationEvent::OpenProject { path })
                 }
