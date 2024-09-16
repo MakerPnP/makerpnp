@@ -91,7 +91,7 @@ impl NewProjectPopup {
                 
                 Textbox::new(cx, name_lens)
                     .width(Pixels(300.0))
-                    .placeholder("FIXME Typing here causes the window to be re-created")
+                    .placeholder("TODO")
                     .on_edit(|cx, text| cx.emit(NewProjectPopupEvent::SetName { text }));
 
             })
@@ -167,7 +167,6 @@ impl Model for AppData {
                 ecx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
             },
             ApplicationEvent::ShowCreateProject {} => {
-                //let popup = PopupWindow::NewProject(NewProjectPopup::default());
                 let popup = PopupWindow::NewProject(NewProjectPopup { name: "Test".to_string(), path: Default::default() });
                 self.popup_window.kind.replace(popup);
                 self.popup_window.enabled = true;
@@ -300,10 +299,12 @@ fn main() -> Result<(), ApplicationError> {
 }
 
 fn make_popup(cx: &mut Context) {
-    Binding::new(cx, AppData::popup_window, |cx, popup| {
-        let popup = popup.get(cx);
-        if let Some(kind) = popup.kind {
-            kind.build(cx, AppData::popup_window);
+    Binding::new(cx, AppData::popup_window.map(|s| s.enabled), |cx, enabled| {
+        if enabled.get(cx) {
+            let popup = AppData::popup_window.get(cx);
+            if let Some(kind) = popup.kind {
+                kind.build(cx, AppData::popup_window);
+            }
         }
     });
 }
