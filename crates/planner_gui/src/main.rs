@@ -17,7 +17,6 @@ use tabs::TabKind;
 use tabs::document::DocumentTab;
 use tabs::home::HomeTab;
 use crate::app_data_derived_lenses::popup_window;
-use crate::popup_window_state_derived_lenses::kind;
 use crate::project::Project;
 use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
 use crate::tabs::project::ProjectTab;
@@ -52,6 +51,8 @@ pub enum PopupWindow {
 #[derive(Clone, Debug, Default, Data, Lens)]
 pub struct PopupWindowState {
     enabled: bool,
+
+    #[lens(ignore)]
     kind: Option<PopupWindow>,
 }
 
@@ -76,11 +77,11 @@ impl NewProjectPopup {
         });
     }
     
-    pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<kind>>) -> Handle<'a, Window> {
+    pub fn build<'a>(&self, cx: &'a mut Context, lens: Wrapper<popup_window>) -> Handle<'a, Window> {
         Window::popup(cx, true, |cx| {
             VStack::new(cx, |cx: &mut Context| {
-                let name_lens = lens.map(|foo| { 
-                    match &foo {
+                let name_lens = lens.map(|state| { 
+                    match &state.kind {
                         Some(PopupWindow::NewProject(bar)) => {
                             bar.name.clone()
                         },
@@ -109,7 +110,7 @@ impl NewProjectPopup {
 }
 
 impl PopupWindow {
-    pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<kind>>) -> Handle<'a, Window> {
+    pub fn build<'a>(&self, cx: &'a mut Context, lens: Wrapper<popup_window>) -> Handle<'a, Window> {
         match self {
             PopupWindow::NewProject(popup) => popup.build(cx, lens),
         }
@@ -303,7 +304,7 @@ fn make_popup(cx: &mut Context) {
         popup_state.kind.clone()
     }), |cx, popup| {
         if let Some(popup) = popup.get(cx) {
-            popup.build(cx, AppData::popup_window.then(PopupWindowState::kind));
+            popup.build(cx, AppData::popup_window);
         }
     });
 }
