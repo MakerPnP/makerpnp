@@ -32,22 +32,12 @@ impl ProjectContent {
         cx.spawn(move |cp|{
             sleep(Duration::from_millis(250));
 
-            let content = match id.as_str() {
-                "project_1" => ProjectContent {
-                    content: Some("content for project 1".to_string()),
-                    sections: vec![
-                        "Section 4".to_string(),
-                        "Section 2".to_string(),
-                    ],
-                },
-                "project_2" => ProjectContent {
-                    content: Some("content for project 1".to_string()),
-                    sections: vec![
-                        "Section 6".to_string(),
-                        "Section 9".to_string(),
-                    ],
-                },
-                _ => unreachable!()
+            let content = ProjectContent {
+                content: Some(format!("Dummy content for {}", id)),
+                sections: vec![
+                    "Section 1".to_string(),
+                    "Section 2".to_string(),
+                ],
             };
             let result = cp.emit(ProjectEvent::Loaded { content });
             match result {

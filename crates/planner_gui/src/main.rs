@@ -4,6 +4,8 @@
 /// To enable logging, set the environment variable appropriately, for example:
 /// `RUST_LOG=debug,selectors::matching=info`
 use std::path::PathBuf;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use tracing::{info, trace};
 use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::layer::SubscriberExt;
@@ -11,6 +13,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use vizia::prelude::*;
 use crate::app_core::CoreService;
 use document::Document;
+use regex::{Captures, Regex};
 use crate::language::LanguagePair;
 use route::Route;
 use tabs::TabKind;
@@ -36,6 +39,7 @@ enum ApplicationEvent {
     CreateProject { name: String, path: PathBuf },
     PopupClosed,
     ShowCreateProject,
+    Navigate { path: String },
 }
 
 enum InternalEvent {
@@ -72,7 +76,7 @@ impl NewProjectPopup {
         event.take(|event, _| match event {
             NewProjectPopupEvent::SetName { text } => self.name = text,
             NewProjectPopupEvent::SetPath { text } => self.path = text,
-            
+
             NewProjectPopupEvent::Cancel => {
                 ecx.emit(ApplicationEvent::PopupClosed {})
             }
@@ -169,12 +173,13 @@ impl Model for AppData {
         trace!("event: {:?}", &event);
         event.map(|event, _meta| { match event {
             ApplicationEvent::OpenProject { path } => {
-                info!("OpenProject");
+                info!("OpenProject. path: {:?}", &path);
 
-                let id = format!("{:?}", path);
+                let id = path.to_str().unwrap().to_string();
+                let name = Localized::new("spinner-loading").to_string_local(ecx);
 
                 let tab = TabKind::Project(ProjectTab {
-                    project: Project { id, name: "TODO".to_string() },
+                    project: Project { id, name },
                     route: Route(None),
                 });
 
@@ -188,7 +193,7 @@ impl Model for AppData {
                 ecx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
             },
             ApplicationEvent::ShowCreateProject {} => {
-                let popup = PopupWindow::NewProject(NewProjectPopup { name: "Test Name".to_string(), path: "Test Path".to_string() });
+                let popup = PopupWindow::NewProject(NewProjectPopup { name: "Test Name".to_string(), path: ".".to_string() });
                 self.popup_window.kind.replace(popup);
                 self.popup_window.enabled = true;
             },
@@ -203,6 +208,21 @@ impl Model for AppData {
                 let popup = self.popup_window.kind.take().unwrap();
                 info!("popup closed, popup: {:?}", popup);
             },
+            ApplicationEvent::Navigate { path } => {
+
+                // TODO implement some form of router, for now this will suffice
+                let pattern = Regex::new(r"/project/load/(?<path>.*)").unwrap();
+                if let Some(captures) = pattern.captures(path) {
+                    let encoded_path = captures.name("path").unwrap().as_str();
+                    let path = String::from_utf8(BASE64_STANDARD.decode(encoded_path).unwrap()).unwrap();
+                    let path = PathBuf::from(path);
+                    
+                    ecx.emit(ApplicationEvent::OpenProject { path })
+                } else {
+                    // unimplemented/bad path
+                    unreachable!()
+                }
+            }
         }});
         event.map(|event, meta| { match event {
             InternalEvent::DocumentContainerCreated {} => {
