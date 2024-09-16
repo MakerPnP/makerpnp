@@ -93,7 +93,7 @@ struct ProjectTreeItem {
     
 }
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug, Clone, Eq)]
-struct ProjectTree {
+pub struct ProjectTree {
     items: Vec<ProjectTreeItem>
 }
 
