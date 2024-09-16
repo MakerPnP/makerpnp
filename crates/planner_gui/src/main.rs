@@ -360,10 +360,6 @@ pub fn create_tabs() -> Vec<TabKind>{
         TabKind::Home( HomeTab {
             route: Route(None)
         } ),
-        TabKind::Project( ProjectTab {
-            project: Project { id: "project_1".to_string(), name: "Project 1".to_string() },
-            route: Route(None),
-        }),
     ]
 }
 
