@@ -100,17 +100,25 @@ impl NewProjectPopup {
                 let name_lens = kind_lens.then(NewProjectPopup::name);
                 let path_lens = kind_lens.then(NewProjectPopup::path);
 
-                Textbox::new(cx, name_lens)
-                    .width(Stretch(1.0))
-                    // FIXME after clearing the text, the placeholder doesn't display if the lens value is non-empty
-                    .placeholder("TODO (Name)")
-                    .on_edit(|ecx, text| ecx.emit(NewProjectPopupEvent::SetName { text }));
+                HStack::new(cx, |cx|{
+                    Label::new(cx, Localized::new("popup-new-project-name-label"))
+                        .width(Stretch(1.0));
+                    Textbox::new(cx, name_lens)
+                        .width(Stretch(4.0))
+                        .on_edit(|ecx, text| ecx.emit(NewProjectPopupEvent::SetName { text }));
+                    
+                })
+                    .width(Stretch(1.0));
 
-                Textbox::new(cx, path_lens)
-                    .width(Stretch(1.0))
-                    // FIXME after clearing the text, the placeholder doesn't display if the lens value is non-empty
-                    .placeholder("TODO (Path)")
-                    .on_edit(|ecx, text| ecx.emit(NewProjectPopupEvent::SetPath { text }));
+                HStack::new(cx, |cx|{
+                    Label::new(cx, Localized::new("popup-new-project-path-label"))
+                        .width(Stretch(1.0));
+                    Textbox::new(cx, path_lens)
+                        .width(Stretch(4.0))
+                        .on_edit(|ecx, text| ecx.emit(NewProjectPopupEvent::SetPath { text }));
+                })
+                    .width(Stretch(1.0));
+
 
                 HStack::new(cx, |cx|{
                     Element::new(cx)
