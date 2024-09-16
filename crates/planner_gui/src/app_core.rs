@@ -1,9 +1,9 @@
 use std::path::PathBuf;
 use std::rc::Rc;
-use tracing::{error, info, debug};
+use tracing::{debug};
 use vizia::context::EventContext;
 use vizia::prelude::EmitContext;
-use planner_app::{Effect, Event, NavigationOperation, Planner, ProjectOperationViewModel};
+use planner_app::{Effect, Event, NavigationOperation, Planner};
 use planner_app::view_renderer::ViewRendererOperation;
 use crate::ApplicationEvent;
 
@@ -30,7 +30,7 @@ impl CoreService {
     }
 }
 
-fn process_effect(core: &Core, effect: Effect, ecx: &mut EventContext) {
+fn process_effect(_core: &Core, effect: Effect, ecx: &mut EventContext) {
     debug!("core::process_effect. effect: {:?}", effect);
     match effect {
         ref render @ Effect::Render(ref request) => {
@@ -47,11 +47,10 @@ fn process_effect(core: &Core, effect: Effect, ecx: &mut EventContext) {
         }
         
         Effect::ViewRenderer(request) => {
-            if let ViewRendererOperation::View { reference, view} = request.operation {
-                // find the tab with the reference
-                
-                // ask the tab to display the view?
-            }
+            let ViewRendererOperation::View { reference, view} = request.operation;
+            // TODO find the tab with the reference
+
+            // TODO ask the tab to display the view?
         }
     }
 }

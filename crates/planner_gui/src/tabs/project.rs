@@ -2,8 +2,7 @@ use vizia::prelude::{Color, Data, Element, Label, Percentage, ScrollView, TabPai
 use vizia::context::EventContext;
 use vizia::events::Event;
 use vizia::modifiers::{AbilityModifiers, LayoutModifiers, StyleModifiers};
-use crate::document::{Document, DocumentContainer, DocumentRouteEvent};
-use crate::project::{Project, ProjectContainer};
+use crate::project::{Project, ProjectContainer, ProjectRouteEvent};
 use crate::route::Route;
 
 #[derive(Clone, Data)]
@@ -41,8 +40,8 @@ impl ProjectTab {
         event.map(|event, _meta| {
             println!("section event: {:?}", &event);
             match event {
-                DocumentRouteEvent::RouteChanged { document_id, route } => {
-                    if document_id.eq(&self.project.id) {
+                ProjectRouteEvent::RouteChanged { project_id, route } => {
+                    if project_id.eq(&self.project.id) {
                         self.route = route.clone()
                     }
                 }

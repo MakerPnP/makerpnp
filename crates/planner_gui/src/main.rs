@@ -16,7 +16,6 @@ use route::Route;
 use tabs::TabKind;
 use tabs::document::DocumentTab;
 use tabs::home::HomeTab;
-use crate::app_data_derived_lenses::popup_window;
 use crate::project::Project;
 use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
 use crate::tabs::project::ProjectTab;
@@ -60,7 +59,7 @@ enum NewProjectPopupEvent {
 }
 
 #[derive(Clone, Data, Default, Debug, Lens)]
-struct NewProjectPopup {
+pub struct NewProjectPopup {
     name: String,
     path: String,
 }
@@ -70,7 +69,7 @@ impl NewProjectPopup {
         ecx.emit(ApplicationEvent::CreateProject { name: self.name, path: PathBuf::from(self.path) });
     }
 
-    pub fn on_event(&mut self, ecx: &mut EventContext, event: &mut Event) {
+    pub fn on_event(&mut self, _ecx: &mut EventContext, event: &mut Event) {
         event.map(|event, _| match event {
             NewProjectPopupEvent::SetName { text } => self.name = text.clone(),
             NewProjectPopupEvent::SetPath { text } => self.path = text.clone(),
@@ -154,7 +153,7 @@ impl Model for AppData {
 
     fn event(&mut self, ecx: &mut EventContext, event: &mut Event) {
         trace!("event: {:?}", &event);
-        event.map(|event, meta| { match event {
+        event.map(|event, _meta| { match event {
             ApplicationEvent::OpenProject { path } => {
                 info!("OpenProject");
 
@@ -226,7 +225,7 @@ fn main() -> Result<(), ApplicationError> {
 
         language::load_languages(languages.as_slice(), cx);
 
-        let mut app_data = AppData {
+        let app_data = AppData {
             core,
             languages,
             selected_language_index,
