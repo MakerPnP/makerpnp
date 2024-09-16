@@ -1,2 +1,3 @@
 action-project-create = Create project
 spinner-loading = Loading...
+popup-new-project-title = Create project

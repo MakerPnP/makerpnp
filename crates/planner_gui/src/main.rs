@@ -130,7 +130,7 @@ impl NewProjectPopup {
             .on_close(|cx| {
                 cx.emit(NewProjectPopupEvent::Cancel);
             })
-            .title("TODO NewProjectPopup")
+            .title(Localized::new("popup-new-project-title"))
             .inner_size((400, 200))
             .position((500, 100))
     }
