@@ -3,6 +3,8 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
 use anyhow::anyhow;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use crux_core::App;
 use crux_core::capability::{CapabilityContext, Operation};
 use crux_core::macros::{Capability, Effect};
@@ -39,10 +41,11 @@ pub struct Planner;
 
 #[derive(Default)]
 pub struct ModelProject {
-    path: PathBuf,
+    file_path: PathBuf,
     name: String,
     project: Project,
     modified: bool,
+    directory_path: PathBuf,
 }
 
 #[derive(Default)]
@@ -117,13 +120,15 @@ pub enum Event {
     None, // TODO REMOVE
     CreateProject {
         project_name: String,
-        path: PathBuf,
+        /// The directory to create the project in
+        directory_path: PathBuf,
     },
     CreatedProject(Result<(), ()>),
     Save,
     Load {
         project_name: String,
-        path: PathBuf,
+        /// The directory to create the project in
+        directory_path: PathBuf,
     },
     AddPcb {
         kind: PcbKind,
@@ -198,11 +203,14 @@ impl App for Planner {
         let mut default_render = true;
         match event {
             Event::None => {}
-            Event::CreateProject { project_name, path} => {
-                info!("Creating project. name: {}, path: {:?}", &project_name, &path);
+            Event::CreateProject { project_name, directory_path} => {
+                let project_file_path = project::build_project_file_path(&project_name, &directory_path);
+                info!("Creating project. name: {}, directory: {:?}, path: {:?}", &project_name, &directory_path, &project_file_path);
+
                 let project = Project::new(project_name.to_string());
                 model.model_project.replace(ModelProject{
-                    path,
+                    file_path: project_file_path,
+                    directory_path,
                     name: project_name,
                     project,
                     modified: true,
@@ -215,8 +223,10 @@ impl App for Planner {
             Event::CreatedProject(Ok(_)) => {
                 info!("Created project successfully.");
                 default_render = false;
-                
-                let path = format!("/project/load/{}", model.model_project.as_ref().unwrap().path.to_str().unwrap());
+
+                let path_encoded = BASE64_STANDARD.encode(model.model_project.as_ref().unwrap().file_path.to_str().unwrap());
+
+                let path = format!("/project/load/{}", path_encoded);
                 
                 caps.navigate.navigate(path, |_| Event::None);
             },
@@ -225,15 +235,15 @@ impl App for Planner {
 
                 model.error.replace(anyhow!("creating project failed. cause: {:?}", error).into());
             },
-            Event::Load { project_name, path } => {
-                info!("Load project. name: {}, path: {:?}", &project_name, &path);
-
-                let project_file_path = project::build_project_file_path(&project_name, &path);
+            Event::Load { project_name, directory_path } => {
+                let project_file_path = project::build_project_file_path(&project_name, &directory_path);
+                info!("Load project. name: {}, directory: {:?}, path: {:?}", &project_name, &directory_path, &project_file_path);
 
                 match project::load(&project_file_path) {
                     Ok(project) => {
                         model.model_project.replace(ModelProject {
-                            path,
+                            file_path: project_file_path,
+                            directory_path,
                             name: project_name,
                             project,
                             modified: false,
@@ -245,12 +255,12 @@ impl App for Planner {
                 }
             },
             Event::Save => {
-                if let Some(ModelProject { path, name: project_name, project, modified }) = &mut model.model_project {
-                    let project_file_path = project::build_project_file_path(&project_name, path);
+                if let Some(ModelProject { file_path: path, name: project_name, project, modified, .. }) = &mut model.model_project {
+                    info!("Save project. name: {}, path: {:?}", &project_name, &path);
 
-                    match project::save(project, &project_file_path) {
+                    match project::save(project, &path) {
                         Ok(_) => {
-                            info!("Created job: {}", project.name);
+                            info!("Created job: {}, path: {:?}", project.name, path);
                             *modified = false;
                         },
                         Err(e) => {
@@ -278,10 +288,10 @@ impl App for Planner {
             },
             Event::AssignVariantToUnit { design, variant, unit } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
                         project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
                         *modified = true;
-                        let _all_parts = Self::refresh_project(project, path)?;
+                        let _all_parts = Self::refresh_project(project, directory_path)?;
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
@@ -295,8 +305,8 @@ impl App for Planner {
                 };
             },
             Event::RefreshFromDesignVariants => {
-                if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                    if let Err(e) = Self::refresh_project(project, path) {
+                if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                    if let Err(e) = Self::refresh_project(project, directory_path) {
                         model.error.replace(e.into());
                     };
                     *modified = true;
@@ -306,9 +316,9 @@ impl App for Planner {
             },
             Event::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
                         let process = project.find_process(&process_name)?.clone();
-                        let all_parts = Self::refresh_project(project, path)?;
+                        let all_parts = Self::refresh_project(project, directory_path)?;
                         *modified = true;
 
                         project::update_applicable_processes(project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
@@ -350,8 +360,8 @@ impl App for Planner {
             },
             Event::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        let _all_parts = Self::refresh_project(project, path)?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        let _all_parts = Self::refresh_project(project, directory_path)?;
                         *modified = true;
 
                         let phase = project.phases.get(&reference)
@@ -403,8 +413,8 @@ impl App for Planner {
             },
             Event::SetPlacementOrdering { phase: reference, placement_orderings } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        let _all_parts = Self::refresh_project(project, path)?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        let _all_parts = Self::refresh_project(project, directory_path)?;
                         *modified = true;
 
                         *modified = project::update_placement_orderings(project, &reference, &placement_orderings)?;
@@ -424,7 +434,7 @@ impl App for Planner {
             },
             Event::GenerateArtifacts => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, name: project_name, project, modified }) = &mut model.model_project {
+                    if let Some(ModelProject { directory_path, name: project_name, project, modified, .. }) = &mut model.model_project {
                         *modified = project::update_phase_operation_states(project);
 
                         let phase_load_out_item_map = project.phases.iter().try_fold(BTreeMap::<Reference, Vec<LoadOutItem>>::new(), |mut map, (reference, phase) | {
@@ -433,7 +443,7 @@ impl App for Planner {
                             Ok::<BTreeMap<Reference, Vec<LoadOutItem>>, anyhow::Error>(map)
                         })?;
 
-                        project::generate_artifacts(&project, path, project_name, phase_load_out_item_map)?;
+                        project::generate_artifacts(&project, directory_path, project_name, phase_load_out_item_map)?;
 
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
@@ -450,8 +460,8 @@ impl App for Planner {
             },
             Event::RecordPhaseOperation { phase: reference, operation, set } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        *modified = project::update_phase_operation(project, path, &reference, operation.into(), set.into())?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        *modified = project::update_phase_operation(project, directory_path, &reference, operation.into(), set.into())?;
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
@@ -467,8 +477,8 @@ impl App for Planner {
             },
             Event::RecordPlacementsOperation { object_path_patterns, operation } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        *modified = project::update_placements_operation(project, path, object_path_patterns, operation.into())?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        *modified = project::update_placements_operation(project, directory_path, object_path_patterns, operation.into())?;
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }

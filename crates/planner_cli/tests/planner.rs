@@ -146,7 +146,7 @@ mod operation_sequence_1 {
         println!("{}", trace_content);
 
         assert_contains_inorder!(trace_content, [
-            "Created job: job1\n",
+            "Created job: job1",
         ]);
 
         // and
@@ -234,6 +234,8 @@ mod operation_sequence_1 {
         let mut placements_path = ctx.temp_dir.path().to_path_buf();
         placements_path.push("design_a_variant_a_placements.csv");
 
+        println!("creating placements, path: {:?}", &placements_path);
+        
         let mut placments_file = File::create(placements_path)?;
         placments_file.write(design_a_variant_a_placements_csv_content.as_bytes())?;
         placments_file.flush()?;

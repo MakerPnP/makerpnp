@@ -37,6 +37,10 @@ pub fn process_effect(_core: &Core, effect: Effect, tx: &Arc<Sender<Effect>>) ->
                 }
             }
         }
+        Effect::ViewRenderer(_) => {
+            // Currently, the CLI app should not cause these effects.
+            unreachable!()
+        }
     }
 
     Ok(())

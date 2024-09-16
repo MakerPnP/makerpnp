@@ -195,7 +195,7 @@ impl Model for AppData {
             ApplicationEvent::CreateProject { name, path } => {
                 self.core.update(planner_app::Event::CreateProject {
                     project_name: name.to_string(),
-                    path: path.clone(),
+                    directory_path: path.clone(),
                 }, ecx)
             }
             ApplicationEvent::PopupClosed {} => {

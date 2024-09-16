@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()>{
                 _ => true,
             };
             if should_load_first {
-                run_loop(&core, Event::Load { project_name, path })?;
+                run_loop(&core, Event::Load { project_name, directory_path: path })?;
             }
             
             run_loop(&core, event)?;
@@ -69,6 +69,10 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
                     }
                 }
             },
+            Effect::ViewRenderer(_) => {
+                // Currently, the CLI app should not cause these effects.
+                unreachable!()
+            }
         }
     }
     Ok(())
