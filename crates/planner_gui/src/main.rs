@@ -87,11 +87,6 @@ impl NewProjectPopup {
                     }
                 });
 
-                // this works, but not as readable as the alternative below
-                let name_lens = kind_lens.map_ref(|kind|&kind.name);
-                let path_lens = kind_lens.map_ref(|kind|&kind.path);
-
-                // this works, but requires deriving Lens on NewProjectPopup
                 let name_lens = kind_lens.then(NewProjectPopup::name);
                 let path_lens = kind_lens.then(NewProjectPopup::path);
 
