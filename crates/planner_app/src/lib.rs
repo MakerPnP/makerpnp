@@ -199,6 +199,7 @@ impl App for Planner {
         match event {
             Event::None => {}
             Event::CreateProject { project_name, path} => {
+                info!("Creating project. name: {}, path: {:?}", &project_name, &path);
                 let project = Project::new(project_name.to_string());
                 model.model_project.replace(ModelProject{
                     path,
@@ -212,14 +213,20 @@ impl App for Planner {
                 self.update( Event::CreatedProject(Ok(())), model, caps);
             },
             Event::CreatedProject(Ok(_)) => {
+                info!("Created project successfully.");
                 default_render = false;
                 
-                caps.navigate.navigate("/project/load/:path".to_string(), |_| Event::None);
+                let path = format!("/project/load/{}", model.model_project.as_ref().unwrap().path.to_str().unwrap());
+                
+                caps.navigate.navigate(path, |_| Event::None);
             },
             Event::CreatedProject(Err(error)) => {
+                info!("Creating project failed.");
+
                 model.error.replace(anyhow!("creating project failed. cause: {:?}", error).into());
             },
             Event::Load { project_name, path } => {
+                info!("Load project. name: {}, path: {:?}", &project_name, &path);
 
                 let project_file_path = project::build_project_file_path(&project_name, &path);
 

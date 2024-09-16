@@ -1,7 +1,11 @@
+use std::path::PathBuf;
 use std::rc::Rc;
 use tracing::{error, info, debug};
+use vizia::context::EventContext;
+use vizia::prelude::EmitContext;
 use planner_app::{Effect, Event, NavigationOperation, Planner, ProjectOperationViewModel};
 use planner_app::view_renderer::ViewRendererOperation;
+use crate::ApplicationEvent;
 
 type Core = Rc<planner_app::Core<Effect, Planner>>;
 
@@ -17,23 +21,28 @@ impl CoreService {
         }
     }
 
-    pub fn update(&self, event: Event) {
+    pub fn update(&self, event: Event, ecx: &mut EventContext) {
         debug!("event: {:?}", event);
 
         for effect in self.core.process_event(event) {
-            process_effect(&self.core, effect);
+            process_effect(&self.core, effect, ecx);
         }
     }
 }
 
-fn process_effect(core: &Core, effect: Effect) {
+fn process_effect(core: &Core, effect: Effect, ecx: &mut EventContext) {
     debug!("core::process_effect. effect: {:?}", effect);
     match effect {
         ref render @ Effect::Render(ref request) => {
             // TODO
         }
         Effect::Navigator(request) => {
-            // TODO
+            match request.operation {
+                NavigationOperation::Navigate { path } => {
+                    let path = PathBuf::from("project-test.mpnp.json");
+                    ecx.emit(ApplicationEvent::OpenProject { path })
+                }
+            }
         }
         
         Effect::ViewRenderer(request) => {

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use tracing::{info, trace};
 use tracing_subscriber::{EnvFilter, fmt};
 use tracing_subscriber::layer::SubscriberExt;
@@ -11,7 +12,7 @@ use tabs::TabKind;
 use tabs::document::DocumentTab;
 use tabs::home::HomeTab;
 use crate::project::Project;
-use crate::tabbed_document_container::TabbedDocumentContainer;
+use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
 use crate::tabs::project::ProjectTab;
 
 mod tabs;
@@ -23,20 +24,23 @@ mod language;
 
 mod tabbed_document_container;
 
-enum ProjectEvent {
-    Create {},
-}
-
 
 enum ApplicationEvent {
-    ChangeLanguage { index: usize }
+    ChangeLanguage { index: usize },
+    OpenProject { path: PathBuf },
+    CreateProject {},
+}
+
+enum InternalEvent {
+    DocumentContainerCreated {}
 }
 
 #[derive(Lens)]
 pub struct AppData {
     core: CoreService,
     languages: Vec<LanguagePair>,
-    selected_language_index: usize
+    selected_language_index: usize,
+    tab_container_entity: Option<Entity>
 }
 
 impl AppData {
@@ -44,28 +48,40 @@ impl AppData {
 
 impl Model for AppData {
 
-    fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
-        event.map(|event, meta| {
-            match event {
-                ProjectEvent::Create {} => {
-                    self.core.update(planner_app::Event::CreateProject {
-                        project_name: "test".to_string(),
-                        path: Default::default(),
-                    })
-                }
-            }
-        });
-        event.map(|event, meta| {
-            match event {
-                ApplicationEvent::ChangeLanguage { index } => {
-                    let language_pair: &LanguagePair = self.languages.get(*index).as_ref().unwrap();
-                    info!("change language. index: {}, name: {}, code: {}", index, language_pair.name, language_pair.code);
-                    self.selected_language_index = *index;
+    fn event(&mut self, ecx: &mut EventContext, event: &mut Event) {
+        trace!("event: {:?}", &event);
+        event.map(|event, meta| { match event {
+            ApplicationEvent::OpenProject { path } => {
+                info!("OpenProject");
 
-                    cx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
-                }
+                let id = format!("{:?}", path);
+
+                let tab = TabKind::Project(ProjectTab {
+                    project: Project { id, name: "TODO".to_string() },
+                    route: Route(None),
+                });
+
+                ecx.emit_to(self.tab_container_entity.unwrap(), TabbedDocumentEvent::AddTab { tab })
+            },
+            ApplicationEvent::ChangeLanguage { index } => {
+                let language_pair: &LanguagePair = self.languages.get(*index).as_ref().unwrap();
+                info!("change language. index: {}, name: {}, code: {}", index, language_pair.name, language_pair.code);
+                self.selected_language_index = *index;
+
+                ecx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
+            },
+            ApplicationEvent::CreateProject {} => {
+                self.core.update(planner_app::Event::CreateProject {
+                    project_name: "test".to_string(),
+                    path: Default::default(),
+                }, ecx)
             }
-        });
+        }});
+        event.map(|event, meta| { match event {
+            InternalEvent::DocumentContainerCreated {} => {
+                self.tab_container_entity.replace(meta.origin.clone());
+            }
+        }})
     }
 }
 
@@ -92,10 +108,11 @@ fn main() -> Result<(), ApplicationError> {
 
         language::load_languages(languages.as_slice(), cx);
 
-        let app_data = AppData {
+        let mut app_data = AppData {
             core,
             languages,
             selected_language_index,
+            tab_container_entity: None,
         };
         app_data.build(cx);
 
@@ -105,11 +122,11 @@ fn main() -> Result<(), ApplicationError> {
             // Toolbar
             //
 
-            HStack::new(cx, |cx| {
+            HStack::new(cx, move |cx| {
 
                 Button::new(cx, |cx| Label::new(cx, Localized::new("action-project-create")))
                     .on_press(|ecx|{
-                        ecx.emit(ProjectEvent::Create {})
+                        ecx.emit(ApplicationEvent::CreateProject {})
                     })
                     .width(Stretch(2.0)); // FIXME if this is too small, content overflows
 
@@ -139,7 +156,12 @@ fn main() -> Result<(), ApplicationError> {
             //
             TabbedDocumentContainer::new(cx, create_tabs())
                 .width(Percentage(100.0))
-                .height(Stretch(1.0));
+                .height(Stretch(1.0))
+                .on_build(|ecx|{
+                    ecx.emit(InternalEvent::DocumentContainerCreated {} )
+                });
+
+            //app_data.tab_container_entity.replace(handle.entity());
 
             //
             // Status bar
