@@ -59,7 +59,7 @@ enum NewProjectPopupEvent {
     SetPath { text: String },
 }
 
-#[derive(Clone, Data, Default, Debug)]
+#[derive(Clone, Data, Default, Debug, Lens)]
 struct NewProjectPopup {
     name: String,
     path: String,
@@ -80,22 +80,20 @@ impl NewProjectPopup {
     pub fn build<'a>(&self, cx: &'a mut Context, lens: Then<Wrapper<popup_window>, Wrapper<popup_window_state_derived_lenses::kind>>) -> Handle<'a, Window> {
         Window::popup(cx, true, |cx| {
             VStack::new(cx, |cx: &mut Context| {
-                let name_lens = lens.map(|kind| {
-                    match &kind {
-                        Some(PopupWindow::NewProject(bar)) => {
-                            bar.name.clone()
-                        },
+                let kind_lens = lens.map_ref(|optional_kind| {
+                    match optional_kind {
+                        Some(PopupWindow::NewProject(kind)) => kind,
                         _ => unreachable!()
                     }
                 });
-                let path_lens = lens.map(|kind| {
-                    match &kind {
-                        Some(PopupWindow::NewProject(bar)) => {
-                            bar.path.clone()
-                        },
-                        _ => unreachable!()
-                    }
-                });
+                
+                // this works, but not as readable as the alternative below
+                let name_lens = kind_lens.map_ref(|kind|&kind.name);
+                let path_lens = kind_lens.map_ref(|kind|&kind.path);
+
+                // this works, but requires deriving Lens on NewProjectPopup
+                let name_lens = kind_lens.then(NewProjectPopup::name);
+                let path_lens = kind_lens.then(NewProjectPopup::path);
 
                 Textbox::new(cx, name_lens)
                     .width(Pixels(300.0))
