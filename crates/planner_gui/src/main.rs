@@ -300,11 +300,10 @@ fn main() -> Result<(), ApplicationError> {
 }
 
 fn make_popup(cx: &mut Context) {
-    Binding::new(cx, AppData::popup_window.map(move |popup_state|{
-        popup_state.kind.clone()
-    }), |cx, popup| {
-        if let Some(popup) = popup.get(cx) {
-            popup.build(cx, AppData::popup_window);
+    Binding::new(cx, AppData::popup_window, |cx, popup| {
+        let popup = popup.get(cx);
+        if let Some(kind) = popup.kind {
+            kind.build(cx, AppData::popup_window);
         }
     });
 }
