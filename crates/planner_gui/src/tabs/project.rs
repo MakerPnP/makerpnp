@@ -13,8 +13,8 @@ pub struct ProjectTab {
 
 impl ProjectTab {
     pub fn build_tab(&self) -> TabPair {
-        let document = self.project.clone();
-        let name = document.name.clone();
+        let project = self.project.clone();
+        let name = project.name.clone();
         let active_section = self.route.0.clone();
 
         let tab = TabPair::new(
@@ -23,7 +23,7 @@ impl ProjectTab {
                 Element::new(cx).class("indicator");
             },
             move |cx| {
-                let project_for_scollview = document.clone();
+                let project_for_scollview = project.clone();
                 ScrollView::new(cx, 0.0, 0.0, false, true, move |cx| {
                     ProjectContainer::new(cx, project_for_scollview.clone(), active_section);
                 })

@@ -52,7 +52,7 @@ pub struct ModelProject {
 pub struct Model {
     model_project: Option<ModelProject>,
  
-    error: Option<Box<dyn Error>>
+    error: Option<String>
 }
 
 #[derive(Effect)]
@@ -90,14 +90,14 @@ pub struct PlacementsList {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone, Eq)]
-struct ProjectTreeItem {
-    name: String,
-    path: String,
+pub struct ProjectTreeItem {
+    pub name: String,
+    pub path: String,
     
 }
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug, Clone, Eq)]
 pub struct ProjectTree {
-    items: Vec<ProjectTreeItem>
+    pub items: Vec<ProjectTreeItem>
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
@@ -232,8 +232,8 @@ impl App for Planner {
             },
             Event::CreatedProject(Err(error)) => {
                 info!("Creating project failed.");
-
-                model.error.replace(anyhow!("creating project failed. cause: {:?}", error).into());
+                
+                model.error.replace(format!("creating project failed. cause: {:?}", error));
             },
             Event::Load { project_name, directory_path } => {
                 let project_file_path = project::build_project_file_path(&project_name, &directory_path);
@@ -250,7 +250,7 @@ impl App for Planner {
                         });
                     },
                     Err(e) => {
-                        model.error.replace(e.into());
+                        model.error.replace(format!("{:?}", e));
                     }
                 }
             },
@@ -264,11 +264,11 @@ impl App for Planner {
                             *modified = false;
                         },
                         Err(e) => {
-                            model.error.replace(e.into());
+                            model.error.replace(format!("{:?}", e));
                         },
                     }
                 } else {
-                    model.error.replace(anyhow!("project required").into());
+                    model.error.replace("project required".to_string());
                 }
             },
             Event::AddPcb { kind, name } => {
@@ -279,11 +279,13 @@ impl App for Planner {
 
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         },
-                        Err(e) => { model.error.replace(Box::new(e)); },
+                        Err(e) => {
+                            model.error.replace(format!("{:?}", e));
+                        },
                     }
                     self.update(Event::Save {}, model, caps);
                 } else {
-                    model.error.replace(anyhow!("project required").into());
+                    model.error.replace("project required".to_string());
                 }
             },
             Event::AssignVariantToUnit { design, variant, unit } => {
@@ -295,23 +297,23 @@ impl App for Planner {
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::RefreshFromDesignVariants => {
                 if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
                     if let Err(e) = Self::refresh_project(project, directory_path) {
-                        model.error.replace(e.into());
+                        model.error.replace(format!("{:?}", e));
                     };
                     *modified = true;
                 } else {
-                    model.error.replace(anyhow!("project required").into());
+                    model.error.replace("project required".to_string());
                 }
             },
             Event::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
@@ -325,13 +327,13 @@ impl App for Planner {
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::CreatePhase { process: process_name, reference, load_out, pcb_side } => {
@@ -349,13 +351,13 @@ impl App for Planner {
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
@@ -383,13 +385,13 @@ impl App for Planner {
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project and path required").into());
+                        model.error.replace("project and path required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
@@ -402,13 +404,13 @@ impl App for Planner {
 
                         stores::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
                     } else {
-                        model.error.replace(anyhow!("project and path required").into());
+                        model.error.replace("project and path required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::SetPlacementOrdering { phase: reference, placement_orderings } => {
@@ -423,13 +425,13 @@ impl App for Planner {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project and path required").into());
+                        model.error.replace("project and path required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::GenerateArtifacts => {
@@ -449,13 +451,13 @@ impl App for Planner {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::RecordPhaseOperation { phase: reference, operation, set } => {
@@ -466,13 +468,13 @@ impl App for Planner {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::RecordPlacementsOperation { object_path_patterns, operation } => {
@@ -483,13 +485,13 @@ impl App for Planner {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::ResetOperations { } => {
@@ -499,13 +501,13 @@ impl App for Planner {
                         *modified = true;
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             
@@ -534,13 +536,13 @@ impl App for Planner {
                         caps.view.view(reference, ProjectView::ProjectTree(project_tree), |_|Event::None)    
                         
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             }
             
@@ -552,12 +554,7 @@ impl App for Planner {
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
-
-        let error: Option<String> = match &model.error {
-            None => None,
-            Some(error) => Some(format!("{:?}", error)),
-        };
-
+        
         let project: Option<ProjectOperationView> = model.model_project.as_ref().map(|project| {
             ProjectOperationView {
                 name: project.name.clone()
@@ -566,7 +563,7 @@ impl App for Planner {
         
         ProjectOperationViewModel {
             project,
-            error
+            error: model.error.clone(),
         }
     }
 }

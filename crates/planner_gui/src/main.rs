@@ -4,6 +4,7 @@
 /// To enable logging, set the environment variable appropriately, for example:
 /// `RUST_LOG=debug,selectors::matching=info`
 use std::path::PathBuf;
+use std::sync::{Arc, LazyLock, Mutex};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use tracing::{info, trace};
@@ -50,7 +51,6 @@ enum InternalEvent {
 
 #[derive(Lens)]
 pub struct AppData {
-    core: CoreService,
     languages: Vec<LanguagePair>,
     selected_language_index: usize,
     tab_container_entity: Option<Entity>,
@@ -91,7 +91,7 @@ impl Model for AppData {
                 self.popup_window.enabled = true;
             },
             ApplicationEvent::CreateProject { name, path } => {
-                self.core.update(planner_app::Event::CreateProject {
+                CORE_SERVICE.update(planner_app::Event::CreateProject {
                     project_name: name.to_string(),
                     directory_path: path.clone(),
                 }, ecx)
@@ -115,19 +115,23 @@ impl Model for AppData {
                     // unimplemented/bad path
                     unreachable!()
                 }
-            }
+            },
         }});
-        event.map(|event, meta| { match event {
+        event.map(|event, meta| match event {
             InternalEvent::DocumentContainerCreated {} => {
                 self.tab_container_entity.replace(meta.origin.clone());
             }
-        }});
+        });
         
         if let Some(popup) = self.popup_window.kind.as_mut() {
             popup.on_event(ecx, event);
         }
     }
 }
+
+static CORE_SERVICE: LazyLock<CoreService> = LazyLock::new(||{
+    CoreService::new()
+});
 
 fn main() -> Result<(), ApplicationError> {
 
@@ -137,8 +141,6 @@ fn main() -> Result<(), ApplicationError> {
         .init();
 
     info!("Started");
-
-    let core = CoreService::new();
 
     Application::new(|cx| {
 
@@ -152,7 +154,6 @@ fn main() -> Result<(), ApplicationError> {
         language::load_languages(languages.as_slice(), cx);
 
         let app_data = AppData {
-            core,
             languages,
             selected_language_index,
             tab_container_entity: None,

@@ -1,13 +1,14 @@
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use tracing::{debug};
 use vizia::context::EventContext;
 use vizia::prelude::EmitContext;
-use planner_app::{Effect, Event, NavigationOperation, Planner};
+use planner_app::{Effect, Event, NavigationOperation, Planner, ProjectView};
 use planner_app::view_renderer::ViewRendererOperation;
 use crate::ApplicationEvent;
 
-type Core = Rc<planner_app::Core<Effect, Planner>>;
+type Core = Arc<planner_app::Core<Effect, Planner>>;
 
 pub struct CoreService {
     core: Core,
@@ -17,7 +18,7 @@ impl CoreService {
     pub fn new() -> Self {
         debug!("initializing core service");
         Self {
-            core: Rc::new(planner_app::Core::new()),
+            core: Arc::new(planner_app::Core::new()),
         }
     }
 
@@ -46,9 +47,13 @@ fn process_effect(_core: &Core, effect: Effect, ecx: &mut EventContext) {
         
         Effect::ViewRenderer(request) => {
             let ViewRendererOperation::View { reference, view} = request.operation;
-            // TODO find the tab with the reference
-
-            // TODO ask the tab to display the view?
+            
+            ecx.emit(CoreEvent::RenderView { reference, view })
         }
     }
+}
+
+#[derive(Debug)]
+pub enum CoreEvent {
+    RenderView { reference: String, view: ProjectView },
 }

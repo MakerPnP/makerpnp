@@ -1,5 +1,9 @@
+use std::path::PathBuf;
 use std::thread::sleep;
 use vizia::prelude::*;
+use planner_app::{ProjectTree, ProjectView};
+use crate::app_core::CoreEvent;
+use crate::CORE_SERVICE;
 use crate::route::Route;
 
 #[derive(Debug)]
@@ -22,47 +26,43 @@ pub struct Project {
 #[derive(Clone, Lens, Default, Debug)]
 pub struct ProjectContent {
     pub content: Option<String>,
-    pub sections: Vec<String>,
+    pub project_tree: ProjectTree,
 }
 
 impl ProjectContent {
-    pub fn load(&mut self, cx: &mut EventContext, id: &String) {
-        // Simulate loading a file, slowly.
+    pub fn load(&mut self, ecx: &mut EventContext, id: &String) {
         let id = id.clone();
-        cx.spawn(move |cp|{
-            sleep(Duration::from_millis(250));
 
-            let content = ProjectContent {
-                content: Some(format!("Dummy content for {}", id)),
-                sections: vec![
-                    "Section 1".to_string(),
-                    "Section 2".to_string(),
-                ],
-            };
-            let result = cp.emit(ProjectEvent::Loaded { content });
-            match result {
-                Ok(_) => println!("emitted content, id: {}", id),
-                Err(e) => println!("failed to emit content, id: {}, error: {}", id, e),
-            }
-        });
+        let content = ProjectContent {
+            content: Some(format!("Dummy content for {}", id)),
+            project_tree: ProjectTree::default(),
+        };
+
+        ecx.emit(ProjectEvent::Loaded { content });
+
+        CORE_SERVICE.update(planner_app::Event::ProjectTree {
+            // FIXME the id is the path and reference for now.
+            reference: id.clone(),
+            path: PathBuf::from(id),
+        }, ecx);
     }
 }
 
-#[derive(Clone, Lens)]
+#[derive(Lens)]
 pub struct ProjectContainer {
     pub project: Project,
     pub content: ProjectContent,
-    pub active_section: Option<usize>,
+    pub active_tree_item: Option<usize>,
 }
 
 impl View for ProjectContainer {
     fn event(&mut self, cx: &mut EventContext, event: &mut Event) {
         event.take(|event, _meta| {
-            println!("section event: {:?}", &event);
+            println!("project tree event: {:?}", &event);
             match event {
-                SectionEvent::Change { index } => {
+                ProjectTreeEvent::Change { index } => {
 
-                    self.active_section.replace(index);
+                    self.active_tree_item.replace(index);
 
                     cx.emit(ProjectRouteEvent::RouteChanged { project_id: self.project.id.clone(), route: Route(Some(index)) })
                 }
@@ -78,6 +78,20 @@ impl View for ProjectContainer {
                     self.content = content;
                 }
             }
+        });
+        event.take(|event, meta| {
+            println!("core event: {:?}, project_id: {:?}", &event, &self.project.id);
+            match event {
+                CoreEvent::RenderView { reference, view } if reference.eq(&self.project.id) => {
+                    match view {
+                        ProjectView::ProjectTree(project_tree) => {
+                            self.content.project_tree = project_tree;
+                        }
+                        _ => todo!()
+                    }
+                }
+                _ => {}
+            }
         })
     }
 }
@@ -89,7 +103,7 @@ impl ProjectContainer {
         Self {
             project,
             content: ProjectContent::default(),
-            active_section,
+            active_tree_item: active_section,
         }.build(cx, |cx| {
 
             HStack::new(cx, | cx | {
@@ -97,11 +111,11 @@ impl ProjectContainer {
                 // Left
                 //
                 VStack::new(cx, |cx| {
-                    let sections_lens = ProjectContainer::content.then(ProjectContent::sections);
+                    let project_tree_lens = ProjectContainer::content.then(ProjectContent::project_tree).map_ref(|tree|&tree.items);
 
-                    List::new(cx, sections_lens, |cx, index, item| {
+                    List::new(cx, project_tree_lens, |cx, index, item| {
 
-                        let foo = ProjectContainer::active_section.map(move |selection|{
+                        let is_item_active_lens = ProjectContainer::active_tree_item.map(move |selection|{
                             let selected = match selection {
                                 Some(active_index) if *active_index == index => true,
                                 _ => false
@@ -111,15 +125,17 @@ impl ProjectContainer {
                             selected
                         });
 
-                        Label::new(cx, item).hoverable(false)
-                            .background_color(foo.map(|foobar| match *foobar {
+                        Label::new(cx, item.map(|item|{
+                            item.name.clone()
+                        })).hoverable(false)
+                            .background_color(is_item_active_lens.map(|is_active| match *is_active {
                                 true => Color::rgb(0x00, 0x00, 0xff),
                                 false => Color::rgb(0xdd, 0xdd, 0xdd),
                             }))
                             .width(Stretch(1.0))
                             .height(Pixels(30.0))
-                            .checked(foo)
-                            .on_press(move |ecx|ecx.emit(SectionEvent::Change { index }));
+                            .checked(is_item_active_lens)
+                            .on_press(move |ecx|ecx.emit(ProjectTreeEvent::Change { index }));
                     })
                         .child_space(Pixels(4.0));
                 })
@@ -157,6 +173,6 @@ impl ProjectContainer {
 }
 
 #[derive(Debug)]
-enum SectionEvent {
+enum ProjectTreeEvent {
     Change { index: usize }
 }

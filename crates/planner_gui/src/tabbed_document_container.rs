@@ -9,7 +9,7 @@ pub trait TabbedDocument {
 pub enum TabbedDocumentEvent<T: TabbedDocument + Send + 'static> {
     AddTab { 
         tab: T, 
-    }
+    },
 }
 
 #[derive(Lens)]
