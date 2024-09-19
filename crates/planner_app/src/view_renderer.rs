@@ -17,14 +17,14 @@ impl<Ev> ViewRenderer<Ev> {
 }
 impl<Ev: 'static> ViewRenderer<Ev> {
 
-    pub fn view<F>(&self, reference: String, view: ProjectView, make_event: F)
+    pub fn view<F>(&self, view: ProjectView, make_event: F)
     where
         F: FnOnce(Result<(), ViewRendererError>) -> Ev + Send + Sync + 'static,
     {
         self.context.spawn({
             let context = self.context.clone();
             async move {
-                let response = run_view(&context, reference, view).await;
+                let response = run_view(&context, view).await;
                 context.update_app(make_event(response))
             }
         });
@@ -34,11 +34,10 @@ impl<Ev: 'static> ViewRenderer<Ev> {
 
 async fn run_view<Ev: 'static>(
     context: &CapabilityContext<ViewRendererOperation, Ev>,
-    reference: String,
     view: ProjectView,
 ) -> Result<(), ViewRendererError> {
     context
-        .request_from_shell(ViewRendererOperation::View { reference, view })
+        .request_from_shell(ViewRendererOperation::View { view })
         .await
         .unwrap_set()
 }
@@ -69,7 +68,6 @@ impl ViewRendererResult {
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq)]
 pub enum ViewRendererOperation {
     View { 
-        reference: String, 
         view: ProjectView
     }
 }

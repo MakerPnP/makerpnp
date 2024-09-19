@@ -5,6 +5,7 @@ use vizia::prelude::*;
 use crate::ApplicationEvent;
 use crate::popups::PopupWindow;
 
+#[deprecated]
 enum NewProjectPopupEvent {
     SetName { text: String },
     SetPath { text: String },
@@ -12,6 +13,7 @@ enum NewProjectPopupEvent {
     Cancel,
 }
 
+#[deprecated]
 #[derive(Clone, Data, Default, Debug, Lens)]
 pub struct NewProjectPopup {
     pub name: String,

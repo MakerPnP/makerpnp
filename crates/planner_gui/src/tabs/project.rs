@@ -1,20 +1,21 @@
-use vizia::prelude::{Color, Data, Element, Label, Percentage, ScrollView, TabPair};
+use vizia::prelude::{Color, Data, Element, Label, Localized, Percentage, ScrollView, TabPair};
 use vizia::context::EventContext;
 use vizia::events::Event;
+use vizia::localization::ToStringLocalized;
 use vizia::modifiers::{AbilityModifiers, LayoutModifiers, StyleModifiers};
 use crate::project::{Project, ProjectContainer, ProjectRouteEvent};
 use crate::route::Route;
 
 #[derive(Clone, Data)]
 pub struct ProjectTab {
-    pub project: Project,
+    pub project: Option<Project>,
     pub route: Route,
 }
 
 impl ProjectTab {
-    pub fn build_tab(&self) -> TabPair {
+    pub fn build_tab(&self, name: String) -> TabPair {
         let project = self.project.clone();
-        let name = project.name.clone();
+
         let active_section = self.route.0.clone();
 
         let tab = TabPair::new(
@@ -40,10 +41,8 @@ impl ProjectTab {
         event.map(|event, _meta| {
             println!("section event: {:?}", &event);
             match event {
-                ProjectRouteEvent::RouteChanged { project_id, route } => {
-                    if project_id.eq(&self.project.id) {
-                        self.route = route.clone()
-                    }
+                ProjectRouteEvent::RouteChanged { route } => {
+                    self.route = route.clone()
                 }
             }
         });

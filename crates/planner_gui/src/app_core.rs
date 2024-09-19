@@ -3,7 +3,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use tracing::{debug};
 use vizia::context::EventContext;
+use vizia::events::Propagation;
 use vizia::prelude::EmitContext;
+use vizia::view;
 use planner_app::{Effect, Event, NavigationOperation, Planner, ProjectView};
 use planner_app::view_renderer::ViewRendererOperation;
 use crate::ApplicationEvent;
@@ -40,20 +42,20 @@ fn process_effect(_core: &Core, effect: Effect, ecx: &mut EventContext) {
         Effect::Navigator(request) => {
             match request.operation {
                 NavigationOperation::Navigate { path } => {
-                    ecx.emit(ApplicationEvent::Navigate { path })
+                    ecx.emit(CoreEvent::Navigate { path })
                 }
             }
         }
         
         Effect::ViewRenderer(request) => {
-            let ViewRendererOperation::View { reference, view} = request.operation;
-            
-            ecx.emit(CoreEvent::RenderView { reference, view })
+            let ViewRendererOperation::View { view} = request.operation;
+            ecx.emit(CoreEvent::RenderView { view })
         }
     }
 }
 
 #[derive(Debug)]
 pub enum CoreEvent {
-    RenderView { reference: String, view: ProjectView },
+    RenderView { view: ProjectView },
+    Navigate { path: String },
 }

@@ -38,10 +38,16 @@ mod tabbed_document_container;
 enum ApplicationEvent {
     ChangeLanguage { index: usize },
     OpenProject { path: PathBuf },
-    CreateProject { name: String, path: PathBuf },
-    PopupClosed,
-    ShowCreateProject,
     Navigate { path: String },
+    NewProject {},
+
+    //
+    // Popups
+    //
+    PopupClosed,
+    // XXX unused
+    ShowCreateProject,
+    CreateProject { name: String, path: PathBuf },
 }
 
 enum InternalEvent {
@@ -65,14 +71,26 @@ impl Model for AppData {
     fn event(&mut self, ecx: &mut EventContext, event: &mut Event) {
         trace!("event: {:?}", &event);
         event.map(|event, _meta| { match event {
+            ApplicationEvent::CreateProject { .. } => { 
+                unreachable!();
+            },
             ApplicationEvent::OpenProject { path } => {
                 info!("OpenProject. path: {:?}", &path);
 
-                let id = path.to_str().unwrap().to_string();
                 let name = Localized::new("spinner-loading").to_string_local(ecx);
 
                 let tab = TabKind::Project(ProjectTab {
-                    project: Project { id, name },
+                    project: Some(Project{ name, file_path: path.clone() }),
+                    route: Route(None),
+                });
+
+                ecx.emit_to(self.tab_container_entity.unwrap(), TabbedDocumentEvent::AddTab { tab })
+            },
+            ApplicationEvent::NewProject { } => {
+                info!("NewProject.");
+
+                let tab = TabKind::Project(ProjectTab {
+                    project: None,
                     route: Route(None),
                 });
 
@@ -85,32 +103,20 @@ impl Model for AppData {
 
                 ecx.emit(EnvironmentEvent::SetLocale(language_pair.code.parse().unwrap()));
             },
+            // XXX unused
             ApplicationEvent::ShowCreateProject {} => {
                 let popup = PopupWindow::NewProject(NewProjectPopup { name: "Test Name".to_string(), path: ".".to_string() });
                 self.popup_window.kind.replace(popup);
                 self.popup_window.enabled = true;
             },
-            ApplicationEvent::CreateProject { name, path } => {
-                CORE_SERVICE.update(planner_app::Event::CreateProject {
-                    project_name: name.to_string(),
-                    directory_path: path.clone(),
-                }, ecx)
-            }
             ApplicationEvent::PopupClosed {} => {
                 self.popup_window.enabled = false;
                 let popup = self.popup_window.kind.take().unwrap();
                 info!("popup closed, popup: {:?}", popup);
             },
             ApplicationEvent::Navigate { path } => {
-
-                // TODO implement some form of router, for now this will suffice
-                let pattern = Regex::new(r"/project/load/(?<path>.*)").unwrap();
-                if let Some(captures) = pattern.captures(path) {
-                    let encoded_path = captures.name("path").unwrap().as_str();
-                    let path = String::from_utf8(BASE64_STANDARD.decode(encoded_path).unwrap()).unwrap();
-                    let path = PathBuf::from(path);
-                    
-                    ecx.emit(ApplicationEvent::OpenProject { path })
+                if path.eq("/project/new") {
+                    ecx.emit(ApplicationEvent::NewProject {})
                 } else {
                     // unimplemented/bad path
                     unreachable!()
@@ -122,16 +128,12 @@ impl Model for AppData {
                 self.tab_container_entity.replace(meta.origin.clone());
             }
         });
-        
+
         if let Some(popup) = self.popup_window.kind.as_mut() {
             popup.on_event(ecx, event);
         }
     }
 }
-
-static CORE_SERVICE: LazyLock<CoreService> = LazyLock::new(||{
-    CoreService::new()
-});
 
 fn main() -> Result<(), ApplicationError> {
 
@@ -171,7 +173,7 @@ fn main() -> Result<(), ApplicationError> {
 
                 Button::new(cx, |cx| Label::new(cx, Localized::new("action-project-create")))
                     .on_press(|ecx|{
-                        ecx.emit(ApplicationEvent::ShowCreateProject {})
+                        ecx.emit(ApplicationEvent::Navigate { path: "/project/new".to_string() })
                     })
                     .width(Stretch(2.0)); // FIXME if this is too small, content overflows
 
