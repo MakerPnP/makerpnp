@@ -189,7 +189,7 @@ pub enum Event {
     //
     // Views
     //
-    ProjectTree { reference: String, path: PathBuf }
+    ProjectTree { }
     
 }
 
@@ -511,7 +511,7 @@ impl App for Planner {
                 };
             },
             
-            Event::ProjectTree { reference, path } => {
+            Event::ProjectTree { } => {
 
                 default_render = false;
                 
@@ -533,7 +533,7 @@ impl App for Planner {
                             )
                         }
                         
-                        caps.view.view(reference, ProjectView::ProjectTree(project_tree), |_|Event::None)    
+                        caps.view.view(ProjectView::ProjectTree(project_tree), |_|Event::None)    
                         
                     } else {
                         model.error.replace("project required".to_string());
