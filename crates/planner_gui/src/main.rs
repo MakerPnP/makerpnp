@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /// Run as follows:
 /// `cargo run --package planner_gui --bin planner_gui`
 ///
@@ -18,9 +19,10 @@ use crate::language::LanguagePair;
 use route::Route;
 use tabs::TabKind;
 use tabs::home::HomeTab;
+use uuid::Uuid;
 use crate::popups::{PopupWindow, PopupWindowState};
 use crate::popups::new_project::NewProjectPopup;
-use crate::project::{Project, ProjectContent, ProjectOrForm, ProjectState};
+use crate::project::{Project, ProjectContent, ProjectForm, ProjectOrForm, ProjectState};
 use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
 use crate::tabs::project::ProjectTab;
 
@@ -61,7 +63,7 @@ pub struct AppData {
     selected_language_index: usize,
     tab_container_entity: Option<Entity>,
     popup_window: PopupWindowState,
-    projects: Vec<ProjectState>,
+    projects: HashMap<Uuid, ProjectState>,
 }
 
 impl AppData {
@@ -80,10 +82,13 @@ impl Model for AppData {
 
                 let name = Localized::new("spinner-loading").to_string_local(ecx);
                 let project = Project{ name, file_path: path.clone() };
-                
+
+                let tab_id = make_tab_id();
+
                 let tab = TabKind::Project(ProjectTab {
                     project: Some(project.clone()),
                     route: Route(None),
+                    id: tab_id.to_string(),
                 });
 
                 let project_state = ProjectState {
@@ -94,8 +99,8 @@ impl Model for AppData {
                     },
                     core_service: CoreService::new(),
                 };
-                
-                self.projects.push(project_state);
+
+                self.projects.insert(tab_id, project_state);
                 
                 // FIXME since we're not in a `.build()` method, we do not have a `&mut Context` so cannot add the model to the tree.
                 //       so when the view renders the model is not present and it panics.
@@ -105,10 +110,24 @@ impl Model for AppData {
             ApplicationEvent::NewProject { } => {
                 info!("NewProject.");
 
+                let tab_id = make_tab_id();
+
                 let tab = TabKind::Project(ProjectTab {
                     project: None,
                     route: Route(None),
+                    id: tab_id.to_string(),
                 });
+
+                let project_state = ProjectState {
+                    project_or_form: ProjectOrForm::Form(ProjectForm::default()),
+                    content: ProjectContent {
+                        content: None,
+                        project_tree: Default::default()
+                    },
+                    core_service: CoreService::new(),
+                };
+
+                self.projects.insert(tab_id, project_state);
 
                 ecx.emit_to(self.tab_container_entity.unwrap(), TabbedDocumentEvent::AddTab { tab })
             },
@@ -149,6 +168,10 @@ impl Model for AppData {
             popup.on_event(ecx, event);
         }
     }
+}
+
+fn make_tab_id() -> Uuid {
+    Uuid::new_v4()
 }
 
 fn main() -> Result<(), ApplicationError> {
@@ -266,7 +289,8 @@ fn make_popup(cx: &mut Context) {
 pub fn create_tabs() -> Vec<TabKind>{
     vec![
         TabKind::Home( HomeTab {
-            route: Route(None)
+            route: Route(None),
+            id: Uuid::new_v4().to_string(),
         } ),
     ]
 }

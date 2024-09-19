@@ -17,3 +17,4 @@ regex = { workspace = true }
 
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 tracing = "0.1.40"
+uuid = { version = "1.10.0", features = ["v4"] }

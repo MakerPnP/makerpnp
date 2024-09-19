@@ -1,3 +1,4 @@
+use uuid::Uuid;
 use vizia::prelude::{Color, Data, Element, Label, Percentage, ScrollView, Stretch, TabPair, TextAlign, VStack};
 use vizia::context::EventContext;
 use vizia::events::Event;
@@ -7,6 +8,13 @@ use crate::route::Route;
 #[derive(Clone, Data)]
 pub struct HomeTab {
     pub route: Route,
+    pub id: String,
+}
+
+impl HomeTab {
+    pub fn id(&self) -> &String {
+        &self.id
+    }
 }
 
 impl HomeTab {

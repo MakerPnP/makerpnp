@@ -51,10 +51,10 @@ enum NewProjectFormEvent {
 }
 
 #[derive(Default, Lens, Debug, Data, Clone)]
-struct ProjectForm {
-    name: String,
+pub struct ProjectForm {
+    pub name: String,
     // TODO consider renaming to directory_path for clarity
-    path: String,
+    pub path: String,
 }
 
 #[derive(Debug, Data, Clone)]

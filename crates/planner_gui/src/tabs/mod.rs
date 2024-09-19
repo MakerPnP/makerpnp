@@ -1,3 +1,4 @@
+use uuid::Uuid;
 use vizia::prelude::*;
 use crate::project::Project;
 use crate::tabbed_document_container::TabbedDocument;
@@ -47,6 +48,13 @@ impl TabbedDocument for TabKind {
         match self {
             TabKind::Home(tab) => tab.event(cx, event),
             TabKind::Project(tab) => tab.event(cx, event),
+        }
+    }
+
+    fn id(&self) -> &String {
+        match self {
+            TabKind::Home(tab) => tab.id(),
+            TabKind::Project(tab) => tab.id(),
         }
     }
 }

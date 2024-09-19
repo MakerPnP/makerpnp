@@ -1,14 +1,16 @@
 use tracing::{info, trace};
+use uuid::Uuid;
 use vizia::prelude::*;
 
 pub trait TabbedDocument {
     fn event(&mut self, cx: &mut EventContext, event: &mut Event);
     fn build_tab(&self) -> TabPair;
+    fn id(&self) -> &String;
 }
 
 pub enum TabbedDocumentEvent<T: TabbedDocument + Send + 'static> {
     AddTab { 
-        tab: T, 
+        tab: T
     },
 }
 

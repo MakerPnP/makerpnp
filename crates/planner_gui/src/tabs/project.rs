@@ -1,7 +1,7 @@
+use uuid::Uuid;
 use vizia::prelude::{Color, Data, Element, Label, Localized, Percentage, ScrollView, TabPair};
 use vizia::context::EventContext;
 use vizia::events::Event;
-use vizia::localization::ToStringLocalized;
 use vizia::modifiers::{AbilityModifiers, LayoutModifiers, StyleModifiers};
 use crate::project::{Project, ProjectContainer, ProjectRouteEvent};
 use crate::route::Route;
@@ -10,7 +10,13 @@ use crate::route::Route;
 pub struct ProjectTab {
     pub project: Option<Project>,
     pub route: Route,
+    pub id: String,
 }
+
+impl ProjectTab {
+    pub fn id(&self) -> &String {
+        &self.id
+    }}
 
 impl ProjectTab {
     pub fn build_tab(&self, name: String) -> TabPair {
