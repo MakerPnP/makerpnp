@@ -14,8 +14,6 @@ pub struct ProjectTab {
 
 impl ProjectTab {
     pub fn build_tab(&self, name: String) -> TabPair {
-        let project = self.project.clone();
-
         let active_section = self.route.0.clone();
 
         let tab = TabPair::new(
@@ -24,9 +22,8 @@ impl ProjectTab {
                 Element::new(cx).class("indicator");
             },
             move |cx| {
-                let project_for_scollview = project.clone();
                 ScrollView::new(cx, 0.0, 0.0, false, true, move |cx| {
-                    ProjectContainer::new(cx, project_for_scollview.clone(), active_section);
+                    ProjectContainer::new(cx, active_section);
                 })
                     .background_color(Color::rgb(0xdd, 0xdd, 0xdd))
                     .height(Percentage(100.0))

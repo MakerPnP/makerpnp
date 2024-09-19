@@ -69,29 +69,16 @@ enum ProjectContainerEvent {
 }
 
 #[derive(Lens)]
-pub struct ProjectContainer {
+pub struct ProjectState {
     pub project_or_form: ProjectOrForm,
     pub content: ProjectContent,
-    pub active_tree_item: Option<usize>,
-    core_service: CoreService,
     
-    // TODO maybe not needed after all...
-    container_entity: Option<Entity>,
+    #[lens(ignore)]
+    pub core_service: CoreService,
 }
 
-impl View for ProjectContainer {
+impl Model for ProjectState {
     fn event(&mut self, ecx: &mut EventContext, event: &mut Event) {
-        event.take(|event, _meta| {
-            println!("project tree event: {:?}", &event);
-            match event {
-                ProjectTreeEvent::Change { index } => {
-
-                    self.active_tree_item.replace(index);
-
-                    ecx.emit(ProjectRouteEvent::RouteChanged { route: Route(Some(index)) })
-                }
-            }
-        });
         event.take(|event, _meta| {
             println!("project event: {:?}", &event);
             match event {
@@ -108,7 +95,7 @@ impl View for ProjectContainer {
                 ProjectEvent::Load { } => {
                     self.content.load(ecx);
                 }
-                ProjectEvent::Loaded { content} => {
+                ProjectEvent::Loaded { content } => {
                     self.content = content;
                     self.core_service.update(planner_app::Event::ProjectTree {}, ecx);
                 }
@@ -129,7 +116,7 @@ impl View for ProjectContainer {
                 }
             }
         });
-        
+
         event.take(|event, meta| {
             println!("core event: {:?}, project_or_form: {:?}", &event, &self.project_or_form);
             match event {
@@ -154,7 +141,7 @@ impl View for ProjectContainer {
                             name,
                             file_path: path,
                         };
-                        
+
                         self.project_or_form = ProjectOrForm::Project(project);
                         ecx.emit(ProjectEvent::Load {});
                     } else {
@@ -163,7 +150,31 @@ impl View for ProjectContainer {
                 }
             }
         });
-        
+    }
+}
+
+#[derive(Lens)]
+pub struct ProjectContainer {
+    pub active_tree_item: Option<usize>,
+    
+    // TODO maybe not needed after all...
+    container_entity: Option<Entity>,
+}
+
+impl View for ProjectContainer {
+    fn event(&mut self, ecx: &mut EventContext, event: &mut Event) {
+        event.take(|event, _meta| {
+            println!("project tree event: {:?}", &event);
+            match event {
+                ProjectTreeEvent::Change { index } => {
+
+                    self.active_tree_item.replace(index);
+
+                    ecx.emit(ProjectRouteEvent::RouteChanged { route: Route(Some(index)) })
+                }
+            }
+        });
+
         event.take(|event, meta| {
             println!("project container event: {:?}", &event);
             match event {
@@ -177,22 +188,15 @@ impl View for ProjectContainer {
 }
 
 impl ProjectContainer {
-    pub fn new(cx: &mut Context, project: Option<Project>, active_section: Option<usize>) -> Handle<Self> {
+    pub fn new(cx: &mut Context, active_section: Option<usize>) -> Handle<Self> {
         info!("ProjectContainer::new");
-        let project_or_form = match project {
-            None => ProjectOrForm::Form(ProjectForm::default()),
-            Some(project) => ProjectOrForm::Project(project), 
-        };
-        
+
         Self {
-            project_or_form,
-            content: ProjectContent::default(),
             active_tree_item: active_section,
             container_entity: None,
-            core_service: CoreService::new(),
         }.build(cx, |cx| {
 
-            Binding::new(cx, ProjectContainer::project_or_form, |cx, project_or_form_lens| {
+            Binding::new(cx, ProjectState::project_or_form, |cx, project_or_form_lens| {
                 match project_or_form_lens.get(cx) {
                     ProjectOrForm::Project(project) => {
                         //
@@ -204,7 +208,7 @@ impl ProjectContainer {
                             // Left
                             //
                             VStack::new(cx, |cx| {
-                                let project_tree_lens = ProjectContainer::content.then(ProjectContent::project_tree).map_ref(|tree| &tree.items);
+                                let project_tree_lens = ProjectState::content.then(ProjectContent::project_tree).map_ref(|tree| &tree.items);
 
                                 List::new(cx, project_tree_lens, |cx, index, item| {
                                     let is_item_active_lens = ProjectContainer::active_tree_item.map(move |selection| {
@@ -247,7 +251,7 @@ impl ProjectContainer {
                             //
                             VStack::new(cx, |cx| {
                                 let loading_message = Localized::new("spinner-loading").to_string_local(cx);
-                                Label::new(cx, ProjectContainer::content.map(move |content| {
+                                Label::new(cx, ProjectState::content.map(move |content| {
                                     // FIXME why do we need to clone things all the time
                                     content.content.clone().unwrap_or(loading_message.clone())
                                 }))

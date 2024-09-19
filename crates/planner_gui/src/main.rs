@@ -20,7 +20,7 @@ use tabs::TabKind;
 use tabs::home::HomeTab;
 use crate::popups::{PopupWindow, PopupWindowState};
 use crate::popups::new_project::NewProjectPopup;
-use crate::project::Project;
+use crate::project::{Project, ProjectContent, ProjectOrForm, ProjectState};
 use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
 use crate::tabs::project::ProjectTab;
 
@@ -61,6 +61,7 @@ pub struct AppData {
     selected_language_index: usize,
     tab_container_entity: Option<Entity>,
     popup_window: PopupWindowState,
+    projects: Vec<ProjectState>,
 }
 
 impl AppData {
@@ -78,12 +79,27 @@ impl Model for AppData {
                 info!("OpenProject. path: {:?}", &path);
 
                 let name = Localized::new("spinner-loading").to_string_local(ecx);
-
+                let project = Project{ name, file_path: path.clone() };
+                
                 let tab = TabKind::Project(ProjectTab {
-                    project: Some(Project{ name, file_path: path.clone() }),
+                    project: Some(project.clone()),
                     route: Route(None),
                 });
 
+                let project_state = ProjectState {
+                    project_or_form: ProjectOrForm::Project(project),
+                    content: ProjectContent { 
+                        content: None,
+                        project_tree: Default::default()
+                    },
+                    core_service: CoreService::new(),
+                };
+                
+                self.projects.push(project_state);
+                
+                // FIXME since we're not in a `.build()` method, we do not have a `&mut Context` so cannot add the model to the tree.
+                //       so when the view renders the model is not present and it panics.
+                
                 ecx.emit_to(self.tab_container_entity.unwrap(), TabbedDocumentEvent::AddTab { tab })
             },
             ApplicationEvent::NewProject { } => {
@@ -160,6 +176,7 @@ fn main() -> Result<(), ApplicationError> {
             selected_language_index,
             tab_container_entity: None,
             popup_window: PopupWindowState::default(),
+            projects: Default::default()
         };
         app_data.build(cx);
 
