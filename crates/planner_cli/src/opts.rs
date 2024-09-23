@@ -14,8 +14,8 @@ use stores::load_out::LoadOutSource;
 use thiserror::Error;
 
 #[derive(Parser, Debug)]
-#[command(name = "planner")]
-#[command(bin_name = "planner")]
+#[command(name = "planner_cli")]
+#[command(bin_name = "planner_cli")]
 #[command(version, about, long_about = None)]
 #[command(group(
     ArgGroup::new("requires_project")
@@ -195,7 +195,7 @@ impl TryFrom<Opts> for Event {
             Command::Create { } => {
                 let project_name = opts.project.ok_or(EventError::MissingProjectName)?;
 
-                Ok(Event::CreateProject { project_name, path: opts.path })
+                Ok(Event::CreateProject { project_name, directory_path: opts.path })
             },
             Command::AddPcb { kind, name } => 
                 Ok(Event::AddPcb { kind: kind.into(), name: name.to_string() }),

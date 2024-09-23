@@ -1,10 +1,11 @@
 use std::collections::BTreeMap;
-use std::error::Error;
 use std::path::PathBuf;
 use std::str::FromStr;
-use anyhow::anyhow;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use crux_core::App;
-use crux_core::macros::Effect;
+use crux_core::capability::{CapabilityContext, Operation};
+use crux_core::macros::{Capability, Effect};
 use crux_core::render::Render;
 use regex::Regex;
 use serde_with::serde_as;
@@ -23,6 +24,13 @@ use pnp::part::Part;
 use pnp::pcb::{PcbKind, PcbSide};
 use stores::load_out::LoadOutSource;
 
+pub use crux_core::Core;
+use thiserror::Error;
+use pnp::placement::Placement;
+use crate::view_renderer::ViewRenderer;
+
+pub mod view_renderer; 
+
 extern crate serde_regex;
 
 #[derive(Default)]
@@ -31,26 +39,70 @@ pub struct Planner;
 
 #[derive(Default)]
 pub struct ModelProject {
-    path: PathBuf,
+    file_path: PathBuf,
     name: String,
     project: Project,
     modified: bool,
+    directory_path: PathBuf,
 }
 
 #[derive(Default)]
 pub struct Model {
     model_project: Option<ModelProject>,
-
-    error: Option<Box<dyn Error>>
+ 
+    error: Option<String>
 }
 
 #[derive(Effect)]
 pub struct Capabilities {
+    // TODO remove 'render'
     render: Render<Event>,
+    view: ViewRenderer<Event>,
+    navigate: Navigator<Event>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub struct PhaseOverview {
+    pub reference: Reference,
+    pub process: ProcessName,
+    pub load_out_source: String,
+    pub pcb_side: PcbSide,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub struct PhasePlacementOrderings {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub placement_orderings: Vec<PlacementSortingItem>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub struct PlacementsList {
+    // FUTURE consider introducing PlacementListItem, a subset of Placement
+    placements: Vec<Placement>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone, Eq)]
+pub struct ProjectTreeItem {
+    pub name: String,
+    pub path: String,
+    
+}
+#[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug, Clone, Eq)]
+pub struct ProjectTree {
+    pub items: Vec<ProjectTreeItem>
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
+pub enum ProjectView {
+    ProjectTree(ProjectTree),
+    Placements(PlacementsList),
+    PhaseOverview(PhaseOverview),
+    PhasePlacementOrderings(PhasePlacementOrderings),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
-pub struct ViewModel {
+pub struct ProjectOperationViewModel {
     pub error: Option<String>
 }
 
@@ -60,12 +112,15 @@ pub enum Event {
     None, // TODO REMOVE
     CreateProject {
         project_name: String,
-        path: PathBuf,
+        /// The directory to create the project in
+        directory_path: PathBuf,
     },
+    CreatedProject(Result<(), ()>),
     Save,
     Load {
         project_name: String,
-        path: PathBuf,
+        /// The directory to create the project in
+        directory_path: PathBuf,
     },
     AddPcb {
         kind: PcbKind,
@@ -121,62 +176,91 @@ pub enum Event {
     },
     /// Reset operations
     ResetOperations {
-    }
+    },
+    
+    //
+    // Views
+    //
+    ProjectTree { }
+    
 }
 
 impl App for Planner {
     type Event = Event;
     type Model = Model;
-    type ViewModel = ViewModel;
+    type ViewModel = ProjectOperationViewModel;
     type Capabilities = Capabilities;
 
     fn update(&self, event: Self::Event, model: &mut Self::Model, caps: &Self::Capabilities) {
+        let mut default_render = true;
         match event {
             Event::None => {}
-            Event::CreateProject { project_name, path} => {
+            Event::CreateProject { project_name, directory_path} => {
+                let project_file_path = project::build_project_file_path(&project_name, &directory_path);
+                info!("Creating project. name: {}, directory: {:?}, path: {:?}", &project_name, &directory_path, &project_file_path);
+
                 let project = Project::new(project_name.to_string());
                 model.model_project.replace(ModelProject{
-                    path,
+                    file_path: project_file_path,
+                    directory_path,
                     name: project_name,
                     project,
                     modified: true,
                 });
 
+                default_render = false;
                 self.update(Event::Save {}, model, caps); // TODO remove this?
+                self.update( Event::CreatedProject(Ok(())), model, caps);
             },
-            Event::Load { project_name, path } => {
+            Event::CreatedProject(Ok(_)) => {
+                info!("Created project successfully.");
+                default_render = false;
 
-                let project_file_path = project::build_project_file_path(&project_name, &path);
+                let path_encoded = BASE64_STANDARD.encode(model.model_project.as_ref().unwrap().file_path.to_str().unwrap());
+
+                let path = format!("/project/load/{}", path_encoded);
+                
+                caps.navigate.navigate(path, |_| Event::None);
+            },
+            Event::CreatedProject(Err(error)) => {
+                info!("Creating project failed.");
+                
+                model.error.replace(format!("creating project failed. cause: {:?}", error));
+            },
+            Event::Load { project_name, directory_path } => {
+                let project_file_path = project::build_project_file_path(&project_name, &directory_path);
+                info!("Load project. name: {}, directory: {:?}, path: {:?}", &project_name, &directory_path, &project_file_path);
 
                 match project::load(&project_file_path) {
                     Ok(project) => {
                         model.model_project.replace(ModelProject {
-                            path,
+                            file_path: project_file_path,
+                            directory_path,
                             name: project_name,
                             project,
                             modified: false,
                         });
                     },
                     Err(e) => {
-                        model.error.replace(e.into());
+                        model.error.replace(format!("{:?}", e));
                     }
                 }
             },
             Event::Save => {
-                if let Some(ModelProject { path, name: project_name, project, modified }) = &mut model.model_project {
-                    let project_file_path = project::build_project_file_path(&project_name, path);
+                if let Some(ModelProject { file_path: path, name: project_name, project, modified, .. }) = &mut model.model_project {
+                    info!("Save project. name: {}, path: {:?}", &project_name, &path);
 
-                    match project::save(project, &project_file_path) {
+                    match project::save(project, &path) {
                         Ok(_) => {
-                            info!("Created job: {}", project.name);
+                            info!("Created job: {}, path: {:?}", project.name, path);
                             *modified = false;
                         },
                         Err(e) => {
-                            model.error.replace(e.into());
+                            model.error.replace(format!("{:?}", e));
                         },
                     }
                 } else {
-                    model.error.replace(anyhow!("project required").into());
+                    model.error.replace("project required".to_string());
                 }
             },
             Event::AddPcb { kind, name } => {
@@ -187,59 +271,61 @@ impl App for Planner {
 
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         },
-                        Err(e) => { model.error.replace(Box::new(e)); },
+                        Err(e) => {
+                            model.error.replace(format!("{:?}", e));
+                        },
                     }
                     self.update(Event::Save {}, model, caps);
                 } else {
-                    model.error.replace(anyhow!("project required").into());
+                    model.error.replace("project required".to_string());
                 }
             },
             Event::AssignVariantToUnit { design, variant, unit } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
                         project.update_assignment(unit.clone(), DesignVariant { design_name: design.clone(), variant_name: variant.clone() })?;
                         *modified = true;
-                        let _all_parts = Self::refresh_project(project, path)?;
+                        let _all_parts = Self::refresh_project(project, directory_path)?;
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::RefreshFromDesignVariants => {
-                if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                    if let Err(e) = Self::refresh_project(project, path) {
-                        model.error.replace(e.into());
+                if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                    if let Err(e) = Self::refresh_project(project, directory_path) {
+                        model.error.replace(format!("{:?}", e));
                     };
                     *modified = true;
                 } else {
-                    model.error.replace(anyhow!("project required").into());
+                    model.error.replace("project required".to_string());
                 }
             },
             Event::AssignProcessToParts { process: process_name, manufacturer: manufacturer_pattern, mpn: mpn_pattern } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
                         let process = project.find_process(&process_name)?.clone();
-                        let all_parts = Self::refresh_project(project, path)?;
+                        let all_parts = Self::refresh_project(project, directory_path)?;
                         *modified = true;
 
                         project::update_applicable_processes(project, all_parts.as_slice(), process, manufacturer_pattern, mpn_pattern);
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::CreatePhase { process: process_name, reference, load_out, pcb_side } => {
@@ -257,19 +343,19 @@ impl App for Planner {
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::AssignPlacementsToPhase { phase: reference, placements: placements_pattern } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        let _all_parts = Self::refresh_project(project, path)?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        let _all_parts = Self::refresh_project(project, directory_path)?;
                         *modified = true;
 
                         let phase = project.phases.get(&reference)
@@ -291,13 +377,13 @@ impl App for Planner {
 
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project and path required").into());
+                        model.error.replace("project and path required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::AssignFeederToLoadOutItem { phase: reference, feeder_reference, manufacturer, mpn } => {
@@ -310,19 +396,19 @@ impl App for Planner {
 
                         stores::load_out::assign_feeder_to_load_out_item(&phase, &process, &feeder_reference, manufacturer, mpn)?;
                     } else {
-                        model.error.replace(anyhow!("project and path required").into());
+                        model.error.replace("project and path required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::SetPlacementOrdering { phase: reference, placement_orderings } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        let _all_parts = Self::refresh_project(project, path)?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        let _all_parts = Self::refresh_project(project, directory_path)?;
                         *modified = true;
 
                         *modified = project::update_placement_orderings(project, &reference, &placement_orderings)?;
@@ -331,18 +417,18 @@ impl App for Planner {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project and path required").into());
+                        model.error.replace("project and path required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::GenerateArtifacts => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, name: project_name, project, modified }) = &mut model.model_project {
+                    if let Some(ModelProject { directory_path, name: project_name, project, modified, .. }) = &mut model.model_project {
                         *modified = project::update_phase_operation_states(project);
 
                         let phase_load_out_item_map = project.phases.iter().try_fold(BTreeMap::<Reference, Vec<LoadOutItem>>::new(), |mut map, (reference, phase) | {
@@ -351,53 +437,53 @@ impl App for Planner {
                             Ok::<BTreeMap<Reference, Vec<LoadOutItem>>, anyhow::Error>(map)
                         })?;
 
-                        project::generate_artifacts(&project, path, project_name, phase_load_out_item_map)?;
+                        project::generate_artifacts(&project, directory_path, project_name, phase_load_out_item_map)?;
 
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::RecordPhaseOperation { phase: reference, operation, set } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        *modified = project::update_phase_operation(project, path, &reference, operation.into(), set.into())?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        *modified = project::update_phase_operation(project, directory_path, &reference, operation.into(), set.into())?;
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::RecordPlacementsOperation { object_path_patterns, operation } => {
                 let try_fn = |model: &mut Model| -> anyhow::Result<()> {
-                    if let Some(ModelProject { path, project, modified, .. }) = &mut model.model_project {
-                        *modified = project::update_placements_operation(project, path, object_path_patterns, operation.into())?;
+                    if let Some(ModelProject { directory_path, project, modified, .. }) = &mut model.model_project {
+                        *modified = project::update_placements_operation(project, directory_path, object_path_patterns, operation.into())?;
                         if *modified {
                             self.update(Event::Save {}, model, caps); // TODO remove this?
                         }
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
             Event::ResetOperations { } => {
@@ -407,29 +493,61 @@ impl App for Planner {
                         *modified = true;
                         self.update(Event::Save {}, model, caps); // TODO remove this?
                     } else {
-                        model.error.replace(anyhow!("project required").into());
+                        model.error.replace("project required".to_string());
                     }
                     Ok(())
                 };
 
                 if let Err(e) = try_fn(model) {
-                    model.error.replace(e.into());
+                    model.error.replace(format!("{:?}", e));
                 };
             },
+            
+            Event::ProjectTree { } => {
+
+                default_render = false;
+                
+                // TODO use the path to find the right project to work on, for now use the only project
+                
+                let try_fn = |model: &mut Model| -> anyhow::Result<()> {
+                    if let Some(ModelProject { project, .. }) = &mut model.model_project {
+
+                        let mut project_tree = ProjectTree {
+                            items: vec![
+                                ProjectTreeItem { name: "Phases".to_string(), path: "/phases".to_string() }
+                            ],
+                        };
+                        
+                        for (reference, ..) in &project.phases {
+                            project_tree.items.push ( ProjectTreeItem { 
+                                name: reference.to_string(), 
+                                path: format!("/phases/{}", reference).to_string() }
+                            )
+                        }
+                        
+                        caps.view.view(ProjectView::ProjectTree(project_tree), |_|Event::None)    
+                        
+                    } else {
+                        model.error.replace("project required".to_string());
+                    }
+                    Ok(())
+                };
+
+                if let Err(e) = try_fn(model) {
+                    model.error.replace(format!("{:?}", e));
+                };
+            }
+            
         }
 
-        caps.render.render();
+        if default_render {
+            caps.render.render();
+        }
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
-
-        let error: Option<String> = match &model.error {
-            None => None,
-            Some(error) => Some(format!("{:?}", error)),
-        };
-
-        ViewModel {
-            error
+        ProjectOperationViewModel {
+            error: model.error.clone(),
         }
     }
 }
@@ -466,7 +584,88 @@ mod app_tests {
 
         // Make sure the view matches our expectations
         let actual_view = &hello.view(&model);
-        let expected_view = ViewModel::default();
+        let expected_view = ProjectOperationViewModel::default();
         assert_eq!(actual_view, &expected_view);
     }
+}
+
+#[derive(Capability)]
+struct Navigator<Ev> {
+    context: CapabilityContext<NavigationOperation, Ev>,
+}
+
+impl<Ev> Navigator<Ev> {
+    pub fn new(context: CapabilityContext<NavigationOperation, Ev>) -> Self {
+        Self {
+            context,
+        }
+    }
+}
+impl<Ev: 'static> Navigator<Ev> {
+
+    pub fn navigate<F>(&self, path: String, make_event: F)
+    where
+        F: FnOnce(Result<Option<String>, NavigationError>) -> Ev + Send + Sync + 'static,
+    {
+        self.context.spawn({
+            let context = self.context.clone();
+            async move {
+                let response = navigate(&context, path).await;
+                context.update_app(make_event(response))
+            }
+        });
+    }
+}
+
+
+async fn navigate<Ev: 'static>(
+    context: &CapabilityContext<NavigationOperation, Ev>,
+    path: String,
+) -> Result<Option<String>, NavigationError> {
+    context
+        .request_from_shell(NavigationOperation::Navigate { path })
+        .await
+        .unwrap_set()
+}
+
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub enum NavigationResult {
+    Ok { response: NavigationResponse },
+    Err { error: NavigationError },
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub enum NavigationResponse {
+    Navigate { previous: String }
+}
+
+impl NavigationResult {
+    fn unwrap_set(self) -> Result<Option<String>, NavigationError> {
+        match self {
+            NavigationResult::Ok { response } => match response {
+                NavigationResponse::Navigate { previous } => Ok(previous.into()),
+                // _ => {
+                //     panic!("attempt to convert NavigationResponse other than Ok to Option<String>")
+                // }
+            },
+            NavigationResult::Err { error } => Err(error.clone()),
+        }
+    }
+}
+
+#[derive(Clone, serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
+pub enum NavigationOperation {
+    Navigate { path: String }
+}
+
+impl Operation for NavigationOperation {
+    type Output = NavigationResult;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, Error)]
+#[serde(rename_all = "camelCase")]
+pub enum NavigationError {
+    #[error("other error: {message}")]
+    Other { message: String },
 }

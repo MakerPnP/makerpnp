@@ -1,9 +1,9 @@
 use std::sync::Arc;
 use anyhow::bail;
 use clap::Parser;
-use planner_app::{Effect, Event};
+use planner_app::{Effect, Event, NavigationOperation};
 use crossbeam_channel::unbounded;
-
+use tracing::{debug, trace};
 use crate::core::Core;
 use crate::opts::{EventError, Opts};
 
@@ -34,7 +34,7 @@ fn main() -> anyhow::Result<()>{
                 _ => true,
             };
             if should_load_first {
-                run_loop(&core, Event::Load { project_name, path })?;
+                run_loop(&core, Event::Load { project_name, directory_path: path })?;
             }
             
             run_loop(&core, event)?;
@@ -52,6 +52,7 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
     core::update(&core, event, &Arc::new(tx))?;
 
     while let Ok(effect) = rx.recv() {
+        trace!("run_loop. effect: {:?}", effect);
         match effect {
             _render @ Effect::Render(_) => {
                 let view = core.view();
@@ -59,6 +60,19 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
                     bail!(error)
                 }
             },
+            Effect::Navigator(request) => {
+                // FIXME What goes here?
+                let operation = request.operation;
+                match operation {
+                    NavigationOperation::Navigate { path } => {
+                        debug!("navigate from run_loop. path: {}", path)
+                    }
+                }
+            },
+            Effect::ViewRenderer(_) => {
+                // Currently, the CLI app should not cause these effects.
+                unreachable!()
+            }
         }
     }
     Ok(())

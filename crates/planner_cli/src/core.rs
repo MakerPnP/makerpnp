@@ -1,4 +1,4 @@
-use planner_app::{Effect, Event, Planner};
+use planner_app::{Effect, Event, NavigationOperation, Planner};
 
 use std::sync::Arc;
 use anyhow::anyhow;
@@ -21,12 +21,25 @@ pub fn update(core: &Core, event: Event, tx: &Arc<Sender<Effect>>) -> anyhow::Re
 }
 
 pub fn process_effect(_core: &Core, effect: Effect, tx: &Arc<Sender<Effect>>) -> anyhow::Result<()> {
-    debug!("effect: {:?}", effect);
+    debug!("core::process_effect. effect: {:?}", effect);
 
     match effect {
         Effect::Render(_) => {
             tx.send(effect)
                 .map_err(|e| anyhow!("{:?}", e))?;
+        },
+        Effect::Navigator(request) => {
+            // FIXME What goes here?
+            let operation = request.operation;
+            match operation {
+                NavigationOperation::Navigate { path } => {
+                    debug!("navigate from core::process_effect. path: {}", path)
+                }
+            }
+        }
+        Effect::ViewRenderer(_) => {
+            // Currently, the CLI app should not cause these effects.
+            unreachable!()
         }
     }
 
