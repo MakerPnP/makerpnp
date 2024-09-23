@@ -1,5 +1,6 @@
 use std::fmt::{Display, Formatter};
 use std::str::FromStr;
+use serde_with::{DeserializeFromStr, SerializeDisplay};
 use thiserror::Error;
 use crate::pcb::PcbKind;
 
@@ -51,7 +52,7 @@ impl Display for ObjectPathChunk {
 ///
 /// `panel=1::unit=1`
 /// `panel=1::unit=1::ref_des=R1` 
-#[derive(Debug, Clone, PartialOrd, Ord, Eq, PartialEq, Default)]
+#[derive(Debug, Clone, DeserializeFromStr, SerializeDisplay, PartialOrd, Ord, Eq, PartialEq, Default)]
 pub struct ObjectPath {
     chunks: Vec<ObjectPathChunk>,
 }

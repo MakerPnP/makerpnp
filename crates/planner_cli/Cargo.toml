@@ -1,11 +1,12 @@
 [package]
-name = "planner"
+name = "planner_cli"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 cli = { path = "../cli", features = ["tracing"]}
 planning = { path = "../planning"}
+planner_app = { path = "../planner_app" }
 pnp = { path = "../pnp"}
 stores = { path = "../stores"}
 util = { path = "../util"}
@@ -16,6 +17,12 @@ argfile = { workspace = true }
 regex = { workspace = true }
 tracing = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+serde = { workspace = true }
+
+crux_core = { workspace = true }
+crossbeam-channel = { workspace = true }
 
 [dev-dependencies]
 util = { path = "../util", features = ["testing"]}

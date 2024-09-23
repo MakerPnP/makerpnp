@@ -43,7 +43,7 @@ impl PlacementSortingModeArg {
     }
 }
 
-#[derive(ValueEnum, Clone)]
+#[derive(ValueEnum, Clone, Debug)]
 #[value(rename_all = "lower")]
 pub enum PcbSideArg {
     Top,
@@ -59,7 +59,7 @@ impl From<PcbSideArg> for PcbSide {
     }
 }
 
-#[derive(ValueEnum, Clone)]
+#[derive(ValueEnum, Clone, Debug)]
 #[value(rename_all = "lower")]
 pub enum PcbKindArg {
     Single,
@@ -93,7 +93,7 @@ impl EdaToolArg {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[derive(ValueEnum)]
 pub enum PlacementOperationArg {
     #[value(name("placed"))]
@@ -108,7 +108,7 @@ impl From<PlacementOperationArg> for PlacementOperation {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[derive(ValueEnum)]
 pub enum ProcessOperationArg {
     #[value(name("loadpcbs"))]
@@ -149,7 +149,7 @@ mod from_process_operation_arg_for_process_operation_kind_tests {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[derive(ValueEnum)]
 pub enum ProcessOperationSetArg {
     #[value(name("completed"))]
