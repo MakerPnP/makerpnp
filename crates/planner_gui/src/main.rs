@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 /// Run as follows:
 /// `cargo run --package planner_gui --bin planner_gui`
 ///
@@ -20,7 +21,7 @@ use tabs::TabKind;
 use tabs::home::HomeTab;
 use crate::popups::{PopupWindow, PopupWindowState};
 use crate::popups::new_project::NewProjectPopup;
-use crate::project::Project;
+use crate::project::{Project, ProjectState};
 use crate::tabbed_document_container::{TabbedDocumentContainer, TabbedDocumentEvent};
 use crate::tabs::project::ProjectTab;
 
@@ -61,6 +62,7 @@ pub struct AppData {
     selected_language_index: usize,
     tab_container_entity: Option<Entity>,
     popup_window: PopupWindowState,
+    projects: HashMap<String, ProjectState>
 }
 
 impl AppData {
