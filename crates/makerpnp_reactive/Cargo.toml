@@ -1,0 +1,16 @@
+[package]
+name = "makerpnp_reactive"
+version = "0.1.0"
+edition = "2024"
+description = "A thread-safe reactive state management system for MakerPnP"
+license = "MIT"
+authors = ["The MakerPnP contributors"]
+repository = "https://github.com/makerpnp/makerpnp"
+documentation = "https://docs.rs/makerpnp_reactive"
+
+[dependencies]
+parking_lot = "0.12"
+
+[dev-dependencies]
+criterion = "0.5"
+tokio = { version = "1.35", features = ["full"] }

@@ -19,6 +19,7 @@ members = [
     "crates/criteria",
     "crates/planner_app",
     "crates/planner_cli",
+    "crates/makerpnp_reactive",
     "crates/planner_gui_cushy",
     "crates/planner_gui_egui",
     "crates/variantbuilder_app",
