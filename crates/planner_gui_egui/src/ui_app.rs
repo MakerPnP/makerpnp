@@ -20,7 +20,7 @@ use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabUiCommand};
 use crate::ui_app::app_tabs::{AppTabs, TabKind, TabKindContext, TabKindUiCommand, TabUiCommand};
 use crate::ui_commands::{UiCommand, handle_command};
 use crate::ui_component::{ComponentState, UiComponent};
-use crate::{fonts, task};
+use crate::fonts;
 
 pub mod app_tabs;
 
@@ -36,9 +36,9 @@ pub struct UiApp {
     #[serde(skip)]
     state: MaybeUninit<Value<AppState>>,
 
-    // the slot handler needs state, so slot can't be *in* state
+    // The command slot for handling UI commands
     #[serde(skip)]
-    slot: MaybeUninit<Slot<UiCommand>>,
+    slot: Slot<UiCommand>,
 }
 
 pub struct AppState {
@@ -178,11 +178,12 @@ impl AppState {
 
 impl Default for UiApp {
     fn default() -> Self {
+        let (_signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
         Self {
             app_tabs: Default::default(),
             config: Default::default(),
             state: MaybeUninit::uninit(),
-            slot: MaybeUninit::uninit(),
+            slot,
         }
     }
 }
@@ -190,6 +191,7 @@ impl Default for UiApp {
 impl UiApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let (_signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
         fonts::initialize(&cc.egui_ctx);
@@ -257,7 +259,7 @@ impl UiApp {
                 }
             });
 
-        instance.slot.write(app_slot);
+        instance.slot = slot;
 
         instance
     }
