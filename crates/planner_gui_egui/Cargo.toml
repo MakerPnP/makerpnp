@@ -9,7 +9,6 @@ planner_app = { path = "../planner_app" }
 # tasks/async
 tokio = { workspace = true, features = ["full"]}
 futures =  { workspace = true }
-async-std =  { workspace = true }
 
 # serialization
 serde = { workspace = true, features = ["derive"] }
@@ -28,6 +27,7 @@ egui-i18n = { workspace = true }
 egui_dock = { version = "0.16.0", features = ["serde"]}
 #egui_mobius = { path = "../../../../../libraries/rust/egui/mobius_egui/crates/egui_mobius", features = ["serde"] }
 egui_mobius = { workspace = true, features = ["serde"] }
+egui_mobius_reactive = { workspace = true }
 egui_material_icons = { workspace = true }
 egui_extras = { workspace = true }
 # need 'opened' functionality

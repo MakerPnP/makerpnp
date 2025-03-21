@@ -12,7 +12,7 @@ use tracing::{debug, info};
 use crate::config::Config;
 use crate::file_picker::Picker;
 use crate::project::{Project, ProjectKey, ProjectUiCommand};
-use crate::runtime::{Executor, MessageDispatcher, RunTime};
+use crate::runtime::TokioRuntime;
 use crate::tabs::TabKey;
 use crate::toolbar::{Toolbar, ToolbarContext, ToolbarUiCommand};
 use crate::ui_app::app_tabs::new_project::NewProjectArgs;
@@ -209,15 +209,11 @@ impl UiApp {
             // Safety: now safe to use i18n translation system (e.g. [`egui_i18n::tr!`])
         }
 
-        let (app_signal, mut app_slot) = egui_mobius::factory::create_signal_slot::<UiCommand>(1);
+        let (app_signal, mut app_slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
 
         let app_message_sender = app_signal.sender.clone();
 
-        let (sender, receiver) = futures::channel::mpsc::unbounded();
-
-        let executor = Executor::new().expect("should be able to create an executor");
-        executor.spawn(MessageDispatcher::dispatch(receiver, app_message_sender.clone()));
-        let mut runtime = RunTime::new(executor, sender.clone());
+        let runtime = TokioRuntime::new();
 
         let state = Value::new(AppState::init(app_message_sender.clone()));
 
@@ -241,8 +237,8 @@ impl UiApp {
                     context.clone(),
                 );
 
-                if let Some(stream) = task::into_stream(task) {
-                    runtime.run(stream);
+                if let Some(future) = crate::task::into_future(task) {
+                    runtime.runtime().spawn(future);
                 }
             }
         };

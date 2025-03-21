@@ -361,16 +361,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 
 [[package]]
-name = "as_command_derive"
-version = "0.3.0-alpha.4"
-source = "git+https://github.com/saturn77/egui_mobius?rev=fcdfe8603d4744ba8a6f4b7b3aa6810c968071e3#fcdfe8603d4744ba8a6f4b7b3aa6810c968071e3"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.98",
-]
-
-[[package]]
 name = "ash"
 version = "0.38.0+1.3.281"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1910,14 +1900,14 @@ dependencies = [
 
 [[package]]
 name = "egui_mobius"
-version = "0.3.0-alpha.4"
-source = "git+https://github.com/saturn77/egui_mobius?rev=fcdfe8603d4744ba8a6f4b7b3aa6810c968071e3#fcdfe8603d4744ba8a6f4b7b3aa6810c968071e3"
+version = "0.3.0-alpha.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f42a7808fb1c4446c63d9e9a39d6f41a6cc13b96468edc6959c3b5b6d8acef47"
 dependencies = [
- "as_command_derive",
  "crossbeam-channel",
  "eframe",
  "egui",
- "egui_mobius_macros",
+ "futures",
  "priority-queue",
  "rand 0.9.0",
  "serde",
@@ -1926,13 +1916,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_mobius_macros"
-version = "0.3.0-alpha.4"
-source = "git+https://github.com/saturn77/egui_mobius?rev=fcdfe8603d4744ba8a6f4b7b3aa6810c968071e3#fcdfe8603d4744ba8a6f4b7b3aa6810c968071e3"
+name = "egui_mobius_reactive"
+version = "0.3.0-alpha.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "be6b6e9598a740f47c8015a0b9c87f7b681a450325c4392e980c6ff956753338"
 dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.98",
+ "parking_lot",
 ]
 
 [[package]]
@@ -4284,7 +4273,6 @@ dependencies = [
 name = "planner_gui_egui"
 version = "0.1.0"
 dependencies = [
- "async-std",
  "derivative",
  "eframe",
  "egui",
@@ -4294,6 +4282,7 @@ dependencies = [
  "egui_ltreeview",
  "egui_material_icons",
  "egui_mobius",
+ "egui_mobius_reactive",
  "egui_taffy",
  "fluent",
  "fluent-bundle",

@@ -19,7 +19,7 @@ impl<UiCommand> Debug for ComponentState<UiCommand> {
 
 impl<UiCommand: Send + Clone + 'static> Default for ComponentState<UiCommand> {
     fn default() -> Self {
-        let (signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>(1);
+        let (signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
 
         Self {
             sender: signal.sender.clone(),
