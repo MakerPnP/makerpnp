@@ -48,9 +48,9 @@ pub struct DragSliderParameters {
 }
 
 pub mod defaults {
+    use std::collections::HashMap;
     use std::sync::LazyLock;
 
-    use egui::ahash::HashMap;
     use planner_app::Unit;
 
     use super::DragSliderParameters;

@@ -87,39 +87,39 @@ as-any = { version = "0.3.2" }
 crux_core = { version = "0.15.0" }
 
 # gui (egui)
-egui = { version = "0.34.3", features = ["serde"]}
-epaint = { version = "0.34.3"}
-egui_extras = { version = "0.34.3", default-features = false }
-eframe = { version = "0.34.3", default-features = false }
+egui = { version = "0.35.0", features = ["serde"]}
+epaint = { version = "0.35.0"}
+egui_extras = { version = "0.35.0", default-features = false }
+eframe = { version = "0.35.0", default-features = false }
 
-egui_taffy = "0.12.0"
+egui_taffy = "0.13.0"
 #egui_taffy = { git = "https://github.com/makerpnp/egui_taffy", rev = "c14e390c1f3cd6487968c5845ea205a38c6afbe2" }
 
-egui_mobius = "0.4.0"
+egui_mobius = "0.5.0"
 #egui_mobius = { git = "https://github.com/makerpnp/egui_mobius", rev = "e62f97bfcf97a831bd67dd75ab5eab9585922765" }
 #egui_mobius = { path = "../../../libraries/rust/egui/egui_mobius/crates/egui_mobius" }
 
-egui_material_icons = { git = "https://github.com/lucasmerlin/hello_egui.git", tag = "hello_egui-v0.11.0" }
+egui_material_icons = { git = "https://github.com/lucasmerlin/hello_egui.git", tag = "hello_egui-v0.12.0" }
 
-egui_ltreeview = { version = "0.7.0" }
+egui_ltreeview = { version = "0.8.0" }
 # requires a version with these PRs:
 # 1 - https://github.com/LennysLounge/egui_ltreeview/pull/23
 #egui_ltreeview = { git = "https://github.com/makerpnp/egui_ltreeview", rev = "6e44b06e6ab3b22d3c0f3d790be77650ae74cb53" }
 
-egui_deferred_table = { version = "0.2.0" }
+egui_deferred_table = { version = "0.3.0" }
 #egui_deferred_table = { git = "https://github.com/makerpnp/egui_deferred_table", rev = "67f44aaabcc9850c3f0ba2c88d54a468d2a20c5f" }
 #egui_deferred_table = { path = "../../../libraries/rust/egui/egui_deferred_table" }
 
-egui_double_slider = { version = "2.0.0"}
+egui_double_slider = { version = "3.0.0"}
 #egui_double_slider = { git = "https://github.com/hacknus/egui_double_slider", rev = "86df8ecd38d82198f042111ce58792e3fab546fe" }
 
-egui_vertical_stack = { version = "0.3.0" }
+egui_vertical_stack = { version = "0.4.0" }
 #egui_vertical_stack = { path = "../egui/egui_vertical_stack" }
 
 #egui_tool_windows = { path = "../egui/egui_tool_windows" }
-egui_tool_windows = { version = "0.4.0"}
+egui_tool_windows = { version = "0.5.0"}
 
-egui_dock = { version = "0.19.0" }
+egui_dock = { version = "0.20.1" }
 
 rfd = { version = "0.17.2" }
 
@@ -155,7 +155,7 @@ async-std = {  version = "1.13.2" }
 
 # Gerber rendering, types and parser
 # Note, these three crates are tightly coupled, ensure that only one of each appears in the dependency tree.
-gerber_viewer = { version = "0.6.1"}
+gerber_viewer = { version = "0.7.0"}
 #gerber_viewer = { git = "https://github.com/makerpnp/gerber_viewer.git", rev = "e4ed3bd48a428f422708021ca803ce1b65d3528d" }
 #gerber_viewer = { path = "../gerber-viewer" }
 gerber-types = { version = "0.7.0"}
