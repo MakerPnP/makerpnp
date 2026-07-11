@@ -1133,7 +1133,7 @@ mod help {
         let expected_output = indoc! {"
             Build variant
 
-            Usage: variantbuilder_cli build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE> --output-bom <FILE>
+            Usage: variantbuilder_cli build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE>
 
             Options:
                   --eda <EDA>
@@ -1161,7 +1161,7 @@ mod help {
                   --output <FILE>
                       Output CSV file
                   --output-bom <FILE>
-                      Output CSV file
+                      Output BOM CSV file (Currently JLCPCB format only)
                   --name <NAME>
                       Name of assembly variant [default: Default]
                   --ref-des-list [<REF_DES_LIST>...]

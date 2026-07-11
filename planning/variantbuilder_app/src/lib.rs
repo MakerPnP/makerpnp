@@ -69,7 +69,7 @@ pub enum Event {
         load_out: Option<LoadOutSource>,
         assembly_rules: Option<AssemblyRuleSource>,
         output: String,
-        output_bom: String,
+        output_bom: Option<String>,
         ref_des_exclude_list: Vec<String>,
         ref_des_disable_list: Vec<String>,
     },
@@ -162,7 +162,7 @@ fn build_assembly_variant(
     load_out_source: &Option<LoadOutSource>,
     assembly_rules_source: &Option<AssemblyRuleSource>,
     output: &String,
-    output_bom: &String,
+    output_bom: &Option<String>,
     ref_des_exclude_list: &Vec<String>,
     ref_des_disable_list: &Vec<String>,
 ) -> Result<(), Error> {
@@ -268,8 +268,10 @@ fn build_assembly_variant(
 
     info!("Output written to '{}'", output);
 
-    write_output_bom_csv(eda_tool, output_bom, matched_mappings, &parts_and_meta_data)?;
-    info!("BOM written to '{}'", output_bom);
+    if let Some(output_bom) = output_bom {
+        write_output_bom_csv(eda_tool, output_bom, matched_mappings, &parts_and_meta_data)?;
+        info!("BOM written to '{}'", output_bom);
+    }
 
     Ok(())
 }

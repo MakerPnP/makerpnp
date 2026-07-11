@@ -94,9 +94,9 @@ pub enum Command {
         #[arg(long, value_name = "FILE")]
         output: String,
 
-        /// Output CSV file
+        /// Output BOM CSV file (Currently JLCPCB format only)
         #[arg(long, value_name = "FILE")]
-        output_bom: String,
+        output_bom: Option<String>,
 
         /// Optional assembly variant
         #[command(flatten)]
