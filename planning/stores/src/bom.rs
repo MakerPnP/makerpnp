@@ -16,4 +16,6 @@ pub struct JLCPCBBOMRecord {
 
     #[serde(default)]
     pub jlcpcb_part: Option<String>,
+
+    pub quantity: usize,
 }

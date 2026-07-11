@@ -390,6 +390,7 @@ fn write_output_bom_csv(
             designator: ref_des_set_joined,
             footprint,
             jlcpcb_part: meta_data.and_then(|part_meta_data| part_meta_data.get("LCSC").cloned()),
+            quantity,
         };
 
         writer.serialize(bom_record)?;
