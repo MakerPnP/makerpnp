@@ -18,6 +18,7 @@ pub fn configure_tracing<IL: LogLevel>(path: Option<PathBuf>, verbosity: Verbosi
 
             let file_subscriber = FmtSubscriber::builder()
                 .with_writer(trace_file)
+                .with_ansi(false)
                 .with_max_level(verbosity.log_level_filter().as_trace())
                 .finish();
 
