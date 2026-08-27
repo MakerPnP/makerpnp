@@ -2683,11 +2683,7 @@ impl App for Planner {
     type ViewModel = PlannerOperationViewModel;
     type Effect = Effect;
 
-    fn update(
-        &self,
-        event: Self::Event,
-        model: &mut Self::Model,
-    ) -> Command<Self::Effect, Self::Event> {
+    fn update(&self, event: Self::Event, model: &mut Self::Model) -> Command<Self::Effect, Self::Event> {
         let try_fn = self.update_inner(event);
 
         match try_fn(model) {

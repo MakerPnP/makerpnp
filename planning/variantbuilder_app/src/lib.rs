@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use anyhow::Error;
 pub use assembly::assembly_variant::AssemblyVariant;
 use assembly::AssemblyVariantProcessor;
-pub use crux_core::Core;
-use crux_core::{render, App, Command};
 use crux_core::macros::effect;
 use crux_core::render::RenderOperation;
+pub use crux_core::Core;
+use crux_core::{render, App, Command};
 use csv::QuoteStyle;
 use eda::placement::{EdaPlacement, EdaPlacementField};
 use eda::substitution::{
@@ -83,11 +83,7 @@ impl App for VariantBuilder {
     type ViewModel = OperationViewModel;
     type Effect = Effect;
 
-    fn update(
-        &self,
-        event: Self::Event,
-        model: &mut Self::Model,
-    ) -> Command<Self::Effect, Self::Event> {
+    fn update(&self, event: Self::Event, model: &mut Self::Model) -> Command<Self::Effect, Self::Event> {
         match event {
             Event::None => render::render(),
             Event::Build {
@@ -537,7 +533,6 @@ mod app_tests {
         // Call 'update' and request effects
         app.update(Event::None, &mut model)
             .expect_only_render();
-
 
         // Make sure the view matches our expectations
         let actual_view = app.view(&model);
