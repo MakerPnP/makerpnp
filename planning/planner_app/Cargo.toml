@@ -37,3 +37,6 @@ nalgebra = { workspace = true }
 
 [features]
 markdown = ["planning/markdown"]
+
+[dev-dependencies]
+crux_core = { workspace = true, features = ["testing"] }

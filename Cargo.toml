@@ -84,7 +84,7 @@ dyn-clone = {  version = "1.0.20" }
 as-any = { version = "0.3.2" }
 
 # crux app
-crux_core = { version = "0.15.0" }
+crux_core = { version = "0.20.0" }
 
 # gui (egui)
 egui = { version = "0.35.0", features = ["serde"]}

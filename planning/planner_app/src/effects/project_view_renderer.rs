@@ -1,42 +1,10 @@
 use std::future::Future;
 
-use crux_core::capability::{CapabilityContext, Operation};
+use crux_core::capability::Operation;
 use crux_core::command::NotificationBuilder;
-use crux_core::macros::Capability;
 use crux_core::{Command, Request};
 
 use crate::ProjectView;
-
-#[derive(Capability)]
-pub struct ProjectViewRenderer<Ev> {
-    context: CapabilityContext<ProjectViewRendererOperation, Ev>,
-}
-
-impl<Ev> ProjectViewRenderer<Ev> {
-    pub fn new(context: CapabilityContext<ProjectViewRendererOperation, Ev>) -> Self {
-        Self {
-            context,
-        }
-    }
-}
-impl<Ev: 'static> ProjectViewRenderer<Ev> {
-    pub fn view(&self, view: ProjectView) {
-        self.context.spawn({
-            let context = self.context.clone();
-            async move {
-                run_view(&context, view).await;
-            }
-        });
-    }
-}
-
-async fn run_view<Ev: 'static>(context: &CapabilityContext<ProjectViewRendererOperation, Ev>, view: ProjectView) {
-    context
-        .notify_shell(ProjectViewRendererOperation::View {
-            view,
-        })
-        .await
-}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub enum ProjectViewRendererOperation {

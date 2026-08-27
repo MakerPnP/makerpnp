@@ -226,6 +226,7 @@ impl Model {
 }
 
 #[effect]
+#[derive(Debug)]
 pub enum Effect {
     Render(RenderOperation),
     ProjectView(ProjectViewRendererOperation),
@@ -2680,14 +2681,12 @@ impl App for Planner {
     type Event = Event;
     type Model = Model;
     type ViewModel = PlannerOperationViewModel;
-    type Capabilities = ();
     type Effect = Effect;
 
     fn update(
         &self,
         event: Self::Event,
         model: &mut Self::Model,
-        _caps: &Self::Capabilities,
     ) -> Command<Self::Effect, Self::Event> {
         let try_fn = self.update_inner(event);
 
@@ -2786,25 +2785,21 @@ impl Planner {
 
 #[cfg(test)]
 mod app_tests {
-    use crux_core::{assert_effect, testing::AppTester};
-
     use super::*;
 
     #[test]
     fn minimal() {
-        let hello = AppTester::<Planner>::default();
+        let app = Planner;
         let mut model = Model::default();
 
         // Call 'update' and request effects
-        let update = hello.update(Event::None, &mut model);
-
-        // Check update asked us to `Render`
-        assert_effect!(update, Effect::Render(_));
+        app.update(Event::None, &mut model)
+            .expect_only_render();
 
         // Make sure the view matches our expectations
-        let actual_view = &hello.view(&model);
+        let actual_view = app.view(&model);
         let expected_view = PlannerOperationViewModel::default();
-        assert_eq!(actual_view, &expected_view);
+        assert_eq!(actual_view, expected_view);
     }
 }
 

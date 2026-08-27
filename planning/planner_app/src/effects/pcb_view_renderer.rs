@@ -1,42 +1,10 @@
 use std::future::Future;
 
-use crux_core::capability::{CapabilityContext, Operation};
+use crux_core::capability::Operation;
 use crux_core::command::NotificationBuilder;
-use crux_core::macros::Capability;
 use crux_core::{Command, Request};
 
 use crate::PcbView;
-
-#[derive(Capability)]
-pub struct PcbViewRenderer<Ev> {
-    context: CapabilityContext<PcbViewRendererOperation, Ev>,
-}
-
-impl<Ev> PcbViewRenderer<Ev> {
-    pub fn new(context: CapabilityContext<PcbViewRendererOperation, Ev>) -> Self {
-        Self {
-            context,
-        }
-    }
-}
-impl<Ev: 'static> PcbViewRenderer<Ev> {
-    pub fn view(&self, view: PcbView) {
-        self.context.spawn({
-            let context = self.context.clone();
-            async move {
-                run_view(&context, view).await;
-            }
-        });
-    }
-}
-
-async fn run_view<Ev: 'static>(context: &CapabilityContext<PcbViewRendererOperation, Ev>, view: PcbView) {
-    context
-        .notify_shell(PcbViewRendererOperation::View {
-            view,
-        })
-        .await
-}
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub enum PcbViewRendererOperation {

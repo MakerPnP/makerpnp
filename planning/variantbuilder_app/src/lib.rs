@@ -1,14 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::hash::Hash;
 use std::path::PathBuf;
 
 use anyhow::Error;
 pub use assembly::assembly_variant::AssemblyVariant;
 use assembly::AssemblyVariantProcessor;
-use crux_core::macros::Effect;
-use crux_core::render::Render;
 pub use crux_core::Core;
 use crux_core::{render, App, Command};
+use crux_core::macros::effect;
+use crux_core::render::RenderOperation;
 use csv::QuoteStyle;
 use eda::placement::{EdaPlacement, EdaPlacementField};
 use eda::substitution::{
@@ -49,10 +48,10 @@ pub struct OperationViewModel {
     pub error: Option<String>,
 }
 
-#[derive(Effect)]
-#[allow(unused)]
-pub struct Capabilities {
-    render: Render<Event>,
+#[effect]
+#[derive(Debug)]
+pub enum Effect {
+    Render(RenderOperation),
 }
 
 #[serde_as]
@@ -82,14 +81,12 @@ impl App for VariantBuilder {
     type Event = Event;
     type Model = Model;
     type ViewModel = OperationViewModel;
-    type Capabilities = Capabilities;
     type Effect = Effect;
 
     fn update(
         &self,
         event: Self::Event,
         model: &mut Self::Model,
-        _caps: &Self::Capabilities,
     ) -> Command<Self::Effect, Self::Event> {
         match event {
             Event::None => render::render(),
@@ -530,24 +527,21 @@ impl EdaPlacementTreeFormatter {
 
 #[cfg(test)]
 mod app_tests {
-    use crux_core::{assert_effect, testing::AppTester};
-
     use super::*;
 
     #[test]
     fn minimal() {
-        let hello = AppTester::<VariantBuilder>::default();
+        let app = VariantBuilder;
         let mut model = Model::default();
 
         // Call 'update' and request effects
-        let update = hello.update(Event::None, &mut model);
+        app.update(Event::None, &mut model)
+            .expect_only_render();
 
-        // Check update asked us to `Render`
-        assert_effect!(update, Effect::Render(_));
 
         // Make sure the view matches our expectations
-        let actual_view = &hello.view(&model);
+        let actual_view = app.view(&model);
         let expected_view = OperationViewModel::default();
-        assert_eq!(actual_view, &expected_view);
+        assert_eq!(actual_view, expected_view);
     }
 }
