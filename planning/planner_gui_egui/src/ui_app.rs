@@ -606,7 +606,7 @@ impl eframe::App for UiApp {
     #[profiling::function]
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        egui::Panel::top("top_panel").show_inside(ui, |ui| {
+        egui::Panel::top("top_panel").show(ui, |ui| {
             profiling::scope!("ui::top_panel");
             // The top panel is often a good place for a menu bar:
 
@@ -766,7 +766,7 @@ impl eframe::App for UiApp {
                         .inner_margin(0.)
                         .fill(Color32::TRANSPARENT),
                 )
-                .show_inside(ui, |ui| {
+                .show(ui, |ui| {
                     app_tabs.ui(ui, &mut tab_context);
                 });
         }

@@ -1159,7 +1159,7 @@ impl UiComponent for Project {
             key,
         } = context;
 
-        egui::Panel::top(ui.id().with("top_panel")).show_inside(ui, |ui| {
+        egui::Panel::top(ui.id().with("top_panel")).show(ui, |ui| {
             ui.label(tr!("project-detail-path", { path: self.path.display().to_string() }));
 
             let state = self.project_ui_state.lock().unwrap();

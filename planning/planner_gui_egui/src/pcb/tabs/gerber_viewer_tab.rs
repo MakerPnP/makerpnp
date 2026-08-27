@@ -210,7 +210,7 @@ impl UiComponent for GerberViewerTabUi {
 
     #[profiling::function]
     fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.gerber_viewer_ui
                 .ui(ui, &mut GerberViewerUiContext {});
 

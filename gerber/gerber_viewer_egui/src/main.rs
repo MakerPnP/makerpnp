@@ -82,7 +82,7 @@ impl eframe::App for GerberViewer {
             style.wrap_mode = Some(egui::TextWrapMode::Extend);
         });
 
-        egui::Panel::top("top_panel").show_inside(ui, |ui| {
+        egui::Panel::top("top_panel").show(ui, |ui| {
             self.render_menu_bar(ui);
 
             self.render_toolbar(&ctx, ui);
@@ -99,11 +99,11 @@ impl eframe::App for GerberViewer {
             .default_size(150.0)
             .min_size(80.0)
             .frame(panel_frame)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 self.bottom_panel_content(ui);
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             self.central_panel_content(ui);
         });
 

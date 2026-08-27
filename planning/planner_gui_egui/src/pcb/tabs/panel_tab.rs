@@ -1115,7 +1115,7 @@ impl UiComponent for PanelTabUi {
         egui::Panel::left(ui.id().with("left_panel"))
             .resizable(true)
             .default_size(300.0)
-            .show_inside(ui, |ui| {
+            .show(ui, |ui| {
                 // specifically NON-mutable state here
                 let state = &self.panel_tab_ui_state;
                 let sender = self.component.sender.clone();
@@ -1132,7 +1132,7 @@ impl UiComponent for PanelTabUi {
                 );
             });
 
-        egui::CentralPanel::default().show_inside(ui, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             // specifically NON-mutable state here
             let mut gerber_viewer_ui = self.gerber_viewer_ui.lock().unwrap();
 
