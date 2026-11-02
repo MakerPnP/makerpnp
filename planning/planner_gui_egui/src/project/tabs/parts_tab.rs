@@ -7,6 +7,7 @@ use egui_i18n::tr;
 use planner_app::{Part, ProcessReference};
 use tracing::trace;
 
+use crate::forms::NamedResponse;
 use crate::project::data::{ProjectData, Synced};
 use crate::project::tables::parts::{PartTableUi, PartTableUiAction, PartTableUiCommand, PartTableUiContext};
 use crate::project::tabs::ProjectTabContext;
@@ -140,7 +141,9 @@ impl UiComponent for PartsTabUi {
                                 .expect("sent");
                         }
                     }
-                });
+                })
+                .response
+                .named(tr!("form-common-choice-process"));
 
             let have_selection = self.selection.is_some();
             let have_process = self.selected_process.is_some();
@@ -167,7 +170,9 @@ impl UiComponent for PartsTabUi {
                                 .send(PartsTabUiCommand::PartsActionClicked(PartsAction::RemoveProcess))
                                 .expect("sent");
                         }
-                    });
+                    })
+                    .response
+                    .named(tr!("common-actions"));
             });
         });
 

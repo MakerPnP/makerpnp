@@ -1,8 +1,10 @@
 //! Tables that are resized using a handle.
 
+use std::fs;
 use std::path::Path;
 
 use crate::fixture::App;
+use crate::workflow;
 
 /// A header of 20, and two rows of 18, each followed by a spacing of 3.
 const HEADER_AND_TWO_ROWS: f32 = 20.0 + 3.0 + 2.0 * (18.0 + 3.0);
@@ -107,4 +109,53 @@ fn the_tables_of_a_project_have_resize_handles() {
 
     app.wait_for_resize_handle("Phases: Resize");
     app.wait_for_resize_handle("PCBs: Resize");
+}
+
+/// A project with the three parts in the placements file, and its parts tab showing.
+fn open_parts_table(app: &mut App) {
+    let folder = app.folder();
+    workflow::create_project_with_an_assigned_variant(app, &folder);
+    app.double_click_text("Parts");
+    app.wait_for_tab("Parts");
+    app.wait_for_text("CAP1");
+}
+
+/// `FORM-9`
+#[test]
+fn dragging_a_row_of_a_data_table_moves_the_row_and_not_the_columns() {
+    let mut app = App::start();
+    open_parts_table(&mut app);
+    assert!(app.text_position("CAP1").y < app.text_position("RES1").y);
+    let manufacturer_x = app.text_position("CAP_MFR1").x;
+    let mpn_x = app.text_position("CAP1").x;
+    assert!(manufacturer_x < mpn_x);
+
+    app.drag_row("CAP1", "RES1");
+
+    assert!(
+        app.text_position("CAP1").y > app.text_position("RES1").y,
+        "the row should have moved"
+    );
+    assert!(
+        app.text_position("CAP_MFR1").x < app.text_position("CAP1").x,
+        "the columns should not have moved"
+    );
+}
+
+/// `FORM-10`
+#[test]
+fn a_data_table_shows_each_row_once_after_a_row_was_moved_and_rows_were_removed() {
+    let mut app = App::start();
+    open_parts_table(&mut app);
+    app.drag_row("CAP1", "RES1");
+
+    let placements = app
+        .folder()
+        .join("design_a_variant_a_placements.csv");
+    fs::write(placements, workflow::PLACEMENTS_WITH_TWO_PARTS).unwrap();
+    app.click_button("Refresh");
+
+    app.wait_for_text_count("CAP1", 0);
+    assert_eq!(app.count_text("CONN1"), 1);
+    assert_eq!(app.count_text("RES1"), 1);
 }

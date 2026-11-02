@@ -22,6 +22,9 @@ const STEP: f32 = 0.05;
 const TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
+/// Put around the values inserted into text by the translation system.
+const ISOLATES: [char; 2] = ['\u{2068}', '\u{2069}'];
+
 /// Answers the file dialogs with prepared answers, in order, panicking if there are none left.
 #[derive(Debug, Default)]
 pub struct ScriptedFileDialogs {
@@ -250,6 +253,102 @@ impl App {
             .count()
     }
 
+    /// For text with parts that vary, such as a tree item.
+    pub fn wait_for_text_containing(&mut self, text: &str) {
+        self.wait_until(&format!("text containing '{text}' was shown"), |app| {
+            app.shown().iter().any(|shown| {
+                let shown = shown.replace(ISOLATES, "");
+
+                shown.starts_with("Label") && shown.contains(text)
+            })
+        });
+    }
+
+    /// Clicks the row number at the start of the row containing the text, which selects the row of a data table.
+    pub fn click_row_header_of(&mut self, text: &str) {
+        let position = self.row_header_position(text);
+
+        self.harness
+            .event(egui::Event::PointerMoved(position));
+        self.harness.step();
+        for pressed in [true, false] {
+            self.harness
+                .event(egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            self.harness.step();
+        }
+    }
+
+    /// The number at the start of the row containing the text.
+    fn row_header_position(&mut self, text: &str) -> egui::Pos2 {
+        self.wait_for_text(text);
+        self.wait_for_the_layout();
+        let row = self
+            .harness
+            .get_by_role_and_label(Role::Label, text)
+            .rect()
+            .center()
+            .y;
+        self.harness
+            .query_all(By::new().role(Role::Label))
+            .filter(|label| {
+                let node = label.accesskit_node();
+
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|text| !text.is_empty() && text.chars().all(|c| c.is_ascii_digit()))
+            })
+            .map(|label| label.rect().center())
+            .filter(|position| (position.y - row).abs() < 8.0)
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .expect("the row has a number")
+    }
+
+    /// Drags a row of a data table, by its number, to where another row is.
+    pub fn drag_row(&mut self, text: &str, to_row_containing: &str) {
+        let start = self.row_header_position(text);
+        let end = self.row_header_position(to_row_containing);
+
+        self.harness
+            .event(egui::Event::PointerMoved(start));
+        self.harness.step();
+        self.harness
+            .event(egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+        self.harness.step();
+        for step in 1..=5 {
+            self.harness
+                .event(egui::Event::PointerMoved(start + (end - start) * (step as f32 / 5.0)));
+            self.harness.step();
+        }
+        self.harness
+            .event(egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+        self.harness.step();
+        self.harness.step();
+        self.wait_for_the_layout();
+    }
+
+    /// Where some text is, which is unique.
+    pub fn text_position(&self, text: &str) -> egui::Pos2 {
+        self.harness
+            .get_by_role_and_label(Role::Label, text)
+            .rect()
+            .center()
+    }
+
     pub fn wait_for_text_count(&mut self, text: &str, count: usize) {
         self.wait_until(&format!("text '{text}' was shown {count} times"), |app| {
             app.count_text(text) == count
@@ -307,6 +406,21 @@ impl App {
             .bottom();
 
         bottom - top
+    }
+
+    /// Opens a combo box and clicks one of its options.
+    pub fn choose_from_combo_box(&mut self, label: &str, option: &str) {
+        self.wait_until(&format!("combo box '{label}' was enabled"), |app| {
+            app.harness
+                .query_by_role_and_label(Role::ComboBox, label)
+                .is_some_and(|combo_box| !combo_box.accesskit_node().is_disabled())
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::ComboBox, label)
+            .click();
+        self.harness.step();
+        self.click_button(option);
     }
 
     /// The temporary folder for this application's files.

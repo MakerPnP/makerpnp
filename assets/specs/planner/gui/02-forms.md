@@ -47,12 +47,22 @@ table with no rows, so that it is obvious that a table is being displayed. A tab
 Gaps: when a form or tab has less space than this, tables using `egui_deferred_table` (Parts, Placements and a phase's
 load-out) don't keep their minimum size, due to a limitation noted in that library.
 
+**FORM-9 — Moving rows and columns.** *Observed.* In the Parts, Placements and load-out tables, dragging a row's number onto
+another row MUST move the row, and dragging a column's header onto another column MUST move the column. This was a bug until
+2026-11-02: dragging a row moved columns instead.
+
+**FORM-10 — A moved row's position.** *Observed.* A moved row's position is kept while the number of rows stays the same.
+If the number of rows changes, rows MUST return to their original order, so that the table shows each row once.
+
 ## Acceptance criteria
 
 - `tests/ui/tables.rs` checks a click on unit 4 of the Unit mapping table does nothing, drags the table's handle, and
   checks the same click now selects the unit (`FORM-7`). The UI tests run at 1920x1080.
 - `tests/ui/tables.rs` drags a table's handle far upwards, and checks its second row can still be clicked (`FORM-8`). Not covered
   yet: the tables that have no handle, and the other tables with handles, which share the same code.
+- `tests/ui/tables.rs` drags a row of the Parts table, and checks the row moved and the columns didn't (`FORM-9`). It then removes
+  a part, and checks each row is shown once (`FORM-10`). Not covered yet: the Placements and load-out tables, which have the
+  same code, and moving columns.
 - `tests/ui/tables.rs` checks the handles exist on a PCB's two tabs and on a project's Overview tab (`FORM-6`). Not covered
   yet: dragging any other handle, and the Unit assignments tab.
 - Each of the fields can be set by answering its dialog (`FORM-2`). `tests/ui/workflow.rs` covers New project, New PCB

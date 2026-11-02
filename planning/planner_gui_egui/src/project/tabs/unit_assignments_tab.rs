@@ -19,7 +19,7 @@ use util::range_utils::RangeIntoUsize;
 use validator::{Validate, ValidationError};
 
 use crate::forms::transforms::resize_x_transform;
-use crate::forms::{Form, NamedResize, TABLE_TWO_ROWS_HEIGHT, TuiTextButton};
+use crate::forms::{Form, NamedResize, NamedResponse, TABLE_TWO_ROWS_HEIGHT, TuiTextButton};
 use crate::project::data::{ProjectData, Synced};
 use crate::project::tabs::ProjectTabContext;
 use crate::sync::Value;
@@ -268,7 +268,7 @@ impl UnitAssignmentsTabUi {
                                 ..container_style()
                             })
                             .add(|tui| {
-                                tui.style(Style {
+                                let design_name_label = tui.style(Style {
                                     flex_grow: 0.0,
                                     ..default_style()
                                 })
@@ -312,9 +312,10 @@ impl UnitAssignmentsTabUi {
                                             }
                                         })
                                         .response
+                                        .labelled_by(design_name_label.id)
                                 });
 
-                                tui.style(Style {
+                                let variant_name_label = tui.style(Style {
                                     flex_grow: 0.0,
                                     ..default_style()
                                 })
@@ -336,7 +337,8 @@ impl UnitAssignmentsTabUi {
                                     let response = TextEdit::singleline(&mut variant_name_clone)
                                         .hint_text(tr!("form-create-unit-assignment-input-variant-name-placeholder"))
                                         .desired_width(ui.available_width())
-                                        .ui(ui);
+                                        .ui(ui)
+                                        .labelled_by(variant_name_label.id);
 
                                     if !fields
                                         .variant_name
@@ -542,7 +544,12 @@ impl UnitAssignmentsTabUi {
                                             })
                                                 .ui_add(
                                                     egui::DragValue::new(&mut pcb_unit_start).range(1..=pcb_unit_end)
-                                                );
+                                                )
+                                                .named(format!(
+                                                    "{}: {}",
+                                                    tr!("form-create-unit-assignment-input-pcb-unit-range"),
+                                                    tr!("form-common-input-start")
+                                                ));
 
                                             tui.style(Style {
                                                 flex_grow: 0.0,
@@ -555,7 +562,12 @@ impl UnitAssignmentsTabUi {
                                                 .ui_add(
                                                     egui::DragValue::new(&mut pcb_unit_end)
                                                         .range(pcb_unit_start..=pcb_overview.units)
-                                                );
+                                                )
+                                                .named(format!(
+                                                    "{}: {}",
+                                                    tr!("form-create-unit-assignment-input-pcb-unit-range"),
+                                                    tr!("form-common-input-end")
+                                                ));
                                         });
 
                                     let pcb_unit_range = RangeInclusive::new(pcb_unit_start, pcb_unit_end);

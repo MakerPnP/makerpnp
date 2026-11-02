@@ -5,13 +5,16 @@
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
+use std::str::FromStr;
 
+use indoc::indoc;
 use nalgebra::Vector2;
 use planner_app::{
-    DesignName, DesignSizing, Dimensions, Event, FileReference, PackageMappingsSource, PackagesSource, PcbUnitNumber,
-    PcbUnitPositioning,
+    AddOrRemoveAction, DesignName, DesignSizing, Dimensions, Event, FileReference, ObjectPath, PackageMappingsSource,
+    PackagesSource, PcbUnitNumber, PcbUnitPositioning, ProcessReference, VariantName,
 };
 use planner_gui_egui::planner_app_core::PlannerCoreService;
+use regex::Regex;
 use rust_decimal::Decimal;
 
 use crate::fixture::App;
@@ -273,38 +276,7 @@ fn a_pcb_with_panel_sizing_saves_the_same_file_as_the_cli() {
     // what the CLI's `sequence_03_configure_panel_sizing` does.
     let mut core = PlannerCoreService::new();
     create_pcb_with_the_core(&mut core, &pcb);
-    let design_sizing = |size: (f64, f64), origin: (f64, f64)| DesignSizing {
-        size: Vector2::new(size.0, size.1),
-        origin: Vector2::new(origin.0, origin.1),
-        gerber_offset: Vector2::new(-20.0, -20.0),
-        placement_offset: Vector2::new(-10.0, -10.0),
-    };
-    update(&mut core, Event::ApplyPartialPanelSizing {
-        path: pcb.clone(),
-        edge_rails: Some(Dimensions {
-            left: 10.0,
-            right: 10.0,
-            top: 5.0,
-            bottom: 5.0,
-        }),
-        size: Some(Vector2::new(122.0, 112.0)),
-        fiducials: None,
-        design_sizings: Some(HashMap::from([
-            (DesignName::from("design_a"), design_sizing((60.0, 50.0), (30.0, 25.0))),
-            (DesignName::from("design_b"), design_sizing((40.0, 50.0), (20.0, 25.0))),
-        ])),
-        pcb_unit_positionings: Some(HashMap::from(
-            [(1, 10.0, 5.0), (2, 72.0, 5.0), (3, 10.0, 57.0), (4, 72.0, 57.0)].map(|(unit, x, y)| {
-                (PcbUnitNumber::try_from(unit).unwrap(), PcbUnitPositioning {
-                    offset: Vector2::new(x, y),
-                    rotation: Decimal::ZERO,
-                })
-            }),
-        )),
-    });
-    update(&mut core, Event::SavePcb {
-        path: pcb.clone(),
-    });
+    apply_panel_sizing_with_the_core(&mut core, &pcb);
 
     assert_eq!(saved, fs::read_to_string(&pcb).unwrap());
 }
@@ -455,4 +427,245 @@ fn assign_selected_only_changes_the_units_that_are_shown() {
     assert_eq!(app.count_text("design_a"), 1);
     app.click_button("Assign selected");
     app.wait_for_text_count("design_a", 2);
+}
+
+const DESIGN_A_VARIANT_A_PLACEMENTS: &str = indoc! {r#"
+    "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+    "R3","RES_MFR1","RES1","true","Top","10","15","90"
+    "C1","CAP_MFR1","CAP1","true","Bottom","40","45","180"
+    "J1","CONN_MFR1","CONN1","true","Bottom","30","35","-90"
+    "R1","RES_MFR1","RES1","true","Top","20","25","0"
+"#};
+
+/// What the CLI's `sequence_03_configure_panel_sizing` does.
+fn apply_panel_sizing_with_the_core(core: &mut PlannerCoreService, pcb: &Path) {
+    let design_sizing = |size: (f64, f64), origin: (f64, f64)| DesignSizing {
+        size: Vector2::new(size.0, size.1),
+        origin: Vector2::new(origin.0, origin.1),
+        gerber_offset: Vector2::new(-20.0, -20.0),
+        placement_offset: Vector2::new(-10.0, -10.0),
+    };
+    update(core, Event::ApplyPartialPanelSizing {
+        path: pcb.to_path_buf(),
+        edge_rails: Some(Dimensions {
+            left: 10.0,
+            right: 10.0,
+            top: 5.0,
+            bottom: 5.0,
+        }),
+        size: Some(Vector2::new(122.0, 112.0)),
+        fiducials: None,
+        design_sizings: Some(HashMap::from([
+            (DesignName::from("design_a"), design_sizing((60.0, 50.0), (30.0, 25.0))),
+            (DesignName::from("design_b"), design_sizing((40.0, 50.0), (20.0, 25.0))),
+        ])),
+        pcb_unit_positionings: Some(HashMap::from(
+            [(1, 10.0, 5.0), (2, 72.0, 5.0), (3, 10.0, 57.0), (4, 72.0, 57.0)].map(|(unit, x, y)| {
+                (PcbUnitNumber::try_from(unit).unwrap(), PcbUnitPositioning {
+                    offset: Vector2::new(x, y),
+                    rotation: Decimal::ZERO,
+                })
+            }),
+        )),
+    });
+    update(core, Event::SavePcb {
+        path: pcb.to_path_buf(),
+    });
+}
+
+/// The PCB, and the placements, as they are by the CLI's `sequence_05_assign_variant_to_unit`.
+fn given_a_panel_and_its_placements(folder: &Path) {
+    let pcb = folder.join("panel_a.pcb.json");
+    let mut core = PlannerCoreService::new();
+    create_pcb_with_the_core(&mut core, &pcb);
+    apply_panel_sizing_with_the_core(&mut core, &pcb);
+    fs::write(
+        folder.join("design_a_variant_a_placements.csv"),
+        DESIGN_A_VARIANT_A_PLACEMENTS,
+    )
+    .unwrap();
+}
+
+/// `UNITASG-1`, `UNITASG-2`, `UNITASG-3`, `UNITASG-4`
+#[test]
+fn assigning_a_variant_to_a_unit_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    given_a_panel_and_its_placements(&folder);
+
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+    app.when_a_file_dialog_opens_answer(Some(folder.join("panel_a.pcb.json")));
+    app.click_button("Add PCB");
+    app.wait_for_enabled_button("Save");
+
+    app.double_click_text("panel_a");
+    app.click_button("Create unit assignment");
+
+    app.choose_from_combo_box("Design name", "design_a");
+    app.type_into("Variant name", "variant_a");
+    app.wait_for_enabled_button("Add");
+    app.click_button("Add");
+    app.click_text("variant_a");
+    app.wait_for_enabled_button("Apply range");
+    app.set_number("PCB units: End", 1.0);
+    app.click_button("Apply range");
+    // the explorer shows the assignment once the core has made it.
+    app.wait_for_text_containing("design_a = variant_a");
+
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_04_add_pcb` and `sequence_05_assign_variant_to_unit` do.
+    let mut core = PlannerCoreService::new();
+    update(&mut core, Event::CreateProject {
+        name: "job1".to_string(),
+        path: project.clone(),
+        packages: None,
+        package_mappings: None,
+    });
+    update(&mut core, Event::AddPcb {
+        pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
+    });
+    update(&mut core, Event::AssignVariantToUnit {
+        unit: ObjectPath::from_str("pcb=1::unit=1").unwrap(),
+        variant: Some(VariantName::from_str("variant_a").unwrap()),
+    });
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+pub const PLACEMENTS_WITH_TWO_PARTS: &str = indoc! {r#"
+    "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+    "R1","RES_MFR1","RES1","true","Top","20","25","0"
+    "J1","CONN_MFR1","CONN1","true","Bottom","30","35","-90"
+"#};
+
+const DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS: &str = indoc! {r#"
+    "RefDes","Manufacturer","Mpn","Place","PcbSide","X","Y","Rotation"
+    "R3","RES_MFR1","RES1","true","Top","40","40","135"
+    "R2","RES_MFR2","RES2","true","Top","30","30","45"
+    "J1","CONN_MFR1","CONN1","true","Bottom","10","10","0"
+    "R1","RES_MFR1","RES1","true","Top","20","20","-45"
+"#};
+
+/// Up to the end of the CLI's `sequence_05_assign_variant_to_unit`, saved.
+pub fn create_project_with_an_assigned_variant(app: &mut App, folder: &Path) {
+    given_a_panel_and_its_placements(folder);
+
+    create_project(app, folder);
+    app.wait_for_tab("Overview");
+    app.when_a_file_dialog_opens_answer(Some(folder.join("panel_a.pcb.json")));
+    app.click_button("Add PCB");
+    app.wait_for_enabled_button("Save");
+
+    app.double_click_text("panel_a");
+    app.click_button("Create unit assignment");
+
+    app.choose_from_combo_box("Design name", "design_a");
+    app.type_into("Variant name", "variant_a");
+    app.wait_for_enabled_button("Add");
+    app.click_button("Add");
+    app.click_text("variant_a");
+    app.wait_for_enabled_button("Apply range");
+    app.set_number("PCB units: End", 1.0);
+    app.click_button("Apply range");
+    app.wait_for_text_containing("design_a = variant_a");
+
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_an_assigned_variant_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    fs::write(
+        folder.join("design_a_variant_a_placements.csv"),
+        DESIGN_A_VARIANT_A_PLACEMENTS,
+    )
+    .unwrap();
+    update(core, Event::CreateProject {
+        name: "job1".to_string(),
+        path: folder.join("project-job1.mpnp.json"),
+        packages: None,
+        package_mappings: None,
+    });
+    update(core, Event::AddPcb {
+        pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
+    });
+    update(core, Event::AssignVariantToUnit {
+        unit: ObjectPath::from_str("pcb=1::unit=1").unwrap(),
+        variant: Some(VariantName::from_str("variant_a").unwrap()),
+    });
+}
+
+/// `PLACEREF-1`
+#[test]
+fn refreshing_from_changed_placements_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    let placements = folder.join("design_a_variant_a_placements.csv");
+
+    create_project_with_an_assigned_variant(&mut app, &folder);
+    fs::write(&placements, DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS).unwrap();
+
+    // the Issues tab has a "Refresh" button of its own.
+    app.click_tab("Overview");
+    app.click_button("Refresh");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_06_refresh_from_design_variants` does.
+    let mut core = PlannerCoreService::new();
+    project_with_an_assigned_variant_using_the_core(&mut core, &folder);
+    fs::write(&placements, DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS).unwrap();
+    update(&mut core, Event::RefreshFromDesignVariants);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `PARTS-1`, `PARTS-2`
+#[test]
+fn assigning_a_process_to_a_part_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    let placements = folder.join("design_a_variant_a_placements.csv");
+
+    create_project_with_an_assigned_variant(&mut app, &folder);
+    fs::write(&placements, DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS).unwrap();
+    app.click_tab("Overview");
+    app.click_button("Refresh");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    app.double_click_text("Parts");
+    app.wait_for_tab("Parts");
+    app.choose_from_combo_box("Process", "manual");
+    app.click_row_header_of("CONN1");
+    app.choose_from_combo_box("Actions", "Add");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_07_assign_process_to_parts` does.
+    let mut core = PlannerCoreService::new();
+    project_with_an_assigned_variant_using_the_core(&mut core, &folder);
+    fs::write(&placements, DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS).unwrap();
+    update(&mut core, Event::RefreshFromDesignVariants);
+    update(&mut core, Event::AssignProcessToParts {
+        process: ProcessReference::from_raw_str("manual"),
+        operation: AddOrRemoveAction::Add,
+        manufacturer: Regex::new("CONN_MFR.*").unwrap(),
+        mpn: Regex::new(".*").unwrap(),
+    });
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
 }

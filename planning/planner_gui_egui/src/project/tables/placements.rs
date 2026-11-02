@@ -437,9 +437,17 @@ impl PlacementsTableUi {
     }
 
     pub fn update_placements(&mut self, placements: Vec<PlacementsItem>, phases: Vec<PhaseOverview>) {
-        let (source, _renderer, editor, _editor_state) = &mut *self.source.lock().unwrap();
+        let (source, renderer, editor, _editor_state) = &mut *self.source.lock().unwrap();
+
+        let previous_row_count = source.rows.len();
 
         source.update_placements(placements);
+
+        // an ordering is only meaningful for the rows it was made for, if there are now fewer then the table would show
+        // some rows twice and not show others.
+        if source.rows.len() != previous_row_count {
+            renderer.row_ordering = None;
+        }
         editor.update_phases(phases);
     }
 
@@ -573,7 +581,7 @@ impl UiComponent for PlacementsTableUi {
                     from,
                     to,
                 } => {
-                    apply_reordering(&mut renderer.column_ordering, from, to);
+                    apply_reordering(&mut renderer.row_ordering, from, to);
                 }
                 Action::RowSelectionChanged {
                     selection,

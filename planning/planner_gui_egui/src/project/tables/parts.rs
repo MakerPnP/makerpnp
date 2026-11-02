@@ -289,9 +289,17 @@ impl PartTableUi {
     }
 
     pub fn update_parts(&mut self, part_states: PartStates) {
-        let (source, _renderer, _editor, _editor_state) = &mut *self.source.lock().unwrap();
+        let (source, renderer, _editor, _editor_state) = &mut *self.source.lock().unwrap();
+
+        let previous_row_count = source.rows.len();
 
         source.update_parts(part_states);
+
+        // an ordering is only meaningful for the rows it was made for, if there are now fewer then the table would show
+        // some rows twice and not show others.
+        if source.rows.len() != previous_row_count {
+            renderer.row_ordering = None;
+        }
     }
 
     pub fn filter_ui(&self, ui: &mut Ui) {
@@ -373,7 +381,7 @@ impl UiComponent for PartTableUi {
                     from,
                     to,
                 } => {
-                    apply_reordering(&mut renderer.column_ordering, from, to);
+                    apply_reordering(&mut renderer.row_ordering, from, to);
                 }
                 Action::RowSelectionChanged {
                     selection,

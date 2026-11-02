@@ -24,6 +24,8 @@ A front end's requirements cite the core requirements they depend on, and do not
 | [gui/03-pcb-configuration.md](gui/03-pcb-configuration.md) | A PCB's designs and which units use them | `PCBCFG` |
 | [gui/04-panelization.md](gui/04-panelization.md) | A panel's sizes and unit positions | `PANEL` |
 | [gui/05-project-pcbs.md](gui/05-project-pcbs.md) | Adding PCBs to a project | `PROJPCB` |
+| [gui/06-unit-assignments.md](gui/06-unit-assignments.md) | Assigning variants to units, and refreshing from placements files | `UNITASG`, `PLACEREF` |
+| [gui/07-parts.md](gui/07-parts.md) | Assigning processes to parts | `PARTS` |
 | [known-issues.md](known-issues.md) | Problems known and not yet fixed | `ISSUE` |
 
 ## Conventions
@@ -73,3 +75,5 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-02 | "`Assign selected`" and "`Unassign selected`" no longer change units hidden by reducing "`Units`" (`PCBCFG-6`). |
 | 2026-11-02 | Tables that may not fit their rows have named resize handles (`FORM-6`), and dragging one makes its rows reachable (`FORM-7`). UI tests now run at 1920x1080. |
 | 2026-11-02 | Tables are not sized to their rows (`FORM-7`). Every table is at least tall enough for its header and two rows (`FORM-8`). |
+| 2026-11-02 | Added unit assignments, refreshing from placements files (`UNITASG`, `PLACEREF`) and parts (`PARTS`), drafted from the code and awaiting review. |
+| 2026-11-02 | Dragging a row of the Parts, Placements or load-out table now moves the row, not the columns (`FORM-9`, `ISSUE-4`). Rows return to their original order if the number of rows changes (`FORM-10`). |

@@ -266,9 +266,17 @@ impl LoadOutTableUi {
     }
 
     pub fn update_loadout(&mut self, load_out: LoadOut) {
-        let (source, _renderer, _editor, _editor_state) = &mut *self.table_state.lock().unwrap();
+        let (source, renderer, _editor, _editor_state) = &mut *self.table_state.lock().unwrap();
+
+        let previous_row_count = source.rows.len();
 
         source.update_loadout(load_out);
+
+        // an ordering is only meaningful for the rows it was made for, if there are now fewer then the table would show
+        // some rows twice and not show others.
+        if source.rows.len() != previous_row_count {
+            renderer.row_ordering = None;
+        }
     }
 
     pub fn filter_ui(&self, ui: &mut Ui) {
@@ -342,7 +350,7 @@ impl UiComponent for LoadOutTableUi {
                     from,
                     to,
                 } => {
-                    apply_reordering(&mut renderer.column_ordering, from, to);
+                    apply_reordering(&mut renderer.row_ordering, from, to);
                 }
                 Action::RowSelectionChanged {
                     ..
