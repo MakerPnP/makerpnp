@@ -65,10 +65,11 @@ If the number of rows changes, rows MUST return to their original order, so that
   same code, and moving columns.
 - `tests/ui/tables.rs` checks the handles exist on a PCB's two tabs and on a project's Overview tab (`FORM-6`). Not covered
   yet: dragging any other handle, and the Unit assignments tab.
-- Each of the fields can be set by answering its dialog (`FORM-2`). `tests/ui/workflow.rs` covers New project, New PCB
-  and Package sources. Add phase is not covered yet.
-- Clearing a required field stops the form being submitted (`FORM-3`), covered for New project.
-- A test that cancels one of these dialogs (`FORM-2`), not covered yet.
+- Each of the fields can be set by answering its dialog (`FORM-2`). `tests/ui/workflow.rs` covers New project, New PCB,
+  Package sources and Add phase.
+- Clearing a required field stops the form being submitted (`FORM-3`), covered for New project and Add phase.
+- Cancelling one of these dialogs leaves the field as it was (`FORM-2`), covered for Add phase. The other fields share the
+  same `Picker`, but each handles its answer itself, and they have not been checked.
 - `FORM-1` is about appearance, so no test checks it.
 - Reducing and then increasing a value keeps what was entered (`FORM-5`), covered for a PCB's units (`PCBCFG-5`). Other
   fields, rows and elements created on the fly have not been checked yet.

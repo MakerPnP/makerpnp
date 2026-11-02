@@ -113,7 +113,9 @@ no label of their own need a name (`forms/mod.rs`, `NamedResponse`), and the fid
 none yet. Combo boxes with no label show their current value as their name, which changes as they are used, so they need
 one too, as on the Parts tab. Text in table rows is often not unique, for example a row's number, so a test
 can only click a row by text that appears nowhere else. `"Refresh"` appears twice when a project is open, so tests will
-need to search within one tab. How the gerber viewer's canvas appears there has not been checked.
+need to search within one tab. A dialog doesn't hide what's behind it from the accessibility tree, so "`Process`" in the Add
+phase dialog is ambiguous while the Parts tab is showing, and tests select another tab first. How the gerber viewer's canvas
+appears there has not been checked.
 
 ## Acceptance criteria
 

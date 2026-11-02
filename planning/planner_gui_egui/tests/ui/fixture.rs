@@ -177,6 +177,12 @@ impl App {
             })
     }
 
+    pub fn wait_until_button_is_gone(&mut self, label: &str) {
+        self.wait_until(&format!("button '{label}' was gone"), |app| {
+            !app.is_shown(Role::Button, label)
+        });
+    }
+
     pub fn wait_for_enabled_button(&mut self, label: &str) {
         self.wait_until(&format!("button '{label}' was enabled"), |app| {
             app.harness
@@ -421,6 +427,19 @@ impl App {
             .click();
         self.harness.step();
         self.click_button(option);
+    }
+
+    pub fn wait_for_combo_box_value(&mut self, label: &str, value: &str) {
+        self.wait_until(&format!("combo box '{label}' showed '{value}'"), |app| {
+            app.harness
+                .query_by_role_and_label(Role::ComboBox, label)
+                .is_some_and(|combo_box| {
+                    combo_box
+                        .accesskit_node()
+                        .value()
+                        .is_some_and(|shown| shown == value)
+                })
+        });
     }
 
     /// The temporary folder for this application's files.

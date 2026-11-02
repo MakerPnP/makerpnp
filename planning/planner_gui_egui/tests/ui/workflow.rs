@@ -4,14 +4,15 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use indoc::indoc;
 use nalgebra::Vector2;
 use planner_app::{
-    AddOrRemoveAction, DesignName, DesignSizing, Dimensions, Event, FileReference, ObjectPath, PackageMappingsSource,
-    PackagesSource, PcbUnitNumber, PcbUnitPositioning, ProcessReference, VariantName,
+    AddOrRemoveAction, DesignName, DesignSizing, Dimensions, Event, FileReference, LoadOutSource, ObjectPath,
+    PackageMappingsSource, PackagesSource, PcbSide, PcbUnitNumber, PcbUnitPositioning, ProcessReference, Reference,
+    VariantName,
 };
 use planner_gui_egui::planner_app_core::PlannerCoreService;
 use regex::Regex;
@@ -629,20 +630,18 @@ fn refreshing_from_changed_placements_saves_the_same_file_as_the_cli() {
     assert_eq!(saved, fs::read_to_string(&project).unwrap());
 }
 
-/// `PARTS-1`, `PARTS-2`
-#[test]
-fn assigning_a_process_to_a_part_saves_the_same_file_as_the_cli() {
-    let mut app = App::start();
-    let folder = app.folder();
-    let project = folder.join("project-job1.mpnp.json");
-    let placements = folder.join("design_a_variant_a_placements.csv");
-
-    create_project_with_an_assigned_variant(&mut app, &folder);
-    fs::write(&placements, DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS).unwrap();
+/// Up to the end of the CLI's `sequence_07_assign_process_to_parts`, saved.
+fn create_project_with_a_part_assigned_to_a_process(app: &mut App, folder: &Path) {
+    create_project_with_an_assigned_variant(app, folder);
+    fs::write(
+        folder.join("design_a_variant_a_placements.csv"),
+        DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS,
+    )
+    .unwrap();
     app.click_tab("Overview");
     app.click_button("Refresh");
     app.wait_for_enabled_button("Save");
-    save(&mut app);
+    save(app);
 
     app.double_click_text("Parts");
     app.wait_for_tab("Parts");
@@ -650,22 +649,185 @@ fn assigning_a_process_to_a_part_saves_the_same_file_as_the_cli() {
     app.click_row_header_of("CONN1");
     app.choose_from_combo_box("Actions", "Add");
     app.wait_for_enabled_button("Save");
-    save(&mut app);
+    save(app);
+}
 
-    let saved = fs::read_to_string(&project).unwrap();
-
-    // what the CLI's `sequence_07_assign_process_to_parts` does.
-    let mut core = PlannerCoreService::new();
-    project_with_an_assigned_variant_using_the_core(&mut core, &folder);
-    fs::write(&placements, DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS).unwrap();
-    update(&mut core, Event::RefreshFromDesignVariants);
-    update(&mut core, Event::AssignProcessToParts {
+/// The same, using the core.
+fn project_with_a_part_assigned_to_a_process_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_an_assigned_variant_using_the_core(core, folder);
+    fs::write(
+        folder.join("design_a_variant_a_placements.csv"),
+        DESIGN_A_VARIANT_A_CHANGED_PLACEMENTS,
+    )
+    .unwrap();
+    update(core, Event::RefreshFromDesignVariants);
+    update(core, Event::AssignProcessToParts {
         process: ProcessReference::from_raw_str("manual"),
         operation: AddOrRemoveAction::Add,
         manufacturer: Regex::new("CONN_MFR.*").unwrap(),
         mpn: Regex::new(".*").unwrap(),
     });
+}
+
+/// `PARTS-1`, `PARTS-2`
+#[test]
+fn assigning_a_process_to_a_part_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project_with_a_part_assigned_to_a_process(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_07_assign_process_to_parts` does.
+    let mut core = PlannerCoreService::new();
+    project_with_a_part_assigned_to_a_process_using_the_core(&mut core, &folder);
     update(&mut core, Event::Save);
 
     assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// A file dialog can only choose a file that exists (`PHASE-3`), which the CLI's `create-phase` doesn't need.
+fn given_a_load_out(folder: &Path, name: &str) -> PathBuf {
+    let load_out = folder.join(name);
+    fs::write(&load_out, "").unwrap();
+    load_out
+}
+
+fn add_phase(app: &mut App, reference: &str, process: &str, pcb_side: &str, load_out: &Path) {
+    // the Parts tab has a "Process" combo box of its own, which is still drawn behind the dialog.
+    app.click_tab("Overview");
+    app.click_button("Add phase");
+    app.type_into("Phase reference", reference);
+    app.choose_from_combo_box("PCB Side", pcb_side);
+    app.choose_from_combo_box("Process", process);
+    app.when_a_file_dialog_opens_answer(Some(load_out.to_path_buf()));
+    app.click_button("Loadout source: Choose");
+    app.wait_for_enabled_button("Ok");
+    app.click_button("Ok");
+    app.wait_for_enabled_button("Save");
+}
+
+/// `PHASE-1`, `PHASE-2`, `FORM-2`
+#[test]
+fn creating_a_phase_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    let load_out = given_a_load_out(&folder, "phase_1_top_1_load_out.csv");
+
+    create_project_with_a_part_assigned_to_a_process(&mut app, &folder);
+    add_phase(&mut app, "top_1", "pnp", "Top", &load_out);
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_08_create_phase_top` does.
+    let mut core = PlannerCoreService::new();
+    project_with_a_part_assigned_to_a_process_using_the_core(&mut core, &folder);
+    update(&mut core, Event::CreatePhase {
+        process: ProcessReference::from_raw_str("pnp"),
+        reference: Reference::from_raw_str("top_1"),
+        load_out: LoadOutSource::from_absolute_path(load_out).unwrap(),
+        pcb_side: PcbSide::Top,
+    });
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `PHASE-1`, `PHASE-2`
+#[test]
+fn creating_a_second_phase_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    let top_load_out = given_a_load_out(&folder, "phase_1_top_1_load_out.csv");
+    let bottom_load_out = given_a_load_out(&folder, "phase_2_bottom_1_load_out.csv");
+
+    create_project_with_a_part_assigned_to_a_process(&mut app, &folder);
+    add_phase(&mut app, "top_1", "pnp", "Top", &top_load_out);
+    save(&mut app);
+    add_phase(&mut app, "bottom_1", "manual", "Bottom", &bottom_load_out);
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_08_create_phase_top` and `sequence_09_create_phase_bottom` do.
+    let mut core = PlannerCoreService::new();
+    project_with_a_part_assigned_to_a_process_using_the_core(&mut core, &folder);
+    update(&mut core, Event::CreatePhase {
+        process: ProcessReference::from_raw_str("pnp"),
+        reference: Reference::from_raw_str("top_1"),
+        load_out: LoadOutSource::from_absolute_path(top_load_out).unwrap(),
+        pcb_side: PcbSide::Top,
+    });
+    update(&mut core, Event::CreatePhase {
+        process: ProcessReference::from_raw_str("manual"),
+        reference: Reference::from_raw_str("bottom_1"),
+        load_out: LoadOutSource::from_absolute_path(bottom_load_out).unwrap(),
+        pcb_side: PcbSide::Bottom,
+    });
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `PHASE-1`, `FORM-2`, `FORM-3`
+#[test]
+fn the_load_out_of_the_add_phase_dialog_is_required_and_can_be_cancelled_or_cleared() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let load_out = given_a_load_out(&folder, "load_out.csv");
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+
+    app.click_button("Add phase");
+    app.type_into("Phase reference", "top_1");
+    app.choose_from_combo_box("PCB Side", "Top");
+    app.choose_from_combo_box("Process", "pnp");
+    app.wait_until_field_is_empty("Loadout source");
+
+    app.when_a_file_dialog_opens_answer(Some(load_out));
+    app.click_button("Loadout source: Choose");
+    app.wait_until_field_is_not_empty("Loadout source");
+    app.wait_for_enabled_button("Ok");
+
+    // cancelling the file dialog leaves the field as it was.
+    app.when_a_file_dialog_opens_answer(None);
+    app.click_button("Loadout source: Choose");
+    app.wait_for_file_dialogs();
+    // a later change is handled after any change caused by the file dialog's answer.
+    app.choose_from_combo_box("PCB Side", "Bottom");
+    app.wait_for_combo_box_value("PCB Side", "Bottom");
+    app.wait_until_field_is_not_empty("Loadout source");
+    app.wait_for_enabled_button("Ok");
+
+    app.click_button("Loadout source: Clear");
+    app.wait_until_field_is_empty("Loadout source");
+    app.wait_until_button_is_disabled("Ok");
+}
+
+/// `PHASE-2`
+#[test]
+fn cancelling_the_add_phase_dialog_does_not_change_the_project() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let load_out = given_a_load_out(&folder, "load_out.csv");
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+
+    app.click_button("Add phase");
+    app.type_into("Phase reference", "top_1");
+    app.choose_from_combo_box("PCB Side", "Top");
+    app.choose_from_combo_box("Process", "pnp");
+    app.when_a_file_dialog_opens_answer(Some(load_out));
+    app.click_button("Loadout source: Choose");
+    app.wait_for_enabled_button("Ok");
+    app.click_button("Cancel");
+
+    app.wait_until_button_is_gone("Cancel");
+    app.wait_until_button_is_disabled("Save");
+    assert_eq!(app.count_text("top_1"), 0);
 }
