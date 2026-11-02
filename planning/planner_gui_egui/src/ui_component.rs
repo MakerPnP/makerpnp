@@ -1,8 +1,9 @@
 use std::fmt::{Debug, Formatter};
 
-use egui_mobius::slot::Slot;
-use egui_mobius::types::Enqueue;
 use tracing::trace;
+
+use crate::sync::Enqueue;
+use crate::sync::Slot;
 
 pub struct ComponentState<UiCommand> {
     pub sender: Enqueue<UiCommand>,
@@ -19,10 +20,10 @@ impl<UiCommand> Debug for ComponentState<UiCommand> {
 
 impl<UiCommand: Send + Clone + 'static> Default for ComponentState<UiCommand> {
     fn default() -> Self {
-        let (signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
+        let (sender, slot) = crate::sync::channel::<UiCommand>();
 
         Self {
-            sender: signal.sender.clone(),
+            sender,
             slot,
         }
     }

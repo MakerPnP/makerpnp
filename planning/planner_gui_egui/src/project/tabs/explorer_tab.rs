@@ -10,7 +10,6 @@ use egui_i18n::{tr, translate_fluent};
 use egui_ltreeview::{
     Action, Activate, DirPosition, DragAndDrop, NodeBuilder, TreeView, TreeViewBuilder, TreeViewState,
 };
-use egui_mobius::types::Value;
 use i18n::fluent_argument_helpers::args::build_fluent_args;
 use petgraph::Graph;
 use petgraph::graph::NodeIndex;
@@ -23,6 +22,7 @@ use crate::i18n::conversions::pcb_side_to_i18n_key;
 use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
 use crate::project::{project_path_from_view_path, view_path_from_project_path};
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_util::NavigationPath;

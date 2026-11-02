@@ -11,7 +11,6 @@ use eda_units::eda_units::unit_system::UnitSystem;
 use eframe::emath::{Align2, Rect, Vec2};
 use eframe::epaint::{Color32, FontId};
 use egui::{Pos2, Stroke, Ui};
-use egui_mobius::Value;
 use gerber_viewer::gerber_parser::{GerberDoc, ParseError, parse};
 use gerber_viewer::gerber_types::Command;
 use gerber_viewer::{
@@ -28,6 +27,7 @@ use planner_app::{
 use thiserror::Error;
 use tracing::{debug, error, info, trace};
 
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
 pub type LayersMap =

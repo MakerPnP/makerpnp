@@ -11,7 +11,6 @@ use egui_dock::tab_viewer::OnCloseResponse;
 use egui_double_slider::DoubleSlider;
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
-use egui_mobius::Value;
 use egui_taffy::taffy::prelude::{auto, fit_content, fr, length, percent, span};
 use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
@@ -25,6 +24,7 @@ use crate::dialogs::manage_gerbers::{ManageGerbersModal, ManagerGerberModalActio
 use crate::forms::Form;
 use crate::forms::transforms::resize_x_transform;
 use crate::pcb::tabs::PcbTabContext;
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_util::tui_container_size;

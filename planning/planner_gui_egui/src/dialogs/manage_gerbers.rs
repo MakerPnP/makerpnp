@@ -4,13 +4,13 @@ use derivative::Derivative;
 use egui::Modal;
 use egui_extras::Column;
 use egui_i18n::tr;
-use egui_mobius::Value;
 use planner_app::{GerberFileFunction, GerberFileFunctionDiscriminants, PcbGerberItem, PcbSide, PcbSideRequirement};
 use strum::VariantArray;
 use tracing::debug;
 
 use crate::file_picker::Picker;
 use crate::i18n::conversions::{gerber_file_function_discriminant_to_i18n_key, pcb_side_to_i18n_key};
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
 #[derive(Derivative)]

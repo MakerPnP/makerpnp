@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 
 use egui::{Context, ThemePreference};
-use egui_mobius::types::Value;
 use planner_app::{ObjectPath, PcbSide, PlacementPositionUnit};
 use tracing::{debug, trace};
 
 use crate::config::Config;
 use crate::pcb::{PcbAction, PcbUiCommand};
 use crate::project::{ProjectAction, ProjectUiCommand};
+use crate::sync::Value;
 use crate::tabs::TabKey;
 use crate::task::Task;
 use crate::toolbar::{ToolbarAction, ToolbarUiCommand};

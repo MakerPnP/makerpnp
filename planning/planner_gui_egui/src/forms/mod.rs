@@ -2,12 +2,13 @@ use std::sync::mpsc::Sender;
 
 use egui::{Response, RichText, Ui};
 use egui_i18n::translate_fluent;
-use egui_mobius::types::{Value, ValueGuard};
 use egui_taffy::taffy::prelude::{fit_content, fr, length, percent, span};
 use egui_taffy::taffy::{AlignItems, AlignSelf, Display, FlexDirection, Style};
 use egui_taffy::{Tui, TuiBuilderLogic};
 use i18n::fluent_argument_helpers::json::build_fluent_args;
 use validator::{ValidateArgs, ValidationError, ValidationErrors};
+
+use crate::sync::{Value, ValueGuard};
 
 pub mod validation;
 

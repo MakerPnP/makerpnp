@@ -5,7 +5,6 @@ use std::str::FromStr;
 use derivative::Derivative;
 use egui::{Button, Modal, TextEdit, Ui, Widget};
 use egui_i18n::tr;
-use egui_mobius::types::Value;
 use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, taffy, tui};
@@ -17,6 +16,7 @@ use crate::file_picker::Picker;
 use crate::forms::Form;
 use crate::forms::transforms::resize_x_transform;
 use crate::project::dialogs::PcbSideChoice;
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
 #[derive(Derivative)]

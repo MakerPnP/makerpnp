@@ -8,12 +8,12 @@ use egui_deferred_table::{
     DeferredTableRenderer, EditableTableRenderer, EditorState, TableDimensions, apply_reordering,
 };
 use egui_i18n::tr;
-use egui_mobius::Value;
-use egui_mobius::types::Enqueue;
 use planner_app::{Part, PartStates, PartWithState, ProcessReference, RefDes};
 use tracing::{debug, info, trace};
 
 use crate::filter::{Filter, FilterUiAction, FilterUiCommand, FilterUiContext};
+use crate::sync::Enqueue;
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
 mod columns {

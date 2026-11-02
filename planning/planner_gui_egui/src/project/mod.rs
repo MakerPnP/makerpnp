@@ -6,7 +6,6 @@ use derivative::Derivative;
 use egui::Ui;
 use egui_dock::Split;
 use egui_i18n::tr;
-use egui_mobius::types::{Enqueue, Value, ValueGuard};
 use planner_app::{
     AddOrRemoveAction, Event, FileReference, LoadOutSource, ObjectPath, PcbSide, PcbUnitIndex, PcbView, PhaseReference,
     PlacementOperation, PlacementPositionUnit, PlacementState, PlacementStatus, ProcessReference, ProjectView,
@@ -47,6 +46,7 @@ use crate::project::tabs::process_tab::{
 };
 use crate::project::tabs::{ProjectTabAction, ProjectTabContext, ProjectTabUiCommand, ProjectTabs};
 use crate::project::toolbar::{ProjectToolbar, ProjectToolbarAction, ProjectToolbarUiCommand};
+use crate::sync::{Enqueue, Value, ValueGuard};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_util::NavigationPath;

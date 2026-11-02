@@ -1,6 +1,5 @@
 use egui::{Modal, Ui};
 use egui_i18n::tr;
-use egui_mobius::Value;
 use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::{Tui, tui};
@@ -12,6 +11,7 @@ use validator::Validate;
 
 use crate::forms::Form;
 use crate::i18n::conversions::{placement_sorting_mode_to_i18n_key, sort_order_to_i18n_key};
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::widgets::augmented_list_selector;
 

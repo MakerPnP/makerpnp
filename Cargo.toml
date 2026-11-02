@@ -95,9 +95,6 @@ eframe = { version = "0.36.0", default-features = false }
 egui_taffy = "0.14.0"
 #egui_taffy = { git = "https://github.com/makerpnp/egui_taffy", rev = "c14e390c1f3cd6487968c5845ea205a38c6afbe2" }
 
-egui_mobius = "0.6.0"
-#egui_mobius = { git = "https://github.com/makerpnp/egui_mobius", rev = "e62f97bfcf97a831bd67dd75ab5eab9585922765" }
-#egui_mobius = { path = "../../../libraries/rust/egui/egui_mobius/crates/egui_mobius" }
 
 egui_material_icons = { git = "https://github.com/lucasmerlin/hello_egui.git", tag = "hello_egui-v0.13.0" }
 

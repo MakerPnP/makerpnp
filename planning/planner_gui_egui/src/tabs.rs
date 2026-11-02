@@ -5,9 +5,10 @@ use std::marker::PhantomData;
 use egui::{Id, Ui, WidgetText};
 use egui_dock::TabViewer;
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_mobius::types::Value;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info};
+
+use crate::sync::Value;
 
 #[derive(Debug, Clone, Hash, Copy, Ord, Eq, PartialOrd, PartialEq, Serialize, Deserialize)]
 pub struct TabKey(usize);

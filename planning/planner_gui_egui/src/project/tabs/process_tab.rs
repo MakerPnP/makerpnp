@@ -5,7 +5,6 @@ use egui::{Frame, TextEdit, Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::Column;
 use egui_i18n::tr;
-use egui_mobius::Value;
 use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::tui;
@@ -20,6 +19,7 @@ use validator::Validate;
 use crate::forms::Form;
 use crate::project::data::{ProjectData, Synced};
 use crate::project::tabs::ProjectTabContext;
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 

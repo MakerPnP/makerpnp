@@ -10,7 +10,6 @@ use egui::{Resize, Style, Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
-use egui_mobius::Value;
 use gerber_viewer::gerber_types::{
     Aperture, Circle, Command, CoordinateFormat, CoordinateMode, ExtendedCode, GerberCode, GerberError, ImageMirroring,
     ImageOffset, ImageRotation, InterpolationMode, ZeroOmission,
@@ -33,6 +32,7 @@ use crate::pcb::tabs::panel_tab::gerber_builder::GerberBuilder;
 use crate::pcb::tabs::panel_tab::gerber_util::{
     gerber_line_commands, gerber_path_commands, gerber_point_commands, gerber_rectangle_commands,
 };
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};

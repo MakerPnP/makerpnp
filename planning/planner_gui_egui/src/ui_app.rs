@@ -5,8 +5,6 @@ use std::sync::mpsc::Sender;
 use eframe::epaint::Color32;
 use egui::{CentralPanel, Frame, ThemePreference};
 use egui_i18n::tr;
-use egui_mobius::slot::Slot;
-use egui_mobius::types::{Enqueue, Value, ValueGuard};
 use futures::StreamExt;
 use slotmap::SlotMap;
 use tracing::{debug, error, info, trace};
@@ -18,6 +16,7 @@ use crate::pcb::{Pcb, PcbKey, PcbUiCommand};
 use crate::project::tabs::ProjectTabs;
 use crate::project::{Project, ProjectKey, ProjectUiCommand};
 use crate::runtime::tokio_runtime::TokioRuntime;
+use crate::sync::{Enqueue, Value, ValueGuard};
 use crate::tabs::TabKey;
 use crate::toolbar::{Toolbar, ToolbarContext, ToolbarUiCommand};
 use crate::ui_app::app_tabs::new_pcb::NewPcbArgs;
@@ -42,10 +41,6 @@ pub struct UiApp {
     // state contains fields that cannot be initialized using 'Default'
     #[serde(skip)]
     state: MaybeUninit<Value<AppState>>,
-
-    // The command slot for handling UI commands
-    #[serde(skip)]
-    slot: Slot<UiCommand>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -328,12 +323,10 @@ impl AppState {
 
 impl Default for UiApp {
     fn default() -> Self {
-        let (_signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
         Self {
             app_tabs: Default::default(),
             config: Default::default(),
             state: MaybeUninit::uninit(),
-            slot,
         }
     }
 }
@@ -341,7 +334,6 @@ impl Default for UiApp {
 impl UiApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let (_signal, slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
         fonts::initialize(&cc.egui_ctx);
@@ -366,9 +358,7 @@ impl UiApp {
             // Safety: now safe to use i18n translation system (e.g. [`egui_i18n::tr!`])
         }
 
-        let (app_signal, mut app_slot) = egui_mobius::factory::create_signal_slot::<UiCommand>();
-
-        let app_message_sender = app_signal.sender.clone();
+        let (app_message_sender, mut app_slot) = crate::sync::channel::<UiCommand>();
 
         let runtime = TokioRuntime::new();
 
@@ -425,8 +415,6 @@ impl UiApp {
                     command,
                 }
             });
-
-        instance.slot = slot;
 
         instance
     }

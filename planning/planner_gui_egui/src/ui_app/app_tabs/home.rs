@@ -1,7 +1,6 @@
 use egui::{Checkbox, FontFamily, RichText, Ui, WidgetText};
 use egui_i18n::tr;
 use egui_material_icons::icons::ICON_HOME;
-use egui_mobius::types::Value;
 use egui_taffy::taffy::Style;
 use egui_taffy::taffy::prelude::{length, percent};
 use egui_taffy::{TuiBuilderLogic, taffy, tui};
@@ -9,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use tracing::debug;
 
 use crate::config::Config;
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 

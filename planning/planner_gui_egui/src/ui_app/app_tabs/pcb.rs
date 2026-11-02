@@ -2,13 +2,13 @@ use std::path::PathBuf;
 
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_mobius::Value;
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 use tracing::debug;
 
 use crate::pcb::tabs::PcbTabs;
 use crate::pcb::{Pcb, PcbAction, PcbContext, PcbKey, PcbUiCommand};
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};

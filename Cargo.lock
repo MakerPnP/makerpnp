@@ -1797,17 +1797,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_mobius"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f729518e220613e1bf549b574e0d3d8ebaf19e8b57b067cf26b5055f12b95821"
-dependencies = [
- "futures",
- "serde",
- "tokio",
-]
-
-[[package]]
 name = "egui_taffy"
 version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4549,7 +4538,6 @@ dependencies = [
  "egui_extras",
  "egui_ltreeview",
  "egui_material_icons",
- "egui_mobius",
  "egui_taffy",
  "egui_tool_windows",
  "egui_vertical_stack",

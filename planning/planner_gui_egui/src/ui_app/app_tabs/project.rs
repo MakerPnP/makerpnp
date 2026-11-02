@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_mobius::types::Value;
 use planner_app::{ObjectPath, PcbSide, PlacementPositionUnit};
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
@@ -10,6 +9,7 @@ use tracing::debug;
 
 use crate::project::tabs::ProjectTabs;
 use crate::project::{Project, ProjectAction, ProjectContext, ProjectKey, ProjectUiCommand};
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};

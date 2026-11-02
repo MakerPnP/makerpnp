@@ -8,8 +8,6 @@ use eda_units::eda_units::dimension_unit::{
 use eda_units::eda_units::unit_system::UnitSystem;
 use egui::Ui;
 use egui_dock::Split;
-use egui_mobius::Value;
-use egui_mobius::types::Enqueue;
 use planner_app::{
     DesignIndex, Event, ObjectPath, PanelSizing, PcbOverview, PcbSide, PcbView, PcbViewRequest, PlacementPositionUnit,
 };
@@ -29,6 +27,8 @@ use crate::pcb::tabs::explorer_tab::ExplorerTabUiAction;
 use crate::pcb::tabs::panel_tab::{PanelTab, PanelTabUi, PanelTabUiAction, PanelTabUiCommand, PanelTabUiContext};
 use crate::pcb::tabs::{PcbTabAction, PcbTabContext, PcbTabUiCommand, PcbTabs};
 use crate::planner_app_core::{PlannerCoreService, PlannerError};
+use crate::sync::Enqueue;
+use crate::sync::Value;
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_components::gerber_viewer_ui::{GerberViewerMode, GerberViewerUiInstanceArgs};

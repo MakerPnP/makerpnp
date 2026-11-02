@@ -5,11 +5,11 @@ use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_i18n::tr;
 use egui_ltreeview::{Action, NodeBuilder, TreeView, TreeViewState};
-use egui_mobius::types::Value;
 use planner_app::{PcbOverview, PcbUnitIndex};
 use tracing::debug;
 
 use crate::pcb::tabs::PcbTabContext;
+use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_util::NavigationPath;

@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use derivative::Derivative;
 use egui::{Button, Frame, Modal, TextEdit, Ui, Widget};
 use egui_i18n::tr;
-use egui_mobius::types::Value;
 use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, taffy, tui};
@@ -16,6 +15,7 @@ use validator::Validate;
 use crate::file_picker::{PickError, Picker};
 use crate::forms::Form;
 use crate::forms::transforms::resize_x_transform;
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

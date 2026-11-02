@@ -10,8 +10,6 @@ use egui_deferred_table::{
     DeferredTableRenderer, EditableTableRenderer, EditorState, TableDimensions, apply_reordering,
 };
 use egui_i18n::tr;
-use egui_mobius::Value;
-use egui_mobius::types::Enqueue;
 use planner_app::{
     ObjectPath, PcbSide, PhaseOverview, PhaseReference, PlacementPositionUnit, PlacementState, PlacementStatus,
     PlacementsItem, Reference,
@@ -23,6 +21,8 @@ use crate::i18n::conversions::{
     pcb_side_to_i18n_key, placement_operation_status_to_i18n_key, placement_place_to_i18n_key,
     placement_project_status_to_i18n_key,
 };
+use crate::sync::Enqueue;
+use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
 mod columns {

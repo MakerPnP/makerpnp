@@ -26,7 +26,7 @@ futures =  { workspace = true }
 async-std =  { workspace = true }
 
 # serialization
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true, features = ["derive", "rc"] }
 
 # gui
 egui = { workspace = true }
@@ -40,7 +40,6 @@ eframe = { workspace = true, default-features = false, features = [
 egui_taffy = {  workspace = true }
 egui-i18n = { workspace = true }
 egui_dock = { workspace = true, features = ["serde"]}
-egui_mobius = { workspace = true, features = ["serde"] }
 egui_material_icons = { workspace = true }
 egui_extras = { workspace = true }
 egui_ltreeview = { workspace = true, features = ["persistence"] }

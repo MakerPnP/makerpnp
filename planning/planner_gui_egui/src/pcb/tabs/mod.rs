@@ -1,9 +1,9 @@
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, NodeIndex, Split, Style};
-use egui_mobius::types::Value;
 
 use crate::pcb::{PcbTabKind, PcbUiState};
+use crate::sync::Value;
 use crate::tabs::{AppTabViewer, Tab, TabKey, Tabs};
 use crate::tabs_impl;
 use crate::ui_component::{ComponentState, UiComponent};
