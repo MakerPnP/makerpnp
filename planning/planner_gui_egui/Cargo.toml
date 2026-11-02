@@ -90,3 +90,4 @@ rust_decimal_macros = { workspace = true }
 [dev-dependencies]
 indoc = { workspace = true }
 rstest = { workspace = true }
+tempfile = { workspace = true }

@@ -3,10 +3,11 @@ use std::path::PathBuf;
 use derivative::Derivative;
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
-use planner_app::{LoadOut, LoadOutSource, Part, Reference};
+use planner_app::{LoadOutSource, Part, Reference};
 use tracing::{debug, trace};
 use util::path::clip_path;
 
+use crate::project::data::{ProjectData, Synced};
 use crate::project::tables::load_out::{
     LoadOutTableUi, LoadOutTableUiAction, LoadOutTableUiCommand, LoadOutTableUiContext,
 };
@@ -20,6 +21,9 @@ pub struct LoadOutTabUi {
     phase: Reference,
     #[derivative(Debug = "ignore")]
     load_out_table_ui: LoadOutTableUi,
+
+    /// the revision of the load-out view used to build the table
+    synced: Synced<u64>,
 
     pub component: ComponentState<LoadOutTabUiCommand>,
 }
@@ -39,14 +43,25 @@ impl LoadOutTabUi {
         Self {
             phase,
             load_out_table_ui,
+            synced: Synced::default(),
 
             component,
         }
     }
 
-    pub fn update_load_out(&mut self, load_out: LoadOut) {
-        self.load_out_table_ui
-            .update_loadout(load_out);
+    /// Rebuilds the table's rows if the view they are built from has changed.
+    pub fn sync(&mut self, data: &ProjectData) {
+        let Some(load_out) = data.load_out(&self.phase) else {
+            return;
+        };
+
+        if self
+            .synced
+            .changed(data.load_out_revision(&self.phase))
+        {
+            self.load_out_table_ui
+                .update_loadout(load_out.clone());
+        }
     }
 }
 
@@ -108,6 +123,9 @@ impl UiComponent for LoadOutTabUi {
                         original_item,
                     } => {
                         let _ = index;
+
+                        // the table has changed its own rows, the core may reject the change.
+                        self.synced.invalidate();
 
                         // the only thing that can change in the item, is the feeder, otherwise we would need to look
                         // at the item and original item to determine what changed and handle accordingly.

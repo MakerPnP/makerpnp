@@ -20,6 +20,7 @@ use tracing::{debug, trace};
 use util::path::clip_path;
 
 use crate::i18n::conversions::pcb_side_to_i18n_key;
+use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
 use crate::project::{project_path_from_view_path, view_path_from_project_path};
 use crate::tabs::{Tab, TabKey};
@@ -30,7 +31,6 @@ use crate::ui_util::NavigationPath;
 #[derivative(Debug)]
 pub struct ExplorerTabUi {
     project_directory: PathBuf,
-    project_tree_view: Option<ProjectTreeView>,
 
     #[derivative(Debug = "ignore")]
     tree_view_state: Value<TreeViewState<usize>>,
@@ -42,7 +42,6 @@ impl ExplorerTabUi {
     pub fn new(project_directory: PathBuf) -> Self {
         Self {
             project_directory,
-            project_tree_view: None,
             tree_view_state: Default::default(),
             component: Default::default(),
         }
@@ -242,15 +241,11 @@ impl ExplorerTabUi {
         }
     }
 
-    pub fn select_path(&mut self, project_path: &NavigationPath) {
+    fn select_path(&mut self, project_tree: &ProjectTreeView, project_path: &NavigationPath) {
         // it's an error to be given a path without a corresponding tree view node that has the same path
         let path = view_path_from_project_path(project_path).unwrap();
 
-        let graph = &self
-            .project_tree_view
-            .as_mut()
-            .unwrap()
-            .tree;
+        let graph = &project_tree.tree;
 
         if let Some(node) = graph
             .node_indices()
@@ -269,11 +264,6 @@ impl ExplorerTabUi {
         } else {
             unreachable!()
         }
-    }
-
-    pub fn update_tree(&mut self, project_tree_view: ProjectTreeView) {
-        self.project_tree_view
-            .replace(project_tree_view);
     }
 }
 
@@ -301,17 +291,19 @@ pub enum ExplorerTabUiAction {
     SetPhaseOrdering(Vec<PhaseReference>),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ExplorerTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct ExplorerTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for ExplorerTabUi {
-    type UiContext<'context> = ExplorerTabUiContext;
+    type UiContext<'context> = ExplorerTabUiContext<'context>;
     type UiCommand = ExplorerTabUiCommand;
     type UiAction = ExplorerTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
-        if let Some(tree) = &self.project_tree_view {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
+        if let Some(tree) = context.data.project_tree.get() {
             self.show_project_tree(ui, &tree.tree, NodeIndex::new(0));
         } else {
             ui.centered_and_justified(|ui| {
@@ -324,16 +316,18 @@ impl UiComponent for ExplorerTabUi {
     fn update<'context>(
         &mut self,
         command: Self::UiCommand,
-        _context: &mut Self::UiContext<'context>,
+        context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
         match command {
             ExplorerTabUiCommand::Navigate(path) => {
-                self.select_path(&path);
+                if let Some(project_tree) = context.data.project_tree.get() {
+                    self.select_path(project_tree, &path);
+                }
 
                 Some(ExplorerTabUiAction::Navigate(path))
             }
             ExplorerTabUiCommand::Move(dnd) => {
-                let Some(project_tree) = &self.project_tree_view else {
+                let Some(project_tree) = context.data.project_tree.get() else {
                     return None;
                 };
 
@@ -507,7 +501,9 @@ impl Tab for ExplorerTab {
 
     fn ui<'a>(&mut self, ui: &mut Ui, _tab_key: &TabKey, context: &mut Self::Context) {
         let state = context.state.lock().unwrap();
-        UiComponent::ui(&state.explorer_tab_ui, ui, &mut ExplorerTabUiContext::default());
+        UiComponent::ui(&state.explorer_tab_ui, ui, &mut ExplorerTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, _context: &mut Self::Context) -> OnCloseResponse {

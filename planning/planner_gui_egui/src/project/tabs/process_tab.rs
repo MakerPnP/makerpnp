@@ -18,6 +18,7 @@ use tracing::debug;
 use validator::Validate;
 
 use crate::forms::Form;
+use crate::project::data::{ProjectData, Synced};
 use crate::project::tabs::ProjectTabContext;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
@@ -25,7 +26,12 @@ use crate::ui_component::{ComponentState, UiComponent};
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct ProcessTabUi {
+    process: ProcessReference,
+
     state: Option<ProcessTabUiState>,
+
+    /// the revision of the process definition view last considered for the form
+    synced: Synced<u64>,
 
     pub component: ComponentState<ProcessTabUiCommand>,
 }
@@ -40,20 +46,49 @@ pub struct ProcessTabUiState {
 }
 
 impl ProcessTabUi {
-    pub fn new() -> Self {
+    pub fn new(process: ProcessReference) -> Self {
         let component: ComponentState<ProcessTabUiCommand> = Default::default();
 
         Self {
+            process,
             state: None,
+            synced: Synced::default(),
             component,
         }
     }
 
-    pub fn reset(&mut self) {
-        self.state = None;
+    /// Rebuilds the form if the process definition changed, unless that would discard the user's unsaved edits.
+    pub fn sync(&mut self, data: &ProjectData) {
+        let Some(process_definition) = data.process_definition(&self.process) else {
+            return;
+        };
+
+        if !self
+            .synced
+            .changed(data.process_definition_revision(&self.process))
+        {
+            return;
+        }
+
+        if let Some(state) = &self.state {
+            let fields = state.fields.lock().unwrap();
+            if !fields.can_be_replaced_by(&state.initial_args.process_definition, process_definition) {
+                debug!("keeping unsaved edits. process: {:?}", self.process);
+                return;
+            }
+        }
+
+        self.update_definition(process_definition.clone());
     }
 
-    pub fn update_definition(&mut self, process_definition: ProcessDefinition) {
+    /// Discards any unsaved edits.
+    pub fn reset_form(&mut self, data: &ProjectData) {
+        if let Some(process_definition) = data.process_definition(&self.process) {
+            self.update_definition(process_definition.clone());
+        }
+    }
+
+    fn update_definition(&mut self, process_definition: ProcessDefinition) {
         let available_tasks: Vec<TaskReference> = vec![
             TaskReference::from_raw_str("core::load_pcbs"),
             TaskReference::from_raw_str("core::place_components"),
@@ -317,6 +352,25 @@ impl ProcessFields {
                 .collect(),
             rules: process.rules.clone(),
         }
+    }
+
+    fn matches(&self, process: &ProcessDefinition) -> bool {
+        self.process_reference == process.reference.to_string()
+            && self.rules == process.rules
+            && self
+                .operations
+                .iter()
+                .map(|(reference, tasks)| (reference, tasks))
+                .eq(process
+                    .operations
+                    .iter()
+                    .map(|operation| (&operation.reference, &operation.tasks)))
+    }
+
+    /// The form can be replaced if there are no unsaved edits, or if they are what the new definition now contains,
+    /// which is the case after the user applies their edits.
+    fn can_be_replaced_by(&self, initial: &ProcessDefinition, new: &ProcessDefinition) -> bool {
+        self.matches(initial) || self.matches(new)
     }
 
     /// Safety: requires that the fields are valid.
@@ -603,6 +657,52 @@ impl UiComponent for ProcessTabUi {
                     .clone(),
             }),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use planner_app::{OperationDefinition, OperationReference, ProcessDefinition, ProcessReference, TaskReference};
+
+    use super::ProcessFields;
+
+    fn definition(tasks: &[&str]) -> ProcessDefinition {
+        ProcessDefinition {
+            reference: ProcessReference::from_raw_str("pnp"),
+            operations: vec![OperationDefinition {
+                reference: OperationReference::from_raw_str("place"),
+                tasks: tasks
+                    .iter()
+                    .map(|task| TaskReference::from_raw_str(task))
+                    .collect(),
+            }],
+            rules: vec![],
+        }
+    }
+
+    #[test]
+    fn an_unedited_form_can_be_replaced() {
+        let initial = definition(&["core::load_pcbs"]);
+        let fields = ProcessFields::from_process_definition(initial.clone());
+
+        assert!(fields.can_be_replaced_by(&initial, &definition(&["core::place_components"])));
+    }
+
+    #[test]
+    fn a_form_with_unsaved_edits_is_not_replaced() {
+        let initial = definition(&["core::load_pcbs"]);
+        let fields = ProcessFields::from_process_definition(definition(&["core::manual_soldering"]));
+
+        assert!(!fields.can_be_replaced_by(&initial, &definition(&["core::place_components"])));
+    }
+
+    #[test]
+    fn a_form_whose_edits_were_applied_can_be_replaced() {
+        let initial = definition(&["core::load_pcbs"]);
+        let applied = definition(&["core::manual_soldering"]);
+        let fields = ProcessFields::from_process_definition(applied.clone());
+
+        assert!(fields.can_be_replaced_by(&initial, &applied));
     }
 }
 

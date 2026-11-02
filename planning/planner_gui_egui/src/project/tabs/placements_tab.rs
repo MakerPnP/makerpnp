@@ -2,12 +2,10 @@ use derivative::Derivative;
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_i18n::tr;
-use planner_app::{
-    ObjectPath, PcbSide, PhaseOverview, PhaseReference, PlacementPositionUnit, PlacementState, PlacementsItem,
-    PlacementsList,
-};
+use planner_app::{ObjectPath, PcbSide, PhaseReference, PlacementPositionUnit, PlacementState, PlacementsItem};
 use tracing::trace;
 
+use crate::project::data::{ProjectData, Synced};
 use crate::project::tables::placements::{
     PlacementsTableUi, PlacementsTableUiAction, PlacementsTableUiCommand, PlacementsTableUiContext,
 };
@@ -24,10 +22,10 @@ pub struct PlacementsTabUi {
     selection: Option<Vec<PlacementsItem>>,
     selected_phase: Option<PhaseReference>,
 
-    phases: Vec<PhaseOverview>,
+    /// the revisions of the placements and phases views used to build the table
+    synced: Synced<(u64, u64)>,
 
     pub component: ComponentState<PlacementsTabUiCommand>,
-    can_change_phase: bool,
 }
 
 impl PlacementsTabUi {
@@ -46,25 +44,24 @@ impl PlacementsTabUi {
             placements_table_ui,
             selection: None,
             selected_phase: None,
-            phases: Vec::new(),
-            can_change_phase: false,
+            synced: Synced::default(),
             component,
         }
     }
 
-    pub fn update_placements(&mut self, placements: PlacementsList, phases: Vec<PhaseOverview>) {
-        self.placements_table_ui
-            .update_placements(placements.placements, phases.clone());
-        self.update_phases(phases);
-    }
+    /// Rebuilds the table's rows if the views they are built from have changed.
+    pub fn sync(&mut self, data: &ProjectData) {
+        let Some(placements) = data.placements.get() else {
+            return;
+        };
 
-    pub fn update_phases(&mut self, phases: Vec<PhaseOverview>) {
-        self.placements_table_ui
-            .update_phases(phases.clone());
-        self.can_change_phase = phases
-            .iter()
-            .all(|it| it.state.is_pending());
-        self.phases = phases;
+        if self
+            .synced
+            .changed((data.placements.revision(), data.phases.revision()))
+        {
+            self.placements_table_ui
+                .update_placements(placements.placements.clone(), data.phase_list().to_vec());
+        }
     }
 }
 
@@ -108,16 +105,23 @@ pub enum PlacementsTabUiApplyAction {
     RemovePhase(PhaseReference),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PlacementsTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct PlacementsTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for PlacementsTabUi {
-    type UiContext<'context> = PlacementsTabUiContext;
+    type UiContext<'context> = PlacementsTabUiContext<'context>;
     type UiCommand = PlacementsTabUiCommand;
     type UiAction = PlacementsTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
+        let phases = context.data.phase_list();
+        let can_change_phase = phases
+            .iter()
+            .all(|it| it.state.is_pending());
+
         ui.horizontal(|ui| {
             // FIXME layout-pain - due to some vertical padding and sizing issues we render the filter first because it is tallest.
             //       attempts were made to fix this, but ultimately all resulted in failure, so we gave up and went
@@ -130,7 +134,7 @@ impl UiComponent for PlacementsTabUi {
             ui.separator();
 
             let have_selection = self.selection.is_some();
-            let have_phases = !self.phases.is_empty();
+            let have_phases = !phases.is_empty();
 
             ui.add_enabled_ui(have_phases, |ui|{
                 egui::ComboBox::from_id_salt(ui.id().with("phase_selection"))
@@ -139,7 +143,7 @@ impl UiComponent for PlacementsTabUi {
                         None => tr!("form-common-choice-phase"),
                     })
                     .show_ui(ui, |ui| {
-                        for phase in &self.phases {
+                        for phase in phases {
                             if ui
                                 .add(egui::Button::selectable(
                                     matches!(&self.selected_phase, Some(selection) if selection.eq(&phase.phase_reference)),
@@ -171,7 +175,7 @@ impl UiComponent for PlacementsTabUi {
                 egui::ComboBox::from_id_salt(ui.id().with("phase_action"))
                     .selected_text(tr!("common-actions"))
                     .show_ui(ui, |ui| {
-                        ui.add_enabled_ui(self.can_change_phase, |ui| {
+                        ui.add_enabled_ui(can_change_phase, |ui| {
                             if ui
                                 .add(egui::Button::selectable(false, tr!("form-common-button-apply")))
                                 .clicked()
@@ -229,11 +233,17 @@ impl UiComponent for PlacementsTabUi {
                         object_path,
                         new_placement,
                         old_placement,
-                    }) => Some(PlacementsTabUiAction::UpdatePlacement {
-                        object_path,
-                        new_placement,
-                        old_placement,
-                    }),
+                    }) => {
+                        // the table has changed its own rows, the core may reject the change, e.g. when pasting a
+                        // 'Top' phase onto a placement with a side of 'Bottom'.
+                        self.synced.invalidate();
+
+                        Some(PlacementsTabUiAction::UpdatePlacement {
+                            object_path,
+                            new_placement,
+                            old_placement,
+                        })
+                    }
                     Some(PlacementsTableUiAction::LocatePlacement {
                         object_path,
                         pcb_side,
@@ -281,7 +291,9 @@ impl Tab for PlacementsTab {
 
     fn ui<'a>(&mut self, ui: &mut Ui, _tab_key: &TabKey, context: &mut Self::Context) {
         let state = context.state.lock().unwrap();
-        UiComponent::ui(&state.placements_ui, ui, &mut PlacementsTabUiContext::default());
+        UiComponent::ui(&state.placements_ui, ui, &mut PlacementsTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, _context: &mut Self::Context) -> OnCloseResponse {

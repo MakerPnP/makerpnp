@@ -5,13 +5,13 @@ use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use planner_app::{IssueKind, ProjectReport};
 
+use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 
 #[derive(Debug)]
 pub struct IssuesTabUi {
-    report: Option<ProjectReport>,
     pub component: ComponentState<IssuesTabUiCommand>,
 }
 
@@ -20,18 +20,11 @@ impl IssuesTabUi {
 
     pub fn new() -> Self {
         Self {
-            report: None,
             component: Default::default(),
         }
     }
 
-    pub fn update_report(&mut self, report: ProjectReport) {
-        self.report = Some(report);
-    }
-
-    fn show_issues(&self, ui: &mut Ui, text_height: f32) {
-        let Some(report) = &self.report else { return };
-
+    fn show_issues(&self, ui: &mut Ui, text_height: f32, report: &ProjectReport) {
         TableBuilder::new(ui)
             .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
             .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
@@ -159,16 +152,18 @@ pub enum IssuesTabUiAction {
     RefreshIssues,
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct IssuesTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct IssuesTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for IssuesTabUi {
-    type UiContext<'context> = IssuesTabUiContext;
+    type UiContext<'context> = IssuesTabUiContext<'context>;
     type UiCommand = IssuesTabUiCommand;
     type UiAction = IssuesTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
             .size
@@ -186,7 +181,9 @@ impl UiComponent for IssuesTabUi {
 
         ui.separator();
 
-        self.show_issues(ui, text_height);
+        if let Some(report) = context.data.report.get() {
+            self.show_issues(ui, text_height, report);
+        }
     }
 
     #[profiling::function]
@@ -214,7 +211,9 @@ impl Tab for IssuesTab {
 
     fn ui<'a>(&mut self, ui: &mut Ui, _tab_key: &TabKey, context: &mut Self::Context) {
         let state = context.state.lock().unwrap();
-        UiComponent::ui(&state.issues_ui, ui, &mut IssuesTabUiContext::default());
+        UiComponent::ui(&state.issues_ui, ui, &mut IssuesTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, _context: &mut Self::Context) -> OnCloseResponse {

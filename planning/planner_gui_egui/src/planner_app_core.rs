@@ -9,6 +9,7 @@ type Core = Arc<planner_app::Core<Planner>>;
 
 pub struct PlannerCoreService {
     core: Core,
+    generation: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -31,11 +32,32 @@ impl PlannerCoreService {
     pub fn new() -> Self {
         Self {
             core: Arc::new(planner_app::Core::new()),
+            generation: 0,
         }
     }
 
+    /// Incremented by every [`Self::update`].  When this changes, data previously received from the core may be stale.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// Process an event that may change the core's state.
+    ///
+    /// The generation changes even if the event fails, since a failing event may have partially changed the state.
     #[must_use]
     pub fn update(&mut self, event: Event) -> Result<Vec<PlannerAction>, PlannerError> {
+        self.generation = self.generation.wrapping_add(1);
+
+        self.process(event)
+    }
+
+    /// Process an event that only reads the core's state, e.g. requesting a view.
+    #[must_use]
+    pub fn query(&mut self, event: Event) -> Result<Vec<PlannerAction>, PlannerError> {
+        self.process(event)
+    }
+
+    fn process(&mut self, event: Event) -> Result<Vec<PlannerAction>, PlannerError> {
         trace!("event: {:?}", event);
 
         let mut actions: Vec<PlannerAction> = Vec::new();

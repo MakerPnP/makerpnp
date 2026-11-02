@@ -443,12 +443,6 @@ impl PlacementsTableUi {
         editor.update_phases(phases);
     }
 
-    pub fn update_phases(&mut self, phases: Vec<PhaseOverview>) {
-        let (_source, _renderer, editor, _editor_state) = &mut *self.source.lock().unwrap();
-
-        editor.update_phases(phases);
-    }
-
     pub fn filter_ui(&self, ui: &mut Ui) {
         self.filter
             .ui(ui, &mut FilterUiContext::default());

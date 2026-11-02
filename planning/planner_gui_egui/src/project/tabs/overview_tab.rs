@@ -5,15 +5,13 @@ use egui_i18n::tr;
 use planner_app::{PcbInstanceIndex, PhaseOverview, PhaseReference, ProjectOverview};
 
 use crate::i18n::conversions::phase_status_to_i18n_key;
+use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 
 #[derive(Debug)]
 pub struct OverviewTabUi {
-    overview: Option<ProjectOverview>,
-    phases: Option<Vec<PhaseOverview>>,
-
     pub component: ComponentState<OverviewTabUiCommand>,
 }
 
@@ -22,21 +20,11 @@ impl OverviewTabUi {
 
     pub fn new() -> Self {
         Self {
-            overview: None,
-            phases: None,
             component: Default::default(),
         }
     }
 
-    pub fn update_overview(&mut self, project_overview: ProjectOverview) {
-        self.overview.replace(project_overview);
-    }
-
-    pub fn update_phases(&mut self, phases: Vec<PhaseOverview>) {
-        self.phases.replace(phases);
-    }
-
-    fn show_phases(&self, ui: &mut Ui, text_height: f32) {
+    fn show_phases(&self, ui: &mut Ui, text_height: f32, phases: Option<&Vec<PhaseOverview>>) {
         egui::Sides::new().show(
             ui,
             |ui| {
@@ -69,7 +57,7 @@ impl OverviewTabUi {
                 egui::Frame::new()
                     .outer_margin(4.0)
                     .show(ui, |ui| {
-                        if let Some(phases) = &self.phases {
+                        if let Some(phases) = phases {
                             TableBuilder::new(ui)
                                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                                 .min_scrolled_height(80.0)
@@ -134,7 +122,7 @@ impl OverviewTabUi {
             });
     }
 
-    fn show_pcbs(&self, ui: &mut Ui, text_height: f32) {
+    fn show_pcbs(&self, ui: &mut Ui, text_height: f32, overview: Option<&ProjectOverview>) {
         egui::Sides::new().show(
             ui,
             |ui| {
@@ -167,7 +155,7 @@ impl OverviewTabUi {
                 egui::Frame::new()
                     .outer_margin(4.0)
                     .show(ui, |ui| {
-                        if let Some(overview) = &self.overview {
+                        if let Some(overview) = overview {
                             TableBuilder::new(ui)
                                 .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
                                 .min_scrolled_height(80.0)
@@ -245,33 +233,42 @@ pub enum OverviewTabUiAction {
     RemovePcb(PcbInstanceIndex),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct OverviewTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct OverviewTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for OverviewTabUi {
-    type UiContext<'context> = OverviewTabUiContext;
+    type UiContext<'context> = OverviewTabUiContext<'context>;
     type UiCommand = OverviewTabUiCommand;
     type UiAction = OverviewTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         let text_height = egui::TextStyle::Body
             .resolve(ui.style())
             .size
             .max(ui.spacing().interact_size.y);
 
-        if let Some(overview) = &self.overview {
+        let overview = context.data.overview.get();
+        let phases = context
+            .data
+            .phases
+            .get()
+            .map(|phases| &phases.phases);
+
+        if let Some(overview) = overview {
             ui.label(tr!("project-overview-detail-name", { name: &overview.name }));
         }
 
         ui.separator();
 
         ui.push_id("phases", |ui| {
-            self.show_phases(ui, text_height);
+            self.show_phases(ui, text_height, phases);
         });
 
         ui.push_id("pcbs", |ui| {
-            self.show_pcbs(ui, text_height);
+            self.show_pcbs(ui, text_height, overview);
         });
     }
 
@@ -305,7 +302,9 @@ impl Tab for OverviewTab {
 
     fn ui<'a>(&mut self, ui: &mut Ui, _tab_key: &TabKey, context: &mut Self::Context) {
         let state = context.state.lock().unwrap();
-        UiComponent::ui(&state.overview_ui, ui, &mut OverviewTabUiContext::default());
+        UiComponent::ui(&state.overview_ui, ui, &mut OverviewTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, _context: &mut Self::Context) -> OnCloseResponse {

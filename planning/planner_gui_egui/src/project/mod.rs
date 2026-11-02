@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::SystemTime;
 
@@ -8,9 +8,9 @@ use egui_dock::Split;
 use egui_i18n::tr;
 use egui_mobius::types::{Enqueue, Value, ValueGuard};
 use planner_app::{
-    AddOrRemoveAction, Event, FileReference, LibraryConfig, LoadOutSource, ObjectPath, PcbSide, PcbUnitIndex, PcbView,
-    PcbViewRequest, PhaseOverview, PhaseReference, PlacementOperation, PlacementPositionUnit, PlacementState,
-    PlacementStatus, ProcessReference, ProjectOverview, ProjectView, ProjectViewRequest, Reference, SetOrClearAction,
+    AddOrRemoveAction, Event, FileReference, LoadOutSource, ObjectPath, PcbSide, PcbUnitIndex, PcbView, PhaseReference,
+    PlacementOperation, PlacementPositionUnit, PlacementState, PlacementStatus, ProcessReference, ProjectView,
+    Reference, SetOrClearAction,
 };
 use regex::Regex;
 use slotmap::new_key_type;
@@ -30,8 +30,9 @@ use tabs::unit_assignments_tab::{
 use tracing::{debug, error, info, trace};
 
 use crate::file_picker::Picker;
-use crate::planner_app_core::{PlannerCoreService, PlannerError};
+use crate::planner_app_core::{PlannerAction, PlannerCoreService, PlannerError};
 use crate::project::core_helper::ProjectCoreHelper;
+use crate::project::data::{ProjectData, ViewKey};
 use crate::project::dialogs::add_phase::{AddPhaseModal, AddPhaseModalAction, AddPhaseModalUiCommand};
 use crate::project::dialogs::package_sources::{
     PackageSourcesModal, PackageSourcesModalAction, PackageSourcesModalUiCommand,
@@ -42,7 +43,7 @@ use crate::project::tabs::issues_tab::{
 use crate::project::tabs::parts_tab::PartsTabUiApplyAction;
 use crate::project::tabs::placements_tab::PlacementsTabUiApplyAction;
 use crate::project::tabs::process_tab::{
-    ProcessTab, ProcessTabUi, ProcessTabUiAction, ProcessTabUiCommand, ProcessTabUiContext,
+    ProcessDefinitionArgs, ProcessTab, ProcessTabUi, ProcessTabUiAction, ProcessTabUiCommand, ProcessTabUiContext,
 };
 use crate::project::tabs::{ProjectTabAction, ProjectTabContext, ProjectTabUiCommand, ProjectTabs};
 use crate::project::toolbar::{ProjectToolbar, ProjectToolbarAction, ProjectToolbarUiCommand};
@@ -53,6 +54,7 @@ use crate::ui_util::NavigationPath;
 //
 // other modules
 //
+pub mod data;
 mod dialogs;
 mod process;
 mod tables;
@@ -91,20 +93,14 @@ pub struct Project {
     modified: bool,
     pcbs_modified: bool,
 
+    /// false until the core has a project, views can't be fetched until then.
+    ready: bool,
+
+    /// the core's generation when the project's data was last marked as stale
+    seen_generation: u64,
+
     /// list of errors to show
     errors: Vec<(chrono::DateTime<chrono::Utc>, String)>,
-
-    /// initially empty until the OverviewView has been received and processed.
-    processes: Vec<ProcessReference>,
-
-    /// initially empty until the OverviewView has been received and processed.
-    library_config: Option<LibraryConfig>,
-
-    /// initially empty until the OverviewView has been received and processed.
-    pcbs: Vec<PathBuf>,
-
-    /// initially empty, requires fetching the PhaseOverviewView for each phase before it can be used.
-    phases: Vec<PhaseOverview>,
 
     project_tabs: Value<ProjectTabs>,
 
@@ -204,17 +200,16 @@ impl Project {
         ));
 
         let core_service = PlannerCoreService::new();
+        let seen_generation = core_service.generation();
         let mut instance = Self {
             path,
             planner_core_service: core_service,
             project_ui_state,
             modified: false,
             pcbs_modified: false,
-            pcbs: Default::default(),
+            ready: false,
+            seen_generation,
             errors: Default::default(),
-            processes: Default::default(),
-            library_config: None,
-            phases: Default::default(),
             project_tabs,
             toolbar,
             component,
@@ -271,64 +266,39 @@ impl Project {
         })
     }
 
-    pub fn show_explorer(&mut self) -> Task<ProjectAction> {
+    pub fn show_explorer(&mut self) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let result = project_tabs.show_tab(|candidate_tab| matches!(candidate_tab, ProjectTabKind::Explorer(_)));
         if result.is_err() {
             project_tabs.add_tab(ProjectTabKind::Explorer(ExplorerTab::default()));
         }
-
-        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-            ProjectViewRequest::ProjectTree,
-        )))
     }
 
-    pub fn show_issues(&mut self) -> Vec<Task<ProjectAction>> {
+    pub fn show_issues(&mut self) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let result = project_tabs.show_tab(|candidate_tab| matches!(candidate_tab, ProjectTabKind::Issues(_)));
         if result.is_err() {
             project_tabs.add_tab_to_leaf_or_split(ProjectTabKind::Issues(IssuesTab::default()), 0.25, Split::Right);
         }
-
-        let tasks = vec![Task::done(ProjectAction::UiCommand(
-            ProjectUiCommand::RequestProjectView(ProjectViewRequest::ProjectReport),
-        ))];
-
-        tasks
     }
 
-    pub fn show_overview(&mut self) -> Vec<Task<ProjectAction>> {
+    pub fn show_overview(&mut self) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let result = project_tabs.show_tab(|candidate_tab| matches!(candidate_tab, ProjectTabKind::Overview(_)));
         if result.is_err() {
             project_tabs.add_tab_to_leaf_or_split(ProjectTabKind::Overview(OverviewTab::default()), 0.25, Split::Right);
         }
-
-        let tasks = vec![
-            Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                ProjectViewRequest::Overview,
-            ))),
-            Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                ProjectViewRequest::Phases,
-            ))),
-        ];
-
-        tasks
     }
 
-    pub fn show_parts(&mut self) -> Task<ProjectAction> {
+    pub fn show_parts(&mut self) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let result = project_tabs.show_tab(|candidate_tab| matches!(candidate_tab, ProjectTabKind::Parts(_)));
         if result.is_err() {
             project_tabs.add_tab_to_leaf_or_split(ProjectTabKind::Parts(PartsTab::default()), 0.25, Split::Right);
         }
-
-        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-            ProjectViewRequest::Parts,
-        )))
     }
 
-    pub fn show_placements(&mut self) -> Vec<Task<ProjectAction>> {
+    pub fn show_placements(&mut self) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let result = project_tabs.show_tab(|candidate_tab| matches!(candidate_tab, ProjectTabKind::Placements(_)));
         if result.is_err() {
@@ -338,20 +308,9 @@ impl Project {
                 Split::Right,
             );
         }
-
-        let tasks = vec![
-            Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                ProjectViewRequest::Phases,
-            ))),
-            Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                ProjectViewRequest::Placements,
-            ))),
-        ];
-
-        tasks
     }
 
-    pub fn show_phase(&mut self, key: ProjectKey, phase: PhaseReference) -> Option<Vec<Task<ProjectAction>>> {
+    pub fn show_phase(&mut self, key: ProjectKey, phase: PhaseReference) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let tab = PhaseTab::new(phase.clone());
 
@@ -368,24 +327,10 @@ impl Project {
             })
             .ok();
 
-        match self.ensure_phase(key, &phase) {
-            false => None,
-            true => Some(vec![
-                Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                    ProjectViewRequest::PhaseOverview {
-                        phase: phase.clone(),
-                    },
-                ))),
-                Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                    ProjectViewRequest::PhasePlacements {
-                        phase: phase.clone(),
-                    },
-                ))),
-            ]),
-        }
+        self.ensure_phase(key, &phase);
     }
 
-    pub fn show_process(&mut self, key: ProjectKey, process: ProcessReference) -> Option<Vec<Task<ProjectAction>>> {
+    pub fn show_process(&mut self, key: ProjectKey, process: ProcessReference) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let tab = ProcessTab::new(process.clone());
 
@@ -402,22 +347,10 @@ impl Project {
             })
             .ok();
 
-        match self.ensure_process(key, &process) {
-            false => None,
-            true => Some(vec![Task::done(ProjectAction::UiCommand(
-                ProjectUiCommand::RequestProjectView(ProjectViewRequest::ProcessDefinition {
-                    process: process.clone(),
-                }),
-            ))]),
-        }
+        self.ensure_process(key, &process);
     }
 
-    pub fn show_loadout(
-        &self,
-        key: ProjectKey,
-        phase: Reference,
-        load_out_source: &LoadOutSource,
-    ) -> Option<Task<ProjectAction>> {
+    pub fn show_loadout(&self, key: ProjectKey, phase: Reference, load_out_source: &LoadOutSource) {
         let project_directory = self.path.parent().unwrap();
 
         let mut project_tabs = self.project_tabs.lock().unwrap();
@@ -436,17 +369,10 @@ impl Project {
             })
             .ok();
 
-        match self.ensure_load_out(key, phase.clone(), load_out_source) {
-            false => None,
-            true => Some(Task::done(ProjectAction::UiCommand(
-                ProjectUiCommand::RequestProjectView(ProjectViewRequest::PhaseLoadOut {
-                    phase,
-                }),
-            ))),
-        }
+        self.ensure_load_out(key, phase, load_out_source);
     }
 
-    pub fn show_pcb(&mut self, key: ProjectKey, pcb_index: u16) -> Option<Vec<Task<ProjectAction>>> {
+    pub fn show_pcb(&mut self, key: ProjectKey, pcb_index: u16) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let tab = PcbTab::new(pcb_index);
 
@@ -463,17 +389,10 @@ impl Project {
             })
             .ok();
 
-        match self.ensure_pcb(key, pcb_index) {
-            false => None,
-            true => Some(vec![Task::done(ProjectAction::UiCommand(
-                ProjectUiCommand::RequestProjectView(ProjectViewRequest::PcbOverview {
-                    pcb: pcb_index.clone(),
-                }),
-            ))]),
-        }
+        self.ensure_pcb(key, pcb_index);
     }
 
-    pub fn show_unit_assignments(&mut self, key: ProjectKey, pcb_index: u16) -> Option<Vec<Task<ProjectAction>>> {
+    pub fn show_unit_assignments(&mut self, key: ProjectKey, pcb_index: u16) {
         let mut project_tabs = self.project_tabs.lock().unwrap();
         let tab = UnitAssignmentsTab::new(pcb_index);
 
@@ -490,34 +409,18 @@ impl Project {
             })
             .ok();
 
-        match self.ensure_unit_assignments(key, pcb_index) {
-            false => None,
-            true => Some(vec![
-                Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                    ProjectViewRequest::PcbOverview {
-                        pcb: pcb_index,
-                    },
-                ))),
-                Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                    ProjectViewRequest::PcbUnitAssignments {
-                        pcb: pcb_index,
-                    },
-                ))),
-            ]),
-        }
+        self.ensure_unit_assignments(key, pcb_index);
     }
 
-    fn ensure_phase(&self, key: ProjectKey, phase: &Reference) -> bool {
+    fn ensure_phase(&self, key: ProjectKey, phase: &Reference) {
         let phase = phase.clone();
         let mut state = self.project_ui_state.lock().unwrap();
-        let mut created = false;
-        let _phase_state = state
+        state
             .phases_tab_uis
             .entry(phase.clone())
             .or_insert_with(|| {
-                created = true;
                 debug!("ensuring phase ui. phase: {:?}", phase);
-                let mut phase_ui = PhaseTabUi::new();
+                let mut phase_ui = PhaseTabUi::new(phase.clone());
                 phase_ui
                     .component
                     .configure_mapper(self.component.sender.clone(), {
@@ -532,31 +435,22 @@ impl Project {
 
                 phase_ui
             });
-
-        created
     }
 
-    fn ensure_process(&self, key: ProjectKey, process: &Reference) -> bool {
+    fn ensure_process(&self, key: ProjectKey, process: &Reference) {
         let process = process.clone();
         let mut state = self.project_ui_state.lock().unwrap();
 
-        self.ensure_process_inner(key, process.clone(), &mut state)
+        self.ensure_process_inner(key, process, &mut state);
     }
 
-    fn ensure_process_inner(
-        &self,
-        key: ProjectKey,
-        process: Reference,
-        state: &mut ValueGuard<ProjectUiState>,
-    ) -> bool {
-        let mut created = false;
-        let _process_state = state
+    fn ensure_process_inner(&self, key: ProjectKey, process: Reference, state: &mut ValueGuard<ProjectUiState>) {
+        state
             .process_tab_uis
             .entry(process.clone())
             .or_insert_with(|| {
-                created = true;
                 debug!("ensuring process ui. process: {:?}", process);
-                let mut process_ui = ProcessTabUi::new();
+                let mut process_ui = ProcessTabUi::new(process.clone());
                 process_ui
                     .component
                     .configure_mapper(self.component.sender.clone(), {
@@ -571,20 +465,16 @@ impl Project {
 
                 process_ui
             });
-
-        created
     }
 
-    fn ensure_load_out(&self, key: ProjectKey, phase: Reference, load_out_source: &LoadOutSource) -> bool {
+    fn ensure_load_out(&self, key: ProjectKey, phase: Reference, load_out_source: &LoadOutSource) {
         let load_out_source = load_out_source.clone();
         let mut state = self.project_ui_state.lock().unwrap();
-        let mut created = false;
 
-        let _load_out_ui = state
+        state
             .load_out_tab_uis
             .entry(load_out_source.clone())
             .or_insert_with(|| {
-                created = true;
                 debug!("ensuring load out ui. source: {:?}", load_out_source);
                 let mut load_out_ui = LoadOutTabUi::new(phase);
                 load_out_ui
@@ -601,21 +491,17 @@ impl Project {
 
                 load_out_ui
             });
-
-        created
     }
 
-    fn ensure_pcb(&self, key: ProjectKey, pcb_index: u16) -> bool {
+    fn ensure_pcb(&self, key: ProjectKey, pcb_index: u16) {
         let mut state = self.project_ui_state.lock().unwrap();
-        let mut created = false;
 
-        let _pcb_ui = state
+        state
             .pcb_tab_uis
             .entry(pcb_index as usize)
             .or_insert_with(|| {
-                created = true;
                 debug!("ensuring pcb ui. pcb_index: {:?}", pcb_index);
-                let mut pcb_ui = PcbTabUi::new(self.path.clone());
+                let mut pcb_ui = PcbTabUi::new(self.path.clone(), pcb_index);
                 pcb_ui
                     .component
                     .configure_mapper(self.component.sender.clone(), {
@@ -630,20 +516,15 @@ impl Project {
 
                 pcb_ui
             });
-
-        created
     }
 
-    fn ensure_unit_assignments(&self, key: ProjectKey, pcb_index: u16) -> bool {
+    fn ensure_unit_assignments(&self, key: ProjectKey, pcb_index: u16) {
         let mut state = self.project_ui_state.lock().unwrap();
 
-        let mut created = false;
-
-        let _unit_assignments_ui = state
+        state
             .unit_assignment_tab_uis
             .entry(pcb_index as usize)
             .or_insert_with(|| {
-                created = true;
                 debug!("ensuring unit assignments ui. pcb_index: {:?}", pcb_index);
                 let mut unit_assignments_ui = UnitAssignmentsTabUi::new(self.path.clone(), pcb_index as u16);
                 unit_assignments_ui
@@ -660,8 +541,40 @@ impl Project {
 
                 unit_assignments_ui
             });
+    }
 
-        created
+    /// Closes the given tabs and removes their state.
+    ///
+    /// This must be done before the views are next fetched, the tabs would otherwise require views that no longer exist.
+    fn close_tabs<F>(&self, should_close: F)
+    where
+        F: Fn(&ProjectTabKind) -> bool,
+    {
+        let mut project_tabs = self.project_tabs.lock().unwrap();
+
+        project_tabs.retain(|_key, kind| !should_close(kind));
+
+        // `retain` only removes the tabs from the dock, this removes them from the list of tabs and calls `on_close`.
+        project_tabs.cleanup_tabs(&mut ProjectTabContext {
+            state: self.project_ui_state.clone(),
+        });
+    }
+
+    fn close_phase_tabs(&self, phase: &PhaseReference) {
+        self.close_tabs(|kind| match kind {
+            ProjectTabKind::Phase(tab) => tab.phase.eq(phase),
+            ProjectTabKind::LoadOut(tab) => tab.phase.eq(phase),
+            _ => false,
+        });
+    }
+
+    /// When a pcb is removed the pcbs after it get a different index, so any tabs for them would show the wrong pcb.
+    fn close_pcb_tabs_from(&self, pcb_index: u16) {
+        self.close_tabs(|kind| match kind {
+            ProjectTabKind::Pcb(tab) => tab.pcb_index >= pcb_index,
+            ProjectTabKind::UnitAssignments(tab) => tab.pcb_index >= pcb_index,
+            _ => false,
+        });
     }
 
     fn navigate(&mut self, key: ProjectKey, path: NavigationPath) -> Option<ProjectAction> {
@@ -702,16 +615,6 @@ impl Project {
         fn handle_parts(key: &ProjectKey, path: &NavigationPath) -> Option<ProjectAction> {
             if path.eq(&"/project/parts".into()) {
                 let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowParts));
-                Some(ProjectAction::Task(*key, task))
-            } else {
-                None
-            }
-        }
-
-        #[must_use]
-        fn handle_phases(key: &ProjectKey, path: &NavigationPath) -> Option<ProjectAction> {
-            if path.eq(&"/project/phases".into()) {
-                let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RefreshPhases));
                 Some(ProjectAction::Task(*key, task))
             } else {
                 None
@@ -836,7 +739,6 @@ impl Project {
             handle_pcb,
             handle_phase,
             handle_phase_loadout,
-            handle_phases,
             handle_placements,
             handle_process,
             handle_unit_assignments,
@@ -847,232 +749,72 @@ impl Project {
             .find_map(|handler| handler(&key, &path))
     }
 
-    pub fn update_processes(&mut self, project_overview: &ProjectOverview) {
-        self.processes = project_overview.processes.clone();
-    }
+    /// The events required to change a placement from its old state to its new state.
+    fn placement_events(object_path: &ObjectPath, new: &PlacementState, old: &PlacementState) -> Vec<Event> {
+        let mut events = vec![];
 
-    pub fn update_pcbs(&mut self, project_overview: &ProjectOverview) {
-        self.pcbs = project_overview
-            .pcbs
-            .iter()
-            .map(|pcb| pcb.pcb_file.build_path(&self.path))
-            .collect();
-    }
+        // it's possible that assigning/clearing a placement could make the phase complete
+        if !new.phase.eq(&old.phase) {
+            let assignment = match (&new.phase, &old.phase) {
+                (Some(new_phase), _) => Some((new_phase, SetOrClearAction::Set)),
+                (None, Some(old_phase)) => Some((old_phase, SetOrClearAction::Clear)),
+                (None, None) => None,
+            };
 
-    pub fn update_library_config(&mut self, library_config: &LibraryConfig) {
-        self.library_config = Some(library_config.clone())
-    }
-
-    #[must_use]
-    fn update_placement(
-        planner_core_service: &mut PlannerCoreService,
-        key: ProjectKey,
-        object_path: ObjectPath,
-        new_placement: PlacementState,
-        old_placement: PlacementState,
-    ) -> (Vec<Task<ProjectAction>>, Vec<UpdatePlacementAction>) {
-        let mut tasks = vec![];
-
-        fn handle_phase(
-            planner_core_service: &mut PlannerCoreService,
-            _key: &ProjectKey,
-            object_path: &ObjectPath,
-            new_placement: &PlacementState,
-            old_placement: &PlacementState,
-        ) -> Option<(Vec<UpdatePlacementAction>, Result<Vec<ProjectAction>, ProjectAction>)> {
-            if !new_placement
-                .phase
-                .eq(&old_placement.phase)
-            {
-                // it's possible that assigning/clearing a placement could make the phase complete
-
-                let (phase, operation, mut update_placement_actions) =
-                    match (&new_placement.phase, &old_placement.phase) {
-                        (Some(new_phase), None) => (new_phase, SetOrClearAction::Set, vec![
-                            UpdatePlacementAction::RefreshPhasePlacements {
-                                phase: new_phase.clone(),
-                            },
-                            UpdatePlacementAction::RefreshPhaseOverview {
-                                phase: new_phase.clone(),
-                            },
-                        ]),
-                        (Some(new_phase), Some(old_phase)) => (new_phase, SetOrClearAction::Set, vec![
-                            UpdatePlacementAction::RefreshPhasePlacements {
-                                phase: new_phase.clone(),
-                            },
-                            UpdatePlacementAction::RefreshPhasePlacements {
-                                phase: old_phase.clone(),
-                            },
-                            UpdatePlacementAction::RefreshPhaseOverview {
-                                phase: new_phase.clone(),
-                            },
-                            UpdatePlacementAction::RefreshPhaseOverview {
-                                phase: old_phase.clone(),
-                            },
-                        ]),
-                        (None, Some(old_phase)) => (old_phase, SetOrClearAction::Clear, vec![
-                            UpdatePlacementAction::RefreshPhasePlacements {
-                                phase: old_phase.clone(),
-                            },
-                            UpdatePlacementAction::RefreshPhaseOverview {
-                                phase: old_phase.clone(),
-                            },
-                        ]),
-                        _ => unreachable!(),
-                    };
-
-                update_placement_actions.push(UpdatePlacementAction::RefreshPhases);
-
-                Some((
-                    update_placement_actions,
-                    planner_core_service
-                        .update(Event::AssignPlacementsToPhase {
-                            phase: phase.clone(),
-                            operation,
-                            placements: exact_match(&object_path.to_string()),
-                        })
-                        .into_actions(),
-                ))
-            } else {
-                None
+            if let Some((phase, operation)) = assignment {
+                events.push(Event::AssignPlacementsToPhase {
+                    phase: phase.clone(),
+                    operation,
+                    placements: exact_match(&object_path.to_string()),
+                });
             }
         }
 
-        fn handle_placed(
-            planner_core_service: &mut PlannerCoreService,
-            _key: &ProjectKey,
-            object_path: &ObjectPath,
-            new_placement: &PlacementState,
-            old_placement: &PlacementState,
-        ) -> Option<(Vec<UpdatePlacementAction>, Result<Vec<ProjectAction>, ProjectAction>)> {
-            if new_placement.phase.is_none() {
+        if new.operation_status != old.operation_status {
+            if new.phase.is_none() {
                 error!(
                     "Attempt to place a placement that has not been assigned to a phase. placement: {:?}",
-                    new_placement
+                    new
                 );
-                return None;
-            }
-
-            if new_placement.operation_status != old_placement.operation_status {
-                let operation = match new_placement.operation_status {
+            } else {
+                let operation = match new.operation_status {
                     PlacementStatus::Placed => PlacementOperation::Place,
                     PlacementStatus::Skipped => PlacementOperation::Skip,
                     PlacementStatus::Pending => PlacementOperation::Reset,
                 };
 
-                let phase = new_placement.phase.as_ref().unwrap();
-
-                Some((
-                    vec![
-                        UpdatePlacementAction::RefreshPhaseOverview {
-                            phase: phase.clone(),
-                        },
-                        UpdatePlacementAction::RefreshPhasePlacements {
-                            phase: phase.clone(),
-                        },
-                        UpdatePlacementAction::RefreshPhases,
-                    ],
-                    planner_core_service
-                        .update(Event::RecordPlacementsOperation {
-                            object_path_patterns: vec![exact_match(&object_path.to_string())],
-                            operation,
-                        })
-                        .into_actions(),
-                ))
-            } else {
-                None
+                events.push(Event::RecordPlacementsOperation {
+                    object_path_patterns: vec![exact_match(&object_path.to_string())],
+                    operation,
+                });
             }
         }
 
-        #[derive(Debug)]
-        enum Operation {
-            AddOrRemovePhase,
-            SetOrResetPlaced,
-        }
+        events
+    }
 
-        // FUTURE find a solution to keep the operation with the handler, instead of two separate arrays.
-        //        a tuple was tried, but results in a compile error: "expected fn item, found a different fn item"
-        let operations = [Operation::AddOrRemovePhase, Operation::SetOrResetPlaced];
+    /// Runs the events in order, stopping at the first error.
+    fn run_core_events(&mut self, events: Vec<Event>) -> Vec<Task<ProjectAction>> {
+        let mut tasks = vec![];
 
-        let action_handlers = [handle_phase, handle_placed];
-
-        let mut update_placement_actions = vec![];
-
-        for (operation, handler) in operations
-            .into_iter()
-            .zip(action_handlers.into_iter())
-        {
-            trace!("update placement, trying handler for operation: {:?}", operation);
-            if let Some((additional_update_placement_actions, core_result)) =
-                handler(planner_core_service, &key, &object_path, &new_placement, &old_placement)
+        for event in events {
+            match self
+                .planner_core_service
+                .update(event)
+                .into_actions()
             {
-                debug!("update placement, applicable handler found. operation: {:?}", operation);
-                match core_result {
-                    Ok(actions) => {
-                        debug!("actions: {:?}", actions);
-                        let effect_tasks: Vec<Task<ProjectAction>> = actions
-                            .into_iter()
-                            .map(Task::done)
-                            .collect();
-                        tasks.extend(effect_tasks);
-                        update_placement_actions.extend(additional_update_placement_actions);
-                    }
-                    Err(service_error) => {
-                        tasks.push(Task::done(service_error));
-                        break;
-                    }
+                Ok(actions) => {
+                    debug!("actions: {:?}", actions);
+                    tasks.extend(actions.into_iter().map(Task::done));
+                }
+                Err(service_error) => {
+                    tasks.push(Task::done(service_error));
+                    break;
                 }
             }
         }
 
-        // We need to refresh the placements, it's possible some of the phases applied to placements may not have
-        // been accepted, but the UI will show they were accepted, e.g. when pasting a 'Top' phase onto a
-        // placement with a side of 'Bottom'.
-        //
-        // FUTURE  Ideally, prevent pasting invalid values into the cells in the first place.
-        //         This is a limitation of the design of egui_data_tables and the architecture of this app and
-        //         would require a large refactoring.
-        let final_task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-            ProjectViewRequest::Placements,
-        )));
-        tasks.push(final_task);
-
-        update_placement_actions.dedup();
-
-        (tasks, update_placement_actions)
-    }
-
-    fn handle_update_placement_actions(
-        tasks: &mut Vec<Task<ProjectAction>>,
-        actions: Vec<UpdatePlacementAction>,
-        request_issues_refresh: &mut bool,
-    ) {
-        // Updating placements can create/clear issues.
-        *request_issues_refresh = true;
-
-        for action in actions {
-            if let Some(task) = match action {
-                UpdatePlacementAction::RefreshPhases => Some(Task::done(ProjectAction::UiCommand(
-                    ProjectUiCommand::RequestProjectView(ProjectViewRequest::Phases),
-                ))),
-                UpdatePlacementAction::RefreshPhaseOverview {
-                    phase,
-                } => Some(Task::done(ProjectAction::UiCommand(
-                    ProjectUiCommand::RequestProjectView(ProjectViewRequest::PhaseOverview {
-                        phase,
-                    }),
-                ))),
-                UpdatePlacementAction::RefreshPhasePlacements {
-                    phase,
-                } => Some(Task::done(ProjectAction::UiCommand(
-                    ProjectUiCommand::RequestProjectView(ProjectViewRequest::PhasePlacements {
-                        phase,
-                    }),
-                ))),
-            } {
-                tasks.push(task);
-            }
-        }
+        tasks
     }
 
     fn locate_component(
@@ -1088,10 +830,16 @@ impl Project {
 
         let (pcb_index, _unit_index) = (pcb_number - 1, unit_number - 1);
 
-        self.pcbs
+        let state = self.project_ui_state.lock().unwrap();
+
+        state
+            .data
+            .overview
+            .get()?
+            .pcbs
             .get(pcb_index as usize)
-            .map(|pcb_file| ProjectAction::LocateComponent {
-                pcb_file: pcb_file.clone(),
+            .map(|pcb| ProjectAction::LocateComponent {
+                pcb_file: pcb.pcb_file.build_path(&self.path),
                 object_path,
                 pcb_side,
                 design_position,
@@ -1100,7 +848,12 @@ impl Project {
     }
 
     fn show_add_phase_modal(&mut self, key: ProjectKey) {
-        let mut modal = AddPhaseModal::new(self.path.clone(), self.processes.clone());
+        let processes = {
+            let state = self.project_ui_state.lock().unwrap();
+            state.data.processes().to_vec()
+        };
+
+        let mut modal = AddPhaseModal::new(self.path.clone(), processes);
         modal
             .component
             .configure_mapper(self.component.sender.clone(), move |command| {
@@ -1112,13 +865,20 @@ impl Project {
     }
 
     fn show_package_sources_modal(&mut self, key: ProjectKey) {
-        if let Some(library_config) = &self.library_config {
+        let library_config = {
+            let state = self.project_ui_state.lock().unwrap();
+            state
+                .data
+                .overview
+                .get()
+                .map(|overview| overview.library_config.clone())
+        };
+
+        if let Some(library_config) = library_config {
             let mut modal = PackageSourcesModal::new(
                 self.path.clone(),
-                library_config.package_source.clone(),
-                library_config
-                    .package_mappings_source
-                    .clone(),
+                library_config.package_source,
+                library_config.package_mappings_source,
             );
             modal
                 .component
@@ -1135,13 +895,6 @@ impl Project {
         let mut picker = self.file_picker.lock().unwrap();
         picker.pick_file();
     }
-}
-
-#[derive(Debug, PartialEq)]
-enum UpdatePlacementAction {
-    RefreshPhases,
-    RefreshPhaseOverview { phase: PhaseReference },
-    RefreshPhasePlacements { phase: PhaseReference },
 }
 
 pub struct ProjectContext {
@@ -1163,7 +916,13 @@ impl UiComponent for Project {
             ui.label(tr!("project-detail-path", { path: self.path.display().to_string() }));
 
             let state = self.project_ui_state.lock().unwrap();
-            if let Some(name) = &state.name {
+            let name = state
+                .data
+                .overview
+                .get()
+                .map(|overview| &overview.name)
+                .or(state.name.as_ref());
+            if let Some(name) = name {
                 ui.label(tr!("project-detail-name", { name: name }));
             } else {
                 ui.spinner();
@@ -1224,15 +983,134 @@ impl UiComponent for Project {
     ) -> Option<Self::UiAction> {
         let (key, command) = command;
 
-        let mut request_issues_refresh = false;
+        let action = self.handle_command(key, command);
 
-        let action = match command {
+        if self.refresh_views() {
+            self.component
+                .send((key, ProjectUiCommand::RepaintRequested));
+        }
+
+        action
+    }
+}
+
+impl Project {
+    /// Brings the data required by the open tabs up-to-date with the core, then lets components rebuild derived state.
+    ///
+    /// Runs after every command, so command handlers only need to change the core's state and do not need to know which
+    /// views their change affects.
+    ///
+    /// Returns true if any views were fetched.
+    fn refresh_views(&mut self) -> bool {
+        if !self.ready {
+            return false;
+        }
+
+        let project_tabs = self.project_tabs.lock().unwrap();
+        let mut state = self.project_ui_state.lock().unwrap();
+
+        Self::mark_stale_if_core_changed(&self.planner_core_service, &mut self.seen_generation, &mut state.data);
+
+        let mut fetched = false;
+
+        // this loops because some views can only be required after another view has been received, e.g. the path of a
+        // pcb overview comes from the view linking the pcb to the project.
+        loop {
+            let required_by_tabs =
+                project_tabs.filter_map(|(_tab_key, tab_kind)| Some(tab_kind.required_views(&state.data)));
+
+            let missing = missing_views(required_by_tabs, &state.data);
+            if missing.is_empty() {
+                break;
+            }
+
+            for key in missing {
+                Self::fetch_view(&mut self.planner_core_service, &mut self.errors, &mut state.data, key);
+                fetched = true;
+            }
+        }
+
+        state.sync_components();
+
+        fetched
+    }
+
+    fn mark_stale_if_core_changed(
+        planner_core_service: &PlannerCoreService,
+        seen_generation: &mut u64,
+        data: &mut ProjectData,
+    ) {
+        let generation = planner_core_service.generation();
+        if generation != *seen_generation {
+            *seen_generation = generation;
+            data.mark_all_stale();
+        }
+    }
+
+    /// After this, the view will either have been received or be recorded as failed, so it won't need fetching again.
+    fn fetch_view(
+        planner_core_service: &mut PlannerCoreService,
+        errors: &mut Vec<(chrono::DateTime<chrono::Utc>, String)>,
+        data: &mut ProjectData,
+        key: ViewKey,
+    ) {
+        debug!("fetching view: {:?}", key);
+
+        match planner_core_service.query(key.clone().into_event()) {
+            Ok(actions) => {
+                for action in actions {
+                    match action {
+                        PlannerAction::ProjectView(view) => data.apply_project_view(view),
+                        PlannerAction::PcbView(view) => data.apply_pcb_view(view),
+                        PlannerAction::SetModifiedState {
+                            ..
+                        } => {
+                            // requesting a view doesn't modify anything.
+                        }
+                    }
+                }
+
+                data.record_fetched(&key);
+
+                if data.needs_fetch(&key) {
+                    error!("core did not provide the requested view. key: {:?}", key);
+                    let _ = data.record_failed(key);
+                }
+            }
+            Err(error) => {
+                if data.record_failed(key) {
+                    Self::record_error(errors, error);
+                }
+            }
+        }
+    }
+
+    fn record_error(errors: &mut Vec<(chrono::DateTime<chrono::Utc>, String)>, error: PlannerError) {
+        match error {
+            PlannerError::CoreError(message) => errors.push(message),
+            PlannerError::Other(message) => errors.push(message),
+        }
+    }
+
+    fn on_project_opened(&mut self) {
+        self.ready = true;
+
+        self.show_explorer();
+        self.show_overview();
+        self.show_issues();
+    }
+
+    fn handle_command(&mut self, key: ProjectKey, command: ProjectUiCommand) -> Option<ProjectAction> {
+        match command {
             ProjectUiCommand::None => None,
             ProjectUiCommand::Create => {
-                let state = self.project_ui_state.lock().unwrap();
+                let name = {
+                    let state = self.project_ui_state.lock().unwrap();
+                    state.name.clone().unwrap()
+                };
                 self.planner_core_service
                     .update(Event::CreateProject {
-                        name: state.name.clone().unwrap(),
+                        name,
                         path: self.path.clone(),
                         packages: None,
                         package_mappings: None,
@@ -1240,14 +1118,8 @@ impl UiComponent for Project {
                     .when_ok(key, |_| Some(ProjectUiCommand::Created))
             }
             ProjectUiCommand::Created => {
-                let show_explorer_task = self.show_explorer();
-                let show_overview_tasks = self.show_overview();
-                let show_issues_tasks = self.show_issues();
-                let mut tasks = vec![show_explorer_task];
-                tasks.extend(show_overview_tasks);
-                tasks.extend(show_issues_tasks);
-
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
+                self.on_project_opened();
+                None
             }
             ProjectUiCommand::Load => {
                 debug!("Loading project from path. path: {}", self.path.display());
@@ -1259,14 +1131,8 @@ impl UiComponent for Project {
                     .when_ok(key, |_tasks| Some(ProjectUiCommand::Loaded))
             }
             ProjectUiCommand::Loaded => {
-                let show_explorer_task = self.show_explorer();
-                let show_overview_tasks = self.show_overview();
-                let show_issues_tasks = self.show_issues();
-                let mut tasks = vec![show_explorer_task];
-                tasks.extend(show_overview_tasks);
-                tasks.extend(show_issues_tasks);
-
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
+                self.on_project_opened();
+                None
             }
             ProjectUiCommand::Save => {
                 debug!("Saving project. path: {}", self.path.display());
@@ -1278,47 +1144,6 @@ impl UiComponent for Project {
                 debug!("Saved project.");
                 None
             }
-            ProjectUiCommand::ProjectRefreshed => {
-                debug!("Project refreshed.");
-
-                // FUTURE The current approach is to know exactly what needs to happen, however, the child elements/tabs
-                //        themselves should be responsible for taking appropriate actions, this requires ui components
-                //        to subscribe to refresh events or something and there is no mechanism for that yet.
-
-                let mut requests = vec![
-                    // Update anything that uses data from views
-                    ProjectViewRequest::Overview,
-                    // Update the tree, since phases may have been deleted, etc.
-                    ProjectViewRequest::ProjectTree,
-                    // refresh phases
-                    ProjectViewRequest::Phases,
-                    // refresh placements
-                    ProjectViewRequest::Placements,
-                ];
-
-                let phase_requests = self
-                    .phases
-                    .iter()
-                    .flat_map(|phase| {
-                        vec![
-                            ProjectViewRequest::PhaseOverview {
-                                phase: phase.phase_reference.clone(),
-                            },
-                            ProjectViewRequest::PhasePlacements {
-                                phase: phase.phase_reference.clone(),
-                            },
-                        ]
-                    })
-                    .collect::<Vec<_>>();
-                requests.extend(phase_requests);
-
-                let tasks = requests
-                    .into_iter()
-                    .map(|request| Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(request))))
-                    .collect::<Vec<_>>();
-
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
-            }
             ProjectUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
@@ -1328,19 +1153,13 @@ impl UiComponent for Project {
                 // TODO remove the logical or here when AddPcbs has been reworked.
                 Some(ProjectAction::SetModifiedState(project_modified || pcbs_modified))
             }
+            ProjectUiCommand::RepaintRequested => Some(ProjectAction::RequestRepaint),
 
             //
             // errors
             //
             ProjectUiCommand::Error(error) => {
-                match error {
-                    PlannerError::CoreError(message) => {
-                        self.errors.push(message);
-                    }
-                    PlannerError::Other(message) => {
-                        self.errors.push(message);
-                    }
-                }
+                Self::record_error(&mut self.errors, error);
                 None
             }
             ProjectUiCommand::ClearErrors => {
@@ -1349,252 +1168,20 @@ impl UiComponent for Project {
             }
 
             //
-            // project views
+            // views
             //
-            ProjectUiCommand::RequestProjectView(view_request) => {
-                debug!("request project view: {:?}", view_request);
-                let event = match view_request {
-                    ProjectViewRequest::Overview => Event::RequestOverviewView {},
-                    ProjectViewRequest::Parts => Event::RequestPartStatesView {},
-                    ProjectViewRequest::Placements => Event::RequestPlacementsView {},
-                    ProjectViewRequest::Phases => Event::RequestPhasesView {},
-                    ProjectViewRequest::ProjectTree => Event::RequestProjectTreeView {},
-                    ProjectViewRequest::PhaseOverview {
-                        phase,
-                    } => Event::RequestPhaseOverviewView {
-                        phase_reference: phase,
-                    },
-                    ProjectViewRequest::PhaseLoadOut {
-                        phase,
-                    } => Event::RequestPhaseLoadOutView {
-                        phase_reference: phase,
-                    },
-                    ProjectViewRequest::PhasePlacements {
-                        phase,
-                    } => Event::RequestPhasePlacementsView {
-                        phase_reference: phase,
-                    },
-                    ProjectViewRequest::PcbOverview {
-                        pcb,
-                    } => Event::RequestProjectPcbOverviewView {
-                        pcb,
-                    },
-                    ProjectViewRequest::PcbUnitAssignments {
-                        pcb,
-                    } => Event::RequestPcbUnitAssignmentsView {
-                        pcb,
-                    },
-                    ProjectViewRequest::ProcessDefinition {
-                        process,
-                    } => Event::RequestProcessDefinitionView {
-                        process_reference: process,
-                    },
-                    ProjectViewRequest::ProjectReport => Event::RequestProjectReportView {},
-                };
-
-                self.planner_core_service
-                    .update(event)
-                    .when_ok(key, |_| None)
-            }
             ProjectUiCommand::ProjectView(view) => {
-                match view {
-                    ProjectView::Overview(project_overview) => {
-                        trace!("project overview: {:?}", project_overview);
-                        self.update_processes(&project_overview);
-                        self.update_pcbs(&project_overview);
-                        self.update_library_config(&project_overview.library_config);
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        state.name = Some(project_overview.name.clone());
-                        state
-                            .overview_ui
-                            .update_overview(project_overview);
-                    }
-                    ProjectView::ProjectTree(project_tree) => {
-                        trace!("project tree: {:?}", project_tree);
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        state
-                            .explorer_tab_ui
-                            .update_tree(project_tree);
-                    }
-                    ProjectView::PcbOverview(project_pcb_overview) => {
-                        trace!("project_pcb_overview: {:?}", project_pcb_overview);
-
-                        // FUTURE use the name to update the tab label of the pcb overview and unit_assignments tabs?
-                        //        would need multiple actions...
-                        //        A reactive 'Reactive<Option<PcbOverview>>' that's given to both tabs
-                        //        would be perfect here to avoid needing any actions.
-                        let _pcb_file = project_pcb_overview.pcb_file.clone();
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-
-                        if let Some(pcb_ui) = state
-                            .pcb_tab_uis
-                            .get_mut(&(project_pcb_overview.index as usize))
-                        {
-                            pcb_ui.update_project_pcb_overview(project_pcb_overview.clone());
-                        }
-
-                        if let Some(unit_assignments_ui) = state
-                            .unit_assignment_tab_uis
-                            .get_mut(&(project_pcb_overview.index as usize))
-                        {
-                            unit_assignments_ui.update_project_pcb_overview(project_pcb_overview.clone());
-                        }
-                    }
-                    ProjectView::PcbUnitAssignments(pcb_unit_assignments) => {
-                        trace!("pcb_unit_assignments: {:?}", pcb_unit_assignments);
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-
-                        if let Some(unit_assignments_ui) = state
-                            .unit_assignment_tab_uis
-                            .get_mut(&(pcb_unit_assignments.index as usize))
-                        {
-                            unit_assignments_ui.update_unit_assignments(pcb_unit_assignments);
-                        }
-                    }
-                    ProjectView::Placements(placements) => {
-                        trace!("placements: {:?}", placements);
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        state
-                            .placements_ui
-                            .update_placements(placements, self.phases.clone())
-                    }
-                    ProjectView::Phases(phases) => {
-                        trace!("phases: {:?}", phases);
-                        self.phases = phases.phases;
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        state
-                            .placements_ui
-                            .update_phases(self.phases.clone());
-
-                        state
-                            .overview_ui
-                            .update_phases(self.phases.clone());
-                    }
-                    ProjectView::PhaseOverview(phase_overview) => {
-                        trace!("phase overview: {:?}", phase_overview);
-                        let phase = phase_overview.phase_reference.clone();
-
-                        self.ensure_phase(key, &phase);
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        let phase_ui = state
-                            .phases_tab_uis
-                            .get_mut(&phase)
-                            .unwrap();
-
-                        phase_ui.update_overview(phase_overview);
-                    }
-                    ProjectView::PhasePlacements(phase_placements) => {
-                        trace!("phase placements: {:?}", phase_placements);
-                        let phase = phase_placements.phase_reference.clone();
-
-                        self.ensure_phase(key, &phase);
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        let phase_ui = state
-                            .phases_tab_uis
-                            .get_mut(&phase)
-                            .unwrap();
-
-                        phase_ui.update_placements(phase_placements, self.phases.clone());
-                    }
-                    ProjectView::ProcessDefinition(process_definition) => {
-                        trace!("process definition: {:?}", process_definition);
-                        let process = process_definition.reference.clone();
-
-                        self.ensure_process(key, &process);
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        let process_ui = state
-                            .process_tab_uis
-                            .get_mut(&process)
-                            .unwrap();
-
-                        process_ui.update_definition(process_definition);
-                    }
-                    ProjectView::Parts(part_states) => {
-                        trace!("parts: {:?}", part_states);
-                        let mut state = self.project_ui_state.lock().unwrap();
-
-                        state
-                            .parts_tab_ui
-                            .update_part_states(part_states, self.processes.clone())
-                    }
-                    ProjectView::PhaseLoadOut(load_out) => {
-                        trace!("load_out: {:?}", load_out);
-                        let load_out_source = load_out.source.clone();
-
-                        self.ensure_load_out(key, load_out.phase_reference.clone(), &load_out_source);
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-                        let load_out_ui = state
-                            .load_out_tab_uis
-                            .get_mut(&load_out_source)
-                            .unwrap();
-
-                        load_out_ui.update_load_out(load_out);
-                    }
-                    ProjectView::ProjectReport(report) => {
-                        info!("report:\n{:?}", report);
-
-                        request_issues_refresh = false;
-
-                        let mut state = self.project_ui_state.lock().unwrap();
-
-                        state.issues_ui.update_report(report)
-                    }
-                }
+                trace!("project view: {:?}", view);
+                let mut state = self.project_ui_state.lock().unwrap();
+                state.data.apply_project_view(view);
                 None
             }
-
-            //
-            // pcb views
-            //
-            ProjectUiCommand::RequestPcbView(view_request) => {
-                let event = match view_request {
-                    PcbViewRequest::Overview {
-                        path,
-                    } => Some(Event::RequestPcbOverviewView {
-                        path,
-                    }),
-                    PcbViewRequest::Panel {
-                        ..
-                    } => {
-                        // TODO add/use a suitable core event
-                        None
-                    }
-                };
-                // TODO remove the `if let`
-                if let Some(event) = event {
-                    self.planner_core_service
-                        .update(event)
-                        .when_ok(key, |_| None)
-                } else {
-                    None
-                }
+            ProjectUiCommand::PcbView(view) => {
+                trace!("pcb view: {:?}", view);
+                let mut state = self.project_ui_state.lock().unwrap();
+                state.data.apply_pcb_view(view);
+                None
             }
-            ProjectUiCommand::PcbView(view) => match view {
-                PcbView::PcbOverview(pcb_overview) => {
-                    let mut state = self.project_ui_state.lock().unwrap();
-
-                    for (_index, pcb_ui) in state.pcb_tab_uis.iter_mut() {
-                        pcb_ui.update_pcb_overview(&pcb_overview);
-                    }
-
-                    for (_index, unit_assignments_ui) in state.unit_assignment_tab_uis.iter_mut() {
-                        unit_assignments_ui.update_pcb_overview(&pcb_overview);
-                    }
-
-                    None
-                }
-                PcbView::PanelSizing(_panel_sizing) => {
-                    // nothing requests this view
-                    None
-                }
-            },
 
             //
             // toolbar
@@ -1605,8 +1192,8 @@ impl UiComponent for Project {
                     .update(toolbar_command, &mut ());
                 match action {
                     Some(ProjectToolbarAction::ShowProjectExplorer) => {
-                        let task = self.show_explorer();
-                        Some(ProjectAction::Task(key, task))
+                        self.show_explorer();
+                        None
                     }
                     Some(ProjectToolbarAction::GenerateArtifacts) => self
                         .planner_core_service
@@ -1623,7 +1210,7 @@ impl UiComponent for Project {
                         .update(Event::RemoveUsedPlacements {
                             phase: None,
                         })
-                        .when_ok(key, |_| Some(ProjectUiCommand::ProjectRefreshed)),
+                        .when_ok(key, |_| None),
                     Some(ProjectToolbarAction::PickPcbFile) => {
                         self.pick_pcb_file();
                         None
@@ -1639,7 +1226,7 @@ impl UiComponent for Project {
                     Some(ProjectToolbarAction::ResetOperations) => self
                         .planner_core_service
                         .update(Event::ResetOperations {})
-                        .when_ok(key, |_| Some(ProjectUiCommand::ProjectRefreshed)),
+                        .when_ok(key, |_| None),
                     None => None,
                 }
             }
@@ -1655,34 +1242,16 @@ impl UiComponent for Project {
                 // FUTURE consider storing a relative file if the pcb_path is in a subdirectory of the project path.
                 let pcb_file = FileReference::Absolute(pcb_path);
 
-                let mut tasks = vec![];
-
-                // Adding PCBs can clear issues.
-                request_issues_refresh = true;
-
-                match self
-                    .planner_core_service
+                self.planner_core_service
                     .update(Event::AddPcb {
                         pcb_file,
                     })
-                    .into_actions()
-                {
-                    Ok(actions) => {
-                        let event_tasks = actions
-                            .into_iter()
-                            .map(Task::done)
-                            .collect::<Vec<Task<ProjectAction>>>();
-
-                        tasks.extend(event_tasks);
-
-                        tasks.push(Task::done(ProjectAction::UiCommand(
-                            ProjectUiCommand::RequestProjectView(ProjectViewRequest::ProjectTree),
-                        )));
-                        Some(ProjectAction::Task(key, Task::batch(tasks)))
-                    }
-                    Err(error_action) => Some(error_action),
-                }
+                    .when_ok(key, |_| None)
             }
+
+            //
+            // modals
+            //
             ProjectUiCommand::AddPhaseModalCommand(command) => {
                 if let Some(modal) = &mut self.add_phase_modal {
                     let action = modal.update(command, &mut ());
@@ -1691,39 +1260,14 @@ impl UiComponent for Project {
                         Some(AddPhaseModalAction::Submit(args)) => {
                             self.add_phase_modal.take();
 
-                            match self
-                                .planner_core_service
+                            self.planner_core_service
                                 .update(Event::CreatePhase {
                                     process: args.process,
                                     reference: args.reference,
                                     load_out: args.load_out,
                                     pcb_side: args.pcb_side,
                                 })
-                                .into_actions()
-                            {
-                                Ok(actions) => {
-                                    // Adding phases can clear issues.
-                                    request_issues_refresh = true;
-
-                                    let mut tasks = actions
-                                        .into_iter()
-                                        .map(Task::done)
-                                        .collect::<Vec<Task<ProjectAction>>>();
-
-                                    let additional_tasks = vec![
-                                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                                            ProjectViewRequest::ProjectTree,
-                                        ))),
-                                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                                            ProjectViewRequest::Phases,
-                                        ))),
-                                    ];
-                                    tasks.extend(additional_tasks);
-
-                                    Some(ProjectAction::Task(key, Task::batch(tasks)))
-                                }
-                                Err(error_action) => Some(error_action),
-                            }
+                                .when_ok(key, |_| None)
                         }
                         Some(AddPhaseModalAction::CloseDialog) => {
                             self.add_phase_modal.take();
@@ -1752,12 +1296,7 @@ impl UiComponent for Project {
                                     packages_source: args.packages_source,
                                     package_mappings_source: args.package_mappings_source,
                                 })
-                                .when_ok(key, |_| {
-                                    // we raise this event, since changing package souces
-                                    // can have an effect of the sort order of placements if they are sorted by
-                                    // something that uses package mappings and packages.
-                                    Some(ProjectUiCommand::ProjectRefreshed)
-                                })
+                                .when_ok(key, |_| None)
                         }
                         Some(PackageSourcesModalAction::CloseDialog) => {
                             self.package_sources_modal.take();
@@ -1791,174 +1330,127 @@ impl UiComponent for Project {
             ProjectUiCommand::ShowPhaseLoadout {
                 phase,
             } => {
-                let tasks = vec![
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::Phases,
-                    ))),
-                    // FIXME there is no current way to know whether to continue,  or not, as there is no mechanism
-                    //       to know if `ProjectViewRequest::Phases` completed and all the effects have ALSO completed.
-                    //       currently the ProjectUiCommand::ContinueShowPhaseLoadout is called before the handler for
-                    //       ProjectUiCommand::ProjectView is called.
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::ContinueShowPhaseLoadout {
-                        phase,
-                    })),
-                ];
+                // the load-out source comes from the phases view, which may not have been received when tabs are being
+                // restored at startup.
+                let load_out_source = {
+                    let mut state = self.project_ui_state.lock().unwrap();
 
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
-            }
-            ProjectUiCommand::ContinueShowPhaseLoadout {
-                phase,
-            } => {
-                let phase_overview = self
-                    .phases
-                    .iter()
-                    .find(|phase_overview| {
-                        phase_overview
-                            .phase_reference
-                            .eq(&phase)
-                    });
-
-                if let Some(phase_overview) = phase_overview {
-                    let task = self.show_loadout(
-                        key,
-                        phase_overview.phase_reference.clone(),
-                        &phase_overview.load_out_source,
+                    Self::mark_stale_if_core_changed(
+                        &self.planner_core_service,
+                        &mut self.seen_generation,
+                        &mut state.data,
                     );
 
-                    task.map(|task| ProjectAction::Task(key, task))
-                } else {
-                    // FIXME see ProjectUiCommand::ShowPhaseLoadout handler
+                    if state.data.needs_fetch(&ViewKey::Phases) {
+                        Self::fetch_view(
+                            &mut self.planner_core_service,
+                            &mut self.errors,
+                            &mut state.data,
+                            ViewKey::Phases,
+                        );
+                    }
 
-                    debug!(
-                        "FIXME - there continuing to show a phase when the phase overview has not available. phase: {:?}",
-                        phase
-                    );
+                    state
+                        .data
+                        .phase_list()
+                        .iter()
+                        .find(|phase_overview| {
+                            phase_overview
+                                .phase_reference
+                                .eq(&phase)
+                        })
+                        .map(|phase_overview| phase_overview.load_out_source.clone())
+                };
 
-                    // FIXME retrying indefinitely by sending the command again, in the hopes it has worked by the time this
-                    //       command handler is executed again.
-                    Some(ProjectAction::Task(
-                        key,
-                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::ContinueShowPhaseLoadout {
-                            phase,
-                        })),
-                    ))
+                match load_out_source {
+                    Some(load_out_source) => self.show_loadout(key, phase, &load_out_source),
+                    None => error!("Unable to show load-out for unknown phase. phase: {:?}", phase),
                 }
+                None
             }
             ProjectUiCommand::ShowPcbUnitAssignments(pcb_index) => {
-                let tasks = self.show_unit_assignments(key, pcb_index);
-                tasks.map(|tasks| ProjectAction::Task(key, Task::batch(tasks)))
+                self.show_unit_assignments(key, pcb_index);
+                None
             }
             ProjectUiCommand::ShowExplorer => {
-                let task = self.show_explorer();
-                Some(ProjectAction::Task(key, task))
+                self.show_explorer();
+                None
             }
             ProjectUiCommand::ShowIssues => {
-                let tasks = self.show_issues();
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
+                self.show_issues();
+                None
             }
             ProjectUiCommand::ShowOverview => {
-                let tasks = self.show_overview();
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
+                self.show_overview();
+                None
             }
             ProjectUiCommand::ShowParts => {
-                let task = self.show_parts();
-                Some(ProjectAction::Task(key, task))
+                self.show_parts();
+                None
             }
             ProjectUiCommand::ShowPlacements => {
-                let tasks = self.show_placements();
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
-            }
-            ProjectUiCommand::RefreshPhases => {
-                let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                    ProjectViewRequest::Phases,
-                )));
-                Some(ProjectAction::Task(key, task))
+                self.show_placements();
+                None
             }
             ProjectUiCommand::ShowPhase(phase) => {
-                let tasks = self.show_phase(key.clone(), phase.clone());
-
-                tasks.map(|tasks| ProjectAction::Task(key, Task::batch(tasks)))
+                self.show_phase(key, phase);
+                None
             }
             ProjectUiCommand::ShowProcess(process) => {
-                let tasks = self.show_process(key.clone(), process.clone());
-
-                tasks.map(|tasks| ProjectAction::Task(key, Task::batch(tasks)))
+                self.show_process(key, process);
+                None
             }
             ProjectUiCommand::ShowPcb(pcb_index) => {
-                let tasks = self.show_pcb(key.clone(), pcb_index);
-
-                tasks.map(|tasks| ProjectAction::Task(key, Task::batch(tasks)))
+                self.show_pcb(key, pcb_index);
+                None
             }
 
             ProjectUiCommand::ExplorerTabUiCommand(command) => {
-                let context = &mut ExplorerTabUiContext::default();
-                let explorer_ui_action = self
-                    .project_ui_state
-                    .lock()
-                    .unwrap()
-                    .explorer_tab_ui
-                    .update(command, context);
+                let explorer_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .explorer_tab_ui
+                        .update(command, &mut ExplorerTabUiContext {
+                            data: &state.data,
+                        })
+                };
                 match explorer_ui_action {
                     None => None,
                     Some(ExplorerTabUiAction::Navigate(path)) => self.navigate(key, path),
-                    Some(ExplorerTabUiAction::SetPhaseOrdering(phases)) => {
-                        match self
-                            .planner_core_service
-                            .update(Event::SetPhaseOrdering {
-                                phases,
-                            })
-                            .into_actions()
-                        {
-                            Ok(actions) => {
-                                let mut tasks = actions
-                                    .into_iter()
-                                    .map(Task::done)
-                                    .collect::<Vec<Task<ProjectAction>>>();
-
-                                let additional_tasks = vec![
-                                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                                        ProjectViewRequest::ProjectTree,
-                                    ))),
-                                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                                        ProjectViewRequest::Phases,
-                                    ))),
-                                ];
-                                tasks.extend(additional_tasks);
-
-                                Some(ProjectAction::Task(key, Task::batch(tasks)))
-                            }
-                            Err(error_action) => Some(error_action),
-                        }
-                    }
+                    Some(ExplorerTabUiAction::SetPhaseOrdering(phases)) => self
+                        .planner_core_service
+                        .update(Event::SetPhaseOrdering {
+                            phases,
+                        })
+                        .when_ok(key, |_| None),
                 }
             }
             ProjectUiCommand::IssuesTabUiCommand(command) => {
-                let context = &mut IssuesTabUiContext::default();
-                let issues_ui_action = self
-                    .project_ui_state
-                    .lock()
-                    .unwrap()
+                let mut guard = self.project_ui_state.lock().unwrap();
+                let state = &mut *guard;
+                let issues_ui_action = state
                     .issues_ui
-                    .update(command, context);
+                    .update(command, &mut IssuesTabUiContext {
+                        data: &state.data,
+                    });
                 match issues_ui_action {
-                    None => None,
-                    Some(IssuesTabUiAction::None) => None,
-                    Some(IssuesTabUiAction::RefreshIssues) => Some(ProjectAction::Task(
-                        key,
-                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                            ProjectViewRequest::ProjectReport,
-                        ))),
-                    )),
+                    None => {}
+                    Some(IssuesTabUiAction::None) => {}
+                    Some(IssuesTabUiAction::RefreshIssues) => state.data.mark_report_stale(),
                 }
+                None
             }
             ProjectUiCommand::OverviewTabUiCommand(command) => {
-                let context = &mut OverviewTabUiContext::default();
-                let overview_ui_action = self
-                    .project_ui_state
-                    .lock()
-                    .unwrap()
-                    .overview_ui
-                    .update(command, context);
+                let overview_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .overview_ui
+                        .update(command, &mut OverviewTabUiContext {
+                            data: &state.data,
+                        })
+                };
                 match overview_ui_action {
                     None => None,
                     Some(OverviewTabUiAction::None) => None,
@@ -1970,35 +1462,36 @@ impl UiComponent for Project {
                         self.pick_pcb_file();
                         None
                     }
-                    Some(OverviewTabUiAction::DeletePhase(reference)) => {
-                        // Deleting phases can create issues (no phases, unassigned placements)
-                        request_issues_refresh = true;
-
-                        self.planner_core_service
-                            .update(Event::DeletePhase {
-                                reference: reference.clone(),
-                            })
-                            .when_ok(key, |_| Some(ProjectUiCommand::PhaseDeleted(reference)))
-                    }
-                    Some(OverviewTabUiAction::RemovePcb(pcb_unit_index)) => {
-                        // Deleting pcbs can create issues (no pcbs, etc)
-                        request_issues_refresh = true;
-                        self.planner_core_service
-                            .update(Event::RemovePcb {
-                                index: pcb_unit_index,
-                            })
-                            .when_ok(key, |_| Some(ProjectUiCommand::PcbRemoved))
-                    }
+                    Some(OverviewTabUiAction::DeletePhase(reference)) => self
+                        .planner_core_service
+                        .update(Event::DeletePhase {
+                            reference: reference.clone(),
+                        })
+                        .when_ok(key, |_| {
+                            self.close_phase_tabs(&reference);
+                            None
+                        }),
+                    Some(OverviewTabUiAction::RemovePcb(pcb_unit_index)) => self
+                        .planner_core_service
+                        .update(Event::RemovePcb {
+                            index: pcb_unit_index,
+                        })
+                        .when_ok(key, |_| {
+                            self.close_pcb_tabs_from(pcb_unit_index);
+                            Some(ProjectUiCommand::PcbRemoved)
+                        }),
                 }
             }
             ProjectUiCommand::PartsTabUiCommand(command) => {
-                let context = &mut PartsTabUiContext::default();
-                let parts_ui_action = self
-                    .project_ui_state
-                    .lock()
-                    .unwrap()
-                    .parts_tab_ui
-                    .update(command, context);
+                let parts_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .parts_tab_ui
+                        .update(command, &mut PartsTabUiContext {
+                            data: &state.data,
+                        })
+                };
                 match parts_ui_action {
                     Some(PartsTabUiAction::None) => None,
                     None => None,
@@ -2006,98 +1499,44 @@ impl UiComponent for Project {
                         part,
                         processes,
                     }) => {
-                        let mut tasks = vec![];
-                        for (process, enabled) in processes {
-                            let operation = match enabled {
-                                true => AddOrRemoveAction::Add,
-                                false => AddOrRemoveAction::Remove,
-                            };
+                        let events = processes
+                            .into_iter()
+                            .map(|(process, enabled)| Event::AssignProcessToParts {
+                                process,
+                                operation: match enabled {
+                                    true => AddOrRemoveAction::Add,
+                                    false => AddOrRemoveAction::Remove,
+                                },
+                                manufacturer: exact_match(part.manufacturer.as_str()),
+                                mpn: exact_match(part.mpn.as_str()),
+                            })
+                            .collect();
 
-                            match self
-                                .planner_core_service
-                                .update(Event::AssignProcessToParts {
-                                    process,
-                                    operation,
-                                    manufacturer: exact_match(part.manufacturer.as_str()),
-                                    mpn: exact_match(part.mpn.as_str()),
-                                })
-                                .into_actions()
-                            {
-                                Ok(actions) => {
-                                    debug!("actions: {:?}", actions);
-                                    let effect_tasks: Vec<Task<ProjectAction>> = actions
-                                        .into_iter()
-                                        .map(Task::done)
-                                        .collect();
-                                    tasks.extend(effect_tasks);
-                                }
-                                Err(service_error) => {
-                                    tasks.push(Task::done(service_error));
-                                    break;
-                                }
-                            }
-                        }
+                        let tasks = self.run_core_events(events);
 
-                        let final_task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                            ProjectViewRequest::Parts,
-                        )));
-                        tasks.push(final_task);
-
-                        let action = ProjectAction::Task(key, Task::batch(tasks));
-
-                        Some(action)
+                        Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
                     Some(PartsTabUiAction::ApplyPartsAction(parts, apply_action)) => {
-                        let mut tasks = vec![];
-
                         debug!("apply_action: {:?}", apply_action);
 
-                        for part in parts {
-                            debug!("part: {:?}", part);
+                        let (process, operation) = match apply_action {
+                            PartsTabUiApplyAction::AddProcess(process) => (process, AddOrRemoveAction::Add),
+                            PartsTabUiApplyAction::RemoveProcess(process) => (process, AddOrRemoveAction::Remove),
+                        };
 
-                            match &apply_action {
-                                PartsTabUiApplyAction::AddProcess(process)
-                                | PartsTabUiApplyAction::RemoveProcess(process) => {
-                                    let operation = match &apply_action {
-                                        PartsTabUiApplyAction::AddProcess(_) => AddOrRemoveAction::Add,
-                                        PartsTabUiApplyAction::RemoveProcess(_) => AddOrRemoveAction::Remove,
-                                    };
+                        let events = parts
+                            .into_iter()
+                            .map(|part| Event::AssignProcessToParts {
+                                process: process.clone(),
+                                operation: operation.clone(),
+                                manufacturer: exact_match(part.manufacturer.as_str()),
+                                mpn: exact_match(part.mpn.as_str()),
+                            })
+                            .collect();
 
-                                    match self
-                                        .planner_core_service
-                                        .update(Event::AssignProcessToParts {
-                                            process: process.clone(),
-                                            operation,
-                                            manufacturer: exact_match(part.manufacturer.as_str()),
-                                            mpn: exact_match(part.mpn.as_str()),
-                                        })
-                                        .into_actions()
-                                    {
-                                        Ok(actions) => {
-                                            debug!("actions: {:?}", actions);
-                                            let effect_tasks: Vec<Task<ProjectAction>> = actions
-                                                .into_iter()
-                                                .map(Task::done)
-                                                .collect();
-                                            tasks.extend(effect_tasks);
-                                        }
-                                        Err(service_error) => {
-                                            tasks.push(Task::done(service_error));
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        let tasks = self.run_core_events(events);
 
-                        let final_task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                            ProjectViewRequest::Parts,
-                        )));
-                        tasks.push(final_task);
-
-                        let action = ProjectAction::Task(key, Task::batch(tasks));
-
-                        Some(action)
+                        Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
                     Some(PartsTabUiAction::RequestRepaint) => Some(ProjectAction::RequestRepaint),
                 }
@@ -2106,14 +1545,16 @@ impl UiComponent for Project {
                 phase,
                 command,
             } => {
-                let mut state = self.project_ui_state.lock().unwrap();
-                let phase_ui = state
-                    .phases_tab_uis
-                    .get_mut(&phase)
-                    .unwrap();
-
-                let context = &mut PhaseTabUiContext::default();
-                let phase_ui_action = phase_ui.update(command, context);
+                let phase_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .phases_tab_uis
+                        .get_mut(&phase)?
+                        .update(command, &mut PhaseTabUiContext {
+                            data: &state.data,
+                        })
+                };
 
                 match phase_ui_action {
                     None => None,
@@ -2124,14 +1565,8 @@ impl UiComponent for Project {
                         new_placement,
                         old_placement,
                     }) => {
-                        let (mut tasks, actions) = Self::update_placement(
-                            &mut self.planner_core_service,
-                            key,
-                            object_path,
-                            new_placement,
-                            old_placement,
-                        );
-                        Self::handle_update_placement_actions(&mut tasks, actions, &mut request_issues_refresh);
+                        let events = Self::placement_events(&object_path, &new_placement, &old_placement);
+                        let tasks = self.run_core_events(events);
 
                         Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
@@ -2139,25 +1574,21 @@ impl UiComponent for Project {
                         phase,
                         manufacturer_pattern,
                         mpn_pattern,
-                    }) => {
-                        // Adding parts to loadouts can clear issues
-                        request_issues_refresh = true;
-
-                        self.planner_core_service
-                            .update(Event::AddPartsToLoadout {
-                                phase,
-                                manufacturer: manufacturer_pattern,
-                                mpn: mpn_pattern,
-                            })
-                            .when_ok(key, |_| None)
-                    }
+                    }) => self
+                        .planner_core_service
+                        .update(Event::AddPartsToLoadout {
+                            phase,
+                            manufacturer: manufacturer_pattern,
+                            mpn: mpn_pattern,
+                        })
+                        .when_ok(key, |_| None),
                     Some(PhaseTabUiAction::SetPlacementOrderings(args)) => self
                         .planner_core_service
                         .update(Event::SetPlacementOrdering {
-                            phase: phase.clone(),
+                            phase,
                             placement_orderings: args.orderings,
                         })
-                        .when_ok(key, |_| Some(ProjectUiCommand::RefreshPhase(phase))),
+                        .when_ok(key, |_| None),
                     Some(PhaseTabUiAction::TaskAction {
                         phase,
                         operation,
@@ -2166,24 +1597,18 @@ impl UiComponent for Project {
                     }) => self
                         .planner_core_service
                         .update(Event::RecordPhaseOperation {
-                            phase: phase.clone(),
+                            phase,
                             operation,
                             task,
                             action,
                         })
-                        .when_ok(key, |_| Some(ProjectUiCommand::RefreshPhase(phase))),
+                        .when_ok(key, |_| None),
                     Some(PhaseTabUiAction::LocatePlacement {
                         object_path,
                         pcb_side,
                         design_position,
                         unit_position,
                     }) => self.locate_component(object_path, pcb_side, design_position, unit_position),
-                    Some(PhaseTabUiAction::Refresh {
-                        phase,
-                    }) => {
-                        let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RefreshPhase(phase)));
-                        Some(ProjectAction::Task(key, task))
-                    }
                 }
             }
             ProjectUiCommand::ProcessTabUiCommand {
@@ -2192,153 +1617,58 @@ impl UiComponent for Project {
             } => {
                 trace!("process: {:?}, command: {:?}", process, command);
 
-                let mut state = self.project_ui_state.lock().unwrap();
-                let process_ui = state
-                    .process_tab_uis
-                    .get_mut(&process)
-                    .unwrap();
-
-                let context = &mut ProcessTabUiContext::default();
-                let process_ui_action = process_ui.update(command, context);
+                let process_ui_action = {
+                    let mut state = self.project_ui_state.lock().unwrap();
+                    state
+                        .process_tab_uis
+                        .get_mut(&process)?
+                        .update(command, &mut ProcessTabUiContext::default())
+                };
 
                 match process_ui_action {
                     None => None,
                     Some(ProcessTabUiAction::None) => None,
 
-                    Some(ProcessTabUiAction::Delete(process_reference)) => {
-                        let mut tasks = vec![];
-                        match self
-                            .planner_core_service
-                            .update(Event::DeleteProcess {
-                                process_reference: process_reference.clone(),
-                            })
-                            .into_actions()
-                        {
-                            Ok(actions) => {
-                                let effect_tasks: Vec<Task<ProjectAction>> = actions
-                                    .into_iter()
-                                    .map(Task::done)
-                                    .collect();
-                                tasks.extend(effect_tasks);
-
-                                tasks.push(Task::done(ProjectAction::UiCommand(
-                                    ProjectUiCommand::RequestProjectView(ProjectViewRequest::ProjectTree),
-                                )));
-                                tasks.push(Task::done(ProjectAction::UiCommand(
-                                    ProjectUiCommand::RequestProjectView(ProjectViewRequest::Overview),
-                                )));
-
-                                let mut tabs = self.project_tabs.lock().unwrap();
-                                tabs.retain(|_key, kind|{
-                                    !matches!(kind, ProjectTabKind::Process(tab) if tab.process.eq(&process_reference))
-                                });
-                                state.process_tab_uis.remove(&process);
-                            }
-                            Err(service_error) => {
-                                tasks.push(Task::done(service_error));
-                            }
-                        }
-                        Some(ProjectAction::Task(key, Task::batch(tasks)))
-                    }
+                    Some(ProcessTabUiAction::Delete(process_reference)) => self
+                        .planner_core_service
+                        .update(Event::DeleteProcess {
+                            process_reference: process_reference.clone(),
+                        })
+                        .when_ok(key, |_| {
+                            self.close_tabs(
+                                |kind| matches!(kind, ProjectTabKind::Process(tab) if tab.process.eq(&process_reference)),
+                            );
+                            None
+                        }),
                     //
                     // form
                     //
                     Some(ProcessTabUiAction::Reset {
-                        process_reference,
-                    }) => self
-                        .planner_core_service
-                        .update(Event::RequestProcessDefinitionView {
-                            process_reference,
-                        })
-                        .when_ok(key, |_| None),
-                    Some(ProcessTabUiAction::Apply(args)) => {
-                        // the process reference may have changed, use the updated reference
-                        let updated_process_reference = args
-                            .process_definition
-                            .reference
-                            .clone();
-
-                        let process_reference_changed = !updated_process_reference.eq(&args.process_reference);
-
-                        if process_reference_changed {
-                            if state
-                                .process_tab_uis
-                                .contains_key(&updated_process_reference)
-                            {
-                                let now = chrono::DateTime::from(SystemTime::now());
-                                return Some(ProjectAction::UiCommand(ProjectUiCommand::Error(PlannerError::Other(
-                                    (now, tr!("process-error-name-already-in-use")),
-                                ))));
-                            }
-
-                            debug!(
-                                "process reference changed. old: {}, new: {}",
-                                args.process_reference, updated_process_reference
-                            );
-                            // update the reference in the map
-                            let (old_reference, _process_ui) = state
-                                .process_tab_uis
-                                .remove_entry(&args.process_reference)
-                                .unwrap();
-                            // if we just re-insert the ui with an updated reference, the ui's mapper will still have the old reference, so we need to update the mapper too, easier just to re-create the ui instance
-                            //state.process_tab_uis.insert(updated_process_reference.clone(), process_ui);
-                            self.ensure_process_inner(key, updated_process_reference.clone(), &mut state);
-
-                            // update the tab's reference
-                            let tabs = self.project_tabs.lock().unwrap();
-                            let updated = tabs.filter_map_mut(|(_key, tab)| match tab {
-                                ProjectTabKind::Process(tab) if tab.process.eq(&old_reference) => {
-                                    tab.process = updated_process_reference.clone();
-                                    Some(true)
-                                }
-                                _ => None,
-                            });
-                            assert!(matches!(updated.first(), Some(true)));
+                        ..
+                    }) => {
+                        let mut guard = self.project_ui_state.lock().unwrap();
+                        let state = &mut *guard;
+                        if let Some(process_ui) = state.process_tab_uis.get_mut(&process) {
+                            process_ui.reset_form(&state.data);
                         }
-
-                        let mut tasks = vec![];
-
-                        match self
-                            .planner_core_service
-                            .update(Event::ApplyProcessDefinition {
-                                process_reference: args.process_reference,
-                                process_definition: args.process_definition,
-                            })
-                            .into_actions()
-                        {
-                            Ok(actions) => {
-                                let effect_tasks: Vec<Task<ProjectAction>> = actions
-                                    .into_iter()
-                                    .map(Task::done)
-                                    .collect();
-                                tasks.extend(effect_tasks);
-
-                                tasks.push(Task::done(ProjectAction::UiCommand(ProjectUiCommand::ProcessChanged {
-                                    process: updated_process_reference.clone(),
-                                })));
-                            }
-                            Err(service_error) => {
-                                tasks.push(Task::done(service_error));
-                            }
-                        }
-                        Some(ProjectAction::Task(key, Task::batch(tasks)))
+                        None
                     }
+                    Some(ProcessTabUiAction::Apply(args)) => self.apply_process_definition(key, args),
                 }
             }
             ProjectUiCommand::LoadOutTabUiCommand {
                 load_out_source,
                 command,
             } => {
-                let mut state = self.project_ui_state.lock().unwrap();
-                let load_out_ui = state
-                    .load_out_tab_uis
-                    .get_mut(&load_out_source)
-                    .unwrap();
+                let load_out_ui_action = {
+                    let mut state = self.project_ui_state.lock().unwrap();
+                    state
+                        .load_out_tab_uis
+                        .get_mut(&load_out_source)?
+                        .update(command, &mut LoadOutTabUiContext::default())
+                };
 
-                let context = &mut LoadOutTabUiContext::default();
-                let phase_ui_action = load_out_ui.update(command, context);
-
-                match phase_ui_action {
+                match load_out_ui_action {
                     Some(LoadOutTabUiAction::None) => None,
                     Some(LoadOutTabUiAction::RequestRepaint) => Some(ProjectAction::RequestRepaint),
                     None => None,
@@ -2347,9 +1677,6 @@ impl UiComponent for Project {
                         part,
                         feeder,
                     }) => {
-                        // Changing loadouts can create/clear issues.
-                        request_issues_refresh = true;
-
                         debug!(
                             "update feeder. phase: {:?}, part: {:?}, feeder: {:?}",
                             phase, part, feeder
@@ -2366,13 +1693,15 @@ impl UiComponent for Project {
                 }
             }
             ProjectUiCommand::PlacementsTabUiCommand(command) => {
-                let context = &mut PlacementsTabUiContext::default();
-                let placements_ui_action = self
-                    .project_ui_state
-                    .lock()
-                    .unwrap()
-                    .placements_ui
-                    .update(command, context);
+                let placements_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .placements_ui
+                        .update(command, &mut PlacementsTabUiContext {
+                            data: &state.data,
+                        })
+                };
                 match placements_ui_action {
                     Some(PlacementsTabUiAction::None) => None,
                     Some(PlacementsTabUiAction::RequestRepaint) => Some(ProjectAction::RequestRepaint),
@@ -2381,14 +1710,8 @@ impl UiComponent for Project {
                         new_placement,
                         old_placement,
                     }) => {
-                        let (mut tasks, actions) = Self::update_placement(
-                            &mut self.planner_core_service,
-                            key,
-                            object_path,
-                            new_placement,
-                            old_placement,
-                        );
-                        Self::handle_update_placement_actions(&mut tasks, actions, &mut request_issues_refresh);
+                        let events = Self::placement_events(&object_path, &new_placement, &old_placement);
+                        let tasks = self.run_core_events(events);
 
                         Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
@@ -2401,7 +1724,6 @@ impl UiComponent for Project {
                     None => None,
                     Some(PlacementsTabUiAction::ApplyPlacementsAction(selection, action)) => {
                         let mut tasks = Vec::with_capacity(selection.len());
-                        let mut actions = Vec::with_capacity(selection.len());
 
                         for item in selection {
                             let new_phase = match &action {
@@ -2416,23 +1738,9 @@ impl UiComponent for Project {
                             let mut new_placement = item.state.clone();
                             new_placement.phase = new_phase;
 
-                            let old_placement = item.state.clone();
-
-                            let (item_tasks, item_actions) = Self::update_placement(
-                                &mut self.planner_core_service,
-                                key,
-                                item.path,
-                                new_placement,
-                                old_placement,
-                            );
-
-                            tasks.extend(item_tasks);
-                            actions.extend(item_actions);
+                            let events = Self::placement_events(&item.path, &new_placement, &item.state);
+                            tasks.extend(self.run_core_events(events));
                         }
-
-                        actions.dedup_by(|a, b| a == b);
-
-                        Self::handle_update_placement_actions(&mut tasks, actions, &mut request_issues_refresh);
 
                         Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
@@ -2442,31 +1750,23 @@ impl UiComponent for Project {
                 pcb_index,
                 command,
             } => {
-                let mut state = self.project_ui_state.lock().unwrap();
-                let pcb_ui = state
-                    .pcb_tab_uis
-                    .get_mut(&(pcb_index as usize))
-                    .unwrap();
-
-                let context = &mut PcbTabUiContext::default();
-                let pcb_ui_action = pcb_ui.update(command, context);
+                let pcb_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .pcb_tab_uis
+                        .get_mut(&(pcb_index as usize))?
+                        .update(command, &mut PcbTabUiContext {
+                            data: &state.data,
+                        })
+                };
                 match pcb_ui_action {
                     None => None,
                     Some(PcbTabUiAction::None) => None,
-                    Some(PcbTabUiAction::ShowUnitAssignments(pcb_index)) => Some(ProjectAction::Task(
-                        key,
-                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowPcbUnitAssignments(
-                            pcb_index,
-                        ))),
-                    )),
-                    Some(PcbTabUiAction::RequestPcbOverview(path)) => Some(ProjectAction::Task(
-                        key,
-                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestPcbView(
-                            PcbViewRequest::Overview {
-                                path,
-                            },
-                        ))),
-                    )),
+                    Some(PcbTabUiAction::ShowUnitAssignments(pcb_index)) => {
+                        self.show_unit_assignments(key, pcb_index);
+                        None
+                    }
                     Some(PcbTabUiAction::ShowPcb(pcb_path)) => Some(ProjectAction::ShowPcb(pcb_path)),
                 }
             }
@@ -2474,14 +1774,16 @@ impl UiComponent for Project {
                 pcb_index,
                 command,
             } => {
-                let mut state = self.project_ui_state.lock().unwrap();
-                let unit_assignment_ui = state
-                    .unit_assignment_tab_uis
-                    .get_mut(&(pcb_index as usize))
-                    .unwrap();
-
-                let context = &mut UnitAssignmentsTabUiContext::default();
-                let unit_assignment_ui_action = unit_assignment_ui.update(command, context);
+                let unit_assignment_ui_action = {
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
+                    state
+                        .unit_assignment_tab_uis
+                        .get_mut(&(pcb_index as usize))?
+                        .update(command, &mut UnitAssignmentsTabUiContext {
+                            data: &state.data,
+                        })
+                };
                 match unit_assignment_ui_action {
                     None => None,
                     Some(UnitAssignmentsTabUiAction::None) => None,
@@ -2489,101 +1791,26 @@ impl UiComponent for Project {
                         pcb_index,
                         variant_map,
                     })) => {
-                        // Changing assignments can create/clear issues.
-                        request_issues_refresh = true;
+                        let events = variant_map
+                            .iter()
+                            .enumerate()
+                            .map(|(pcb_unit_index, variant_name)| {
+                                let mut object_path = ObjectPath::default();
+                                object_path.set_pcb_instance(pcb_index + 1);
+                                object_path.set_pcb_unit(pcb_unit_index as u16 + 1);
 
-                        let mut events = vec![];
-
-                        for (pcb_unit_index, variant_name) in variant_map.iter().enumerate() {
-                            let mut object_path = ObjectPath::default();
-                            object_path.set_pcb_instance(pcb_index + 1);
-                            object_path.set_pcb_unit(pcb_unit_index as u16 + 1);
-
-                            events.push(Event::AssignVariantToUnit {
-                                variant: variant_name.clone(),
-                                unit: object_path,
-                            });
-                        }
-
-                        let mut tasks = vec![];
-                        for event in events {
-                            match self
-                                .planner_core_service
-                                .update(event)
-                                .into_actions()
-                            {
-                                Ok(actions) => {
-                                    let effect_tasks: Vec<Task<ProjectAction>> = actions
-                                        .into_iter()
-                                        .map(Task::done)
-                                        .collect();
-                                    tasks.extend(effect_tasks);
+                                Event::AssignVariantToUnit {
+                                    variant: variant_name.clone(),
+                                    unit: object_path,
                                 }
-                                Err(service_error) => {
-                                    tasks.push(Task::done(service_error));
-                                    break;
-                                }
-                            }
-                        }
+                            })
+                            .collect();
 
-                        let additional_tasks = vec![
-                            Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                                ProjectViewRequest::ProjectTree,
-                            ))),
-                            Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                                ProjectViewRequest::Overview,
-                            ))),
-                        ];
-                        tasks.extend(additional_tasks);
+                        let tasks = self.run_core_events(events);
 
-                        let action = ProjectAction::Task(key, Task::batch(tasks));
-
-                        Some(action)
+                        Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
-                    Some(UnitAssignmentsTabUiAction::RequestPcbOverview(path)) => Some(ProjectAction::Task(
-                        key,
-                        Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestPcbView(
-                            PcbViewRequest::Overview {
-                                path,
-                            },
-                        ))),
-                    )),
                 }
-            }
-
-            //
-            // phases
-            //
-            ProjectUiCommand::RefreshPhase(phase) => {
-                let tasks = vec![
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::Phases,
-                    ))),
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::PhaseOverview {
-                            phase: phase.clone(),
-                        },
-                    ))),
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::PhasePlacements {
-                            phase: phase.clone(),
-                        },
-                    ))),
-                ];
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
-            }
-            ProjectUiCommand::PhaseDeleted(phase) => {
-                self.phases
-                    .retain(|it| !it.phase_reference.eq(&phase));
-
-                // close any phase placements tabs using this phase reference
-                let mut tabs = self.project_tabs.lock().unwrap();
-                tabs.retain(|_key, kind| !matches!(kind, ProjectTabKind::Phase(tab) if tab.phase.eq(&phase)));
-                let mut ui_state = self.project_ui_state.lock().unwrap();
-                ui_state.phases_tab_uis.remove(&phase);
-
-                let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ProjectRefreshed));
-                Some(ProjectAction::Task(key, task))
             }
 
             //
@@ -2593,82 +1820,100 @@ impl UiComponent for Project {
                 info!("Refreshing from design variants.");
                 self.planner_core_service
                     .update(Event::RefreshFromDesignVariants)
-                    .when_ok(key, |_| Some(ProjectUiCommand::ProjectRefreshed))
+                    .when_ok(key, |_| None)
             }
             ProjectUiCommand::RefreshPcbs => {
                 info!("Refreshing PCBs.");
                 self.planner_core_service
                     .update(Event::RefreshPcbs)
-                    .when_ok(key, |_| Some(ProjectUiCommand::PcbsRefreshed))
+                    .when_ok(key, |_| None)
             }
-            ProjectUiCommand::PcbsRefreshed => {
-                info!("PCBs refreshed.");
+        }
+    }
 
-                let mut tasks = vec![];
-                for (index, _path) in self.pcbs.iter().enumerate() {
-                    let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::PcbOverview {
-                            pcb: index as u16,
-                        },
-                    )));
-                    tasks.push(task);
-                }
+    fn apply_process_definition(&mut self, key: ProjectKey, args: ProcessDefinitionArgs) -> Option<ProjectAction> {
+        // the process reference may have changed, use the updated reference
+        let updated_process_reference = args
+            .process_definition
+            .reference
+            .clone();
 
-                // an updated PCB can effect designs and variants.
-                let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                    ProjectViewRequest::ProjectTree,
-                )));
-                tasks.push(task);
+        let old_process_reference = args.process_reference.clone();
 
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
+        let process_reference_changed = !updated_process_reference.eq(&old_process_reference);
+
+        if process_reference_changed {
+            let state = self.project_ui_state.lock().unwrap();
+            if state
+                .process_tab_uis
+                .contains_key(&updated_process_reference)
+            {
+                let now = chrono::DateTime::from(SystemTime::now());
+                return Some(ProjectAction::UiCommand(ProjectUiCommand::Error(PlannerError::Other(
+                    (now, tr!("process-error-name-already-in-use")),
+                ))));
             }
-            ProjectUiCommand::ProcessChanged {
-                process,
-            } => {
-                info!("Process changed. process: {}", process);
-
-                let tasks = vec![
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::ProjectTree,
-                    ))),
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::Overview,
-                    ))),
-                    Task::done(ProjectAction::UiCommand(ProjectUiCommand::RequestProjectView(
-                        ProjectViewRequest::ProcessDefinition {
-                            process: process.clone(),
-                        },
-                    ))),
-                ];
-
-                let state = self.project_ui_state.lock().unwrap();
-                // if a phase tab that uses the process is open, it needs to be refreshed now too
-                for (_phase, tab_ui) in &state.phases_tab_uis {
-                    tab_ui.on_process_changed(&process);
-                }
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
-            }
-        };
-
-        //
-        // Issues refresh
-        //
-        if request_issues_refresh {
-            self.component.send((
-                key,
-                ProjectUiCommand::RequestProjectView(ProjectViewRequest::ProjectReport),
-            ))
         }
 
-        action
+        match self
+            .planner_core_service
+            .update(Event::ApplyProcessDefinition {
+                process_reference: args.process_reference,
+                process_definition: args.process_definition,
+            })
+            .into_actions()
+        {
+            Ok(actions) => {
+                if process_reference_changed {
+                    debug!(
+                        "process reference changed. old: {}, new: {}",
+                        old_process_reference, updated_process_reference
+                    );
+                    self.rename_process_tab(key, &old_process_reference, &updated_process_reference);
+                }
+
+                let tasks = actions
+                    .into_iter()
+                    .map(Task::done)
+                    .collect::<Vec<Task<ProjectAction>>>();
+
+                Some(ProjectAction::Task(key, Task::batch(tasks)))
+            }
+            Err(service_error) => Some(service_error),
+        }
+    }
+
+    fn rename_process_tab(&self, key: ProjectKey, old_reference: &ProcessReference, new_reference: &ProcessReference) {
+        // the ui's mapper and the process it reads from contain the reference, so it's easier just to re-create the ui
+        // instance instead of re-inserting it with an updated reference.
+        {
+            let mut state = self.project_ui_state.lock().unwrap();
+            state
+                .process_tab_uis
+                .remove(old_reference);
+            self.ensure_process_inner(key, new_reference.clone(), &mut state);
+        }
+
+        // update the tab's reference
+        let tabs = self.project_tabs.lock().unwrap();
+        let updated = tabs.filter_map_mut(|(_key, tab)| match tab {
+            ProjectTabKind::Process(tab) if tab.process.eq(old_reference) => {
+                tab.process = new_reference.clone();
+                Some(true)
+            }
+            _ => None,
+        });
+        assert!(matches!(updated.first(), Some(true)));
     }
 }
 
 #[derive(Debug)]
 pub struct ProjectUiState {
-    /// initially unknown until the project is loaded
-    /// always known for newly created projects.
+    /// the name given when creating a new project, otherwise the name comes from the overview view.
     name: Option<String>,
+
+    /// the data received from the core, components read from this instead of keeping their own copies.
+    data: ProjectData,
 
     explorer_tab_ui: ExplorerTabUi,
     issues_ui: IssuesTabUi,
@@ -2683,6 +1928,37 @@ pub struct ProjectUiState {
 }
 
 impl ProjectUiState {
+    /// Gives components that hold state derived from views a chance to rebuild it.
+    ///
+    /// Runs after commands have been handled, `ui` methods must never do this.
+    fn sync_components(&mut self) {
+        let Self {
+            data,
+            load_out_tab_uis,
+            parts_tab_ui,
+            phases_tab_uis,
+            placements_ui,
+            process_tab_uis,
+            unit_assignment_tab_uis,
+            ..
+        } = self;
+
+        parts_tab_ui.sync(data);
+        placements_ui.sync(data);
+        load_out_tab_uis
+            .values_mut()
+            .for_each(|tab_ui| tab_ui.sync(data));
+        phases_tab_uis
+            .values_mut()
+            .for_each(|tab_ui| tab_ui.sync(data));
+        process_tab_uis
+            .values_mut()
+            .for_each(|tab_ui| tab_ui.sync(data));
+        unit_assignment_tab_uis
+            .values_mut()
+            .for_each(|tab_ui| tab_ui.sync(data));
+    }
+
     pub fn new(
         key: ProjectKey,
         project_directory: PathBuf,
@@ -2691,6 +1967,7 @@ impl ProjectUiState {
     ) -> Self {
         let mut instance = Self {
             name,
+            data: ProjectData::default(),
             explorer_tab_ui: ExplorerTabUi::new(project_directory),
             issues_ui: IssuesTabUi::new(),
             load_out_tab_uis: HashMap::default(),
@@ -2762,6 +2039,65 @@ pub enum ProjectTabKind {
     UnitAssignments(UnitAssignmentsTab),
 }
 
+impl ProjectTabKind {
+    /// The views this tab needs, these are what get fetched when the core's state changes.
+    ///
+    /// This is the only place that needs to know which views a tab depends on, command handlers do not need to know.
+    pub fn required_views(&self, data: &ProjectData) -> Vec<ViewKey> {
+        // the path of a pcb is only known after the view that links the pcb to the project has been received.
+        fn pcb_overview(pcb_index: u16, data: &ProjectData) -> Option<ViewKey> {
+            data.project_pcb(pcb_index)
+                .map(|pcb| ViewKey::PcbOverview(pcb.pcb_path.clone()))
+        }
+
+        match self {
+            ProjectTabKind::Explorer(_tab) => vec![ViewKey::ProjectTree],
+            ProjectTabKind::Issues(_tab) => vec![ViewKey::ProjectReport],
+            ProjectTabKind::LoadOut(tab) => vec![ViewKey::PhaseLoadOut(tab.phase.clone())],
+            ProjectTabKind::Overview(_tab) => vec![ViewKey::Overview, ViewKey::Phases],
+            ProjectTabKind::Parts(_tab) => vec![ViewKey::Overview, ViewKey::Parts],
+            ProjectTabKind::Pcb(tab) => [
+                Some(ViewKey::ProjectPcbOverview(tab.pcb_index)),
+                pcb_overview(tab.pcb_index, data),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+            ProjectTabKind::Phase(tab) => vec![
+                ViewKey::Phases,
+                ViewKey::PhaseOverview(tab.phase.clone()),
+                ViewKey::PhasePlacements(tab.phase.clone()),
+            ],
+            ProjectTabKind::Placements(_tab) => vec![ViewKey::Phases, ViewKey::Placements],
+            ProjectTabKind::Process(tab) => vec![ViewKey::ProcessDefinition(tab.process.clone())],
+            ProjectTabKind::UnitAssignments(tab) => [
+                Some(ViewKey::ProjectPcbOverview(tab.pcb_index)),
+                Some(ViewKey::PcbUnitAssignments(tab.pcb_index)),
+                pcb_overview(tab.pcb_index, data),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        }
+    }
+}
+
+/// The views that need to be fetched, given what each open tab requires.
+fn missing_views(required_by_tabs: Vec<Vec<ViewKey>>, data: &ProjectData) -> Vec<ViewKey> {
+    // the project itself always needs these: the project name, processes, pcbs and library config for the toolbar actions
+    // and modals, and the phases to be able to show load-outs.
+    let required_by_project = vec![ViewKey::Overview, ViewKey::Phases];
+
+    let mut seen = HashSet::new();
+
+    required_by_project
+        .into_iter()
+        .chain(required_by_tabs.into_iter().flatten())
+        .filter(|key| data.needs_fetch(key))
+        .filter(|key| seen.insert(key.clone()))
+        .collect()
+}
+
 #[derive(Debug, Clone)]
 pub enum ProjectUiCommand {
     None,
@@ -2786,21 +2122,12 @@ pub enum ProjectUiCommand {
     Loaded,
     Save,
     Saved,
-    RequestProjectView(ProjectViewRequest),
     ProjectView(ProjectView),
-    ProjectRefreshed,
-
-    //
-    // phases
-    //
-    RefreshPhases,
-    RefreshPhase(PhaseReference),
-    PhaseDeleted(PhaseReference),
+    RepaintRequested,
 
     //
     // pcbs
     //
-    RequestPcbView(PcbViewRequest),
     PcbView(PcbView),
     PcbFilePicked(PathBuf),
     PcbRemoved,
@@ -2851,9 +2178,6 @@ pub enum ProjectUiCommand {
     ShowPhaseLoadout {
         phase: Reference,
     },
-    ContinueShowPhaseLoadout {
-        phase: Reference,
-    },
     LoadOutTabUiCommand {
         load_out_source: LoadOutSource,
         command: LoadOutTabUiCommand,
@@ -2873,10 +2197,6 @@ pub enum ProjectUiCommand {
 
     RefreshFromDesignVariants,
     RefreshPcbs,
-    PcbsRefreshed,
-    ProcessChanged {
-        process: ProcessReference,
-    },
 }
 
 fn project_path_from_view_path(view_path: &String) -> NavigationPath {
@@ -2992,4 +2312,398 @@ pub(crate) fn make_tabs(key: ProjectKey) -> Value<ProjectTabs> {
     let project_tabs = Value::new(ProjectTabs::default());
 
     project_tabs
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use planner_app::{FileReference, ProjectPcbOverview, ProjectView, Reference};
+
+    use super::data::{ProjectData, ViewKey};
+    use super::tabs::parts_tab::PartsTab;
+    use super::tabs::pcb_tab::PcbTab;
+    use super::tabs::phase_tab::PhaseTab;
+    use super::{ProjectTabKind, missing_views};
+
+    #[test]
+    fn a_phase_tab_requires_its_views_and_the_phases() {
+        let phase = Reference::from_raw_str("top_1");
+        let tab = ProjectTabKind::Phase(PhaseTab::new(phase.clone()));
+
+        let required = tab.required_views(&ProjectData::default());
+
+        assert_eq!(required, vec![
+            ViewKey::Phases,
+            ViewKey::PhaseOverview(phase.clone()),
+            ViewKey::PhasePlacements(phase),
+        ]);
+    }
+
+    #[test]
+    fn a_pcb_tab_requires_the_pcb_overview_once_the_path_is_known() {
+        let tab = ProjectTabKind::Pcb(PcbTab::new(0));
+        let mut data = ProjectData::default();
+
+        assert_eq!(tab.required_views(&data), vec![ViewKey::ProjectPcbOverview(0)]);
+
+        let path = PathBuf::from("a.pcb.json");
+        data.apply_project_view(ProjectView::PcbOverview(ProjectPcbOverview {
+            index: 0,
+            pcb_file: FileReference::Absolute(path.clone()),
+            pcb_path: path.clone(),
+        }));
+
+        assert_eq!(tab.required_views(&data), vec![
+            ViewKey::ProjectPcbOverview(0),
+            ViewKey::PcbOverview(path),
+        ]);
+    }
+
+    #[test]
+    fn missing_views_includes_views_the_project_always_needs_without_duplicates() {
+        let tab = ProjectTabKind::Parts(PartsTab::default());
+        let data = ProjectData::default();
+
+        let missing = missing_views(vec![tab.required_views(&data)], &data);
+
+        assert_eq!(missing, vec![ViewKey::Overview, ViewKey::Phases, ViewKey::Parts]);
+    }
+
+    #[test]
+    fn missing_views_excludes_views_that_failed() {
+        let mut data = ProjectData::default();
+        let _ = data.record_failed(ViewKey::Overview);
+
+        let missing = missing_views(vec![], &data);
+
+        assert_eq!(missing, vec![ViewKey::Phases]);
+    }
+}
+
+/// Drives a real core, these cover how changes made by commands reach the data used by the tabs.
+#[cfg(test)]
+mod refresh_tests {
+    use std::collections::VecDeque;
+    use std::path::PathBuf;
+
+    use futures::StreamExt;
+    use planner_app::{Event, LoadOutSource, PcbSide, PlacementSortingItem, PlacementSortingMode, Reference};
+    use tempfile::TempDir;
+    use util::sorting::SortOrder;
+
+    use super::tabs::overview_tab::OverviewTabUiCommand;
+    use super::tabs::process_tab::ProcessDefinitionArgs;
+    use super::*;
+    use crate::task;
+
+    fn run(project: &mut Project, key: ProjectKey, command: ProjectUiCommand) {
+        let mut queue = VecDeque::from([command]);
+
+        while let Some(command) = queue.pop_front() {
+            let action = project.update((key, command), &mut ProjectContext {
+                key,
+            });
+
+            match action {
+                Some(ProjectAction::UiCommand(command)) => queue.push_back(command),
+                Some(ProjectAction::Task(_key, task)) => {
+                    if let Some(stream) = task::into_stream(task) {
+                        for action in futures::executor::block_on(stream.collect::<Vec<_>>()) {
+                            match action {
+                                ProjectAction::UiCommand(command) => queue.push_back(command),
+                                other => panic!("unsupported action in task: {:?}", other),
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn new_project() -> (Project, ProjectKey, TempDir) {
+        let directory = tempfile::tempdir().unwrap();
+        let key = ProjectKey::default();
+
+        let (mut project, commands) = Project::new(
+            "test".to_string(),
+            directory.path().join("test.mpnp.json"),
+            key,
+            make_tabs(key),
+        );
+
+        for command in commands {
+            run(&mut project, key, command);
+        }
+
+        (project, key, directory)
+    }
+
+    fn create_phase(project: &mut Project, directory: &TempDir, phase: &Reference) {
+        std::fs::write(directory.path().join("load_out.csv"), "").unwrap();
+
+        let load_out =
+            LoadOutSource::try_from_path(&directory.path().to_path_buf(), PathBuf::from("load_out.csv")).unwrap();
+
+        project
+            .planner_core_service
+            .update(Event::CreatePhase {
+                process: Reference::from_raw_str("pnp"),
+                reference: phase.clone(),
+                load_out,
+                pcb_side: PcbSide::Top,
+            })
+            .unwrap();
+    }
+
+    /// a command that does nothing, views are refreshed after every command.
+    fn refresh(project: &mut Project, key: ProjectKey) {
+        run(project, key, ProjectUiCommand::None);
+    }
+
+    fn revision_of_tree(project: &Project) -> u64 {
+        project
+            .project_ui_state
+            .lock()
+            .unwrap()
+            .data
+            .project_tree
+            .revision()
+    }
+
+    #[test]
+    fn opening_a_project_fetches_the_views_for_the_default_tabs() {
+        let (project, _key, _directory) = new_project();
+
+        assert!(project.errors.is_empty(), "{:?}", project.errors);
+
+        let state = project.project_ui_state.lock().unwrap();
+        assert_eq!(state.data.overview.get().unwrap().name, "test");
+        assert!(state.data.project_tree.get().is_some());
+        assert!(state.data.report.get().is_some());
+        assert!(state.data.phases.get().is_some());
+    }
+
+    #[test]
+    fn a_change_reaches_an_open_phase_tab_without_the_handler_requesting_any_views() {
+        let (mut project, key, directory) = new_project();
+        let phase = Reference::from_raw_str("top_1");
+        create_phase(&mut project, &directory, &phase);
+        run(&mut project, key, ProjectUiCommand::ShowPhase(phase.clone()));
+
+        let orderings = vec![PlacementSortingItem {
+            mode: PlacementSortingMode::RefDes,
+            sort_order: SortOrder::Asc,
+        }];
+
+        project
+            .planner_core_service
+            .update(Event::SetPlacementOrdering {
+                phase: phase.clone(),
+                placement_orderings: orderings.clone(),
+            })
+            .unwrap();
+        refresh(&mut project, key);
+
+        assert!(project.errors.is_empty(), "{:?}", project.errors);
+
+        let state = project.project_ui_state.lock().unwrap();
+        assert_eq!(
+            state
+                .data
+                .phase_overview(&phase)
+                .unwrap()
+                .phase_placement_orderings,
+            orderings
+        );
+        assert_eq!(
+            state.data.phase_list()[0].phase_placement_orderings,
+            orderings,
+            "the same data is used by other tabs"
+        );
+    }
+
+    #[test]
+    fn a_change_that_does_not_affect_a_view_does_not_change_its_revision() {
+        let (mut project, key, _directory) = new_project();
+        let revision = revision_of_tree(&project);
+
+        project
+            .planner_core_service
+            .update(Event::None)
+            .unwrap();
+        assert_ne!(
+            project
+                .planner_core_service
+                .generation(),
+            project.seen_generation
+        );
+
+        refresh(&mut project, key);
+
+        assert_eq!(
+            project
+                .planner_core_service
+                .generation(),
+            project.seen_generation
+        );
+        assert_eq!(revision_of_tree(&project), revision);
+    }
+
+    #[test]
+    fn deleting_a_phase_closes_its_tabs_without_errors() {
+        let (mut project, key, directory) = new_project();
+        let phase = Reference::from_raw_str("top_1");
+        create_phase(&mut project, &directory, &phase);
+        run(&mut project, key, ProjectUiCommand::ShowPhase(phase.clone()));
+        run(&mut project, key, ProjectUiCommand::ShowPhaseLoadout {
+            phase: phase.clone(),
+        });
+
+        run(
+            &mut project,
+            key,
+            ProjectUiCommand::OverviewTabUiCommand(OverviewTabUiCommand::PhaseDeleteClicked(phase.clone())),
+        );
+
+        assert!(project.errors.is_empty(), "{:?}", project.errors);
+
+        let open_tabs = project
+            .project_tabs
+            .lock()
+            .unwrap()
+            .filter_map(|(_key, tab)| match tab {
+                ProjectTabKind::Phase(_) | ProjectTabKind::LoadOut(_) => Some(()),
+                _ => None,
+            });
+        assert!(open_tabs.is_empty());
+
+        let state = project.project_ui_state.lock().unwrap();
+        assert!(state.phases_tab_uis.is_empty());
+        assert!(state.load_out_tab_uis.is_empty());
+        assert!(state.data.phase_list().is_empty());
+    }
+
+    #[test]
+    fn showing_a_load_out_gets_the_source_from_the_phases() {
+        let (mut project, key, directory) = new_project();
+        let phase = Reference::from_raw_str("top_1");
+        create_phase(&mut project, &directory, &phase);
+
+        run(&mut project, key, ProjectUiCommand::ShowPhaseLoadout {
+            phase: phase.clone(),
+        });
+
+        assert!(project.errors.is_empty(), "{:?}", project.errors);
+
+        let state = project.project_ui_state.lock().unwrap();
+        assert_eq!(state.load_out_tab_uis.len(), 1);
+        assert!(state.data.load_out(&phase).is_some());
+    }
+
+    #[test]
+    fn showing_a_load_out_for_an_unknown_phase_does_not_retry_forever() {
+        let (mut project, key, _directory) = new_project();
+
+        run(&mut project, key, ProjectUiCommand::ShowPhaseLoadout {
+            phase: Reference::from_raw_str("unknown"),
+        });
+
+        assert!(
+            project
+                .project_ui_state
+                .lock()
+                .unwrap()
+                .load_out_tab_uis
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_tab_whose_view_keeps_failing_only_reports_the_error_once() {
+        let (mut project, key, _directory) = new_project();
+
+        run(
+            &mut project,
+            key,
+            ProjectUiCommand::ShowPhase(Reference::from_raw_str("unknown")),
+        );
+        let reported = project.errors.len();
+        assert!(reported > 0);
+
+        project
+            .planner_core_service
+            .update(Event::None)
+            .unwrap();
+        refresh(&mut project, key);
+
+        assert_eq!(project.errors.len(), reported);
+    }
+
+    #[test]
+    fn views_are_not_fetched_when_a_project_fails_to_load() {
+        let directory = tempfile::tempdir().unwrap();
+        let key = ProjectKey::default();
+        let (mut project, commands) = Project::from_path(
+            directory
+                .path()
+                .join("missing.mpnp.json"),
+            key,
+            make_tabs(key),
+        );
+
+        for command in commands {
+            run(&mut project, key, command);
+        }
+
+        assert_eq!(project.errors.len(), 1, "{:?}", project.errors);
+        assert!(!project.ready);
+    }
+
+    #[test]
+    fn renaming_a_process_moves_its_tab_to_the_new_reference() {
+        let (mut project, key, _directory) = new_project();
+        let old_reference = Reference::from_raw_str("pnp");
+        let new_reference = Reference::from_raw_str("renamed");
+
+        run(&mut project, key, ProjectUiCommand::ShowProcess(old_reference.clone()));
+
+        let mut process_definition = project
+            .project_ui_state
+            .lock()
+            .unwrap()
+            .data
+            .process_definition(&old_reference)
+            .unwrap()
+            .clone();
+        process_definition.reference = new_reference.clone();
+
+        let action = project.apply_process_definition(key, ProcessDefinitionArgs {
+            process_reference: old_reference.clone(),
+            process_definition,
+        });
+        assert!(matches!(action, Some(ProjectAction::Task(..))));
+        refresh(&mut project, key);
+
+        assert!(project.errors.is_empty(), "{:?}", project.errors);
+
+        let state = project.project_ui_state.lock().unwrap();
+        assert!(
+            !state
+                .process_tab_uis
+                .contains_key(&old_reference)
+        );
+        assert!(
+            state
+                .process_tab_uis
+                .contains_key(&new_reference)
+        );
+        assert!(
+            state
+                .data
+                .process_definition(&new_reference)
+                .is_some()
+        );
+    }
 }

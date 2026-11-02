@@ -4576,6 +4576,7 @@ dependencies = [
  "slotmap",
  "strum 0.28.0",
  "tap",
+ "tempfile",
  "thiserror 2.0.20",
  "tokio",
  "tracing",

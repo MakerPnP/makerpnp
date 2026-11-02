@@ -3,13 +3,14 @@ use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_i18n::tr;
 use planner_app::{
-    ObjectPath, OperationReference, OperationStatus, PcbSide, PhaseOverview, PhasePlacements, PhaseReference,
-    PlacementPositionUnit, PlacementState, ProcessReference, Reference, TaskAction, TaskReference, TaskStatus,
+    ObjectPath, OperationReference, OperationStatus, PcbSide, PhaseReference, PlacementPositionUnit, PlacementState,
+    Reference, TaskAction, TaskReference, TaskStatus,
 };
 use regex::Regex;
 use tracing::{debug, trace};
 
 use crate::i18n::conversions::{process_operation_status_to_i18n_key, process_task_status_to_i18n_key};
+use crate::project::data::{ProjectData, Synced};
 use crate::project::dialogs::placement_orderings::{
     PlacementOrderingsArgs, PlacementOrderingsModal, PlacementOrderingsModalAction, PlacementOrderingsModalUiCommand,
 };
@@ -25,9 +26,13 @@ use crate::ui_util::green_orange_red_grey_from_style;
 #[derive(Derivative)]
 #[derivative(Debug)]
 pub struct PhaseTabUi {
-    overview: Option<PhaseOverview>,
+    phase: PhaseReference,
+
     #[derivative(Debug = "ignore")]
     placements_table_ui: PlacementsTableUi,
+
+    /// the revisions of the phase placements and phases views used to build the table
+    synced: Synced<(u64, u64)>,
 
     placement_orderings_modal: Option<PlacementOrderingsModal>,
 
@@ -35,7 +40,7 @@ pub struct PhaseTabUi {
 }
 
 impl PhaseTabUi {
-    pub fn new() -> Self {
+    pub fn new(phase: PhaseReference) -> Self {
         let component: ComponentState<PhaseTabUiCommand> = Default::default();
 
         let mut placements_table_ui = PlacementsTableUi::new();
@@ -47,31 +52,27 @@ impl PhaseTabUi {
             });
 
         Self {
-            overview: None,
+            phase,
             placements_table_ui,
+            synced: Synced::default(),
             placement_orderings_modal: None,
             component,
         }
     }
 
-    pub fn update_overview(&mut self, phase_overview: PhaseOverview) {
-        self.overview.replace(phase_overview);
-    }
+    /// Rebuilds the table's rows if the views they are built from have changed.
+    pub fn sync(&mut self, data: &ProjectData) {
+        let Some(phase_placements) = data.phase_placements(&self.phase) else {
+            return;
+        };
 
-    pub fn update_placements(&mut self, phase_placements: PhasePlacements, phases: Vec<PhaseOverview>) {
-        self.placements_table_ui
-            .update_placements(phase_placements.placements, phases);
-    }
-
-    pub fn on_process_changed(&self, process: &ProcessReference) {
-        if matches!(&self.overview, Some(overview) if overview.process.eq(process)) {
-            self.request_refresh();
+        if self
+            .synced
+            .changed((data.phase_placements_revision(&self.phase), data.phases.revision()))
+        {
+            self.placements_table_ui
+                .update_placements(phase_placements.placements.clone(), data.phase_list().to_vec());
         }
-    }
-
-    pub fn request_refresh(&self) {
-        self.component
-            .send(PhaseTabUiCommand::Refresh);
     }
 }
 
@@ -91,7 +92,6 @@ pub enum PhaseTabUiCommand {
         task: TaskReference,
         action: TaskAction,
     },
-    Refresh,
 }
 
 #[derive(Debug, Clone)]
@@ -123,28 +123,29 @@ pub enum PhaseTabUiAction {
         design_position: PlacementPositionUnit,
         unit_position: PlacementPositionUnit,
     },
-    Refresh {
-        phase: PhaseReference,
-    },
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PhaseTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct PhaseTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for PhaseTabUi {
-    type UiContext<'context> = PhaseTabUiContext;
+    type UiContext<'context> = PhaseTabUiContext<'context>;
     type UiCommand = PhaseTabUiCommand;
     type UiAction = PhaseTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
+        let overview = context.data.phase_overview(&self.phase);
+
         //
         // State operation progress
         //
         ui.horizontal(|ui| {
             let (green, orange, red, grey) = green_orange_red_grey_from_style(ui.style());
 
-            if let Some(overview) = &self.overview {
+            if let Some(overview) = overview {
                 let mut previous_operation_status = None;
                 let can_start_phase = overview.can_start;
 
@@ -268,7 +269,7 @@ impl UiComponent for PhaseTabUi {
                 //        currently there is a single filter, so adding support for per-column filters would make
                 //        implementing this feature easier.
                 // FUTURE disable the button if there are no visible parts.
-                if let Some(overview) = &self.overview {
+                if let Some(overview) = overview {
                     self.component
                         .send(PhaseTabUiCommand::AddPartsToLoadout {
                             phase: overview.phase_reference.clone(),
@@ -307,7 +308,7 @@ impl UiComponent for PhaseTabUi {
     fn update<'context>(
         &mut self,
         command: Self::UiCommand,
-        _context: &mut Self::UiContext<'context>,
+        context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
         match command {
             PhaseTabUiCommand::None => Some(PhaseTabUiAction::None),
@@ -322,11 +323,16 @@ impl UiComponent for PhaseTabUi {
                         object_path,
                         new_placement,
                         old_placement,
-                    }) => Some(PhaseTabUiAction::UpdatePlacement {
-                        object_path,
-                        new_placement,
-                        old_placement,
-                    }),
+                    }) => {
+                        // the table has changed its own rows, the core may reject the change.
+                        self.synced.invalidate();
+
+                        Some(PhaseTabUiAction::UpdatePlacement {
+                            object_path,
+                            new_placement,
+                            old_placement,
+                        })
+                    }
                     Some(PlacementsTableUiAction::LocatePlacement {
                         object_path,
                         pcb_side,
@@ -355,7 +361,7 @@ impl UiComponent for PhaseTabUi {
                 mpn_pattern,
             }),
             PhaseTabUiCommand::PhasePlacementsOrderingsClicked => {
-                if let Some(overview) = &self.overview {
+                if let Some(overview) = context.data.phase_overview(&self.phase) {
                     let mut modal = PlacementOrderingsModal::new(
                         overview.phase_reference.clone(),
                         &overview.phase_placement_orderings,
@@ -399,33 +405,12 @@ impl UiComponent for PhaseTabUi {
                 operation,
                 task,
                 action,
-            } => {
-                let phase = self
-                    .overview
-                    .as_ref()
-                    .unwrap()
-                    .phase_reference
-                    .clone();
-
-                Some(PhaseTabUiAction::TaskAction {
-                    phase,
-                    operation,
-                    task,
-                    action,
-                })
-            }
-            PhaseTabUiCommand::Refresh => {
-                let phase = self
-                    .overview
-                    .as_ref()
-                    .unwrap()
-                    .phase_reference
-                    .clone();
-
-                Some(PhaseTabUiAction::Refresh {
-                    phase,
-                })
-            }
+            } => Some(PhaseTabUiAction::TaskAction {
+                phase: self.phase.clone(),
+                operation,
+                task,
+                action,
+            }),
         }
     }
 }
@@ -457,7 +442,9 @@ impl Tab for PhaseTab {
             ui.spinner();
             return;
         };
-        UiComponent::ui(phase_ui, ui, &mut PhaseTabUiContext::default());
+        UiComponent::ui(phase_ui, ui, &mut PhaseTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, context: &mut Self::Context) -> OnCloseResponse {

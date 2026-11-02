@@ -15,13 +15,14 @@ use egui_mobius::types::ValueGuard;
 use egui_taffy::taffy::prelude::{auto, length, percent, span};
 use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
-use planner_app::{DesignName, DesignVariant, PcbOverview, PcbUnitAssignments, ProjectPcbOverview, VariantName};
+use planner_app::{DesignName, DesignVariant, PcbOverview, PcbUnitAssignments, VariantName};
 use tracing::{debug, error, trace};
 use util::range_utils::RangeIntoUsize;
 use validator::{Validate, ValidationError};
 
 use crate::forms::Form;
 use crate::forms::transforms::resize_x_transform;
+use crate::project::data::{ProjectData, Synced};
 use crate::project::tabs::ProjectTabContext;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
@@ -42,9 +43,11 @@ pub struct UnitAssignmentsTabUi {
     pcb_index: u16,
 
     placements_directory: PathBuf,
-    pcb_overview: Option<PcbOverview>,
-    project_pcb_overview: Option<ProjectPcbOverview>,
-    pcb_unit_assignments: Option<PcbUnitAssignments>,
+
+    /// the revision of the pcb overview view used to build the unit range
+    synced_pcb_overview: Synced<u64>,
+    /// the revisions of the pcb overview and unit assignments views used to build the variant map
+    synced_assignments: Synced<(u64, u64)>,
 
     fields: Value<UnitAssignmentsFields>,
 
@@ -71,48 +74,63 @@ impl UnitAssignmentsTabUi {
             pcb_index,
 
             placements_directory,
-            pcb_overview: None,
-            project_pcb_overview: None,
-            pcb_unit_assignments: None,
+            synced_pcb_overview: Synced::default(),
+            synced_assignments: Synced::default(),
             fields: Default::default(),
             component: Default::default(),
         }
     }
 
-    pub fn update_project_pcb_overview(&mut self, project_pcb_overview: ProjectPcbOverview) {
-        self.component
-            .send(UnitAssignmentsTabUiCommand::RequestPcbOverview(
-                project_pcb_overview.pcb_path.clone(),
-            ));
-        self.project_pcb_overview = Some(project_pcb_overview);
-    }
-
-    pub fn update_pcb_overview(&mut self, pcb_overview: &PcbOverview) {
-        if !matches!(&self.project_pcb_overview, Some(project_pcb_overview) if project_pcb_overview.pcb_path.eq(&pcb_overview.path))
-        {
-            // this pcb is not for this pcb tab instance
+    /// Rebuilds the form's state derived from the views, if they have changed.
+    pub fn sync(&mut self, data: &ProjectData) {
+        let Some(pcb_overview) = data.pcb_overview(self.pcb_index) else {
             return;
-        }
+        };
+        let pcb_overview_revision = data.pcb_overview_revision(self.pcb_index);
 
-        let pcb_overview = pcb_overview.clone();
-
-        // block to limit the scope of the borrow
+        if self
+            .synced_pcb_overview
+            .changed(pcb_overview_revision)
         {
             let mut fields = self.fields.lock().unwrap();
-
             fields.pcb_unit_range = 1..=pcb_overview.units;
         }
 
-        self.pcb_overview = Some(pcb_overview);
-        self.update_map();
-        self.update_design_variants()
+        let Some(pcb_unit_assignments) = data.pcb_unit_assignments(self.pcb_index) else {
+            return;
+        };
+
+        if self.synced_assignments.changed((
+            pcb_overview_revision,
+            data.pcb_unit_assignments_revision(self.pcb_index),
+        )) {
+            self.update_map(pcb_overview, pcb_unit_assignments);
+            self.update_design_variants(pcb_overview, pcb_unit_assignments);
+        }
     }
 
-    pub fn update_unit_assignments(&mut self, pcb_unit_assignments: PcbUnitAssignments) {
-        self.pcb_unit_assignments = Some(pcb_unit_assignments);
+    /// The design variants in the form include ones the user has added but not yet assigned to any units, these are not
+    /// known to the core so they must be kept, unless the design they are for no longer exists.
+    ///
+    /// Existing items keep their positions, since the form's selection is an index into the list.
+    fn merge_design_variants(
+        existing: &[DesignVariant],
+        assigned: Vec<DesignVariant>,
+        designs: &[DesignName],
+    ) -> Vec<DesignVariant> {
+        let mut design_variants = existing
+            .iter()
+            .filter(|design_variant| designs.contains(&design_variant.design_name))
+            .cloned()
+            .collect::<Vec<_>>();
 
-        self.update_map();
-        self.update_design_variants()
+        for design_variant in assigned {
+            if !design_variants.contains(&design_variant) {
+                design_variants.push(design_variant);
+            }
+        }
+
+        design_variants
     }
 
     fn build_design_variants(
@@ -142,24 +160,28 @@ impl UnitAssignmentsTabUi {
         design_variants
     }
 
-    /// we need both the pcb_overview and the design_variants, but the methods that provide them
-    /// could be called in any order, so they both need to call this
-    fn update_design_variants(&mut self) {
-        let (Some(pcb_overview), Some(pcb_unit_assignments)) = (&self.pcb_overview, &self.pcb_unit_assignments) else {
-            return;
-        };
-
+    fn update_design_variants(&mut self, pcb_overview: &PcbOverview, pcb_unit_assignments: &PcbUnitAssignments) {
         let mut fields = self.fields.lock().unwrap();
-        fields.design_variants = Self::build_design_variants(pcb_unit_assignments, pcb_overview)
+
+        let design_variants = Self::merge_design_variants(
+            &fields.design_variants,
+            Self::build_design_variants(pcb_unit_assignments, pcb_overview),
+            &pcb_overview.designs,
+        );
+
+        // an item was removed, so the selection may now refer to the wrong item.
+        let removed = !fields
+            .design_variants
+            .iter()
+            .all(|design_variant| design_variants.contains(design_variant));
+        if removed {
+            fields.design_variant_selected_index = None;
+        }
+
+        fields.design_variants = design_variants;
     }
 
-    /// we need both the pcb_overview and the pcb_unit_assignments, but the methods that provide them
-    /// could be called in any order, so they both need to call this
-    fn update_map(&mut self) {
-        let (Some(pcb_overview), Some(pcb_unit_assignments)) = (&self.pcb_overview, &self.pcb_unit_assignments) else {
-            return;
-        };
-
+    fn update_map(&mut self, pcb_overview: &PcbOverview, pcb_unit_assignments: &PcbUnitAssignments) {
         let mut fields = self.fields.lock().unwrap();
 
         fields.variant_map = (0..pcb_overview.units)
@@ -955,7 +977,6 @@ pub enum UnitAssignmentsTabUiCommand {
     AssignSelection(usize, Vec<usize>),
     DesignVariantSelectionChanged(Option<usize>),
 
-    RequestPcbOverview(PathBuf),
     UnassignRange,
 }
 
@@ -963,25 +984,29 @@ pub enum UnitAssignmentsTabUiCommand {
 pub enum UnitAssignmentsTabUiAction {
     None,
     UpdateUnitAssignments(UpdateUnitAssignmentsArgs),
-    RequestPcbOverview(PathBuf),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct UnitAssignmentsTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct UnitAssignmentsTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for UnitAssignmentsTabUi {
-    type UiContext<'context> = UnitAssignmentsTabUiContext;
+    type UiContext<'context> = UnitAssignmentsTabUiContext<'context>;
     type UiCommand = UnitAssignmentsTabUiCommand;
     type UiAction = UnitAssignmentsTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         ui.ctx().global_style_mut(|style| {
             // if this is not done, text in labels/checkboxes/etc wraps
             style.wrap_mode = Some(egui::TextWrapMode::Extend);
         });
 
-        let Some(pcb_overview) = &self.pcb_overview else {
+        let Some(pcb_overview) = context
+            .data
+            .pcb_overview(self.pcb_index)
+        else {
             ui.spinner();
             return;
         };
@@ -1151,10 +1176,67 @@ impl UiComponent for UnitAssignmentsTabUi {
 
                 Self::apply_variant_map(fields, self.pcb_index)
             }
-            UnitAssignmentsTabUiCommand::RequestPcbOverview(path) => {
-                Some(UnitAssignmentsTabUiAction::RequestPcbOverview(path))
-            }
         }
+    }
+}
+
+#[cfg(test)]
+mod merge_design_variants_tests {
+    use std::str::FromStr;
+
+    use planner_app::{DesignName, DesignVariant, VariantName};
+
+    use super::UnitAssignmentsTabUi;
+
+    fn design_variant(design: &str, variant: &str) -> DesignVariant {
+        DesignVariant {
+            design_name: DesignName::from_str(design).unwrap(),
+            variant_name: VariantName::from_str(variant).unwrap(),
+        }
+    }
+
+    fn designs(names: &[&str]) -> Vec<DesignName> {
+        names
+            .iter()
+            .map(|name| DesignName::from_str(name).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn keeps_variants_that_are_not_assigned_to_any_units() {
+        let unassigned = design_variant("a", "draft");
+        let assigned = design_variant("a", "v1");
+
+        let result = UnitAssignmentsTabUi::merge_design_variants(
+            &[unassigned.clone()],
+            vec![assigned.clone()],
+            &designs(&["a"]),
+        );
+
+        assert_eq!(result, vec![unassigned, assigned]);
+    }
+
+    #[test]
+    fn does_not_duplicate_variants_and_keeps_their_positions() {
+        let first = design_variant("a", "v1");
+        let second = design_variant("a", "v2");
+
+        let result = UnitAssignmentsTabUi::merge_design_variants(
+            &[first.clone(), second.clone()],
+            vec![second.clone(), first.clone()],
+            &designs(&["a"]),
+        );
+
+        assert_eq!(result, vec![first, second]);
+    }
+
+    #[test]
+    fn removes_variants_for_designs_that_no_longer_exist() {
+        let removed = design_variant("gone", "v1");
+
+        let result = UnitAssignmentsTabUi::merge_design_variants(&[removed], vec![], &designs(&["a"]));
+
+        assert!(result.is_empty());
     }
 }
 
@@ -1189,7 +1271,9 @@ impl Tab for UnitAssignmentsTab {
             return;
         };
 
-        UiComponent::ui(unit_assignments_ui, ui, &mut UnitAssignmentsTabUiContext::default());
+        UiComponent::ui(unit_assignments_ui, ui, &mut UnitAssignmentsTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, context: &mut Self::Context) -> OnCloseResponse {

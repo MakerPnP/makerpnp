@@ -5,9 +5,9 @@ use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::Column;
 use egui_i18n::tr;
-use planner_app::{PcbOverview, ProjectPcbOverview};
 use tracing::debug;
 
+use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
@@ -16,42 +16,18 @@ use crate::ui_component::{ComponentState, UiComponent};
 #[derivative(Debug)]
 pub struct PcbTabUi {
     project_path: PathBuf,
-    /// the link to the pcb
-    project_pcb_overview: Option<ProjectPcbOverview>,
-    /// the actual pcb
-    pcb_overview: Option<PcbOverview>,
+    pcb_index: u16,
 
     pub component: ComponentState<PcbTabUiCommand>,
 }
 
 impl PcbTabUi {
-    pub fn new(path: PathBuf) -> Self {
+    pub fn new(path: PathBuf, pcb_index: u16) -> Self {
         Self {
             project_path: path,
-            pcb_overview: None,
-            project_pcb_overview: None,
+            pcb_index,
             component: Default::default(),
         }
-    }
-
-    pub fn update_project_pcb_overview(&mut self, project_pcb_overview: ProjectPcbOverview) {
-        self.component
-            .send(PcbTabUiCommand::RequestPcbOverview(
-                project_pcb_overview.pcb_path.clone(),
-            ));
-        self.project_pcb_overview = Some(project_pcb_overview);
-    }
-
-    pub fn update_pcb_overview(&mut self, pcb_overview: &PcbOverview) {
-        if !matches!(&self.project_pcb_overview, Some(project_pcb_overview) if project_pcb_overview.pcb_path.eq(&pcb_overview.path))
-        {
-            // this pcb is not for this pcb tab instance
-            return;
-        }
-
-        let pcb_overview = pcb_overview.clone();
-
-        self.pcb_overview = Some(pcb_overview);
     }
 }
 
@@ -59,7 +35,6 @@ impl PcbTabUi {
 pub enum PcbTabUiCommand {
     None,
     CreateUnitAssignmentClicked,
-    RequestPcbOverview(PathBuf),
     ShowPcbClicked,
 }
 
@@ -67,21 +42,27 @@ pub enum PcbTabUiCommand {
 pub enum PcbTabUiAction {
     None,
     ShowUnitAssignments(u16),
-    RequestPcbOverview(PathBuf),
     ShowPcb(PathBuf),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PcbTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct PcbTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for PcbTabUi {
-    type UiContext<'context> = PcbTabUiContext;
+    type UiContext<'context> = PcbTabUiContext<'context>;
     type UiCommand = PcbTabUiCommand;
     type UiAction = PcbTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
-        let (Some(project_pcb_overview), Some(pcb_overview)) = (&self.project_pcb_overview, &self.pcb_overview) else {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
+        let (Some(project_pcb_overview), Some(pcb_overview)) = (
+            context.data.project_pcb(self.pcb_index),
+            context
+                .data
+                .pcb_overview(self.pcb_index),
+        ) else {
             ui.spinner();
             return;
         };
@@ -167,21 +148,14 @@ impl UiComponent for PcbTabUi {
     fn update<'context>(
         &mut self,
         command: Self::UiCommand,
-        _context: &mut Self::UiContext<'context>,
+        context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
         match command {
             PcbTabUiCommand::None => Some(PcbTabUiAction::None),
-            PcbTabUiCommand::CreateUnitAssignmentClicked => {
-                if let Some(project_pcb_overview) = &self.project_pcb_overview {
-                    Some(PcbTabUiAction::ShowUnitAssignments(project_pcb_overview.index))
-                } else {
-                    None
-                }
-            }
-            PcbTabUiCommand::RequestPcbOverview(path) => Some(PcbTabUiAction::RequestPcbOverview(path)),
-            PcbTabUiCommand::ShowPcbClicked => self
-                .project_pcb_overview
-                .as_ref()
+            PcbTabUiCommand::CreateUnitAssignmentClicked => Some(PcbTabUiAction::ShowUnitAssignments(self.pcb_index)),
+            PcbTabUiCommand::ShowPcbClicked => context
+                .data
+                .project_pcb(self.pcb_index)
                 .map(|project_pcb_overview| PcbTabUiAction::ShowPcb(project_pcb_overview.pcb_path.clone())),
         }
     }
@@ -218,7 +192,9 @@ impl Tab for PcbTab {
             return;
         };
 
-        UiComponent::ui(pcb_ui, ui, &mut PcbTabUiContext::default());
+        UiComponent::ui(pcb_ui, ui, &mut PcbTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, context: &mut Self::Context) -> OnCloseResponse {

@@ -4,9 +4,10 @@ use derivative::Derivative;
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_i18n::tr;
-use planner_app::{Part, PartStates, ProcessReference};
+use planner_app::{Part, ProcessReference};
 use tracing::trace;
 
+use crate::project::data::{ProjectData, Synced};
 use crate::project::tables::parts::{PartTableUi, PartTableUiAction, PartTableUiCommand, PartTableUiContext};
 use crate::project::tabs::ProjectTabContext;
 use crate::tabs::{Tab, TabKey};
@@ -21,7 +22,9 @@ pub struct PartsTabUi {
     selection: Option<Vec<Part>>,
 
     selected_process: Option<ProcessReference>,
-    processes: Vec<ProcessReference>,
+
+    /// the revisions of the parts and overview views used to build the table
+    synced: Synced<(u64, u64)>,
 
     pub component: ComponentState<PartsTabUiCommand>,
 }
@@ -42,20 +45,28 @@ impl PartsTabUi {
             part_table_ui,
 
             selection: None,
-            processes: Vec::new(),
             selected_process: None,
+            synced: Synced::default(),
 
             component,
         }
     }
 
-    pub fn update_part_states(&mut self, part_states: PartStates, processes: Vec<ProcessReference>) {
-        self.part_table_ui
-            .update_processes(processes.clone());
-        self.part_table_ui
-            .update_parts(part_states);
+    /// Rebuilds the table's rows if the views they are built from have changed.
+    pub fn sync(&mut self, data: &ProjectData) {
+        let Some(part_states) = data.parts.get() else {
+            return;
+        };
 
-        self.processes = processes;
+        if self
+            .synced
+            .changed((data.parts.revision(), data.overview.revision()))
+        {
+            self.part_table_ui
+                .update_processes(data.processes().to_vec());
+            self.part_table_ui
+                .update_parts(part_states.clone());
+        }
     }
 }
 
@@ -92,16 +103,18 @@ pub enum PartsTabUiApplyAction {
     RemoveProcess(ProcessReference),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct PartsTabUiContext {}
+#[derive(Debug, Clone)]
+pub struct PartsTabUiContext<'context> {
+    pub data: &'context ProjectData,
+}
 
 impl UiComponent for PartsTabUi {
-    type UiContext<'context> = PartsTabUiContext;
+    type UiContext<'context> = PartsTabUiContext<'context>;
     type UiCommand = PartsTabUiCommand;
     type UiAction = PartsTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         ui.horizontal(|ui| {
             self.part_table_ui.filter_ui(ui);
 
@@ -113,7 +126,7 @@ impl UiComponent for PartsTabUi {
                     None => tr!("form-common-choice-process"),
                 })
                 .show_ui(ui, |ui| {
-                    for process in &self.processes {
+                    for process in context.data.processes() {
                         if ui
                             .add(egui::Button::selectable(
                                 matches!(&self.selected_process, Some(selected_process) if selected_process == process),
@@ -168,7 +181,7 @@ impl UiComponent for PartsTabUi {
     fn update<'context>(
         &mut self,
         command: Self::UiCommand,
-        _context: &mut Self::UiContext<'context>,
+        context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
         match command {
             PartsTabUiCommand::None => Some(PartsTabUiAction::None),
@@ -189,11 +202,15 @@ impl UiComponent for PartsTabUi {
                     } => {
                         let _ = index;
 
+                        // the table has changed its own rows, the core may reject the change.
+                        self.synced.invalidate();
+
                         // the only thing that can change in the item, is the processes, otherwise we would need to look
                         // at the item and original item to determine what changed and handle accordingly.
 
-                        let iter = self
-                            .processes
+                        let iter = context
+                            .data
+                            .processes()
                             .iter()
                             .map(|process| (process.clone(), item.processes.contains(process)));
 
@@ -237,7 +254,9 @@ impl Tab for PartsTab {
 
     fn ui<'a>(&mut self, ui: &mut Ui, _tab_key: &TabKey, context: &mut Self::Context) {
         let state = context.state.lock().unwrap();
-        UiComponent::ui(&state.parts_tab_ui, ui, &mut PartsTabUiContext::default());
+        UiComponent::ui(&state.parts_tab_ui, ui, &mut PartsTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, _context: &mut Self::Context) -> OnCloseResponse {
