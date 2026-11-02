@@ -1,6 +1,6 @@
 use std::sync::mpsc::Sender;
 
-use egui::{Button, Frame, Response, RichText, TextEdit, Ui, Widget};
+use egui::{Button, Frame, Response, RichText, TextEdit, Ui, Widget, WidgetInfo, WidgetType};
 use egui_i18n::{tr, translate_fluent};
 use egui_taffy::taffy::prelude::{fit_content, fr, length, percent, span};
 use egui_taffy::taffy::{AlignContent, AlignItems, AlignSelf, Display, FlexDirection, Style};
@@ -280,6 +280,38 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
         }
 
         None
+    }
+}
+
+/// A button in a `Tui` layout, filling its layout cell.
+pub trait TuiTextButton<'r>: TuiBuilderLogic<'r> {
+    /// As `TuiBuilderLogic::button`, whose response has no accessibility information, so assistive technology and tests
+    /// can't find it.
+    fn text_button(self, text: String) -> Response {
+        let response = self
+            .button(|tui| tui.label(text.clone()))
+            .response;
+
+        response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, response.enabled(), text.clone()));
+
+        response
+    }
+}
+
+impl<'r, T: TuiBuilderLogic<'r>> TuiTextButton<'r> for T {}
+
+/// For controls with no label of their own, for example the number fields in a table.
+pub trait NamedResponse {
+    /// Sets the control's name, for assistive technology and tests.
+    fn named(self, name: String) -> Self;
+}
+
+impl NamedResponse for Response {
+    fn named(self, name: String) -> Self {
+        self.ctx
+            .accesskit_node_builder(self.id, |node| node.set_label(name));
+
+        self
     }
 }
 

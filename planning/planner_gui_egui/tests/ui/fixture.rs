@@ -190,14 +190,18 @@ impl App {
         });
     }
 
-    /// Clicks a text field, types into it, and waits for the application to have accepted the text.
+    /// Clicks a text field, replaces its text, and waits for the application to have accepted the text.
     pub fn type_into(&mut self, label: &str, text: &str) {
         self.wait_until(&format!("text field '{label}' was shown"), |app| {
             app.is_shown(Role::TextInput, label)
         });
+        self.wait_for_the_layout();
         self.harness
             .get_by_role_and_label(Role::TextInput, label)
             .click();
+        self.harness.step();
+        self.harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
         self.harness.step();
         self.harness
             .get_by_role_and_label(Role::TextInput, label)
@@ -245,6 +249,18 @@ impl App {
         self.folder.path().to_path_buf()
     }
 
+    /// Clicks plain text, such as a row of a table.
+    pub fn click_text(&mut self, text: &str) {
+        self.wait_until(&format!("text '{text}' was shown"), |app| {
+            app.is_shown(Role::Label, text)
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::Label, text)
+            .click();
+        self.harness.step();
+    }
+
     /// Double-clicks plain text, such as an item in a tree view.
     pub fn double_click_text(&mut self, text: &str) {
         self.wait_until(&format!("text '{text}' was shown"), |app| {
@@ -287,6 +303,12 @@ impl App {
 
     pub fn wait_for_button(&mut self, label: &str) {
         self.wait_until(&format!("button '{label}' was shown"), |app| app.is_button_shown(label));
+    }
+
+    pub fn wait_for_text(&mut self, text: &str) {
+        self.wait_until(&format!("text '{text}' was shown"), |app| {
+            app.is_shown(Role::Label, text)
+        });
     }
 
     pub fn wait_for_tab(&mut self, label: &str) {

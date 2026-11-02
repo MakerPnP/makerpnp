@@ -108,11 +108,12 @@ state (`tests/ui`).
 **GARCH-15 — Controls can be found.** *Target.* Every control MUST be findable in the accessibility tree by its role and
 its label. A label SHOULD identify a control within the tab or dialog containing it.
 
-Gaps: buttons, tabs, tree items, table text, and form text and number fields have been found so far. A form links a
-field's label to its control only if the field returns that control's response, which some number fields do not
-(`pcb/tabs/configuration_tab.rs`, its units field), and the unit range's two number fields have no label. Combo boxes are
-in the accessibility tree, but no test uses them. `"Refresh"` appears twice when a project is open, so tests will need to
-search within one tab. How the gerber viewer's canvas appears there has not been checked.
+Gaps: buttons, tabs, tree items, table text, and form text and number fields have been found so far. Number fields with
+no label of their own need a name (`forms/mod.rs`, `NamedResponse`), and these have none yet: the fiducial fields
+(`pcb/tabs/panel_tab.rs`) and the unit range (`project/tabs/unit_assignments_tab.rs`). Combo boxes are in the
+accessibility tree, but no test uses them. Text in table rows is often not unique, for example a row's number, so a test
+can only click a row by text that appears nowhere else. `"Refresh"` appears twice when a project is open, so tests will
+need to search within one tab. How the gerber viewer's canvas appears there has not been checked.
 
 ## Acceptance criteria
 

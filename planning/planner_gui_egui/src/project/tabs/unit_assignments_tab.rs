@@ -18,8 +18,8 @@ use tracing::{debug, error, trace};
 use util::range_utils::RangeIntoUsize;
 use validator::{Validate, ValidationError};
 
-use crate::forms::Form;
 use crate::forms::transforms::resize_x_transform;
+use crate::forms::{Form, TuiTextButton};
 use crate::project::data::{ProjectData, Synced};
 use crate::project::tabs::ProjectTabContext;
 use crate::sync::Value;
@@ -362,7 +362,7 @@ impl UnitAssignmentsTabUi {
                                         ..default_style()
                                     })
                                     .enabled_ui(is_design_variant_ok)
-                                    .button(|tui| tui.label(tr!("form-common-button-add")))
+                                    .text_button(tr!("form-common-button-add"))
                                     .clicked()
                                 {
                                     self.component
@@ -578,7 +578,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(is_design_selected)
-                                        .button(|tui| tui.label(tr!("form-common-button-apply-range")))
+                                        .text_button(tr!("form-common-button-apply-range"))
                                         .clicked()
                                     {
                                         self.component
@@ -593,7 +593,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(is_design_selected)
-                                        .button(|tui| tui.label(tr!("form-common-button-apply-all")))
+                                        .text_button(tr!("form-common-button-apply-all"))
                                         .clicked()
                                     {
                                         self.component
@@ -608,7 +608,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(is_design_selected)
-                                        .button(|tui| tui.label(tr!("form-common-button-unassign-from-range")))
+                                        .text_button(tr!("form-common-button-unassign-from-range"))
                                         .clicked()
                                     {
                                         self.component
@@ -625,7 +625,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(have_assigned_items_in_range)
-                                        .button(|tui| tui.label(tr!("form-common-button-unassign-range")))
+                                        .text_button(tr!("form-common-button-unassign-range"))
                                         .clicked()
                                     {
                                         self.component
@@ -771,7 +771,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(is_selection_ok && is_design_variant_ok)
-                                        .button(|tui| tui.label(tr!("form-common-button-assign-selected")))
+                                        .text_button(tr!("form-common-button-assign-selected"))
                                         .clicked()
                                     {
                                         self.component
@@ -791,7 +791,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(have_assigned_selection)
-                                        .button(|tui| tui.label(tr!("form-common-button-unassign-selected")))
+                                        .text_button(tr!("form-common-button-unassign-selected"))
                                         .clicked()
                                     {
                                         self.component
@@ -807,7 +807,7 @@ impl UnitAssignmentsTabUi {
                                             ..default_style()
                                         })
                                         .enabled_ui(have_assigned_items)
-                                        .button(|tui| tui.label(tr!("form-common-button-unassign-all")))
+                                        .text_button(tr!("form-common-button-unassign-all"))
                                         .clicked()
                                     {
                                         self.component

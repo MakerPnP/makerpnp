@@ -21,6 +21,9 @@ A front end's requirements cite the core requirements they depend on, and do not
 | [core/01-documents.md](core/01-documents.md) | Creating documents | `DOC` |
 | [gui/01-architecture.md](gui/01-architecture.md) | How the GUI is structured, and how it uses the core | `GARCH` |
 | [gui/02-forms.md](gui/02-forms.md) | Controls shared by the GUI's forms | `FORM` |
+| [gui/03-pcb-configuration.md](gui/03-pcb-configuration.md) | A PCB's designs and which units use them | `PCBCFG` |
+| [gui/04-panelization.md](gui/04-panelization.md) | A panel's sizes and unit positions | `PANEL` |
+| [gui/05-project-pcbs.md](gui/05-project-pcbs.md) | Adding PCBs to a project | `PROJPCB` |
 
 ## Conventions
 
@@ -64,3 +67,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-02 | Initial specification: GUI architecture (`GARCH`). |
 | 2026-11-02 | Reviewed `GARCH`: all Observed requirements are now Confirmed. Components, as well as widgets, may keep the state of how they are shown (`GARCH-6`). The GUI may stop responding only for short operations (`GARCH-12`), and long ones must be submitted, checked and collected using an identifier (`GARCH-12a`). |
 | 2026-11-02 | Added fields chosen using a dialog, with "`x`" and "`...`" buttons inside the field's frame (`FORM`), replacing "`...`" beside the field on the New project and New PCB tabs and in the Add phase dialog. A new project is now saved as it is created, as a new PCB already was (`DOC-1`). |
+| 2026-11-02 | Added PCB configuration (`PCBCFG`), panelization (`PANEL`) and a project's PCBs (`PROJPCB`), drafted from the code and awaiting review. In the design configuration table, the placement and gerber offsets are now under their own headers (`PANEL-3`). |

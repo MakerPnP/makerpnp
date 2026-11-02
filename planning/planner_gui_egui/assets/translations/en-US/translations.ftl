@@ -202,6 +202,8 @@ form-common-input-top = Top
 form-common-input-bottom = Bottom
 form-common-input-left = Left
 form-common-input-right = Right
+form-common-input-start = Start
+form-common-input-end = End
 form-common-input-mask-diameter = Mask ⌀
 form-common-input-copper-diameter = Copper ⌀
 

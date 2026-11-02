@@ -19,13 +19,14 @@ use math::ops::Ops2D;
 use nalgebra::{Point, Point2, Vector2};
 use num_traits::{FromPrimitive, ToPrimitive};
 use planner_app::{
-    DesignIndex, DesignSizing, Dimensions, FiducialParameters, GerberFileFunction, PanelSizing, PcbAssemblyFlip,
-    PcbAssemblyOrientation, PcbOverview, PcbSide, PcbUnitIndex, PcbUnitPositioning, Unit,
+    DesignIndex, DesignName, DesignSizing, Dimensions, FiducialParameters, GerberFileFunction, PanelSizing,
+    PcbAssemblyFlip, PcbAssemblyOrientation, PcbOverview, PcbSide, PcbUnitIndex, PcbUnitPositioning, Unit,
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tracing::{debug, trace};
 
+use crate::forms::NamedResponse;
 use crate::i18n::conversions::pcb_orientation_pitch_flip_to_i18n_key;
 use crate::pcb::tabs::PcbTabContext;
 use crate::pcb::tabs::panel_tab::gerber_builder::GerberBuilder;
@@ -381,7 +382,8 @@ impl PanelTabUi {
                     .range(0.0..=f64::MAX)
                     .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                     .fixed_decimals(defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals),
-            );
+            )
+            .named(section_name("pcb-panel-tab-panel-size-header", "form-common-input-x"));
         });
         ui.horizontal(|ui| {
             ui.label(tr!("form-common-input-y"));
@@ -390,7 +392,8 @@ impl PanelTabUi {
                     .range(0.0..=f64::MAX)
                     .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                     .fixed_decimals(defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals),
-            );
+            )
+            .named(section_name("pcb-panel-tab-panel-size-header", "form-common-input-y"));
         });
 
         if !size.eq(&panel_sizing.size) {
@@ -416,7 +419,11 @@ impl PanelTabUi {
                             .range(0.0..=f64::MAX)
                             .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                             .fixed_decimals(defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals),
-                    );
+                    )
+                    .named(section_name(
+                        "pcb-panel-tab-panel-edge-rails-header",
+                        "form-common-input-top",
+                    ));
                 });
                 ui.label(""); // placeholder
                 ui.end_row();
@@ -428,7 +435,11 @@ impl PanelTabUi {
                             .range(0.0..=f64::MAX)
                             .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                             .fixed_decimals(defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals),
-                    );
+                    )
+                    .named(section_name(
+                        "pcb-panel-tab-panel-edge-rails-header",
+                        "form-common-input-left",
+                    ));
                 });
                 ui.label(""); // placeholder
                 ui.horizontal(|ui| {
@@ -438,7 +449,11 @@ impl PanelTabUi {
                             .range(0.0..=f64::MAX)
                             .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                             .fixed_decimals(defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals),
-                    );
+                    )
+                    .named(section_name(
+                        "pcb-panel-tab-panel-edge-rails-header",
+                        "form-common-input-right",
+                    ));
                 });
                 ui.end_row();
 
@@ -450,7 +465,11 @@ impl PanelTabUi {
                             .range(0.0..=f64::MAX)
                             .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                             .fixed_decimals(defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals),
-                    );
+                    )
+                    .named(section_name(
+                        "pcb-panel-tab-panel-edge-rails-header",
+                        "form-common-input-bottom",
+                    ));
                 });
                 ui.label(""); // placeholder
                 ui.end_row();
@@ -757,33 +776,17 @@ impl PanelTabUi {
 
                                             row.col(|ui| {
                                                 ui.add(
-                                                    egui::DragValue::new(&mut design_sizing.gerber_offset.x)
-                                                        .range(f64::MIN..=f64::MAX)
-                                                        .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
-                                                        .fixed_decimals(
-                                                            defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
-                                                        ),
-                                                );
-                                            });
-                                            row.col(|ui| {
-                                                ui.add(
-                                                    egui::DragValue::new(&mut design_sizing.gerber_offset.y)
-                                                        .range(f64::MIN..=f64::MAX)
-                                                        .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
-                                                        .fixed_decimals(
-                                                            defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
-                                                        ),
-                                                );
-                                            });
-                                            row.col(|ui| {
-                                                ui.add(
                                                     egui::DragValue::new(&mut design_sizing.placement_offset.x)
                                                         .range(f64::MIN..=f64::MAX)
                                                         .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
                                                         .fixed_decimals(
                                                             defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
                                                         ),
-                                                );
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-x-placement-offset",
+                                                ));
                                             });
                                             row.col(|ui| {
                                                 ui.add(
@@ -793,7 +796,39 @@ impl PanelTabUi {
                                                         .fixed_decimals(
                                                             defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
                                                         ),
-                                                );
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-y-placement-offset",
+                                                ));
+                                            });
+                                            row.col(|ui| {
+                                                ui.add(
+                                                    egui::DragValue::new(&mut design_sizing.gerber_offset.x)
+                                                        .range(f64::MIN..=f64::MAX)
+                                                        .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
+                                                        .fixed_decimals(
+                                                            defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
+                                                        ),
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-x-gerber-offset",
+                                                ));
+                                            });
+                                            row.col(|ui| {
+                                                ui.add(
+                                                    egui::DragValue::new(&mut design_sizing.gerber_offset.y)
+                                                        .range(f64::MIN..=f64::MAX)
+                                                        .speed(defaults::DRAG_SLIDER[&panel_sizing.units].speed)
+                                                        .fixed_decimals(
+                                                            defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
+                                                        ),
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-y-gerber-offset",
+                                                ));
                                             });
                                             row.col(|ui| {
                                                 ui.add(
@@ -803,7 +838,11 @@ impl PanelTabUi {
                                                         .fixed_decimals(
                                                             defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
                                                         ),
-                                                );
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-x-origin",
+                                                ));
                                             });
                                             row.col(|ui| {
                                                 ui.add(
@@ -813,7 +852,11 @@ impl PanelTabUi {
                                                         .fixed_decimals(
                                                             defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
                                                         ),
-                                                );
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-y-origin",
+                                                ));
                                             });
                                             row.col(|ui| {
                                                 ui.add(
@@ -823,7 +866,11 @@ impl PanelTabUi {
                                                         .fixed_decimals(
                                                             defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
                                                         ),
-                                                );
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-x-size",
+                                                ));
                                             });
                                             row.col(|ui| {
                                                 ui.add(
@@ -833,7 +880,11 @@ impl PanelTabUi {
                                                         .fixed_decimals(
                                                             defaults::DRAG_SLIDER[&panel_sizing.units].fixed_decimals,
                                                         ),
-                                                );
+                                                )
+                                                .named(design_field_name(
+                                                    design_name,
+                                                    "table-design-layout-column-y-size",
+                                                ));
                                             });
 
                                             row.col(|ui| {
@@ -942,7 +993,11 @@ impl PanelTabUi {
                                                                 defaults::DRAG_SLIDER[&panel_sizing.units]
                                                                     .fixed_decimals,
                                                             ),
-                                                    );
+                                                    )
+                                                    .named(unit_field_name(
+                                                        pcb_unit_index,
+                                                        "table-unit-positions-column-x",
+                                                    ));
                                                 });
                                                 row.col(|ui| {
                                                     ui.add(
@@ -953,7 +1008,11 @@ impl PanelTabUi {
                                                                 defaults::DRAG_SLIDER[&panel_sizing.units]
                                                                     .fixed_decimals,
                                                             ),
-                                                    );
+                                                    )
+                                                    .named(unit_field_name(
+                                                        pcb_unit_index,
+                                                        "table-unit-positions-column-y",
+                                                    ));
                                                 });
                                                 row.col(|ui| {
                                                     let mut degrees = pcb_unit_positioning
@@ -967,7 +1026,11 @@ impl PanelTabUi {
                                                             .speed(defaults::DRAG_ANGLE_SPEED)
                                                             .suffix("°")
                                                             .fixed_decimals(defaults::DRAG_ANGLE_FIXED_DECIMALS),
-                                                    );
+                                                    )
+                                                    .named(unit_field_name(
+                                                        pcb_unit_index,
+                                                        "table-unit-positions-column-rotation",
+                                                    ));
 
                                                     // wrap round to 0 again.
                                                     let degrees = Decimal::from_f64(degrees).unwrap() % dec!(360);
@@ -1310,6 +1373,23 @@ impl Tab for PanelTab {
     fn on_close<'a>(&mut self, _tab_key: &TabKey, _context: &mut Self::Context) -> OnCloseResponse {
         OnCloseResponse::Close
     }
+}
+
+fn section_name(section: &str, field: &str) -> String {
+    format!("{}: {}", tr!(section), tr!(field))
+}
+
+fn design_field_name(design_name: &DesignName, column: &str) -> String {
+    format!("{}: {}", design_name, tr!(column))
+}
+
+fn unit_field_name(pcb_unit_index: u16, column: &str) -> String {
+    format!(
+        "{} {}: {}",
+        tr!("pcb-explorer-node-units"),
+        pcb_unit_index + 1,
+        tr!(column)
+    )
 }
 
 fn calculate_initial_table_height(item_count: usize, text_height: f32, ui: &mut Ui) -> Vec2 {

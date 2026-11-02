@@ -202,6 +202,8 @@ form-common-input-top = Arriba
 form-common-input-bottom = Abajo
 form-common-input-left = Izquierda
 form-common-input-right = Derecha
+form-common-input-start = Inicio
+form-common-input-end = Fin
 form-common-input-mask-diameter = Máscara ⌀
 form-common-input-copper-diameter = Cobre ⌀
 

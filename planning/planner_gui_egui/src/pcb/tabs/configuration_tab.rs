@@ -21,8 +21,8 @@ use util::range_utils::{RangeIntoUsize, clamp_inclusive_range};
 use validator::{Validate, ValidationError};
 
 use crate::dialogs::manage_gerbers::{ManageGerbersModal, ManagerGerberModalAction, ManagerGerbersModalUiCommand};
-use crate::forms::Form;
 use crate::forms::transforms::resize_x_transform;
+use crate::forms::{Form, TuiTextButton};
 use crate::pcb::tabs::PcbTabContext;
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
@@ -96,7 +96,7 @@ impl ConfigurationUi {
                     form.add_field_ui("units", tr!("form-configure-pcb-input-units"), tui, {
                         move |ui: &mut Ui, fields, sender| {
                             let mut units = fields.units;
-                            ui.add(egui::DragValue::new(&mut units).range(1..=u16::MAX));
+                            let response = ui.add(egui::DragValue::new(&mut units).range(1..=u16::MAX));
 
                             if units != fields.units {
                                 sender
@@ -104,7 +104,7 @@ impl ConfigurationUi {
                                     .expect("sent");
                             }
 
-                            ui.response()
+                            response
                         }
                     });
 
@@ -219,7 +219,7 @@ impl ConfigurationUi {
                                         ..container_style()
                                     })
                                         .add(|tui| {
-                                            tui.style(Style {
+                                            let design_name_label = tui.style(Style {
                                                 flex_grow: 0.0,
                                                 ..default_style()
                                             })
@@ -241,7 +241,8 @@ impl ConfigurationUi {
                                                     let response = TextEdit::singleline(&mut design_name_clone)
                                                         .hint_text(tr!("form-configure-pcb-input-design-name-placeholder"))
                                                         .desired_width(ui.available_width())
-                                                        .ui(ui);
+                                                        .ui(ui)
+                                                        .labelled_by(design_name_label.id);
 
                                                     if !fields
                                                         .design_name
@@ -262,7 +263,7 @@ impl ConfigurationUi {
                                                     ..default_style()
                                                 })
                                                 .enabled_ui(is_design_name_ok)
-                                                .button(|tui| tui.label(tr!("form-common-button-add")))
+                                                .text_button(tr!("form-common-button-add"))
                                                 .clicked()
                                             {
                                                 self.component
@@ -415,6 +416,13 @@ impl ConfigurationUi {
                                         let range = 1..=fields.units;
                                         // FIXME due to egui/double slider bugs, a range of x..=x causes a panic, so disable the range controls in this case
                                         let is_range_valid = range.end() > range.start();
+                                        // both are number fields with no label of their own.
+                                        let name_range_field = |response: &egui::Response, part: String| {
+                                            let name = format!("{}: {}", tr!("form-configure-pcb-input-pcb-unit-range"), part);
+                                            response
+                                                .ctx
+                                                .accesskit_node_builder(response.id, |node| node.set_label(name));
+                                        };
                                         //trace!("pcb_unit_start: {}, pcb_unit_end: {}, range: {:?}", pcb_unit_start, pcb_unit_start, range);
 
                                         tui.style(Style {
@@ -450,7 +458,7 @@ impl ConfigurationUi {
                                                     }, resize_x_transform
                                                     );
 
-                                                tui.style(Style {
+                                                let start_response = tui.style(Style {
                                                     flex_grow: 0.0,
                                                     min_size: Size {
                                                         width: length(50.0),
@@ -461,8 +469,9 @@ impl ConfigurationUi {
                                                     .ui_add(
                                                         egui::DragValue::new(&mut pcb_unit_start).range(1..=pcb_unit_end)
                                                     );
+                                                name_range_field(&start_response, tr!("form-common-input-start"));
 
-                                                tui.style(Style {
+                                                let end_response = tui.style(Style {
                                                     flex_grow: 0.0,
                                                     min_size: Size {
                                                         width: length(50.0),
@@ -474,6 +483,7 @@ impl ConfigurationUi {
                                                         egui::DragValue::new(&mut pcb_unit_end)
                                                             .range(pcb_unit_start..=*(range.end()))
                                                     );
+                                                name_range_field(&end_response, tr!("form-common-input-end"));
                                             });
 
                                         let pcb_unit_range = RangeInclusive::new(pcb_unit_start, pcb_unit_end);
@@ -495,7 +505,7 @@ impl ConfigurationUi {
                                                 ..default_style()
                                             })
                                             .enabled_ui(is_design_selected)
-                                            .button(|tui| tui.label(tr!("form-common-button-apply-range")))
+                                            .text_button(tr!("form-common-button-apply-range"))
                                             .clicked()
                                         {
                                             self.component
@@ -510,7 +520,7 @@ impl ConfigurationUi {
                                                 ..default_style()
                                             })
                                             .enabled_ui(is_design_selected)
-                                            .button(|tui| tui.label(tr!("form-common-button-apply-all")))
+                                            .text_button(tr!("form-common-button-apply-all"))
                                             .clicked()
                                         {
                                             self.component
@@ -525,7 +535,7 @@ impl ConfigurationUi {
                                                 ..default_style()
                                             })
                                             .enabled_ui(is_design_selected)
-                                            .button(|tui| tui.label(tr!("form-common-button-unassign-from-range")))
+                                            .text_button(tr!("form-common-button-unassign-from-range"))
                                             .clicked()
                                         {
                                             self.component
@@ -542,7 +552,7 @@ impl ConfigurationUi {
                                                 ..default_style()
                                             })
                                             .enabled_ui(have_assigned_items_in_range)
-                                            .button(|tui| tui.label(tr!("form-common-button-unassign-range")))
+                                            .text_button(tr!("form-common-button-unassign-range"))
                                             .clicked()
                                         {
                                             self.component
@@ -691,7 +701,7 @@ impl ConfigurationUi {
                                                         ..default_style()
                                                     })
                                                     .enabled_ui(is_selection_ok && is_design_name_ok)
-                                                    .button(|tui| tui.label(tr!("form-common-button-assign-selected")))
+                                                    .text_button(tr!("form-common-button-assign-selected"))
                                                     .clicked()
                                                 {
                                                     self.component
@@ -711,7 +721,7 @@ impl ConfigurationUi {
                                                         ..default_style()
                                                     })
                                                     .enabled_ui(have_assigned_selection)
-                                                    .button(|tui| tui.label(tr!("form-common-button-unassign-selected")))
+                                                    .text_button(tr!("form-common-button-unassign-selected"))
                                                     .clicked()
                                                 {
                                                     self.component
@@ -727,7 +737,7 @@ impl ConfigurationUi {
                                                         ..default_style()
                                                     })
                                                     .enabled_ui(have_assigned_items)
-                                                    .button(|tui| tui.label(tr!("form-common-button-unassign-all")))
+                                                    .text_button(tr!("form-common-button-unassign-all"))
                                                     .clicked()
                                                 {
                                                     self.component
