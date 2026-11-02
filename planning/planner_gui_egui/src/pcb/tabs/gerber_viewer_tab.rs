@@ -11,6 +11,7 @@ use egui_i18n::tr;
 use planner_app::{ObjectPath, PanelSizing, PcbOverview, PcbSide, PlacementPositionUnit};
 use tracing::trace;
 
+use crate::forms::TABLE_TWO_ROWS_HEIGHT;
 use crate::i18n::conversions::{gerber_file_function_to_i18n_key, pcb_side_to_i18n_key};
 use crate::pcb::tabs::PcbTabContext;
 use crate::tabs::{Tab, TabKey};
@@ -33,8 +34,6 @@ pub struct GerberViewerTabUi {
 }
 
 impl GerberViewerTabUi {
-    const TABLE_SCROLL_HEIGHT_MIN: f32 = 40.0;
-
     pub fn new(args: GerberViewerUiInstanceArgs) -> Self {
         let component: ComponentState<GerberViewerTabUiCommand> = Default::default();
 
@@ -103,7 +102,7 @@ impl GerberViewerTabUi {
             .striped(true)
             .resizable(true)
             //.auto_shrink([false, true])
-            .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
+            .min_scrolled_height(TABLE_TWO_ROWS_HEIGHT)
             //.scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
             .sense(egui::Sense::click());
 

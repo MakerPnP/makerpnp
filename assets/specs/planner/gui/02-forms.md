@@ -22,10 +22,43 @@ respectively.
 Examples of those fields include the directory on the New project and New PCB tabs, the load-out source in the Add phase
 dialog, and the packages and package mappings in the Package sources dialog.
 
+## Fields and rows created on the fly
+
+**FORM-5 — Don't lose what the user entered.** *Confirmed.* The UI MUST always try not to lose user data. Where a value
+decides how many fields, rows or other UI elements are shown, reducing that value MUST NOT immediately lose the details
+entered in the ones that are no longer shown, so that increasing it again brings them back. This protects against
+accidental or unwanted changes, for example to the number of units after making other changes. See `PCBCFG-5`.
+
+## Tables
+
+**FORM-6 — Resize handles.** *Confirmed.* A table whose rows may not all fit MUST have a resize handle, named after the
+table for assistive technology and tests, for example "`Unit mapping: Resize`". These are the Designs and Unit mapping
+tables of a PCB's Configuration tab, the Fiducials, Design configuration and Unit positions tables of its Panelization tab,
+the Phases and PCBs tables of a project's Overview tab, and the Designs and Variant map tables of its Unit assignments tab.
+
+**FORM-7 — Tables are not sized to their rows.** *Confirmed.* A table MUST NOT start tall enough to show all its rows, since
+that depends on the other UI elements on the form or tab and on the space available, and is specific to each form or tab.
+Rows that don't fit in a table's current height can't be clicked. Dragging its resize handle MUST make the table taller, up
+to its maximum height, so that they can be reached.
+
+**FORM-8 — Minimum height.** *Target.* Every table MUST have at least the height of its header and two rows, including a
+table with no rows, so that it is obvious that a table is being displayed. A table can't be resized to less than this.
+
+Gaps: when a form or tab has less space than this, tables using `egui_deferred_table` (Parts, Placements and a phase's
+load-out) don't keep their minimum size, due to a limitation noted in that library.
+
 ## Acceptance criteria
 
+- `tests/ui/tables.rs` checks a click on unit 4 of the Unit mapping table does nothing, drags the table's handle, and
+  checks the same click now selects the unit (`FORM-7`). The UI tests run at 1920x1080.
+- `tests/ui/tables.rs` drags a table's handle far upwards, and checks its second row can still be clicked (`FORM-8`). Not covered
+  yet: the tables that have no handle, and the other tables with handles, which share the same code.
+- `tests/ui/tables.rs` checks the handles exist on a PCB's two tabs and on a project's Overview tab (`FORM-6`). Not covered
+  yet: dragging any other handle, and the Unit assignments tab.
 - Each of the fields can be set by answering its dialog (`FORM-2`). `tests/ui/workflow.rs` covers New project, New PCB
   and Package sources. Add phase is not covered yet.
 - Clearing a required field stops the form being submitted (`FORM-3`), covered for New project.
 - A test that cancels one of these dialogs (`FORM-2`), not covered yet.
 - `FORM-1` is about appearance, so no test checks it.
+- Reducing and then increasing a value keeps what was entered (`FORM-5`), covered for a PCB's units (`PCBCFG-5`). Other
+  fields, rows and elements created on the fly have not been checked yet.

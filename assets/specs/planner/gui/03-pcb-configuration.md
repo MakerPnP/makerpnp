@@ -24,8 +24,21 @@ every unit needs a design for the form to be valid. Clicking it MUST send the un
 the assignments to the core. The PCB then has unsaved changes, and Save is enabled. The result MUST be the same as
 creating the PCB with those assignments in the CLI (`pcb create --design`).
 
+**PCBCFG-5 — Reducing the units.** *Confirmed.* Reducing "`Units`" MUST NOT lose the assignments of the units that are no
+longer shown, so that increasing it again brings them back (`FORM-5`). Only the units that are shown are sent to the core
+by "`Apply`".
+
+**PCBCFG-6 — Selected units that are not shown.** *Confirmed.* "`Assign selected`" and "`Unassign selected`" MUST only
+change units that are shown, and MUST be disabled if no shown unit qualifies. A selected unit that is hidden by reducing
+"`Units`" stays selected, and applies again when it is shown again (`FORM-5`). This was a bug until 2026-11-02: those
+buttons could change a hidden unit's assignment, which was only seen when "`Units`" was next increased.
+
 ## Acceptance criteria
 
+- `tests/ui/workflow.rs` selects a unit, hides it by reducing "`Units`", checks "`Assign selected`" is disabled, shows it
+  again, and checks the selection still applies to it (`PCBCFG-6`).
+- `tests/ui/workflow.rs` applies 4 units, reduces them to 2, increases them to 4, and checks the form is back to what was
+  applied (`PCBCFG-5`).
 - `tests/ui/workflow.rs` creates a PCB of 4 units, adds 2 designs, assigns them alternately, applies and saves, and
   compares the file with the one the core saves for the CLI's event (`PCBCFG-1`, `PCBCFG-2`, `PCBCFG-3`, `PCBCFG-4`).
 - Not covered yet: refusing a duplicate design name, deselecting a design, "`Apply all`", "`Unassign range`", the unit

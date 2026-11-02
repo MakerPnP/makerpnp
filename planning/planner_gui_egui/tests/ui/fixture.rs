@@ -13,7 +13,7 @@ use planner_gui_egui::planner_app_core::PlannerCoreService;
 use planner_gui_egui::ui_app::UiApp;
 use tempfile::TempDir;
 
-const WINDOW_SIZE: egui::Vec2 = egui::vec2(1024.0, 768.0);
+const WINDOW_SIZE: egui::Vec2 = egui::vec2(1920.0, 1080.0);
 
 /// The simulated time per frame, short enough for the frames of a double-click to count as one.
 const STEP: f32 = 0.05;
@@ -244,6 +244,71 @@ impl App {
         });
     }
 
+    pub fn count_text(&self, text: &str) -> usize {
+        self.harness
+            .query_all_by_role_and_label(Role::Label, text)
+            .count()
+    }
+
+    pub fn wait_for_text_count(&mut self, text: &str, count: usize) {
+        self.wait_until(&format!("text '{text}' was shown {count} times"), |app| {
+            app.count_text(text) == count
+        });
+    }
+
+    /// Waits for a table's resize handle, named as `FORM-6` requires.
+    pub fn wait_for_resize_handle(&mut self, name: &str) {
+        self.wait_until(&format!("resize handle '{name}' was shown"), |app| {
+            app.is_shown(Role::Splitter, name)
+        });
+    }
+
+    /// Drags a table's resize handle, so that the table is taller by `height`.
+    pub fn drag_resize_handle(&mut self, name: &str, height: f32) {
+        self.wait_for_resize_handle(name);
+        self.wait_for_the_layout();
+        let start = self
+            .harness
+            .get_by_role_and_label(Role::Splitter, name)
+            .rect()
+            .center();
+        let end = start + egui::vec2(0.0, height);
+
+        self.harness
+            .event(egui::Event::PointerMoved(start));
+        self.harness.step();
+        for (position, pressed) in [(start, true), (end, false)] {
+            self.harness
+                .event(egui::Event::PointerMoved(position));
+            self.harness.step();
+            self.harness
+                .event(egui::Event::PointerButton {
+                    pos: position,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            self.harness.step();
+        }
+        self.wait_for_the_layout();
+    }
+
+    /// The height of a table, from the top of one of its column headers to the bottom of its resize handle.
+    pub fn table_height(&self, column_header: &str, resize_handle: &str) -> f32 {
+        let top = self
+            .harness
+            .get_by_role_and_label(Role::Label, column_header)
+            .rect()
+            .top();
+        let bottom = self
+            .harness
+            .get_by_role_and_label(Role::Splitter, resize_handle)
+            .rect()
+            .bottom();
+
+        bottom - top
+    }
+
     /// The temporary folder for this application's files.
     pub fn folder(&self) -> PathBuf {
         self.folder.path().to_path_buf()
@@ -309,6 +374,15 @@ impl App {
         self.wait_until(&format!("text '{text}' was shown"), |app| {
             app.is_shown(Role::Label, text)
         });
+    }
+
+    pub fn click_tab(&mut self, label: &str) {
+        self.wait_for_tab(label);
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::Tab, label)
+            .click();
+        self.harness.step();
     }
 
     pub fn wait_for_tab(&mut self, label: &str) {

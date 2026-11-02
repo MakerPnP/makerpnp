@@ -3,4 +3,5 @@
 
 mod fixture;
 mod open_project;
+mod tables;
 mod workflow;

@@ -4,6 +4,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use planner_app::{PcbInstanceIndex, PhaseOverview, PhaseReference, ProjectOverview};
 
+use crate::forms::NamedResize;
 use crate::i18n::conversions::phase_status_to_i18n_key;
 use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
@@ -52,7 +53,7 @@ impl OverviewTabUi {
             .min_width(available_size.x)
             .max_width(available_size.x)
             .max_height(Self::TABLE_HEIGHT_MAX)
-            .show(ui, |ui| {
+            .show_named(ui, "project-overview-phases-header", |ui| {
                 // HACK: search codebase for 'HACK: table-resize-hack' for details
                 egui::Frame::new()
                     .outer_margin(4.0)
@@ -150,7 +151,7 @@ impl OverviewTabUi {
             .min_width(available_size.x)
             .max_width(available_size.x)
             .max_height(Self::TABLE_HEIGHT_MAX)
-            .show(ui, |ui| {
+            .show_named(ui, "project-overview-pcbs-header", |ui| {
                 // HACK: search codebase for 'HACK: table-resize-hack' for details
                 egui::Frame::new()
                     .outer_margin(4.0)

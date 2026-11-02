@@ -26,7 +26,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use tracing::{debug, trace};
 
-use crate::forms::NamedResponse;
+use crate::forms::{NamedResize, NamedResponse, TABLE_TWO_ROWS_HEIGHT};
 use crate::i18n::conversions::pcb_orientation_pitch_flip_to_i18n_key;
 use crate::pcb::tabs::PcbTabContext;
 use crate::pcb::tabs::panel_tab::gerber_builder::GerberBuilder;
@@ -100,7 +100,6 @@ pub struct PanelTabUi {
 
 impl PanelTabUi {
     const TABLE_HEIGHT_MAX: f32 = 400.0;
-    const TABLE_SCROLL_HEIGHT_MIN: f32 = 30.0;
 
     pub fn new() -> Self {
         let component: ComponentState<PanelTabUiCommand> = Default::default();
@@ -556,7 +555,7 @@ impl PanelTabUi {
                 .min_width(ui.available_width())
                 .max_width(ui.available_width())
                 .max_height(Self::TABLE_HEIGHT_MAX)
-                .show(ui, |ui| {
+                .show_named(ui, "pcb-panel-tab-panel-fiducials-header", |ui| {
                     // HACK: search codebase for 'HACK: table-resize-hack' for details
                     egui::Frame::new()
                         .outer_margin(4.0)
@@ -569,7 +568,7 @@ impl PanelTabUi {
                                 .striped(true)
                                 .resizable(true)
                                 .auto_shrink([false, false])
-                                .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
+                                .min_scrolled_height(TABLE_TWO_ROWS_HEIGHT)
                                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                 .sense(egui::Sense::click())
                                 .column(Column::auto())
@@ -697,7 +696,7 @@ impl PanelTabUi {
                 .min_width(ui.available_width())
                 .max_width(ui.available_width())
                 .max_height(Self::TABLE_HEIGHT_MAX)
-                .show(ui, |ui| {
+                .show_named(ui, "pcb-panel-tab-panel-design-configuration-header", |ui| {
                     // HACK: search codebase for 'HACK: table-resize-hack' for details
                     egui::Frame::new()
                         .outer_margin(4.0)
@@ -710,7 +709,7 @@ impl PanelTabUi {
                                 .striped(true)
                                 .resizable(true)
                                 .auto_shrink([false, false])
-                                .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
+                                .min_scrolled_height(TABLE_TWO_ROWS_HEIGHT)
                                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                 .sense(egui::Sense::click())
                                 .column(Column::auto())
@@ -925,7 +924,7 @@ impl PanelTabUi {
                 .min_width(ui.available_width())
                 .max_width(ui.available_width())
                 .max_height(Self::TABLE_HEIGHT_MAX)
-                .show(ui, |ui| {
+                .show_named(ui, "pcb-panel-tab-panel-unit-positions-header", |ui| {
                     // HACK: search codebase for 'HACK: table-resize-hack' for details
                     egui::Frame::new()
                         .outer_margin(4.0)
@@ -938,7 +937,7 @@ impl PanelTabUi {
                                 .striped(true)
                                 .resizable(true)
                                 .auto_shrink([false, false])
-                                .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
+                                .min_scrolled_height(TABLE_TWO_ROWS_HEIGHT)
                                 .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                 .sense(egui::Sense::click())
                                 .column(Column::auto())

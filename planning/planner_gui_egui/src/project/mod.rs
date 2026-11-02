@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::SystemTime;
 
@@ -852,7 +852,7 @@ impl Project {
             .pcbs
             .get(pcb_index as usize)
             .map(|pcb| ProjectAction::LocateComponent {
-                pcb_file: pcb.pcb_file.build_path(&self.path),
+                pcb_file: pcb_file_path(&self.path, &pcb.pcb_file),
                 object_path,
                 pcb_side,
                 design_position,
@@ -909,6 +909,26 @@ impl Project {
         let mut picker = self.file_picker.lock().unwrap();
         picker.pick_file();
     }
+}
+
+/// A PCB inside the project's folder is stored relative to it, so the project keeps working if the folder is moved.
+fn pcb_file_reference(project_path: &Path, pcb_path: PathBuf) -> FileReference {
+    let project_directory = project_path.parent().unwrap();
+
+    match pcb_path.strip_prefix(project_directory) {
+        Ok(relative_path) => FileReference::Relative(relative_path.to_path_buf()),
+        Err(_) => FileReference::Absolute(pcb_path),
+    }
+}
+
+/// Relative paths are relative to the project's folder, not to the project's file.
+fn pcb_file_path(project_path: &Path, pcb_file: &FileReference) -> PathBuf {
+    pcb_file.build_path(
+        &project_path
+            .parent()
+            .unwrap()
+            .to_path_buf(),
+    )
 }
 
 pub struct ProjectContext {
@@ -1253,8 +1273,7 @@ impl Project {
                 Task::done(ProjectAction::UiCommand(ProjectUiCommand::RefreshFromDesignVariants)),
             )),
             ProjectUiCommand::PcbFilePicked(pcb_path) => {
-                // FUTURE consider storing a relative file if the pcb_path is in a subdirectory of the project path.
-                let pcb_file = FileReference::Absolute(pcb_path);
+                let pcb_file = pcb_file_reference(&self.path, pcb_path);
 
                 self.planner_core_service
                     .update(Event::AddPcb {
@@ -2338,7 +2357,34 @@ mod tests {
     use super::tabs::parts_tab::PartsTab;
     use super::tabs::pcb_tab::PcbTab;
     use super::tabs::phase_tab::PhaseTab;
-    use super::{ProjectTabKind, missing_views};
+    use super::{ProjectTabKind, missing_views, pcb_file_path, pcb_file_reference};
+
+    #[test]
+    fn a_pcb_in_the_projects_folder_is_stored_relative_to_it() {
+        let project = PathBuf::from("folder").join("project.mpnp.json");
+        let pcb = PathBuf::from("folder")
+            .join("pcbs")
+            .join("panel.pcb.json");
+
+        let reference = pcb_file_reference(&project, pcb.clone());
+
+        assert_eq!(
+            reference,
+            FileReference::Relative(PathBuf::from("pcbs").join("panel.pcb.json"))
+        );
+        assert_eq!(pcb_file_path(&project, &reference), pcb);
+    }
+
+    #[test]
+    fn a_pcb_outside_the_projects_folder_is_stored_as_given() {
+        let project = PathBuf::from("folder").join("project.mpnp.json");
+        let pcb = PathBuf::from("elsewhere").join("panel.pcb.json");
+
+        let reference = pcb_file_reference(&project, pcb.clone());
+
+        assert_eq!(reference, FileReference::Absolute(pcb.clone()));
+        assert_eq!(pcb_file_path(&project, &reference), pcb);
+    }
 
     #[test]
     fn a_phase_tab_requires_its_views_and_the_phases() {

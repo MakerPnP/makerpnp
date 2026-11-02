@@ -19,7 +19,7 @@ use util::range_utils::RangeIntoUsize;
 use validator::{Validate, ValidationError};
 
 use crate::forms::transforms::resize_x_transform;
-use crate::forms::{Form, TuiTextButton};
+use crate::forms::{Form, NamedResize, TABLE_TWO_ROWS_HEIGHT, TuiTextButton};
 use crate::project::data::{ProjectData, Synced};
 use crate::project::tabs::ProjectTabContext;
 use crate::sync::Value;
@@ -59,7 +59,6 @@ impl UnitAssignmentsTabUi {
     const TABLE_DEBUG_MODE: bool = false;
 
     const TABLE_HEIGHT_MAX: f32 = 200.0;
-    const TABLE_SCROLL_HEIGHT_MIN: f32 = 40.0;
 
     pub fn new(path: PathBuf, pcb_index: u16) -> Self {
         let placements_directory = path
@@ -409,7 +408,7 @@ impl UnitAssignmentsTabUi {
                                         .min_width(available_size.x)
                                         .max_width(available_size.x)
                                         .max_height(Self::TABLE_HEIGHT_MAX)
-                                        .show(ui, |ui| {
+                                        .show_named(ui, "project-pcb-designs-header", |ui| {
                                             // HACK: search codebase for 'HACK: table-resize-hack' for details
                                             egui::Frame::new()
                                                 .outer_margin(4.0)
@@ -427,7 +426,7 @@ impl UnitAssignmentsTabUi {
                                                         .striped(true)
                                                         .resizable(true)
                                                         .auto_shrink([false, false])
-                                                        .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
+                                                        .min_scrolled_height(TABLE_TWO_ROWS_HEIGHT)
                                                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                                         .sense(egui::Sense::click())
                                                         .column(Column::auto())
@@ -657,7 +656,7 @@ impl UnitAssignmentsTabUi {
                                         .min_width(available_size.x)
                                         .max_width(available_size.x)
                                         .max_height(Self::TABLE_HEIGHT_MAX)
-                                        .show(ui, |ui| {
+                                        .show_named(ui, "form-create-unit-assignment-group-variant-map", |ui| {
                                             // HACK: search codebase for 'HACK: table-resize-hack' for details
                                             egui::Frame::new()
                                                 .outer_margin(4.0)
@@ -676,7 +675,7 @@ impl UnitAssignmentsTabUi {
                                                         .scroll_bar_visibility(ScrollBarVisibility::AlwaysVisible)
                                                         .striped(true)
                                                         .resizable(true)
-                                                        .min_scrolled_height(Self::TABLE_SCROLL_HEIGHT_MIN)
+                                                        .min_scrolled_height(TABLE_TWO_ROWS_HEIGHT)
                                                         .sense(egui::Sense::click())
                                                         .column(Column::auto())
                                                         .column(Column::auto())

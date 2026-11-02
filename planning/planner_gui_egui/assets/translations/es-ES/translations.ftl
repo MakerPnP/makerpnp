@@ -220,6 +220,7 @@ form-common-button-ok = Aceptar
 form-common-button-cancel = Cancelar
 form-common-button-close = Cerrar
 form-common-button-add = Añadir
+form-common-resize = Cambiar tamaño
 form-common-button-clear = Borrar
 form-common-button-choose = Elegir
 form-common-button-remove = Quitar

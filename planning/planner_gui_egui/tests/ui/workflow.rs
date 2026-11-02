@@ -328,7 +328,7 @@ fn a_project_with_a_pcb_saves_the_same_file_as_the_cli() {
 
     let saved = fs::read_to_string(&project).unwrap();
 
-    // what the CLI's `sequence_04_add_pcb` does, except that the CLI's test gives a relative path, see `PROJPCB-2`.
+    // what the CLI's `sequence_04_add_pcb` does.
     let mut core = PlannerCoreService::new();
     update(&mut core, Event::CreateProject {
         name: "job1".to_string(),
@@ -337,9 +337,122 @@ fn a_project_with_a_pcb_saves_the_same_file_as_the_cli() {
         package_mappings: None,
     });
     update(&mut core, Event::AddPcb {
-        pcb_file: FileReference::Absolute(pcb.clone()),
+        pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
     });
     update(&mut core, Event::Save);
 
     assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `PROJPCB-2`
+#[test]
+fn a_project_keeps_working_after_its_folder_is_moved() {
+    let mut app = App::start();
+    let folder = app.folder().join("original");
+    fs::create_dir(&folder).unwrap();
+    create_pcb_with_the_core(&mut PlannerCoreService::new(), &folder.join("panel_a.pcb.json"));
+
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+    app.when_a_file_dialog_opens_answer(Some(folder.join("panel_a.pcb.json")));
+    app.click_button("Add PCB");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let moved = app.folder().join("moved");
+    fs::rename(&folder, &moved).unwrap();
+
+    let mut app_after_the_move = App::start();
+    app_after_the_move.when_a_file_dialog_opens_answer(Some(moved.join("project-job1.mpnp.json")));
+    app_after_the_move.click_button("Open project");
+    app_after_the_move.wait_for_tab("Overview");
+}
+
+/// `PROJPCB-2`
+#[test]
+fn a_pcb_outside_the_projects_folder_is_stored_with_its_absolute_path() {
+    let mut app = App::start();
+    let folder = app.folder().join("project");
+    fs::create_dir(&folder).unwrap();
+    let project = folder.join("project-job1.mpnp.json");
+    let pcb = app.folder().join("panel_a.pcb.json");
+    create_pcb_with_the_core(&mut PlannerCoreService::new(), &pcb);
+
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+    app.when_a_file_dialog_opens_answer(Some(pcb.clone()));
+    app.click_button("Add PCB");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    let mut core = PlannerCoreService::new();
+    update(&mut core, Event::CreateProject {
+        name: "job1".to_string(),
+        path: project.clone(),
+        packages: None,
+        package_mappings: None,
+    });
+    update(&mut core, Event::AddPcb {
+        pcb_file: FileReference::Absolute(pcb),
+    });
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `FORM-5`, `PCBCFG-5`
+#[test]
+fn reducing_the_units_keeps_their_assignments_for_when_they_are_increased_again() {
+    let mut app = App::start();
+    let folder = app.folder();
+    create_pcb_with_assigned_designs(&mut app, &folder);
+    save(&mut app);
+    app.wait_until_button_is_disabled("Reset");
+
+    app.set_number("Units", 2.0);
+    app.wait_for_enabled_button("Reset");
+
+    app.set_number("Units", 4.0);
+
+    // only disabled when the form is back to what was applied, including the assignments of units 3 and 4.  "Apply" is
+    // no use for this, as it's also disabled when a unit has no design.
+    app.wait_until_button_is_disabled("Reset");
+}
+
+/// `PCBCFG-6`, `FORM-5`
+#[test]
+fn assign_selected_only_changes_the_units_that_are_shown() {
+    let mut app = App::start();
+    let folder = app.folder();
+    app.click_button("New PCB");
+    app.type_into("PCB name", "panel_a");
+    app.set_number("Units", 4.0);
+    app.when_a_file_dialog_opens_answer(Some(folder));
+    app.click_button("Directory: Choose");
+    app.wait_for_enabled_button("Ok");
+    app.click_button("Ok");
+    app.wait_for_tab("Configuration");
+    app.type_into("Design name", "design_a");
+    app.wait_for_enabled_button("Add");
+    app.click_button("Add");
+    app.wait_for_text("design_a");
+    app.click_text("design_a");
+    app.wait_for_enabled_button("Apply range");
+
+    // unit 2, there is only one design, so its number appears only in the units table.
+    app.click_text("2");
+    app.wait_for_enabled_button("Assign selected");
+
+    // the only selected unit is no longer shown.
+    app.set_number("Units", 1.0);
+    app.wait_until_button_is_disabled("Assign selected");
+
+    // the selection comes back with the unit, and then applies to it.
+    app.set_number("Units", 4.0);
+    app.wait_for_enabled_button("Assign selected");
+    assert_eq!(app.count_text("design_a"), 1);
+    app.click_button("Assign selected");
+    app.wait_for_text_count("design_a", 2);
 }

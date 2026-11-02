@@ -220,6 +220,7 @@ form-common-button-ok = Ok
 form-common-button-cancel = Cancel
 form-common-button-close = Close
 form-common-button-add = Add
+form-common-resize = Resize
 form-common-button-clear = Clear
 form-common-button-choose = Choose
 form-common-button-remove = Remove

@@ -1,6 +1,6 @@
 use std::sync::mpsc::Sender;
 
-use egui::{Button, Frame, Response, RichText, TextEdit, Ui, Widget, WidgetInfo, WidgetType};
+use egui::{Button, Frame, Resize, Response, RichText, TextEdit, Ui, Widget, WidgetInfo, WidgetType};
 use egui_i18n::{tr, translate_fluent};
 use egui_taffy::taffy::prelude::{fit_content, fr, length, percent, span};
 use egui_taffy::taffy::{AlignContent, AlignItems, AlignSelf, Display, FlexDirection, Style};
@@ -312,6 +312,56 @@ impl NamedResponse for Response {
             .accesskit_node_builder(self.id, |node| node.set_label(name));
 
         self
+    }
+}
+
+/// The height of a row of a table, including the spacing between rows.
+const TABLE_ROW_HEIGHT: f32 = 18.0 + 3.0;
+
+/// The height of a table's header, including the spacing below it.
+const TABLE_HEADER_HEIGHT: f32 = 20.0 + 3.0;
+
+/// The margin around the tables that are inside a [`Resize`], see `HACK: table-resize-hack`.
+const TABLE_MARGIN: f32 = 2.0 * 4.0;
+
+/// The space for two rows of a table, excluding its header.  So that it's obvious that a table is being displayed, every
+/// table has at least this much space for its rows, even when it has no rows.
+pub const TABLE_TWO_ROWS_HEIGHT: f32 = 2.0 * TABLE_ROW_HEIGHT;
+
+/// For the tables that are resized using a handle, which egui gives no accessibility information.
+pub trait NamedResize {
+    /// As `Resize::show`, naming the handle "<name>: Resize" for assistive technology and tests, and stopping the table
+    /// being made smaller than its header and two rows.
+    ///
+    /// `name_key` is the translation key of the table's name, it also identifies the table, so that its size is kept
+    /// when the language is changed.
+    fn show_named<R>(self, ui: &mut Ui, name_key: &str, add_contents: impl FnOnce(&mut Ui) -> R) -> R;
+}
+
+impl NamedResize for Resize {
+    fn show_named<R>(self, ui: &mut Ui, name_key: &str, add_contents: impl FnOnce(&mut Ui) -> R) -> R {
+        let id = ui.id().with(name_key);
+        let inner = self
+            .id(id)
+            .min_height(TABLE_MARGIN + TABLE_HEADER_HEIGHT + TABLE_TWO_ROWS_HEIGHT)
+            .show(ui, add_contents);
+
+        // only if there is a handle, as this would otherwise create an entry for something that doesn't exist.
+        let handle_id = id.with("__resize_corner");
+        if ui
+            .ctx()
+            .read_response(handle_id)
+            .is_some()
+        {
+            let name = format!("{}: {}", tr!(name_key), tr!("form-common-resize"));
+            ui.ctx()
+                .accesskit_node_builder(handle_id, |node| {
+                    node.set_role(egui::accesskit::Role::Splitter);
+                    node.set_label(name);
+                });
+        }
+
+        inner
     }
 }
 
