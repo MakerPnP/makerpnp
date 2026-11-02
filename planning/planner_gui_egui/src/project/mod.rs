@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use derivative::Derivative;
@@ -28,7 +29,7 @@ use tabs::unit_assignments_tab::{
 };
 use tracing::{debug, error, info, trace};
 
-use crate::file_picker::Picker;
+use crate::file_picker::{FileDialogs, Picker};
 use crate::planner_app_core::{PlannerAction, PlannerCoreService, PlannerError};
 use crate::project::core_helper::ProjectCoreHelper;
 use crate::project::data::{ProjectData, ViewKey};
@@ -112,6 +113,7 @@ pub struct Project {
     package_sources_modal: Option<PackageSourcesModal>,
 
     file_picker: Value<Picker>,
+    file_dialogs: Arc<dyn FileDialogs>,
 }
 
 // FUTURE consider moving this into the planner app core itself, so it can be re-used by all apps using the same core.
@@ -158,8 +160,9 @@ impl Project {
         path: PathBuf,
         key: ProjectKey,
         project_tabs: Value<ProjectTabs>,
+        file_dialogs: Arc<dyn FileDialogs>,
     ) -> (Self, Vec<ProjectUiCommand>) {
-        Self::new_inner(path, key, None, project_tabs, ProjectUiCommand::Load)
+        Self::new_inner(path, key, None, project_tabs, ProjectUiCommand::Load, file_dialogs)
     }
 
     pub fn new(
@@ -167,8 +170,16 @@ impl Project {
         path: PathBuf,
         key: ProjectKey,
         project_tabs: Value<ProjectTabs>,
+        file_dialogs: Arc<dyn FileDialogs>,
     ) -> (Self, Vec<ProjectUiCommand>) {
-        Self::new_inner(path, key, Some(name), project_tabs, ProjectUiCommand::Create)
+        Self::new_inner(
+            path,
+            key,
+            Some(name),
+            project_tabs,
+            ProjectUiCommand::Create,
+            file_dialogs,
+        )
     }
 
     fn new_inner(
@@ -177,6 +188,7 @@ impl Project {
         name: Option<String>,
         project_tabs: Value<ProjectTabs>,
         initial_command: ProjectUiCommand,
+        file_dialogs: Arc<dyn FileDialogs>,
     ) -> (Self, Vec<ProjectUiCommand>) {
         debug!("Creating project instance from path. path: {}", &path.display());
 
@@ -215,7 +227,8 @@ impl Project {
             component,
             add_phase_modal: None,
             package_sources_modal: None,
-            file_picker: Default::default(),
+            file_picker: Value::new(Picker::new(file_dialogs.clone())),
+            file_dialogs,
         };
 
         let mut commands = instance.configure_tabs(key);
@@ -853,7 +866,7 @@ impl Project {
             state.data.processes().to_vec()
         };
 
-        let mut modal = AddPhaseModal::new(self.path.clone(), processes);
+        let mut modal = AddPhaseModal::new(self.path.clone(), processes, self.file_dialogs.clone());
         modal
             .component
             .configure_mapper(self.component.sender.clone(), move |command| {
@@ -879,6 +892,7 @@ impl Project {
                 self.path.clone(),
                 library_config.package_source,
                 library_config.package_mappings_source,
+                self.file_dialogs.clone(),
             );
             modal
                 .component
@@ -2431,6 +2445,7 @@ mod refresh_tests {
             directory.path().join("test.mpnp.json"),
             key,
             make_tabs(key),
+            Arc::new(crate::file_picker::NativeFileDialogs),
         );
 
         for command in commands {
@@ -2651,6 +2666,7 @@ mod refresh_tests {
                 .join("missing.mpnp.json"),
             key,
             make_tabs(key),
+            Arc::new(crate::file_picker::NativeFileDialogs),
         );
 
         for command in commands {

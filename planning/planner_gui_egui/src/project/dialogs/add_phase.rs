@@ -1,20 +1,20 @@
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 use derivative::Derivative;
-use egui::{Button, Modal, TextEdit, Ui, Widget};
+use egui::{Modal, TextEdit, Ui};
 use egui_i18n::tr;
 use egui_taffy::taffy::prelude::{auto, length, percent};
-use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Style};
-use egui_taffy::{Tui, TuiBuilderLogic, taffy, tui};
+use egui_taffy::taffy::{AlignItems, FlexDirection, Style};
+use egui_taffy::{Tui, taffy, tui};
 use planner_app::{LoadOutSource, PcbSide, ProcessReference, Reference};
 use taffy::Size;
 use validator::Validate;
 
-use crate::file_picker::Picker;
-use crate::forms::Form;
-use crate::forms::transforms::resize_x_transform;
+use crate::file_picker::{FileDialogs, Picker};
+use crate::forms::{Form, PickerFieldAction, picker_field};
 use crate::project::dialogs::PcbSideChoice;
 use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
@@ -32,13 +32,13 @@ pub struct AddPhaseModal {
 }
 
 impl AddPhaseModal {
-    pub fn new(path: PathBuf, processes: Vec<ProcessReference>) -> Self {
+    pub fn new(path: PathBuf, processes: Vec<ProcessReference>, file_dialogs: Arc<dyn FileDialogs>) -> Self {
         Self {
             fields: Default::default(),
             processes,
             path,
             component: Default::default(),
-            file_picker: Default::default(),
+            file_picker: Value::new(Picker::new(file_dialogs)),
         }
     }
 
@@ -83,50 +83,24 @@ impl AddPhaseModal {
                         }
                     });
 
-                    form.add_field_tui("load_out", tr!("form-common-input-load-out-source"), tui, {
+                    let load_out_label = tr!("form-common-input-load-out-source");
+                    form.add_field_tui("load_out", load_out_label.clone(), tui, {
                         move |tui: &mut Tui, fields, sender| {
-                            tui.style(Style {
-                                display: Display::Flex,
-                                align_content: Some(AlignContent::Stretch),
-                                flex_grow: 1.0,
-                                ..default_style()
-                            })
-                            .add(|tui| {
-                                tui.style(Style {
-                                    flex_grow: 1.0,
-                                    ..default_style()
-                                })
-                                .ui_add_manual(
-                                    |ui| {
-                                        // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
-                                        //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
-                                        let mut chosen_path = fields
-                                            .load_out
-                                            .clone()
-                                            .unwrap_or_default();
+                            // FUTURE consider making this interactive since sources do not have to be files. (in the future they could be urls, etc)
+                            let value = fields
+                                .load_out
+                                .clone()
+                                .unwrap_or_default();
 
-                                        // FUTURE consider making this interactive since loadout sources do not have to be files. (in the future they could be urls, etc)
-                                        TextEdit::singleline(&mut chosen_path)
-                                            .desired_width(ui.available_width())
-                                            .interactive(false)
-                                            .ui(ui)
-                                    },
-                                    resize_x_transform,
-                                );
-
-                                if tui
-                                    .style(Style {
-                                        flex_grow: 0.0,
-                                        ..default_style()
-                                    })
-                                    .ui_add(Button::new("..."))
-                                    .clicked()
-                                {
-                                    sender
-                                        .send(AddPhaseModalUiCommand::PickLoadoutSourceClicked)
-                                        .expect("sent");
-                                }
-                            })
+                            match picker_field(tui, &load_out_label, &value) {
+                                Some(PickerFieldAction::Clear) => sender
+                                    .send(AddPhaseModalUiCommand::ClearLoadoutSourceClicked)
+                                    .expect("sent"),
+                                Some(PickerFieldAction::Pick) => sender
+                                    .send(AddPhaseModalUiCommand::PickLoadoutSourceClicked)
+                                    .expect("sent"),
+                                None => {}
+                            }
                         }
                     });
 
@@ -243,6 +217,7 @@ pub enum AddPhaseModalUiCommand {
 
     ReferenceChanged(String),
     PcbSideChanged(PcbSideChoice),
+    ClearLoadoutSourceClicked,
     PickLoadoutSourceClicked,
     ProcessChanged(ProcessReference),
     LoadoutSourcePicked(String),
@@ -372,6 +347,10 @@ impl UiComponent for AddPhaseModal {
                 None
             }
             AddPhaseModalUiCommand::Cancel => Some(AddPhaseModalAction::CloseDialog),
+            AddPhaseModalUiCommand::ClearLoadoutSourceClicked => {
+                self.fields.lock().unwrap().load_out = None;
+                None
+            }
             AddPhaseModalUiCommand::PickLoadoutSourceClicked => {
                 self.file_picker
                     .lock()

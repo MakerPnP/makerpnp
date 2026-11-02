@@ -126,6 +126,19 @@ impl<'a, TabContext, TabKind: Tab<Context = TabContext>> TabViewer for AppTabVie
         tab_instance.label()
     }
 
+    /// egui_dock's tab buttons have no accessibility information, without it they can't be found by screen readers or
+    /// by the UI tests.
+    fn on_tab_button(&mut self, tab: &mut Self::Tab, response: &egui::Response) {
+        let title = self.title(tab).text().to_string();
+
+        response
+            .ctx
+            .accesskit_node_builder(response.id, |node| {
+                node.set_role(egui::accesskit::Role::Tab);
+                node.set_label(title);
+            });
+    }
+
     fn ui(&mut self, ui: &mut Ui, tab: &mut Self::Tab) {
         let mut tabs = self.tabs.lock().unwrap();
 

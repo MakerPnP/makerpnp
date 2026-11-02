@@ -1,17 +1,17 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use derivative::Derivative;
-use egui::{Button, TextEdit, Ui, Widget, WidgetText};
+use egui::{Button, TextEdit, Ui, WidgetText};
 use egui_i18n::tr;
 use egui_taffy::taffy::prelude::{auto, length, percent};
-use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Size, Style};
+use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 
-use crate::file_picker::Picker;
-use crate::forms::Form;
-use crate::forms::transforms::resize_x_transform;
+use crate::file_picker::{FileDialogs, Picker};
+use crate::forms::{Form, PickerFieldAction, picker_field};
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
@@ -32,6 +32,7 @@ pub struct NewProjectTab {
 pub enum NewProjectTabUiCommand {
     NameChanged(String),
     Submit,
+    ClearDirectoryClicked,
     PickDirectoryClicked,
     DirectoryPicked(PathBuf),
 }
@@ -57,6 +58,15 @@ impl Tab for NewProjectTab {
             tab_key: tab_key.clone(),
         };
         UiComponent::ui(self, ui, &mut new_project_tab_context);
+    }
+}
+
+impl NewProjectTab {
+    pub fn new(file_dialogs: Arc<dyn FileDialogs>) -> Self {
+        Self {
+            file_picker: Value::new(Picker::new(file_dialogs)),
+            ..Self::default()
+        }
     }
 }
 
@@ -105,6 +115,10 @@ impl UiComponent for NewProjectTab {
                     directory: fields.directory.clone().unwrap(),
                 };
                 Some(NewProjectTabAction::Submit(args))
+            }
+            NewProjectTabUiCommand::ClearDirectoryClicked => {
+                self.fields.lock().unwrap().directory = None;
+                None
             }
             NewProjectTabUiCommand::PickDirectoryClicked => {
                 self.file_picker
@@ -163,49 +177,23 @@ impl NewProjectTab {
                         }
                     });
 
-                    form.add_field_tui("directory", tr!("form-new-project-input-directory"), tui, {
+                    let directory_label = tr!("form-new-project-input-directory");
+                    form.add_field_tui("directory", directory_label.clone(), tui, {
                         move |tui: &mut Tui, fields, sender| {
-                            tui.style(Style {
-                                display: Display::Flex,
-                                align_content: Some(AlignContent::Stretch),
-                                flex_grow: 1.0,
-                                ..default_style()
-                            })
-                            .add(|tui| {
-                                tui.style(Style {
-                                    flex_grow: 1.0,
-                                    ..default_style()
-                                })
-                                .ui_add_manual(
-                                    |ui| {
-                                        // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
-                                        //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
-                                        let mut chosen_directory = fields
-                                            .directory
-                                            .as_ref()
-                                            .map_or("".to_string(), |path| path.display().to_string());
+                            let value = fields
+                                .directory
+                                .as_ref()
+                                .map_or("".to_string(), |path| path.display().to_string());
 
-                                        TextEdit::singleline(&mut chosen_directory)
-                                            .desired_width(ui.available_width())
-                                            .interactive(false)
-                                            .ui(ui)
-                                    },
-                                    resize_x_transform,
-                                );
-
-                                if tui
-                                    .style(Style {
-                                        flex_grow: 0.0,
-                                        ..default_style()
-                                    })
-                                    .ui_add(Button::new("..."))
-                                    .clicked()
-                                {
-                                    sender
-                                        .send(NewProjectTabUiCommand::PickDirectoryClicked)
-                                        .expect("sent");
-                                }
-                            })
+                            match picker_field(tui, &directory_label, &value) {
+                                Some(PickerFieldAction::Clear) => sender
+                                    .send(NewProjectTabUiCommand::ClearDirectoryClicked)
+                                    .expect("sent"),
+                                Some(PickerFieldAction::Pick) => sender
+                                    .send(NewProjectTabUiCommand::PickDirectoryClicked)
+                                    .expect("sent"),
+                                None => {}
+                            }
                         }
                     });
                 });

@@ -1,14 +1,49 @@
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+/// The platform's file dialogs, an interface so that tests can answer them without a user.
+///
+/// All the methods block until there is an answer, `None` means the user cancelled.
+pub trait FileDialogs: Debug + Send + Sync {
+    fn pick_file(&self) -> Option<PathBuf>;
+    fn pick_files(&self) -> Option<Vec<PathBuf>>;
+    fn pick_folder(&self) -> Option<PathBuf>;
+}
+
+/// The operating system's file dialogs.
+#[derive(Debug)]
+pub struct NativeFileDialogs;
+
+impl FileDialogs for NativeFileDialogs {
+    fn pick_file(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new().pick_file()
+    }
+
+    fn pick_files(&self) -> Option<Vec<PathBuf>> {
+        rfd::FileDialog::new().pick_files()
+    }
+
+    fn pick_folder(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new().pick_folder()
+    }
+}
 
 /// A file picker
 /// * prevents multiple concurrent pick operations
 /// * provides an API convenient for UI usage (see `is_picking` and `picked`)
 ///
 /// Currently only picks files, but the API could be expanded.
-#[derive(Default, Debug)]
+#[derive(Debug)]
 pub struct Picker {
     state: PickerState,
+    dialogs: Arc<dyn FileDialogs>,
+}
+
+impl Default for Picker {
+    fn default() -> Self {
+        Self::new(Arc::new(NativeFileDialogs))
+    }
 }
 
 #[derive(Default, Debug)]
@@ -27,40 +62,48 @@ pub enum PickError {
 }
 
 impl Picker {
+    pub fn new(dialogs: Arc<dyn FileDialogs>) -> Self {
+        Self {
+            state: PickerState::default(),
+            dialogs,
+        }
+    }
+
     pub fn is_picking(&self) -> bool {
         matches!(self.state, PickerState::Picking(_))
     }
 
-    fn prepare(&mut self, some_fn: fn() -> Option<Vec<PathBuf>>) {
+    fn prepare(&mut self, some_fn: fn(&dyn FileDialogs) -> Option<Vec<PathBuf>>) {
         // initialise the boolean flag in the mutex to false, so that when the main thread continues it can see a
         // file has not been picked yet.  note that the mutex may not be locked until the picker thread starts to run
         // and lock it.
         let picker = Arc::new(Mutex::new((false, None)));
         self.state = PickerState::Picking(picker.clone());
+        let dialogs = self.dialogs.clone();
         std::thread::Builder::new()
             .name("picker".to_owned())
             .spawn(move || {
                 let mut guard = picker.lock().unwrap();
-                *guard = (true, some_fn());
+                *guard = (true, some_fn(dialogs.as_ref()));
             })
             .unwrap();
     }
 
     pub fn pick_file(&mut self) {
-        self.prepare(|| {
-            rfd::FileDialog::new()
+        self.prepare(|dialogs| {
+            dialogs
                 .pick_file()
                 .map(|file| vec![file])
         });
     }
 
     pub fn pick_files(&mut self) {
-        self.prepare(|| rfd::FileDialog::new().pick_files());
+        self.prepare(|dialogs| dialogs.pick_files());
     }
 
     pub fn pick_folder(&mut self) {
-        self.prepare(|| {
-            rfd::FileDialog::new()
+        self.prepare(|dialogs| {
+            dialogs
                 .pick_folder()
                 .map(|folder| vec![folder])
         });

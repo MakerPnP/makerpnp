@@ -210,6 +210,27 @@ impl Model {
     }
 
     /// Save a PCB, no project required.
+    fn save_project(&mut self) -> Result<(), AppError> {
+        let ModelProject {
+            project,
+            path,
+            modified,
+            ..
+        } = self
+            .model_project
+            .as_mut()
+            .ok_or(AppError::OperationRequiresProject)?;
+
+        info!("Save project. path: {:?}", &path);
+
+        file::save(project, path).map_err(AppError::IoError)?;
+
+        info!("Saved project. path: {:?}", path);
+        *modified = false;
+
+        Ok(())
+    }
+
     fn save_pcb(&mut self, path: &PathBuf) -> Result<(), AppError> {
         info!("Saving PCB. path: {:?}", path);
         let model_pcb = self
@@ -711,6 +732,9 @@ impl Planner {
                         modified: true,
                     });
 
+                // as with a new PCB, a new project is saved as it is created.
+                model.save_project()?;
+
                 info!("Created project successfully.");
                 Ok(render::render())
             }),
@@ -737,22 +761,7 @@ impl Planner {
                 Ok(render::render())
             }),
             Event::Save => Box::new(|model: &mut Model| {
-                let ModelProject {
-                    project,
-                    path,
-                    modified,
-                    ..
-                } = model
-                    .model_project
-                    .as_mut()
-                    .ok_or(AppError::OperationRequiresProject)?;
-
-                info!("Save project. path: {:?}", &path);
-
-                file::save(project, path).map_err(AppError::IoError)?;
-
-                info!("Saved project. path: {:?}", path);
-                *modified = false;
+                model.save_project()?;
 
                 Ok(render::render())
             }),

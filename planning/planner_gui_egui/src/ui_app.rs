@@ -1,5 +1,6 @@
 use std::mem::MaybeUninit;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
 use eframe::epaint::Color32;
@@ -10,7 +11,7 @@ use slotmap::SlotMap;
 use tracing::{debug, error, info, trace};
 
 use crate::config::Config;
-use crate::file_picker::{PickError, Picker};
+use crate::file_picker::{FileDialogs, NativeFileDialogs, PickError, Picker};
 use crate::pcb::tabs::PcbTabs;
 use crate::pcb::{Pcb, PcbKey, PcbUiCommand};
 use crate::project::tabs::ProjectTabs;
@@ -66,6 +67,7 @@ pub struct AppState {
         Picker,
         Box<dyn Fn(PathBuf) -> UiCommand + Send + Sync + 'static>,
     )>,
+    file_dialogs: Arc<dyn FileDialogs>,
 
     command_sender: Enqueue<UiCommand>,
 
@@ -76,7 +78,7 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn init(sender: Enqueue<UiCommand>) -> Self {
+    pub fn init(sender: Enqueue<UiCommand>, file_dialogs: Arc<dyn FileDialogs>) -> Self {
         let mut toolbar = Toolbar::new();
         toolbar
             .component
@@ -88,12 +90,17 @@ impl AppState {
         Self {
             startup_done: false,
             file_picker: None,
+            file_dialogs,
 
             command_sender: sender,
             projects: Value::new(SlotMap::default()),
             pcbs: Value::new(SlotMap::default()),
             toolbar,
         }
+    }
+
+    pub fn file_dialogs(&self) -> Arc<dyn FileDialogs> {
+        self.file_dialogs.clone()
     }
 
     // FUTURE consider returning a result to indicate if the picker was busy
@@ -106,7 +113,7 @@ impl AppState {
                 error!("file picker busy, not picking a {:?}", reason);
             }
             None => {
-                let mut picker = Picker::default();
+                let mut picker = Picker::new(self.file_dialogs.clone());
                 picker.pick_file();
                 self.file_picker = Some((reason, picker, command_fn));
             }
@@ -190,7 +197,7 @@ impl AppState {
     pub fn open_project_file(&mut self, path: PathBuf, app_tabs: Value<AppTabs>) {
         let (commands, project_key, project_tabs) = {
             let mut projects = self.projects.lock().unwrap();
-            project_from_path(path.clone(), &mut projects, None)
+            project_from_path(path.clone(), &mut projects, None, self.file_dialogs.clone())
         };
 
         let (tab_kind, project_key) = self.make_project_tab(path, project_key, project_tabs);
@@ -209,7 +216,7 @@ impl AppState {
 
         let (commands, project_key, project_tabs, path) = {
             let mut projects = self.projects.lock().unwrap();
-            project_from_args(args, &mut projects)
+            project_from_args(args, &mut projects, self.file_dialogs.clone())
         };
 
         let (tab_kind, project_key) = self.make_project_tab(path, project_key, project_tabs);
@@ -334,6 +341,11 @@ impl Default for UiApp {
 impl UiApp {
     /// Called once before the first frame.
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        Self::with_file_dialogs(cc, Arc::new(NativeFileDialogs))
+    }
+
+    /// As [`Self::new`], with the file dialogs to use, for example in tests.
+    pub fn with_file_dialogs(cc: &eframe::CreationContext<'_>, file_dialogs: Arc<dyn FileDialogs>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
         fonts::initialize(&cc.egui_ctx);
@@ -362,7 +374,7 @@ impl UiApp {
 
         let runtime = TokioRuntime::new();
 
-        let state = Value::new(AppState::init(app_message_sender.clone()));
+        let state = Value::new(AppState::init(app_message_sender.clone(), file_dialogs));
 
         instance.state.write(state.clone());
         // Safety: `Self::state()` is now safe to call.
@@ -417,6 +429,18 @@ impl UiApp {
             });
 
         instance
+    }
+
+    /// Whether a file dialog is open, or its answer hasn't been handled yet.  Another can't be opened until it has.
+    pub fn is_picking_file(&self) -> bool {
+        // Safety: it's always safe, because `new` calls `state.write()`
+        let state = unsafe { self.state.assume_init_ref() };
+
+        state
+            .lock()
+            .unwrap()
+            .file_picker
+            .is_some()
     }
 
     /// provide mutable access to the state.
@@ -505,7 +529,7 @@ impl UiApp {
                         let mut projects = app_state.projects.lock().unwrap();
 
                         let (project_command, project_key, _new_project_tabs) =
-                            project_from_path(path, &mut projects, Some(persisted_tabs));
+                            project_from_path(path, &mut projects, Some(persisted_tabs), app_state.file_dialogs());
 
                         let project = projects.get_mut(project_key).unwrap();
                         configure_project_component(app_command_sender.clone(), tab_key, project);
@@ -791,13 +815,14 @@ fn project_from_path(
     path: PathBuf,
     projects: &mut ValueGuard<SlotMap<ProjectKey, Project>>,
     persisted_tabs: Option<Value<ProjectTabs>>,
+    file_dialogs: Arc<dyn FileDialogs>,
 ) -> (Vec<ProjectUiCommand>, ProjectKey, Value<ProjectTabs>) {
     let mut project_commands = None;
     let mut project_tabs = None;
     let project_key = projects.insert_with_key(|key| {
         let new_project_tabs = persisted_tabs.unwrap_or_else(|| project::make_tabs(key));
 
-        let (project, commands) = Project::from_path(path.clone(), key, new_project_tabs.clone());
+        let (project, commands) = Project::from_path(path.clone(), key, new_project_tabs.clone(), file_dialogs.clone());
 
         project_commands.replace(commands);
         project_tabs = Some(new_project_tabs);
@@ -810,6 +835,7 @@ fn project_from_path(
 fn project_from_args(
     args: NewProjectArgs,
     projects: &mut ValueGuard<SlotMap<ProjectKey, Project>>,
+    file_dialogs: Arc<dyn FileDialogs>,
 ) -> (Vec<ProjectUiCommand>, ProjectKey, Value<ProjectTabs>, PathBuf) {
     let path = args.build_path();
 
@@ -817,7 +843,13 @@ fn project_from_args(
     let mut project_tabs = None;
     let project_key = projects.insert_with_key(|key| {
         let new_project_tabs = project::make_tabs(key);
-        let (project, commands) = Project::new(args.name, path.clone(), key, new_project_tabs.clone());
+        let (project, commands) = Project::new(
+            args.name,
+            path.clone(),
+            key,
+            new_project_tabs.clone(),
+            file_dialogs.clone(),
+        );
 
         project_commands.replace(commands);
         project_tabs.replace(new_project_tabs);

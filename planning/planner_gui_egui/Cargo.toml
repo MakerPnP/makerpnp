@@ -89,3 +89,4 @@ rust_decimal_macros = { workspace = true }
 indoc = { workspace = true }
 rstest = { workspace = true }
 tempfile = { workspace = true }
+egui_kittest = { workspace = true, features = ["eframe"] }

@@ -1,20 +1,20 @@
 use std::fmt::Debug;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use derivative::Derivative;
-use egui::{Button, Frame, Modal, TextEdit, Ui, Widget};
+use egui::{Modal, Ui};
 use egui_i18n::tr;
 use egui_taffy::taffy::prelude::{auto, length, percent};
-use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Style};
-use egui_taffy::{Tui, TuiBuilderLogic, taffy, tui};
+use egui_taffy::taffy::{AlignItems, FlexDirection, Style};
+use egui_taffy::{Tui, taffy, tui};
 use planner_app::{PackageMappingsSource, PackagesSource};
 use taffy::Size;
 use tracing::error;
 use validator::Validate;
 
-use crate::file_picker::{PickError, Picker};
-use crate::forms::Form;
-use crate::forms::transforms::resize_x_transform;
+use crate::file_picker::{FileDialogs, PickError, Picker};
+use crate::forms::{Form, PickerFieldAction, picker_field};
 use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
 
@@ -38,6 +38,7 @@ impl PickReason {
 pub struct PackageSourcesModal {
     fields: Value<PackageSourcesFields>,
     path: PathBuf,
+    file_dialogs: Arc<dyn FileDialogs>,
 
     #[derivative(Debug = "ignore")]
     file_picker: Value<
@@ -56,6 +57,7 @@ impl PackageSourcesModal {
         path: PathBuf,
         packages_source: Option<PackagesSource>,
         package_mappings_source: Option<PackageMappingsSource>,
+        file_dialogs: Arc<dyn FileDialogs>,
     ) -> Self {
         let fields = PackageSourcesFields {
             packages_source,
@@ -67,6 +69,7 @@ impl PackageSourcesModal {
             path,
             component: Default::default(),
             file_picker: Default::default(),
+            file_dialogs,
         }
     }
 
@@ -84,7 +87,7 @@ impl PackageSourcesModal {
         if file_picker.is_some() {
             error!("file picker busy, not picking a {:?}", reason);
         } else {
-            let mut picker = Picker::default();
+            let mut picker = Picker::new(self.file_dialogs.clone());
             picker.pick_file();
             *file_picker = Some((reason, picker, command_fn));
         }
@@ -123,140 +126,49 @@ impl PackageSourcesModal {
             })
             .show(|tui| {
                 form.show_fields_vertical(tui, |form, tui| {
-                    form.add_field_tui(
-                        "packages_source",
-                        tr!("form-package-sources-input-packages-source"),
-                        tui,
-                        {
-                            move |tui: &mut Tui, fields, sender| {
-                                tui.style(Style {
-                                    display: Display::Flex,
-                                    align_content: Some(AlignContent::Stretch),
-                                    flex_grow: 1.0,
-                                    ..default_style()
-                                })
-                                .add_with_border(|tui| {
-                                    tui.style(Style {
-                                        flex_grow: 1.0,
-                                        ..default_style()
-                                    })
-                                    .ui_add_manual(
-                                        |ui| {
-                                            // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
-                                            //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
+                    let packages_label = tr!("form-package-sources-input-packages-source");
+                    form.add_field_tui("packages_source", packages_label.clone(), tui, {
+                        move |tui: &mut Tui, fields, sender| {
+                            // FUTURE consider making this interactive since sources do not have to be files. (in the future they could be urls, etc)
+                            let value = fields
+                                .packages_source
+                                .as_ref()
+                                .map(|s| s.to_string())
+                                .unwrap_or_default();
 
-                                            let mut chosen_path = fields
-                                                .packages_source
-                                                .as_ref()
-                                                .map(|s| s.to_string())
-                                                .unwrap_or_default();
-
-                                            // FUTURE consider making this interactive since loadout sources do not have to be files. (in the future they could be urls, etc)
-                                            TextEdit::singleline(&mut chosen_path)
-                                                .desired_width(ui.available_width())
-                                                .interactive(false)
-                                                .frame(Frame::NONE)
-                                                .ui(ui)
-                                        },
-                                        resize_x_transform,
-                                    );
-
-                                    if tui
-                                        .style(Style {
-                                            flex_grow: 0.0,
-                                            ..default_style()
-                                        })
-                                        .ui_add(Button::new("x"))
-                                        .clicked()
-                                    {
-                                        sender
-                                            .send(PackageSourcesModalUiCommand::ClearPackagesSourceClicked)
-                                            .expect("sent");
-                                    }
-
-                                    if tui
-                                        .style(Style {
-                                            flex_grow: 0.0,
-                                            ..default_style()
-                                        })
-                                        .ui_add(Button::new("..."))
-                                        .clicked()
-                                    {
-                                        sender
-                                            .send(PackageSourcesModalUiCommand::PickPackagesSourceClicked)
-                                            .expect("sent");
-                                    }
-                                })
+                            match picker_field(tui, &packages_label, &value) {
+                                Some(PickerFieldAction::Clear) => sender
+                                    .send(PackageSourcesModalUiCommand::ClearPackagesSourceClicked)
+                                    .expect("sent"),
+                                Some(PickerFieldAction::Pick) => sender
+                                    .send(PackageSourcesModalUiCommand::PickPackagesSourceClicked)
+                                    .expect("sent"),
+                                None => {}
                             }
-                        },
-                    );
+                        }
+                    });
 
-                    form.add_field_tui(
-                        "package_mappings_source",
-                        tr!("form-package-sources-input-package-mappings-source"),
-                        tui,
-                        {
-                            move |tui: &mut Tui, fields, sender| {
-                                tui.style(Style {
-                                    display: Display::Flex,
-                                    align_content: Some(AlignContent::Stretch),
-                                    flex_grow: 1.0,
-                                    ..default_style()
-                                })
-                                .add_with_border(|tui| {
-                                    tui.style(Style {
-                                        flex_grow: 1.0,
-                                        ..default_style()
-                                    })
-                                    .ui_add_manual(
-                                        |ui| {
-                                            // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
-                                            //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
-                                            let mut chosen_path = fields
-                                                .package_mappings_source
-                                                .as_ref()
-                                                .map(|s| s.to_string())
-                                                .unwrap_or_default();
+                    let package_mappings_label = tr!("form-package-sources-input-package-mappings-source");
+                    form.add_field_tui("package_mappings_source", package_mappings_label.clone(), tui, {
+                        move |tui: &mut Tui, fields, sender| {
+                            // FUTURE consider making this interactive since sources do not have to be files. (in the future they could be urls, etc)
+                            let value = fields
+                                .package_mappings_source
+                                .as_ref()
+                                .map(|s| s.to_string())
+                                .unwrap_or_default();
 
-                                            // FUTURE consider making this interactive since loadout sources do not have to be files. (in the future they could be urls, etc)
-                                            TextEdit::singleline(&mut chosen_path)
-                                                .desired_width(ui.available_width())
-                                                .interactive(false)
-                                                .frame(Frame::NONE)
-                                                .ui(ui)
-                                        },
-                                        resize_x_transform,
-                                    );
-
-                                    if tui
-                                        .style(Style {
-                                            flex_grow: 0.0,
-                                            ..default_style()
-                                        })
-                                        .ui_add(Button::new("x"))
-                                        .clicked()
-                                    {
-                                        sender
-                                            .send(PackageSourcesModalUiCommand::ClearPackageMappingsSourceClicked)
-                                            .expect("sent");
-                                    }
-
-                                    if tui
-                                        .style(Style {
-                                            flex_grow: 0.0,
-                                            ..default_style()
-                                        })
-                                        .ui_add(Button::new("..."))
-                                        .clicked()
-                                    {
-                                        sender
-                                            .send(PackageSourcesModalUiCommand::PickPackageMappingsSourceClicked)
-                                            .expect("sent");
-                                    }
-                                })
+                            match picker_field(tui, &package_mappings_label, &value) {
+                                Some(PickerFieldAction::Clear) => sender
+                                    .send(PackageSourcesModalUiCommand::ClearPackageMappingsSourceClicked)
+                                    .expect("sent"),
+                                Some(PickerFieldAction::Pick) => sender
+                                    .send(PackageSourcesModalUiCommand::PickPackageMappingsSourceClicked)
+                                    .expect("sent"),
+                                None => {}
                             }
-                        },
-                    );
+                        }
+                    });
                 });
             });
     }

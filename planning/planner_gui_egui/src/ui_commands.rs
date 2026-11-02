@@ -299,13 +299,15 @@ fn handle_toolbar_action(
             Task::none()
         }
         ToolbarAction::AddNewProjectTab => {
+            let file_dialogs = app_state.lock().unwrap().file_dialogs();
             let mut app_tabs = app_tabs.lock().unwrap();
-            app_tabs.add_new_project_tab();
+            app_tabs.add_new_project_tab(file_dialogs);
             Task::none()
         }
         ToolbarAction::AddNewPcbTab => {
+            let file_dialogs = app_state.lock().unwrap().file_dialogs();
             let mut app_tabs = app_tabs.lock().unwrap();
-            app_tabs.add_new_pcb_tab();
+            app_tabs.add_new_pcb_tab(file_dialogs);
             Task::none()
         }
         ToolbarAction::CloseAllTabs => {

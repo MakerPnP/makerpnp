@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
@@ -8,6 +9,7 @@ use slotmap::SlotMap;
 use tracing::{error, trace};
 
 use crate::config::Config;
+use crate::file_picker::FileDialogs;
 use crate::pcb::{Pcb, PcbKey};
 use crate::project::{Project, ProjectKey};
 use crate::sync::{Enqueue, Value, ValueGuard};
@@ -480,12 +482,12 @@ impl AppTabs {
     // methods specific to this instance
     //
 
-    pub fn add_new_project_tab(&mut self) {
+    pub fn add_new_project_tab(&mut self, file_dialogs: Arc<dyn FileDialogs>) {
         // create a new project tab
         let tab_kind_component = ComponentState::default();
 
         let mut tabs = self.tabs.lock().unwrap();
-        let new_project_tab = NewProjectTab::default();
+        let new_project_tab = NewProjectTab::new(file_dialogs);
         let tab_kind = TabKind::NewProject(new_project_tab, tab_kind_component);
         let tab_key = tabs.add(tab_kind);
 
@@ -496,12 +498,12 @@ impl AppTabs {
         tree.push_to_focused_leaf(tab_key);
     }
 
-    pub fn add_new_pcb_tab(&mut self) {
+    pub fn add_new_pcb_tab(&mut self, file_dialogs: Arc<dyn FileDialogs>) {
         // create a new pcb tab
         let tab_kind_component = ComponentState::default();
 
         let mut tabs = self.tabs.lock().unwrap();
-        let new_pcb_tab = NewPcbTab::default();
+        let new_pcb_tab = NewPcbTab::new(file_dialogs);
         let tab_kind = TabKind::NewPcb(new_pcb_tab, tab_kind_component);
         let tab_key = tabs.add(tab_kind);
 

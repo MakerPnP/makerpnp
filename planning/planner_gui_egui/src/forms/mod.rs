@@ -1,9 +1,9 @@
 use std::sync::mpsc::Sender;
 
-use egui::{Response, RichText, Ui};
-use egui_i18n::translate_fluent;
+use egui::{Button, Frame, Response, RichText, TextEdit, Ui, Widget};
+use egui_i18n::{tr, translate_fluent};
 use egui_taffy::taffy::prelude::{fit_content, fr, length, percent, span};
-use egui_taffy::taffy::{AlignItems, AlignSelf, Display, FlexDirection, Style};
+use egui_taffy::taffy::{AlignContent, AlignItems, AlignSelf, Display, FlexDirection, Style};
 use egui_taffy::{Tui, TuiBuilderLogic};
 use i18n::fluent_argument_helpers::json::build_fluent_args;
 use validator::{ValidateArgs, ValidationError, ValidationErrors};
@@ -129,12 +129,11 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
     ) {
         let default_style = Self::form_default_style();
 
-        tui.style(Style {
-            ..default_style()
-        })
-        .add(|tui| {
-            tui.label(label);
-        });
+        let label_id = tui
+            .style(Style {
+                ..default_style()
+            })
+            .add(|tui| tui.label(label).id);
 
         tui.style(Style {
             flex_grow: 1.0,
@@ -146,7 +145,7 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
                 ..default_style()
             })
             .ui_add_manual(
-                |ui| ui_builder(ui, self.fields.lock().unwrap(), self.sender.clone()),
+                |ui| ui_builder(ui, self.fields.lock().unwrap(), self.sender.clone()).labelled_by(label_id),
                 resize_x_transform,
             );
         });
@@ -282,6 +281,89 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
 
         None
     }
+}
+
+/// What the user did with a [`picker_field`].
+pub enum PickerFieldAction {
+    Clear,
+    Pick,
+}
+
+/// A read-only field whose value is chosen using a dialog, with buttons inside the field's frame to clear the value and
+/// to choose one.
+///
+/// The buttons are named after the field for assistive technology, as their text alone doesn't say what they are for.
+pub fn picker_field(tui: &mut Tui, label: &str, value: &str) -> Option<PickerFieldAction> {
+    let default_style = || Style {
+        padding: length(2.),
+        gap: length(2.),
+        ..Default::default()
+    };
+    let name_button = |response: &Response, action: String| {
+        let name = format!("{label}: {action}");
+        response
+            .ctx
+            .accesskit_node_builder(response.id, |node| node.set_label(name));
+    };
+
+    let mut action = None;
+
+    tui.style(Style {
+        display: Display::Flex,
+        align_content: Some(AlignContent::Stretch),
+        flex_grow: 1.0,
+        ..default_style()
+    })
+    .add_with_border(|tui| {
+        tui.style(Style {
+            flex_grow: 1.0,
+            ..default_style()
+        })
+        .ui_add_manual(
+            |ui| {
+                // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
+                //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
+                let mut value = value.to_string();
+
+                let response = TextEdit::singleline(&mut value)
+                    .desired_width(ui.available_width())
+                    .interactive(false)
+                    .frame(Frame::NONE)
+                    .ui(ui);
+
+                response
+                    .ctx
+                    .accesskit_node_builder(response.id, |node| node.set_label(label));
+
+                response
+            },
+            resize_x_transform,
+        );
+
+        let clear = tui
+            .style(Style {
+                flex_grow: 0.0,
+                ..default_style()
+            })
+            .ui_add(Button::new("x"));
+        name_button(&clear, tr!("form-common-button-clear"));
+        if clear.clicked() {
+            action = Some(PickerFieldAction::Clear);
+        }
+
+        let pick = tui
+            .style(Style {
+                flex_grow: 0.0,
+                ..default_style()
+            })
+            .ui_add(Button::new("..."));
+        name_button(&pick, tr!("form-common-button-choose"));
+        if pick.clicked() {
+            action = Some(PickerFieldAction::Pick);
+        }
+    });
+
+    action
 }
 
 pub mod transforms {
