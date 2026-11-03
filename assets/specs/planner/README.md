@@ -91,3 +91,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-03 | Added adding a phase's parts to its load-out (`LOADOUT-4`), awaiting review, and that an empty table isn't drawn at all (`FORM-8`). |
 | 2026-11-03 | An older modified state no longer replaces a newer one, which sometimes left "`Save`" disabled after "`Refresh`" while the project had unsaved changes (`GARCH-11`). |
 | 2026-11-03 | Commands are now handled on the thread that draws the frames, in the order they were sent, with no tokio runtime (`GARCH-11`). |
+| 2026-11-04 | Moved the planner's entries from the user's list of known issues (`KnownIssues.md`), which no longer exists (`ISSUE-14` to `ISSUE-19`). Three were out of date and are not kept: a task can no longer start before those before it are complete, nor a phase before the phases before it, and placements can no longer be recorded before their task has started (`OPERATIONS-1`, `OPERATIONS-2`). |
