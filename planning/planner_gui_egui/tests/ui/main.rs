@@ -3,6 +3,7 @@
 
 mod changes;
 mod fixture;
+mod load_outs;
 mod open_project;
 mod operations;
 mod phase_states;

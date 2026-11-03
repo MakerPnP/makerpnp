@@ -88,3 +88,5 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-03 | Fixed `ISSUE-12`: a "`Placed?`" cell is only editable once the task that places the placements has started, and only offers "`Pending`" once it's complete (`OPERATIONS-2`). |
 | 2026-11-03 | Added which actions a phase's tasks offer, abandoning a task, and skipping placements (`OPERATIONS-1`, `OPERATIONS-2`), awaiting review. Added `ISSUE-13`. |
 | 2026-11-03 | The actions a phase's tasks offer are translated (`OPERATIONS-1`, `ISSUE-13`). |
+| 2026-11-03 | Added adding a phase's parts to its load-out (`LOADOUT-4`), awaiting review, and that an empty table isn't drawn at all (`FORM-8`). |
+| 2026-11-03 | An older modified state no longer replaces a newer one, which sometimes left "`Save`" disabled after "`Refresh`" while the project had unsaved changes (`GARCH-11`). |

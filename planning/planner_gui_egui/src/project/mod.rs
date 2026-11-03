@@ -93,6 +93,8 @@ pub struct Project {
 
     modified: bool,
     pcbs_modified: bool,
+    /// the core's generation of the modified state last applied, see [`PlannerAction::SetModifiedState`].
+    modified_generation: u64,
 
     /// false until the core has a project, views can't be fetched until then.
     ready: bool,
@@ -219,6 +221,7 @@ impl Project {
             project_ui_state,
             modified: false,
             pcbs_modified: false,
+            modified_generation: 0,
             ready: false,
             seen_generation,
             errors: Default::default(),
@@ -1177,7 +1180,16 @@ impl Project {
             ProjectUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
+                generation,
             } => {
+                if generation < self.modified_generation {
+                    debug!(
+                        "ignoring an older modified state. generation: {}, applied: {}",
+                        generation, self.modified_generation
+                    );
+                    return None;
+                }
+                self.modified_generation = generation;
                 self.modified = project_modified;
                 self.pcbs_modified = pcbs_modified;
                 // TODO remove the logical or here when AddPcbs has been reworked.
@@ -2135,6 +2147,7 @@ pub enum ProjectUiCommand {
     SetModifiedState {
         project_modified: bool,
         pcbs_modified: bool,
+        generation: u64,
     },
 
     //
@@ -2305,9 +2318,11 @@ mod core_helper {
             PlannerAction::SetModifiedState {
                 project_modified,
                 pcbs_modified,
+                generation,
             } => ProjectAction::UiCommand(ProjectUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
+                generation,
             }),
             PlannerAction::ProjectView(project_view) => {
                 ProjectAction::UiCommand(ProjectUiCommand::ProjectView(project_view))
@@ -2607,6 +2622,56 @@ mod refresh_tests {
             project.seen_generation
         );
         assert_eq!(revision_of_tree(&project), revision);
+    }
+
+    /// The results of two core updates can arrive in either order (`GARCH-11`), for example "Refresh" refreshes the PCBs,
+    /// which changes nothing, then the design variants, which can change the project.
+    #[test]
+    fn an_older_modified_state_does_not_replace_a_newer_one() {
+        let (mut project, key, _directory) = new_project();
+
+        let older = project
+            .planner_core_service
+            .update(Event::None)
+            .unwrap()
+            .into_iter()
+            .find_map(|action| match action {
+                PlannerAction::SetModifiedState {
+                    project_modified,
+                    pcbs_modified,
+                    generation,
+                } => Some(ProjectUiCommand::SetModifiedState {
+                    project_modified,
+                    pcbs_modified,
+                    generation,
+                }),
+                _ => None,
+            })
+            .unwrap();
+        let ProjectUiCommand::SetModifiedState {
+            project_modified: false,
+            ..
+        } = older
+        else {
+            panic!("{older:?}")
+        };
+
+        // a later update, which modified the project, arrives first.
+        project
+            .planner_core_service
+            .update(Event::None)
+            .unwrap();
+        let generation = project
+            .planner_core_service
+            .generation();
+        run(&mut project, key, ProjectUiCommand::SetModifiedState {
+            project_modified: true,
+            pcbs_modified: false,
+            generation,
+        });
+        run(&mut project, key, older);
+
+        assert!(project.modified);
     }
 
     #[test]

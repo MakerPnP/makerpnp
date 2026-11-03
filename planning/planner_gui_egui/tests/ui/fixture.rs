@@ -288,6 +288,26 @@ impl App {
         self.wait_until(&format!("text '{text}' was gone"), |app| app.count_text(text) == 0);
     }
 
+    /// Clicks the only tab whose label contains `text`.
+    pub fn click_tab_containing(&mut self, text: &str) {
+        self.wait_until(&format!("a tab containing '{text}' was shown"), |app| {
+            app.count_tabs_containing(text) == 1
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .query_all(By::new().role(Role::Tab))
+            .find(|tab| {
+                let node = tab.accesskit_node();
+
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|label| label.contains(text))
+            })
+            .unwrap()
+            .click();
+        self.harness.step();
+    }
+
     pub fn count_tabs_containing(&self, text: &str) -> usize {
         self.harness
             .query_all(By::new().role(Role::Tab))

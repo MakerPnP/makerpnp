@@ -82,7 +82,10 @@ Gaps: the code is not there yet. Frames are drawn on the UI thread, and commands
 (`ui_app.rs`, `with_file_dialogs`). Each `configure_mapper` starts another thread (`sync.rs`, `Slot::start`), so
 commands from different components have no defined order. Follow-up commands are sent through a tokio runtime
 (`task/`, `runtime/`). Most state is in a `Value`, which is a mutex, and tests have to wait for results as a
-consequence.
+consequence. The results of two core updates can also arrive in the opposite order to the updates. So a
+project's or PCB's modified state carries the core's generation, and one older than the last applied is ignored. Until
+2026-11-03 it wasn't, and after "`Refresh`", which makes two updates, "`Save`" was sometimes left disabled while the project
+had unsaved changes.
 
 **GARCH-12 — Short operations.** *Confirmed.* While the core is handling an event, the GUI MAY stop responding, as long
 as the operation is short. `AppTabs` stays locked throughout `update`, and every frame needs that lock. Moving the work
@@ -125,4 +128,6 @@ appears there has not been checked.
   file dialog, and see its tab and toolbar (`GARCH-13`, `GARCH-14`, `GARCH-15`).
 - `GARCH-5` has no automated test, and cannot have a complete one. A partial one could draw a frame with no input, and
   check that doing so sends no commands and does not change the saved state.
+- `src/project/mod.rs` applies a newer modified state and then an older one, and checks the project is still modified
+  (`GARCH-11`).
 - Once `GARCH-11` is met, a test can run one frame and check the result directly, with no waiting.

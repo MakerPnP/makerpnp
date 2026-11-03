@@ -45,7 +45,8 @@ to its maximum height, so that they can be reached.
 table with no rows, so that it is obvious that a table is being displayed. A table can't be resized to less than this.
 
 Gaps: when a form or tab has less space than this, tables using `egui_deferred_table` (Parts, Placements and a phase's
-load-out) don't keep their minimum size, due to a limitation noted in that library.
+load-out) don't keep their minimum size, due to a limitation noted in that library. A table using `egui_deferred_table` with no rows isn't
+drawn at all, not even its header, as seen in a test with an empty load-out: that library draws nothing when there are no rows.
 
 **FORM-9 — Moving rows and columns.** *Observed.* In the Parts, Placements and load-out tables, dragging a row's number onto
 another row MUST move the row, and dragging a column's header onto another column MUST move the column. This was a bug until

@@ -59,6 +59,8 @@ pub struct Pcb {
 
     path: PathBuf,
     modified: bool,
+    /// the core's generation of the modified state last applied, see [`PlannerAction::SetModifiedState`].
+    modified_generation: u64,
 
     pcb_overview: Option<PcbOverview>,
     panel_sizing: Option<PanelSizing>,
@@ -108,6 +110,7 @@ impl Pcb {
             pcb_ui_state,
             path,
             modified: false,
+            modified_generation: 0,
             pcb_overview: None,
             panel_sizing: None,
             component,
@@ -487,6 +490,7 @@ pub enum PcbUiCommand {
     SetModifiedState {
         project_modified: bool,
         pcbs_modified: bool,
+        generation: u64,
     },
 
     Create {
@@ -708,8 +712,18 @@ impl UiComponent for Pcb {
                 None
             }
             PcbUiCommand::SetModifiedState {
-                pcbs_modified, ..
+                pcbs_modified,
+                generation,
+                ..
             } => {
+                if generation < self.modified_generation {
+                    debug!(
+                        "ignoring an older modified state. generation: {}, applied: {}",
+                        generation, self.modified_generation
+                    );
+                    return None;
+                }
+                self.modified_generation = generation;
                 // FIXME we want to know if *THIS* pcb is modified, not any pcb.
                 self.modified = pcbs_modified;
                 Some(PcbAction::SetModifiedState(pcbs_modified))
@@ -1150,9 +1164,11 @@ mod core_helper {
             PlannerAction::SetModifiedState {
                 project_modified,
                 pcbs_modified,
+                generation,
             } => PcbAction::UiCommand(PcbUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
+                generation,
             }),
             PlannerAction::ProjectView(_project_view) => {
                 warn!("pcb received project view action. ignoring.");

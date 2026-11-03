@@ -17,6 +17,9 @@ pub enum PlannerAction {
     SetModifiedState {
         project_modified: bool,
         pcbs_modified: bool,
+        /// the core's generation when this state was taken. Actions can arrive out of order (`GARCH-11`), so an older
+        /// state must not replace a newer one.
+        generation: u64,
     },
     ProjectView(ProjectView),
     PcbView(PcbView),
@@ -63,7 +66,7 @@ impl PlannerCoreService {
         let mut actions: Vec<PlannerAction> = Vec::new();
 
         for effect in self.core.process_event(event) {
-            let action = Self::process_effect(&self.core, effect);
+            let action = Self::process_effect(&self.core, effect, self.generation);
             match action {
                 Ok(action) => {
                     actions.push(action);
@@ -75,7 +78,7 @@ impl PlannerCoreService {
         Ok(actions)
     }
 
-    pub fn process_effect(core: &Core, effect: Effect) -> Result<PlannerAction, PlannerError> {
+    pub fn process_effect(core: &Core, effect: Effect, generation: u64) -> Result<PlannerAction, PlannerError> {
         trace!("effect: {:?}", effect);
 
         match effect {
@@ -89,6 +92,7 @@ impl PlannerCoreService {
                     None => Ok(PlannerAction::SetModifiedState {
                         project_modified: view.project_modified,
                         pcbs_modified: view.pcbs_modified,
+                        generation,
                     }),
                 };
 

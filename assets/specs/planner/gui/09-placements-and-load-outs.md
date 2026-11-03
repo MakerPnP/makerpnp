@@ -41,6 +41,11 @@ it is made. The project has no unsaved changes as a result, so "`Save`" stays di
 **LOADOUT-3 — Feeders that can't be used.** *Observed.* Clearing a part's "`Reference`" MUST remove its feeder. An invalid reference is
 outlined in red while being edited, and finishing the edit MUST NOT change the load-out, with no other message.
 
+**LOADOUT-4 — Adding a phase's parts.** *Observed.* "`Add parts to load-out.`", on a phase's tab, MUST add each of the phase's parts
+that isn't in its load-out to the load-out file, which is written straight away (`LOADOUT-2`), and a load-out tab that's already open
+MUST then show them. The result MUST be the same as the core's `AddPartsToLoadout` event, matching every manufacturer and MPN. As
+assigning placements to a phase already adds their parts (`PLACEMENTS-2`), this is for a load-out that is missing some.
+
 ## Placement orderings
 
 **ORDERING-1 — The dialog.** *Observed.* "`Placement orderings.`", on a phase's tab, MUST open a dialog with the available orderings
@@ -72,4 +77,8 @@ unsaved changes. The result MUST be the same as the CLI's `project set-placement
   chooses "`None`" for a top placement, and compares the files with the ones the core saves (`PLACEMENTS-4`).
 - `tests/ui/phase_states.rs` starts a phase, and checks "`Apply`" and "`Remove`" are disabled and a "`Phase`" cell can't be edited
   (`PLACEMENTS-1`, `PLACEMENTS-4`).
-- Not covered yet: "`Add parts to load-out.`". Selecting another row after rows have been added or removed has not been checked.
+- `tests/ui/load_outs.rs` empties a phase's load-out, opens its tab, adds the phase's parts, checks "`Save`" stays disabled and the
+  tab shows them, and compares the load-out with the one the core writes (`LOADOUT-2`, `LOADOUT-4`).
+- `tests/ui/load_outs.rs` assigns a feeder, removes another part from the load-out file, adds the phase's parts, checks the feeder is
+  kept, and compares the load-out with the one the core writes (`LOADOUT-4`).
+- Not covered yet: selecting another row after rows have been added or removed has not been checked.
