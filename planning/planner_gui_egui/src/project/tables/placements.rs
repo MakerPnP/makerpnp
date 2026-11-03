@@ -11,8 +11,8 @@ use egui_deferred_table::{
 };
 use egui_i18n::tr;
 use planner_app::{
-    ObjectPath, PcbSide, PhaseOverview, PhaseReference, PlacementPositionUnit, PlacementState, PlacementStatus,
-    PlacementsItem, Reference,
+    ObjectPath, PcbSide, PhaseOverview, PhaseReference, PlacementOperation, PlacementPositionUnit, PlacementState,
+    PlacementStatus, PlacementsItem, Reference,
 };
 use tracing::{debug, info, trace};
 
@@ -45,6 +45,21 @@ mod columns {
 }
 use columns::*;
 
+const PLACEMENT_STATUSES: [PlacementStatus; 3] = [
+    PlacementStatus::Pending,
+    PlacementStatus::Placed,
+    PlacementStatus::Skipped,
+];
+
+/// The operation that records `status` for a placement.
+pub fn placement_operation(status: &PlacementStatus) -> PlacementOperation {
+    match status {
+        PlacementStatus::Placed => PlacementOperation::Place,
+        PlacementStatus::Skipped => PlacementOperation::Skip,
+        PlacementStatus::Pending => PlacementOperation::Reset,
+    }
+}
+
 #[derive(Debug)]
 pub struct PlacementsDataSource {
     rows: Vec<PlacementsItem>,
@@ -61,8 +76,9 @@ pub struct PlacementsRenderer {
 pub struct PlacementsEditor {
     phases: Vec<PhaseOverview>,
 
-    // a cache to allow easy lookup for the 'is_editable_cell' for the 'placed' cell
-    phase_placements_editability_map: BTreeMap<PhaseReference, bool>,
+    /// For each phase, the placement statuses that can be recorded, used by the 'placed' cell. A phase's placements can't be
+    /// edited when there are none.
+    phase_placements_editability_map: BTreeMap<PhaseReference, Vec<PlacementStatus>>,
     all_phases_pending: bool,
 
     sender: Enqueue<PlacementsTableUiCommand>,
@@ -114,13 +130,18 @@ impl PlacementsEditor {
         });
 
         self.phase_placements_editability_map = BTreeMap::from_iter(phases.iter().map(|phase| {
-            (
-                phase.phase_reference.clone(),
-                phase
-                    .state
-                    .can_modify_placements()
-                    .is_ok(),
-            )
+            let statuses = PLACEMENT_STATUSES
+                .iter()
+                .filter(|status| {
+                    phase
+                        .state
+                        .can_modify_placements(&placement_operation(status))
+                        .is_ok()
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+
+            (phase.phase_reference.clone(), statuses)
         }));
 
         self.all_phases_pending = phases
@@ -176,8 +197,7 @@ impl EditableTableRenderer<PlacementsDataSource> for PlacementsEditor {
                     .is_some_and(|phase_reference| {
                         self.phase_placements_editability_map
                             .get(phase_reference)
-                            .copied()
-                            .unwrap_or(false)
+                            .is_some_and(|statuses| !statuses.is_empty())
                     });
 
                 if !editable {
@@ -244,22 +264,27 @@ impl EditableTableRenderer<PlacementsDataSource> for PlacementsEditor {
     ) {
         match state {
             PlacementsItemCellEditState::Placed(value) => {
+                let allowed = source.rows[cell_index.row]
+                    .state
+                    .phase
+                    .as_ref()
+                    .and_then(|phase| {
+                        self.phase_placements_editability_map
+                            .get(phase)
+                    });
+
+                // only the statuses that can be recorded are offered, along with the current one.
                 let mut value_mut = value.clone();
-                ui.radio_value(
-                    &mut value_mut,
-                    PlacementStatus::Pending,
-                    tr!(placement_operation_status_to_i18n_key(&PlacementStatus::Pending)),
-                );
-                ui.radio_value(
-                    &mut value_mut,
-                    PlacementStatus::Placed,
-                    tr!(placement_operation_status_to_i18n_key(&PlacementStatus::Placed)),
-                );
-                ui.radio_value(
-                    &mut value_mut,
-                    PlacementStatus::Skipped,
-                    tr!(placement_operation_status_to_i18n_key(&PlacementStatus::Skipped)),
-                );
+                for status in PLACEMENT_STATUSES.iter() {
+                    if status != value && !allowed.is_some_and(|allowed| allowed.contains(status)) {
+                        continue;
+                    }
+                    ui.radio_value(
+                        &mut value_mut,
+                        status.clone(),
+                        tr!(placement_operation_status_to_i18n_key(status)),
+                    );
+                }
 
                 if value_mut != *value {
                     // NOTE: if we had &mut self here, we could apply the edit state now

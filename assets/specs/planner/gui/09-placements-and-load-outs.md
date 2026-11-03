@@ -24,6 +24,11 @@ selection that spans several phases without changing the others. Until 2026-11-0
 phase it was in (`ISSUE-10`). This has to work with the rows that are still selected after "`Apply`": until 2026-11-03 it did nothing,
 as it used what the rows held when they were selected.
 
+**PLACEMENTS-4 — A placement's phase cell.** *Observed.* While every phase is pending, a placement's "`Phase`" cell on the Placements
+tab MUST be editable (`FORM-11`), offering "`None`" and the phases on the placement's side of the PCB. Choosing a phase MUST assign the
+placement to it, and "`None`" MUST remove it from its phase, and the project then has unsaved changes. The results MUST be the same as
+the core's `AssignPlacementsToPhase` event. Once any phase isn't pending, the cell MUST NOT be editable.
+
 ## Load-outs
 
 **LOADOUT-1 — Assigning a feeder.** *Observed.* Double-clicking a phase's load-out in the project explorer MUST show its parts.
@@ -63,5 +68,8 @@ unsaved changes. The result MUST be the same as the CLI's `project set-placement
   the same four, and compares the file with the one the core saves (`PLACEMENTS-2`, `PLACEMENTS-3`). It also applies `top_1` to a
   bottom placement alone, checks the message and that the project has no unsaved changes, and that the message goes once the
   selection changes (`PLACEMENTS-2`).
-- Not covered yet: the disabled states when a phase is not pending, the Placements table's own "`Phase`" cell editor, and
-  "`Add parts to load-out.`". Selecting another row after rows have been added or removed has not been checked.
+- `tests/ui/phase_states.rs` chooses a bottom placement's phase in its "`Phase`" cell, checking the top phase isn't offered, and
+  chooses "`None`" for a top placement, and compares the files with the ones the core saves (`PLACEMENTS-4`).
+- `tests/ui/phase_states.rs` starts a phase, and checks "`Apply`" and "`Remove`" are disabled and a "`Phase`" cell can't be edited
+  (`PLACEMENTS-1`, `PLACEMENTS-4`).
+- Not covered yet: "`Add parts to load-out.`". Selecting another row after rows have been added or removed has not been checked.

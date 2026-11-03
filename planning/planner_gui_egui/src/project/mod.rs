@@ -9,8 +9,7 @@ use egui_dock::Split;
 use egui_i18n::tr;
 use planner_app::{
     AddOrRemoveAction, Event, FileReference, LoadOutSource, ObjectPath, PcbSide, PcbUnitIndex, PcbView, PhaseReference,
-    PlacementOperation, PlacementPositionUnit, PlacementState, PlacementStatus, ProcessReference, ProjectView,
-    Reference, SetOrClearAction,
+    PlacementPositionUnit, PlacementState, ProcessReference, ProjectView, Reference, SetOrClearAction,
 };
 use regex::Regex;
 use slotmap::new_key_type;
@@ -37,6 +36,7 @@ use crate::project::dialogs::add_phase::{AddPhaseModal, AddPhaseModalAction, Add
 use crate::project::dialogs::package_sources::{
     PackageSourcesModal, PackageSourcesModalAction, PackageSourcesModalUiCommand,
 };
+use crate::project::tables::placements::placement_operation;
 use crate::project::tabs::issues_tab::{
     IssuesTab, IssuesTabUi, IssuesTabUiAction, IssuesTabUiCommand, IssuesTabUiContext,
 };
@@ -790,11 +790,7 @@ impl Project {
                     new
                 );
             } else {
-                let operation = match new.operation_status {
-                    PlacementStatus::Placed => PlacementOperation::Place,
-                    PlacementStatus::Skipped => PlacementOperation::Skip,
-                    PlacementStatus::Pending => PlacementOperation::Reset,
-                };
+                let operation = placement_operation(&new.operation_status);
 
                 events.push(Event::RecordPlacementsOperation {
                     object_path_patterns: vec![exact_match(&object_path.to_string())],

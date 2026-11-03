@@ -4,5 +4,6 @@
 mod changes;
 mod fixture;
 mod open_project;
+mod phase_states;
 mod tables;
 mod workflow;

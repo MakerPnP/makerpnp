@@ -10,11 +10,17 @@ file and the project's report to the project's folder. The results MUST be the s
 **OPERATIONS-1 — A phase's tasks.** *Observed.* A phase's tab MUST show each of its operations and their tasks, with each task's status.
 A task with actions available MUST offer them in a combo box named after its operation and task, for example
 "`load_pcbs: core::load_pcbs`". Choosing one reaches the core immediately, and the project then has unsaved changes. The result MUST be
-the same as the CLI's `project record-phase-operation`.
+the same as the CLI's `project record-phase-operation`. A phase's first task MUST NOT offer any actions until every phase before it is
+complete.
 
-**OPERATIONS-2 — Recording placements.** *Observed.* While its phase allows it, a placement's "`Placed?`" cell on a phase's tab MUST be
-editable (`FORM-11`), offering "`Pending`", "`Placed`" and "`Skipped`". The result MUST be the same as the CLI's
+**OPERATIONS-2 — Recording placements.** *Observed.* Once the task that places a phase's placements, for example
+`core::place_components`, has been started, a placement's "`Placed?`" cell on the phase's tab MUST be editable (`FORM-11`), offering
+"`Pending`", "`Placed`" and "`Skipped`". Once that task is complete, which it is when every placement has been placed or skipped, the cell
+MUST only offer "`Pending`", along with the placement's current status. The result MUST be the same as the CLI's
 `project record-placements-operation`, which selects placements using regular expressions where the GUI makes one exact match for each.
+Otherwise, including while that task is pending, the cell MUST NOT be editable. Until 2026-11-03 it was editable once the tasks before it
+were complete, and choosing "`Placed`" or "`Skipped`" did nothing, with no message (`ISSUE-12`). These are the same rules the core uses
+when recording placements.
 
 **OPERATIONS-3 — Resetting.** *Observed.* "`Reset operations`", on the project's toolbar, MUST reset the operations of all the project's
 phases and placements, with no confirmation, and the project then has unsaved changes. The result MUST be the same as the CLI's
@@ -29,5 +35,10 @@ phases and placements, with no confirmation, and the project then has unsaved ch
   CLI's events (`OPERATIONS-1`).
 - `tests/ui/workflow.rs` marks three placements as placed, saves, and compares the file (`OPERATIONS-2`). It then resets the operations, saves,
   and compares the file (`OPERATIONS-3`).
-- Not covered yet: the operation history file, whose contents have timestamps, the Markdown report, "`Abandon`", "`Skipped`", a phase that
-  doesn't allow changes to its placements, and artifacts that can't be generated, for example a missing load-out.
+- `tests/ui/phase_states.rs` checks the second phase's tasks offer no actions while the first is pending, and that a "`Placed?`" cell
+  can't be edited before the phase has started, nor once `load_pcbs` is complete and `core::place_components` is still pending
+  (`OPERATIONS-1`, `OPERATIONS-2`).
+- `tests/ui/phase_states.rs` marks every placement of the top phase as placed, checks a "`Placed?`" cell then only offers "`Pending`" and
+  "`Placed`", resets one, and compares the file with the one the core saves (`OPERATIONS-2`).
+- `planning/src/phase.rs` checks `PhaseState::can_modify_placements` for each status of the placements task and each operation.
+- Not covered yet: the operation history file, whose contents have timestamps, the Markdown report, "`Abandon`", "`Skipped`", and artifacts that can't be generated, for example a missing load-out.

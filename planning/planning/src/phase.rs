@@ -5,13 +5,13 @@ use pnp::pcb::PcbSide;
 use pnp::reference::Reference;
 use thiserror::Error;
 
-use crate::placement::PlacementSortingItem;
+use crate::placement::{PlacementOperation, PlacementSortingItem};
 #[cfg(test)]
 use crate::process::TestTaskState;
 use crate::process::{
     can_modify_operation, can_modify_task, AutomatedSolderingTaskState, LoadPcbsTaskState, ManualSolderingTaskState,
     OperationReference, OperationState, OperationStatus, PlacementTaskState, ProcessDefinition, ProcessReference,
-    SerializableTaskState, TaskReference,
+    SerializableTaskState, TaskReference, TaskStatus,
 };
 
 pub type PhaseReference = Reference;
@@ -137,7 +137,13 @@ impl PhaseState {
         }
     }
 
-    pub fn can_modify_placements(&self) -> Result<(&OperationReference, &TaskReference), PlacementsStateError> {
+    /// Whether `operation` can be recorded for this phase's placements, and if so, which task records it.
+    ///
+    /// The same rules as recording a placements operation: the task must have been started, or be complete for a reset.
+    pub fn can_modify_placements(
+        &self,
+        operation: &PlacementOperation,
+    ) -> Result<(&OperationReference, &TaskReference), PlacementsStateError> {
         self.operation_states
             .iter()
             .enumerate()
@@ -159,6 +165,15 @@ impl PhaseState {
                             return Some(Err(PlacementsStateError::InvalidTaskState));
                         }
 
+                        let can_change = match (operation, task_state.status()) {
+                            (PlacementOperation::Reset, TaskStatus::Complete) => true,
+                            (_, TaskStatus::Started) => true,
+                            _ => false,
+                        };
+                        if !can_change {
+                            return Some(Err(PlacementsStateError::InvalidTaskStatus));
+                        }
+
                         Some(Ok((&operation_state.reference, task_reference)))
                     })
             })
@@ -170,6 +185,8 @@ impl PhaseState {
 pub enum PlacementsStateError {
     InvalidOperationState,
     InvalidTaskState,
+    /// The task hasn't been started, or for a reset, isn't complete either.
+    InvalidTaskStatus,
     NoPlacementsTask,
 }
 
@@ -199,4 +216,132 @@ pub(crate) fn make_task_state(task_reference: &TaskReference) -> Box<dyn Seriali
         panic!("unknown task reference {:?}", task_reference);
     };
     task_state
+}
+
+#[cfg(test)]
+mod can_modify_placements_tests {
+    use indexmap::IndexMap;
+    use rstest::rstest;
+
+    use super::{PhaseState, PlacementsStateError};
+    use crate::placement::{PlacementOperation, PlacementStatus};
+    use crate::process::{
+        OperationReference, OperationState, PlacementTaskState, PlacementsTaskState, SerializableTaskState,
+        TaskReference, TaskState, TaskStatus, TestTaskState,
+    };
+
+    fn phase_state(load_status: TaskStatus, placements_status: TaskStatus) -> PhaseState {
+        let mut load = TestTaskState::default();
+        match load_status {
+            TaskStatus::Pending => {}
+            TaskStatus::Started => load.set_started(),
+            TaskStatus::Complete => {
+                load.set_started();
+                load.set_completed();
+            }
+            TaskStatus::Abandoned => {
+                load.set_started();
+                load.set_abandoned();
+            }
+        }
+
+        let mut placements = PlacementTaskState::default();
+        match placements_status {
+            TaskStatus::Pending => {}
+            TaskStatus::Started => placements.set_started(),
+            TaskStatus::Complete => {
+                placements.set_total_placements(1);
+                placements.on_placement_status_change(&PlacementStatus::Pending, &PlacementStatus::Placed);
+            }
+            TaskStatus::Abandoned => {
+                placements.set_started();
+                placements.set_abandoned();
+            }
+        }
+        assert_eq!(placements.status(), placements_status);
+
+        let operation = |reference: &str, task: &str, state: Box<dyn SerializableTaskState>| OperationState {
+            reference: OperationReference::from_raw_str(reference),
+            task_states: IndexMap::from([(TaskReference::from_raw_str(task), state)]),
+        };
+
+        PhaseState {
+            operation_states: vec![
+                operation("load", "core::test_task", Box::new(load)),
+                operation("place", "core::place_components", Box::new(placements)),
+            ],
+        }
+    }
+
+    #[rstest]
+    #[case(
+        TaskStatus::Pending,
+        PlacementOperation::Place,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    #[case(
+        TaskStatus::Pending,
+        PlacementOperation::Skip,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    #[case(
+        TaskStatus::Pending,
+        PlacementOperation::Reset,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    #[case(TaskStatus::Started, PlacementOperation::Place, Ok(()))]
+    #[case(TaskStatus::Started, PlacementOperation::Skip, Ok(()))]
+    #[case(TaskStatus::Started, PlacementOperation::Reset, Ok(()))]
+    #[case(
+        TaskStatus::Complete,
+        PlacementOperation::Place,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    #[case(
+        TaskStatus::Complete,
+        PlacementOperation::Skip,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    #[case(TaskStatus::Complete, PlacementOperation::Reset, Ok(()))]
+    #[case(
+        TaskStatus::Abandoned,
+        PlacementOperation::Place,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    #[case(
+        TaskStatus::Abandoned,
+        PlacementOperation::Reset,
+        Err(PlacementsStateError::InvalidTaskStatus)
+    )]
+    fn task_status(
+        #[case] placements_status: TaskStatus,
+        #[case] operation: PlacementOperation,
+        #[case] expected_result: Result<(), PlacementsStateError>,
+    ) {
+        // given
+        let phase_state = phase_state(TaskStatus::Complete, placements_status);
+
+        // when
+        let result = phase_state
+            .can_modify_placements(&operation)
+            .map(|(operation_reference, task_reference)| {
+                assert_eq!(operation_reference, &OperationReference::from_raw_str("place"));
+                assert_eq!(task_reference, &TaskReference::from_raw_str("core::place_components"));
+            });
+
+        // then
+        assert_eq!(result, expected_result);
+    }
+
+    #[test]
+    fn preceding_operations_must_be_complete() {
+        // given
+        let phase_state = phase_state(TaskStatus::Started, TaskStatus::Pending);
+
+        // when
+        let result = phase_state.can_modify_placements(&PlacementOperation::Place);
+
+        // then
+        assert_eq!(result, Err(PlacementsStateError::InvalidOperationState));
+    }
 }

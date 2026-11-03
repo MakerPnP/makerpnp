@@ -32,4 +32,5 @@ file MUST NOT be deleted. The result MUST be the same as the core's `DeletePhase
 - `tests/ui/changes.rs` checks "`Ok`" is disabled without a process or with an invalid or empty reference, shows the reference's error,
   and that "`Add`" on the Overview tab opens the dialog (`PHASE-1`). A missing side is only checked along with a missing process.
 - `tests/ui/changes.rs` deletes a phase with its tabs open, and compares the file with the one the core saves (`PHASE-4`).
-- Not covered yet: a phase that isn't pending, and a load-out in another folder. Tests start from an existing empty load-out, so the core creating the file is only covered by the CLI's tests.
+- `tests/ui/phase_states.rs` starts a phase, and checks its "`Delete`" is disabled while the other phase's isn't (`PHASE-4`).
+- Not covered yet: a load-out in another folder. Tests start from an existing empty load-out, so the core creating the file is only covered by the CLI's tests.

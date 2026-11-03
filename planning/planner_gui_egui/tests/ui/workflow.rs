@@ -843,7 +843,9 @@ pub fn create_project_with_a_feeder_assigned(app: &mut App, folder: &Path) {
     create_project_with_placements_assigned_to_a_phase(app, folder);
 
     app.double_click_text_containing("phase_1_top_1_load_out.csv");
-    app.wait_for_text("RES2");
+    // only the load-out's table has this column. The Placements tab shows "RES1" twice, and stays shown until the
+    // load-out's tab has been opened, which happens on another thread (`GARCH-11`).
+    app.wait_for_text("Reference");
     app.edit_data_table_cell("RES1", "Reference", "FEEDER_1", "RES2");
     app.wait_for_text("FEEDER_1");
 }
@@ -1036,7 +1038,7 @@ fn generating_artifacts_saves_the_same_files_as_the_cli() {
 }
 
 /// Up to the end of the CLI's `sequence_14_record_phase_operations`, saved.
-fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Path) {
+pub fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Path) {
     create_project_with_artifacts_generated(app, folder);
 
     app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Start");
@@ -1084,7 +1086,7 @@ fn recording_phase_operations_saves_the_same_file_as_the_cli() {
 }
 
 /// Up to the end of the CLI's `sequence_15_record_placements_operation`, saved.
-fn create_project_with_placements_placed(app: &mut App, folder: &Path) {
+pub fn create_project_with_placements_placed(app: &mut App, folder: &Path) {
     create_project_with_phase_operations_recorded(app, folder);
 
     for ref_des in ["R1", "R2", "R3"] {
@@ -1096,7 +1098,7 @@ fn create_project_with_placements_placed(app: &mut App, folder: &Path) {
 }
 
 /// The same, using the core.
-fn project_with_placements_placed_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+pub fn project_with_placements_placed_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
     project_with_phase_operations_recorded_using_the_core(core, folder);
     update(core, Event::RecordPlacementsOperation {
         object_path_patterns: vec![

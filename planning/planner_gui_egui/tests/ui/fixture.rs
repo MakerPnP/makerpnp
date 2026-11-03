@@ -208,6 +208,48 @@ impl App {
         self.harness.step();
     }
 
+    /// For a button that appears several times, the one in the same row as the text.
+    pub fn wait_until_button_in_row_is(&mut self, row_text: &str, label: &str, enabled: bool) {
+        self.wait_for_text(row_text);
+        self.wait_for_the_layout();
+        let state = if enabled { "enabled" } else { "disabled" };
+        self.wait_until(&format!("button '{label}' in row '{row_text}' was {state}"), |app| {
+            let row = app.text_position(row_text).y;
+            app.harness
+                .query_all_by_role_and_label(Role::Button, label)
+                .find(|button| (button.rect().center().y - row).abs() < 12.0)
+                .is_some_and(|button| button.accesskit_node().is_disabled() != enabled)
+        });
+    }
+
+    /// The labels of the combo boxes shown.
+    pub fn combo_box_labels(&self) -> Vec<String> {
+        self.harness
+            .query_all(By::new().role(Role::ComboBox))
+            .filter_map(|combo_box| combo_box.accesskit_node().label())
+            .collect()
+    }
+
+    /// Opens a combo box, so that its options can be checked, see `close_popup`.
+    pub fn open_combo_box(&mut self, label: &str) {
+        self.wait_until(&format!("combo box '{label}' was enabled"), |app| {
+            app.harness
+                .query_by_role_and_label(Role::ComboBox, label)
+                .is_some_and(|combo_box| !combo_box.accesskit_node().is_disabled())
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::ComboBox, label)
+            .click();
+        self.harness.step();
+    }
+
+    pub fn close_popup(&mut self) {
+        self.harness
+            .key_press(egui::Key::Escape);
+        self.harness.step();
+    }
+
     /// Clicks the first of the buttons with this label, the one nearest the top of a tab.
     pub fn click_first_button(&mut self, label: &str) {
         self.wait_for_the_layout();
@@ -450,6 +492,17 @@ impl App {
     /// selects the cell and the second starts editing it.  The editor covers the rows below it, so the change is
     /// finished by clicking on the row's text, which is another cell of the same row.
     pub fn choose_in_data_table_cell(&mut self, row_text: &str, column: &str, option: &str) {
+        self.choose_in_data_table_cell_offering(row_text, column, option, None);
+    }
+
+    /// The same, checking that the cell's editor offers exactly the options in `offered`, in that order.
+    pub fn choose_in_data_table_cell_offering(
+        &mut self,
+        row_text: &str,
+        column: &str,
+        option: &str,
+        offered: Option<&[&str]>,
+    ) {
         let position = self.data_table_cell_position(row_text, column);
 
         self.click_at(position);
@@ -457,6 +510,22 @@ impl App {
         self.wait_until(&format!("the cell's editor offered '{option}'"), |app| {
             app.is_shown(Role::RadioButton, option)
         });
+        if let Some(offered) = offered {
+            let labels = self
+                .harness
+                .query_all(By::new().role(Role::RadioButton))
+                .map(|radio| {
+                    radio
+                        .accesskit_node()
+                        .label()
+                        .unwrap_or_default()
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(
+                labels, offered,
+                "the options offered by the '{column}' cell of '{row_text}'"
+            );
+        }
         self.wait_for_the_layout();
         self.harness
             .get_by_role_and_label(Role::RadioButton, option)
@@ -475,6 +544,89 @@ impl App {
         self.wait_until("the cell's editor was closed", |app| {
             !app.is_shown(Role::RadioButton, option)
         });
+    }
+
+    /// Chooses an option in the combo box that a data table shows while one of its cells is being edited, and finishes
+    /// the change by clicking on the row's text, which is another cell of the same row.  Checks that the options in
+    /// `not_offered` are not offered first.
+    pub fn choose_in_data_table_cell_combo_box(
+        &mut self,
+        row_text: &str,
+        column: &str,
+        option: &str,
+        not_offered: &[&str],
+    ) {
+        let position = self.data_table_cell_position(row_text, column);
+
+        self.click_at(position);
+        self.click_at(position);
+        self.wait_until("the cell's editor was shown", |app| {
+            app.data_table_cell_combo_box_at(position)
+                .is_some()
+        });
+        self.wait_for_the_layout();
+        self.data_table_cell_combo_box_at(position)
+            .unwrap()
+            .click();
+        self.harness.step();
+        self.wait_for_button(option);
+
+        for other in not_offered {
+            assert!(!self.is_button_shown(other), "'{other}' should not be offered");
+        }
+
+        self.harness
+            .get_by_role_and_label(Role::Button, option)
+            .click();
+        self.harness.step();
+        self.wait_until(&format!("'{option}' was chosen"), |app| {
+            app.data_table_cell_combo_box_at(position)
+                .is_some_and(|combo_box| {
+                    combo_box
+                        .accesskit_node()
+                        .value()
+                        .is_some_and(|value| value == option)
+                })
+        });
+
+        let row = self.text_position(row_text);
+        self.click_at(row);
+        self.wait_until("the cell's editor was closed", |app| {
+            app.data_table_cell_combo_box_at(position)
+                .is_none()
+        });
+    }
+
+    fn data_table_cell_combo_box_at(&self, position: egui::Pos2) -> Option<egui_kittest::Node<'_>> {
+        self.harness
+            .query_all(By::new().role(Role::ComboBox))
+            .find(|combo_box| combo_box.rect().contains(position))
+    }
+
+    /// Clicks a cell of a data table twice, which would start editing it, and checks no editor is shown.
+    pub fn assert_data_table_cell_is_not_editable(&mut self, row_text: &str, column: &str) {
+        let position = self.data_table_cell_position(row_text, column);
+
+        self.click_at(position);
+        self.click_at(position);
+        // an editor is shown as soon as the table handles the click, it doesn't wait for other threads.
+        self.harness.run_steps(10);
+
+        let editors = [Role::TextInput, Role::ComboBox, Role::RadioButton]
+            .into_iter()
+            .flat_map(|role| {
+                self.harness
+                    .query_all(By::new().role(role))
+                    // the radio buttons of an editor are taller than its row, so don't all contain the position.
+                    .filter(|editor| role == Role::RadioButton || editor.rect().contains(position))
+                    .map(|editor| format!("{role:?} {:?}", editor.accesskit_node().label()))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            editors.is_empty(),
+            "the '{column}' cell of '{row_text}' should not be editable, shown: {editors:?}"
+        );
     }
 
     pub fn wait_until_file_exists(&mut self, path: &Path) {
@@ -786,7 +938,7 @@ impl App {
     }
 
     /// Runs the application until the condition is true, panics if it never is.
-    fn wait_until(&mut self, description: &str, condition: impl Fn(&Self) -> bool) {
+    pub fn wait_until(&mut self, description: &str, condition: impl Fn(&Self) -> bool) {
         let deadline = Instant::now() + TIMEOUT;
         loop {
             self.harness.step();
