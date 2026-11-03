@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Once};
 use std::time::{Duration, Instant};
 
@@ -274,6 +274,11 @@ impl App {
     pub fn click_row_header_of(&mut self, text: &str) {
         let position = self.row_header_position(text);
 
+        self.click_at(position);
+    }
+
+    /// Each in its own frame, as they would be for a user.
+    fn click_at(&mut self, position: egui::Pos2) {
         self.harness
             .event(egui::Event::PointerMoved(position));
         self.harness.step();
@@ -287,6 +292,120 @@ impl App {
                 });
             self.harness.step();
         }
+    }
+
+    /// Where the column with this header crosses the row containing the text.
+    fn data_table_cell_position(&mut self, row_text: &str, column: &str) -> egui::Pos2 {
+        self.wait_for_text(row_text);
+        self.wait_for_text(column);
+        self.wait_for_the_layout();
+
+        egui::pos2(self.text_position(column).x, self.text_position(row_text).y)
+    }
+
+    /// The text field that a data table shows while one of its cells is being edited.
+    fn data_table_cell_editor_at(&self, position: egui::Pos2) -> Option<egui_kittest::Node<'_>> {
+        self.harness
+            .query_all(By::new().role(Role::TextInput))
+            .find(|field| field.rect().contains(position))
+    }
+
+    /// Edits a cell of a data table, the first click selects the cell and the second starts editing it.  The change
+    /// is only finished by clicking on a different cell, here the same column of another row.
+    pub fn edit_data_table_cell(&mut self, row_text: &str, column: &str, value: &str, then_click_row: &str) {
+        let position = self.data_table_cell_position(row_text, column);
+
+        self.click_at(position);
+        self.click_at(position);
+        self.wait_until("the cell's editor was shown", |app| {
+            app.data_table_cell_editor_at(position)
+                .is_some()
+        });
+        self.wait_for_the_layout();
+
+        self.data_table_cell_editor_at(position)
+            .unwrap()
+            .click();
+        self.harness.step();
+        self.data_table_cell_editor_at(position)
+            .unwrap()
+            .type_text(value);
+        self.harness.step();
+        self.wait_until(&format!("the cell's editor contained '{value}'"), |app| {
+            app.data_table_cell_editor_at(position)
+                .is_some_and(|field| {
+                    field
+                        .accesskit_node()
+                        .value()
+                        .as_deref()
+                        == Some(value)
+                })
+        });
+
+        let other_position = self.data_table_cell_position(then_click_row, column);
+        self.click_at(other_position);
+    }
+
+    /// Chooses a radio button in the editor of a cell of a data table, and finishes the change.  The first click
+    /// selects the cell and the second starts editing it.  The editor covers the rows below it, so the change is
+    /// finished by clicking on the row's text, which is another cell of the same row.
+    pub fn choose_in_data_table_cell(&mut self, row_text: &str, column: &str, option: &str) {
+        let position = self.data_table_cell_position(row_text, column);
+
+        self.click_at(position);
+        self.click_at(position);
+        self.wait_until(&format!("the cell's editor offered '{option}'"), |app| {
+            app.is_shown(Role::RadioButton, option)
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::RadioButton, option)
+            .click();
+        self.harness.step();
+        self.wait_until(&format!("'{option}' was chosen"), |app| {
+            app.harness
+                .get_by_role_and_label(Role::RadioButton, option)
+                .accesskit_node()
+                .toggled()
+                == Some(egui::accesskit::Toggled::True)
+        });
+
+        let row = self.text_position(row_text);
+        self.click_at(row);
+        self.wait_until("the cell's editor was closed", |app| {
+            !app.is_shown(Role::RadioButton, option)
+        });
+    }
+
+    pub fn wait_until_file_exists(&mut self, path: &Path) {
+        self.wait_until(&format!("file {} existed", path.display()), |_app| path.exists());
+    }
+
+    /// Clicks text that also appears behind a dialog, dialogs are drawn after what's behind them.
+    pub fn click_text_in_dialog(&mut self, text: &str) {
+        self.wait_for_text_at_least_once(text);
+        self.wait_for_the_layout();
+        self.harness
+            .query_all_by_role_and_label(Role::Label, text)
+            .last()
+            .unwrap()
+            .click();
+        self.harness.step();
+    }
+
+    fn wait_for_text_at_least_once(&mut self, text: &str) {
+        self.wait_until(&format!("text '{text}' was shown"), |app| app.count_text(text) > 0);
+    }
+
+    pub fn click_radio_button(&mut self, label: &str) {
+        self.wait_until(&format!("radio button '{label}' was shown"), |app| {
+            app.is_shown(Role::RadioButton, label)
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::RadioButton, label)
+            .click();
+        self.harness.step();
     }
 
     /// The number at the start of the row containing the text.
@@ -470,6 +589,35 @@ impl App {
             .rect()
             .center();
 
+        self.double_click_at(position);
+    }
+
+    /// Double-clicks plain text that contains values, such as an item in a tree view.
+    pub fn double_click_text_containing(&mut self, text: &str) {
+        self.wait_for_text_containing(text);
+        self.wait_for_the_layout();
+        let position = self
+            .harness
+            .query_all(By::new().role(Role::Label))
+            .find(|label| {
+                let node = label.accesskit_node();
+
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|shown| {
+                        shown
+                            .replace(ISOLATES, "")
+                            .contains(text)
+                    })
+            })
+            .unwrap()
+            .rect()
+            .center();
+
+        self.double_click_at(position);
+    }
+
+    fn double_click_at(&mut self, position: egui::Pos2) {
         // pause, as a user would, otherwise egui counts the previous click and sees a triple-click.
         self.harness
             .run_steps((1.0 / STEP) as usize);

@@ -9,6 +9,7 @@ use planner_app::{
 use regex::Regex;
 use tracing::{debug, trace};
 
+use crate::forms::NamedResponse;
 use crate::i18n::conversions::{process_operation_status_to_i18n_key, process_task_status_to_i18n_key};
 use crate::project::data::{ProjectData, Synced};
 use crate::project::dialogs::placement_orderings::{
@@ -218,7 +219,9 @@ impl UiComponent for PhaseTabUi {
                                                     });
                                             }
                                         }
-                                    });
+                                    })
+                                    .response
+                                    .named(format!("{}: {}", operation_state.reference, task_reference));
                             } else {
                                 ui.colored_label(color, status);
                             }

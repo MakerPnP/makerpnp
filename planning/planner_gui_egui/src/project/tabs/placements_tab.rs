@@ -5,6 +5,7 @@ use egui_i18n::tr;
 use planner_app::{ObjectPath, PcbSide, PhaseReference, PlacementPositionUnit, PlacementState, PlacementsItem};
 use tracing::trace;
 
+use crate::forms::NamedResponse;
 use crate::project::data::{ProjectData, Synced};
 use crate::project::tables::placements::{
     PlacementsTableUi, PlacementsTableUiAction, PlacementsTableUiCommand, PlacementsTableUiContext,
@@ -157,7 +158,9 @@ impl UiComponent for PlacementsTabUi {
                                     .expect("sent");
                             }
                         }
-                    });
+                    })
+                    .response
+                    .named(tr!("form-common-choice-phase"));
             })
                 .response
                     // FIXME the `on_hover_text` does not work, no tooltip appears when hovering over an ENABLED combobox.
@@ -199,7 +202,9 @@ impl UiComponent for PlacementsTabUi {
                                     .expect("sent");
                             }
                         });
-                    });
+                    })
+                    .response
+                    .named(tr!("common-actions"));
             });
         });
 

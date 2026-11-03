@@ -11,12 +11,13 @@ use indoc::indoc;
 use nalgebra::Vector2;
 use planner_app::{
     AddOrRemoveAction, DesignName, DesignSizing, Dimensions, Event, FileReference, LoadOutSource, ObjectPath,
-    PackageMappingsSource, PackagesSource, PcbSide, PcbUnitNumber, PcbUnitPositioning, ProcessReference, Reference,
-    VariantName,
+    PackageMappingsSource, PackagesSource, PcbSide, PcbUnitNumber, PcbUnitPositioning, PlacementOperation,
+    PlacementSortingItem, PlacementSortingMode, ProcessReference, Reference, SetOrClearAction, TaskAction, VariantName,
 };
 use planner_gui_egui::planner_app_core::PlannerCoreService;
 use regex::Regex;
 use rust_decimal::Decimal;
+use util::sorting::SortOrder;
 
 use crate::fixture::App;
 
@@ -737,38 +738,413 @@ fn creating_a_phase_saves_the_same_file_as_the_cli() {
     assert_eq!(saved, fs::read_to_string(&project).unwrap());
 }
 
+/// Up to the end of the CLI's `sequence_09_create_phase_bottom`, saved.
+fn create_project_with_two_phases(app: &mut App, folder: &Path) {
+    let top_load_out = given_a_load_out(folder, "phase_1_top_1_load_out.csv");
+    let bottom_load_out = given_a_load_out(folder, "phase_2_bottom_1_load_out.csv");
+
+    create_project_with_a_part_assigned_to_a_process(app, folder);
+    add_phase(app, "top_1", "pnp", "Top", &top_load_out);
+    save(app);
+    add_phase(app, "bottom_1", "manual", "Bottom", &bottom_load_out);
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_two_phases_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    let top_load_out = given_a_load_out(folder, "phase_1_top_1_load_out.csv");
+    let bottom_load_out = given_a_load_out(folder, "phase_2_bottom_1_load_out.csv");
+
+    project_with_a_part_assigned_to_a_process_using_the_core(core, folder);
+    update(core, Event::CreatePhase {
+        process: ProcessReference::from_raw_str("pnp"),
+        reference: Reference::from_raw_str("top_1"),
+        load_out: LoadOutSource::from_absolute_path(top_load_out).unwrap(),
+        pcb_side: PcbSide::Top,
+    });
+    update(core, Event::CreatePhase {
+        process: ProcessReference::from_raw_str("manual"),
+        reference: Reference::from_raw_str("bottom_1"),
+        load_out: LoadOutSource::from_absolute_path(bottom_load_out).unwrap(),
+        pcb_side: PcbSide::Bottom,
+    });
+}
+
 /// `PHASE-1`, `PHASE-2`
 #[test]
 fn creating_a_second_phase_saves_the_same_file_as_the_cli() {
     let mut app = App::start();
     let folder = app.folder();
     let project = folder.join("project-job1.mpnp.json");
-    let top_load_out = given_a_load_out(&folder, "phase_1_top_1_load_out.csv");
-    let bottom_load_out = given_a_load_out(&folder, "phase_2_bottom_1_load_out.csv");
 
-    create_project_with_a_part_assigned_to_a_process(&mut app, &folder);
-    add_phase(&mut app, "top_1", "pnp", "Top", &top_load_out);
-    save(&mut app);
-    add_phase(&mut app, "bottom_1", "manual", "Bottom", &bottom_load_out);
-    save(&mut app);
+    create_project_with_two_phases(&mut app, &folder);
 
     let saved = fs::read_to_string(&project).unwrap();
 
     // what the CLI's `sequence_08_create_phase_top` and `sequence_09_create_phase_bottom` do.
     let mut core = PlannerCoreService::new();
-    project_with_a_part_assigned_to_a_process_using_the_core(&mut core, &folder);
-    update(&mut core, Event::CreatePhase {
-        process: ProcessReference::from_raw_str("pnp"),
-        reference: Reference::from_raw_str("top_1"),
-        load_out: LoadOutSource::from_absolute_path(top_load_out).unwrap(),
-        pcb_side: PcbSide::Top,
+    project_with_two_phases_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// Up to the end of the CLI's `sequence_10_assign_placements_to_phase`, saved.
+fn create_project_with_placements_assigned_to_a_phase(app: &mut App, folder: &Path) {
+    create_project_with_two_phases(app, folder);
+
+    app.double_click_text("Placements");
+    app.wait_for_tab("Placements");
+    for ref_des in ["R1", "R2", "R3"] {
+        app.click_row_header_of(ref_des);
+    }
+    app.choose_from_combo_box("Phase", "top_1");
+    app.choose_from_combo_box("Actions", "Apply");
+    app.wait_for_enabled_button("Save");
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_placements_assigned_to_a_phase_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_two_phases_using_the_core(core, folder);
+    update(core, Event::AssignPlacementsToPhase {
+        phase: Reference::from_raw_str("top_1"),
+        operation: SetOrClearAction::Set,
+        placements: Regex::new("pcb=1::unit=1::ref_des=R.*").unwrap(),
     });
-    update(&mut core, Event::CreatePhase {
-        process: ProcessReference::from_raw_str("manual"),
-        reference: Reference::from_raw_str("bottom_1"),
-        load_out: LoadOutSource::from_absolute_path(bottom_load_out).unwrap(),
-        pcb_side: PcbSide::Bottom,
+}
+
+/// `PLACEMENTS-1`, `PLACEMENTS-2`
+#[test]
+fn assigning_placements_to_a_phase_saves_the_same_files_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    let load_out = folder.join("phase_1_top_1_load_out.csv");
+
+    create_project_with_placements_assigned_to_a_phase(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+    let saved_load_out = fs::read_to_string(&load_out).unwrap();
+    assert!(saved_load_out.contains("RES1"));
+
+    // what the CLI's `sequence_10_assign_placements_to_phase` does.
+    let mut core = PlannerCoreService::new();
+    project_with_placements_assigned_to_a_phase_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+    assert_eq!(saved_load_out, fs::read_to_string(&load_out).unwrap());
+}
+
+/// Up to the end of the CLI's `sequence_11_assign_feeder_to_load_out_item`.  Changing a load-out doesn't change the
+/// project, so there is nothing to save.
+fn create_project_with_a_feeder_assigned(app: &mut App, folder: &Path) {
+    create_project_with_placements_assigned_to_a_phase(app, folder);
+
+    app.double_click_text_containing("phase_1_top_1_load_out.csv");
+    app.wait_for_text("RES2");
+    app.edit_data_table_cell("RES1", "Reference", "FEEDER_1", "RES2");
+    app.wait_for_text("FEEDER_1");
+}
+
+/// The same, using the core.
+fn project_with_a_feeder_assigned_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_placements_assigned_to_a_phase_using_the_core(core, folder);
+    update(core, Event::AssignFeederToLoadOutItem {
+        phase: Reference::from_raw_str("top_1"),
+        feeder_reference: Some(Reference::from_raw_str("FEEDER_1")),
+        manufacturer: Regex::new(".*").unwrap(),
+        mpn: Regex::new("RES1").unwrap(),
     });
+}
+
+/// `LOADOUT-1`, `LOADOUT-2`
+#[test]
+fn assigning_a_feeder_saves_the_same_load_out_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let load_out = folder.join("phase_1_top_1_load_out.csv");
+
+    create_project_with_a_feeder_assigned(&mut app, &folder);
+
+    app.wait_until_button_is_disabled("Save");
+    let saved_load_out = fs::read_to_string(&load_out).unwrap();
+    assert!(saved_load_out.contains("FEEDER_1"));
+
+    // what the CLI's `sequence_11_assign_feeder_to_load_out_item` does.
+    project_with_a_feeder_assigned_using_the_core(&mut PlannerCoreService::new(), &folder);
+
+    assert_eq!(saved_load_out, fs::read_to_string(&load_out).unwrap());
+}
+
+/// Up to the end of the CLI's `sequence_12_set_placement_ordering`, saved.
+fn create_project_with_placement_orderings(app: &mut App, folder: &Path) {
+    create_project_with_a_feeder_assigned(app, folder);
+
+    app.double_click_text_containing("top_1 (");
+    app.click_button("Placement orderings.");
+    for (mode, order) in [
+        ("PCB instance", "Ascending"),
+        ("PCB unit", "Ascending"),
+        ("Area", "Ascending"),
+        ("Height", "Ascending"),
+        ("Feeder reference", "Ascending"),
+        ("Ref. Des.", "Descending"),
+    ] {
+        app.click_text_in_dialog(mode);
+        app.click_radio_button(order);
+        app.wait_for_enabled_button(">");
+        app.click_button(">");
+        app.wait_for_text_containing(&format!("{mode} ({order})"));
+    }
+    app.click_button("Ok");
+    app.wait_for_enabled_button("Save");
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_placement_orderings_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_a_feeder_assigned_using_the_core(core, folder);
+    update(core, Event::SetPlacementOrdering {
+        phase: Reference::from_raw_str("top_1"),
+        placement_orderings: [
+            (PlacementSortingMode::Pcb, SortOrder::Asc),
+            (PlacementSortingMode::PcbUnit, SortOrder::Asc),
+            (PlacementSortingMode::Area, SortOrder::Asc),
+            (PlacementSortingMode::Height, SortOrder::Asc),
+            (PlacementSortingMode::FeederReference, SortOrder::Asc),
+            (PlacementSortingMode::RefDes, SortOrder::Desc),
+        ]
+        .map(|(mode, sort_order)| PlacementSortingItem {
+            mode,
+            sort_order,
+        })
+        .to_vec(),
+    });
+}
+
+/// `ORDERING-1`, `ORDERING-2`
+#[test]
+fn setting_placement_orderings_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project_with_placement_orderings(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_12_set_placement_ordering` does.
+    let mut core = PlannerCoreService::new();
+    project_with_placement_orderings_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+const PACKAGES: &str = indoc! {r#"
+    "Name","SizeX","SizeY","SizeZ"
+    "RES_0603_PKG1","1.6","0.85","0.45"
+    "RES_0805_PKG1","2.0","1.25","0.5"
+"#};
+
+const PACKAGE_MAPPINGS: &str = indoc! {r#"
+    "Manufacturer","Mpn","Name"
+    "RES_MFR1","RES1","RES_0603_PKG1"
+    "RES_MFR2","RES2","RES_0805_PKG1"
+"#};
+
+/// Up to the end of the CLI's `sequence_13_generate_artifacts`, saved.  The CLI's project has its package sources from
+/// the start, here they are added when they are first needed.
+fn create_project_with_artifacts_generated(app: &mut App, folder: &Path) {
+    let packages = folder.join("packages.csv");
+    let package_mappings = folder.join("package_mappings.csv");
+    fs::write(&packages, PACKAGES).unwrap();
+    fs::write(&package_mappings, PACKAGE_MAPPINGS).unwrap();
+
+    create_project_with_placement_orderings(app, folder);
+
+    app.click_button("Package sources");
+    app.when_a_file_dialog_opens_answer(Some(packages));
+    app.click_button("Packages: Choose");
+    app.wait_until_field_is_not_empty("Packages");
+    app.when_a_file_dialog_opens_answer(Some(package_mappings));
+    app.click_button("Package mappings: Choose");
+    app.wait_until_field_is_not_empty("Package mappings");
+    app.click_button("Ok");
+    app.wait_for_enabled_button("Save");
+    save(app);
+
+    app.click_button("Generate artifacts");
+    app.wait_until_file_exists(&folder.join("job1_report.json"));
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_artifacts_generated_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_placement_orderings_using_the_core(core, folder);
+    update(core, Event::ApplyPackageSources {
+        packages_source: Some(PackagesSource::File(folder.join("packages.csv"))),
+        package_mappings_source: Some(PackageMappingsSource::File(folder.join("package_mappings.csv"))),
+    });
+    update(core, Event::GenerateArtifacts);
+}
+
+/// `ARTIFACTS-1`
+#[test]
+fn generating_artifacts_saves_the_same_files_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+    let artifacts =
+        ["top_1_placements.csv", "bottom_1_placements.csv", "job1_report.json"].map(|name| folder.join(name));
+
+    create_project_with_artifacts_generated(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+    let saved_artifacts = artifacts
+        .clone()
+        .map(|artifact| fs::read_to_string(artifact).unwrap());
+
+    // the CLI's test expects these, in this order, as set by the placement orderings and package sizes.
+    let positions = ["R3", "R1", "R2"].map(|ref_des| {
+        saved_artifacts[0]
+            .find(&format!("ref_des={ref_des}"))
+            .unwrap()
+    });
+    assert!(
+        positions[0] < positions[1] && positions[1] < positions[2],
+        "{}",
+        saved_artifacts[0]
+    );
+
+    for artifact in &artifacts {
+        fs::remove_file(artifact).unwrap();
+    }
+
+    // what the CLI's `sequence_13_generate_artifacts` does.
+    let mut core = PlannerCoreService::new();
+    project_with_artifacts_generated_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+    assert_eq!(
+        saved_artifacts,
+        artifacts.map(|artifact| fs::read_to_string(artifact).unwrap())
+    );
+}
+
+/// Up to the end of the CLI's `sequence_14_record_phase_operations`, saved.
+fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Path) {
+    create_project_with_artifacts_generated(app, folder);
+
+    app.choose_from_combo_box("load_pcbs: core::load_pcbs", "Start");
+    app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Incomplete");
+    app.choose_from_combo_box("load_pcbs: core::load_pcbs", "Complete");
+    app.choose_from_combo_box("automated_pnp: core::place_components", "Start");
+    app.wait_for_combo_box_value("automated_pnp: core::place_components", "Incomplete");
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_phase_operations_recorded_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_artifacts_generated_using_the_core(core, folder);
+    for (operation, task, action) in [
+        ("load_pcbs", "core::load_pcbs", TaskAction::Start),
+        ("load_pcbs", "core::load_pcbs", TaskAction::Complete),
+        ("automated_pnp", "core::place_components", TaskAction::Start),
+    ] {
+        update(core, Event::RecordPhaseOperation {
+            phase: Reference::from_raw_str("top_1"),
+            operation: Reference::from_raw_str(operation),
+            task: Reference::from_raw_str(task),
+            action,
+        });
+    }
+}
+
+/// `OPERATIONS-1`
+#[test]
+fn recording_phase_operations_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project_with_phase_operations_recorded(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_14_record_phase_operations` does.
+    let mut core = PlannerCoreService::new();
+    project_with_phase_operations_recorded_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// Up to the end of the CLI's `sequence_15_record_placements_operation`, saved.
+fn create_project_with_placements_placed(app: &mut App, folder: &Path) {
+    create_project_with_phase_operations_recorded(app, folder);
+
+    for ref_des in ["R1", "R2", "R3"] {
+        app.choose_in_data_table_cell(ref_des, "Placed?", "Placed");
+    }
+    app.wait_for_text_count("Placed", 3);
+    app.wait_for_enabled_button("Save");
+    save(app);
+}
+
+/// The same, using the core.
+fn project_with_placements_placed_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    project_with_phase_operations_recorded_using_the_core(core, folder);
+    update(core, Event::RecordPlacementsOperation {
+        object_path_patterns: vec![
+            Regex::new("pcb=1::unit=1::ref_des=R([1-3])?").unwrap(),
+            Regex::new("pcb=1::unit=2::ref_des=.*").unwrap(),
+        ],
+        operation: PlacementOperation::Place,
+    });
+}
+
+/// `OPERATIONS-2`
+#[test]
+fn recording_placements_as_placed_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project_with_placements_placed(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_15_record_placements_operation` does.
+    let mut core = PlannerCoreService::new();
+    project_with_placements_placed_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `OPERATIONS-3`
+#[test]
+fn resetting_operations_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project_with_placements_placed(&mut app, &folder);
+
+    app.click_button("Reset operations");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    // what the CLI's `sequence_16_reset_operations` does.
+    let mut core = PlannerCoreService::new();
+    project_with_placements_placed_using_the_core(&mut core, &folder);
+    update(&mut core, Event::ResetOperations {});
     update(&mut core, Event::Save);
 
     assert_eq!(saved, fs::read_to_string(&project).unwrap());

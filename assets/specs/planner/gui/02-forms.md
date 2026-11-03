@@ -54,6 +54,9 @@ another row MUST move the row, and dragging a column's header onto another colum
 **FORM-10 — A moved row's position.** *Observed.* A moved row's position is kept while the number of rows stays the same.
 If the number of rows changes, rows MUST return to their original order, so that the table shows each row once.
 
+**FORM-11 — Editing a cell.** *Observed.* In the Parts, Placements and load-out tables, clicking an editable cell MUST select it, and
+clicking it again MUST start editing it. Clicking any other cell MUST finish the edit and apply the change. See `ISSUE-9`.
+
 ## Acceptance criteria
 
 - `tests/ui/tables.rs` checks a click on unit 4 of the Unit mapping table does nothing, drags the table's handle, and
@@ -65,6 +68,8 @@ If the number of rows changes, rows MUST return to their original order, so that
   same code, and moving columns.
 - `tests/ui/tables.rs` checks the handles exist on a PCB's two tabs and on a project's Overview tab (`FORM-6`). Not covered
   yet: dragging any other handle, and the Unit assignments tab.
+- `tests/ui/workflow.rs` edits a load-out's "`Reference`" cell and a phase's "`Placed?`" cells (`FORM-11`). Not covered yet: the cells of the
+  Parts table, the Placements table's "`Phase`" cell, an invalid value, and whether there's a way to cancel an edit.
 - Each of the fields can be set by answering its dialog (`FORM-2`). `tests/ui/workflow.rs` covers New project, New PCB,
   Package sources and Add phase.
 - Clearing a required field stops the form being submitted (`FORM-3`), covered for New project and Add phase.

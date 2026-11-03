@@ -27,6 +27,8 @@ A front end's requirements cite the core requirements they depend on, and do not
 | [gui/06-unit-assignments.md](gui/06-unit-assignments.md) | Assigning variants to units, and refreshing from placements files | `UNITASG`, `PLACEREF` |
 | [gui/07-parts.md](gui/07-parts.md) | Assigning processes to parts | `PARTS` |
 | [gui/08-phases.md](gui/08-phases.md) | Creating a project's phases | `PHASE` |
+| [gui/09-placements-and-load-outs.md](gui/09-placements-and-load-outs.md) | Assigning placements and feeders, and ordering placements | `PLACEMENTS`, `LOADOUT`, `ORDERING` |
+| [gui/10-artifacts-and-operations.md](gui/10-artifacts-and-operations.md) | Generating artifacts, and recording operations | `ARTIFACTS`, `OPERATIONS` |
 | [known-issues.md](known-issues.md) | Problems known and not yet fixed | `ISSUE` |
 
 ## Conventions
@@ -79,3 +81,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-02 | Added unit assignments, refreshing from placements files (`UNITASG`, `PLACEREF`) and parts (`PARTS`), drafted from the code and awaiting review. |
 | 2026-11-02 | Dragging a row of the Parts, Placements or load-out table now moves the row, not the columns (`FORM-9`, `ISSUE-4`). Rows return to their original order if the number of rows changes (`FORM-10`). |
 | 2026-11-03 | Added creating phases (`PHASE`), drafted from the code and awaiting review, and three known issues found while doing so (`ISSUE-6`, `ISSUE-7`, `ISSUE-8`). |
+| 2026-11-03 | Added placements, load-outs, placement orderings, artifacts and operations (`PLACEMENTS`, `LOADOUT`, `ORDERING`, `ARTIFACTS`, `OPERATIONS`), and editing a table's cells (`FORM-11`), drafted from the code and awaiting review. Added `ISSUE-9`. The GUI's workflow tests now cover every step of the CLI's `operation_sequence_1`. |

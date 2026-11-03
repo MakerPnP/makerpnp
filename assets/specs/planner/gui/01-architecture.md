@@ -111,7 +111,7 @@ its label. A label SHOULD identify a control within the tab or dialog containing
 Gaps: buttons, tabs, tree items, table text, and form text and number fields have been found so far. Number fields with
 no label of their own need a name (`forms/mod.rs`, `NamedResponse`), and the fiducial fields (`pcb/tabs/panel_tab.rs`) have
 none yet. Combo boxes with no label show their current value as their name, which changes as they are used, so they need
-one too, as on the Parts tab. Text in table rows is often not unique, for example a row's number, so a test
+one too, as on the Parts and Placements tabs and for a phase's tasks. Text in table rows is often not unique, for example a row's number, so a test
 can only click a row by text that appears nowhere else. `"Refresh"` appears twice when a project is open, so tests will
 need to search within one tab. A dialog doesn't hide what's behind it from the accessibility tree, so "`Process`" in the Add
 phase dialog is ambiguous while the Parts tab is showing, and tests select another tab first. How the gerber viewer's canvas
