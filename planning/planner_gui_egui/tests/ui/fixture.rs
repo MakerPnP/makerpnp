@@ -352,6 +352,16 @@ impl App {
         });
     }
 
+    pub fn wait_until_no_text_contains(&mut self, text: &str) {
+        self.wait_until(&format!("no text contained '{text}'"), |app| {
+            !app.shown().iter().any(|shown| {
+                let shown = shown.replace(ISOLATES, "");
+
+                shown.starts_with("Label") && shown.contains(text)
+            })
+        });
+    }
+
     /// Clicks the row number at the start of the row containing the text, which selects the row of a data table.
     pub fn click_row_header_of(&mut self, text: &str) {
         let position = self.row_header_position(text);

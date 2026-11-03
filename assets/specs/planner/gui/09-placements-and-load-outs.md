@@ -15,11 +15,14 @@ has been chosen. "`Apply`" and "`Remove`", in "`Actions`", MUST be disabled unle
 changes. The result MUST be the same as the CLI's `project assign-placements-to-phase`, which selects placements using a regular
 expression where the GUI makes one exact match for each. This includes the core adding the placements' parts to the phase's
 load-out file, and adding the phase's process to those parts. A placement on the other side of the PCB to the phase is left as it
-was, see `ISSUE-11`.
+was, as the core only assigns placements on the phase's side, and the tab MUST then say how many were left as they were, until the
+selection or the phase changes. If none are on the phase's side, nothing else happens.
 
-**PLACEMENTS-3 — Removing a phase.** *Observed.* "`Remove`" MUST remove each selected placement from the phase it's assigned to, and
-the project then has unsaved changes. This has to work with the rows that are still selected after "`Apply`": until 2026-11-03 it did
-nothing, as it used what the rows held when they were selected. It doesn't use the chosen phase, see `ISSUE-10`.
+**PLACEMENTS-3 — Removing a phase.** *Observed.* "`Remove`" MUST remove each selected placement that's in the chosen phase from that
+phase, and the project then has unsaved changes. Any other selected placement MUST be left as it was, so a phase can be removed from a
+selection that spans several phases without changing the others. Until 2026-11-03 it removed every selected placement from whichever
+phase it was in (`ISSUE-10`). This has to work with the rows that are still selected after "`Apply`": until 2026-11-03 it did nothing,
+as it used what the rows held when they were selected.
 
 ## Load-outs
 
@@ -56,5 +59,9 @@ unsaved changes. The result MUST be the same as the CLI's `project set-placement
   (`LOADOUT-3`).
 - `tests/ui/changes.rs` moves an ordering back with "`<`" and compares the file, and cancels the dialog and checks the project hasn't
   changed (`ORDERING-1`, `ORDERING-2`).
+- `tests/ui/changes.rs` applies `bottom_1` to three top placements and one bottom one, checks the message, then removes `top_1` from
+  the same four, and compares the file with the one the core saves (`PLACEMENTS-2`, `PLACEMENTS-3`). It also applies `top_1` to a
+  bottom placement alone, checks the message and that the project has no unsaved changes, and that the message goes once the
+  selection changes (`PLACEMENTS-2`).
 - Not covered yet: the disabled states when a phase is not pending, the Placements table's own "`Phase`" cell editor, and
   "`Add parts to load-out.`". Selecting another row after rows have been added or removed has not been checked.

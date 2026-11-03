@@ -1760,6 +1760,7 @@ impl Project {
 
                         for item in selection {
                             let new_phase = match &action {
+                                // the tab only sends the placements that are in the phase
                                 PlacementsTabUiApplyAction::RemovePhase(_phase) => None,
                                 PlacementsTabUiApplyAction::ApplyPhase(phase) => Some(phase.clone()),
                             };

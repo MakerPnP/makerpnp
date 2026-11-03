@@ -64,6 +64,10 @@ project-placements-tab-label = Ubicaciones
 project-placements-tab-phase-hover-text-no-phases = No hay fases definidas.
 project-placements-tab-phase-hover-text-no-selection = Sin selección.
 project-placements-tab-phase-hover-text-with-selection = Fase que se aplicará a la selección.
+project-placements-tab-skipped-other-side = { $count ->
+    [one] 1 ubicación no se cambió, está en el otro lado del PCB respecto a la fase.
+   *[other] { $count } ubicaciones no se cambiaron, están en el otro lado del PCB respecto a la fase.
+}
 
 project-parts-tab-label = Piezas
 

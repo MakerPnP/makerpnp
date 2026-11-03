@@ -23,6 +23,9 @@ pub struct PlacementsTabUi {
     selection: Option<Vec<PlacementsItem>>,
     selected_phase: Option<PhaseReference>,
 
+    /// how many placements the last "Apply" left unchanged as they're on the other side of the PCB to the phase.
+    skipped: Option<usize>,
+
     /// the revisions of the placements and phases views used to build the table
     synced: Synced<(u64, u64)>,
 
@@ -45,6 +48,7 @@ impl PlacementsTabUi {
             placements_table_ui,
             selection: None,
             selected_phase: None,
+            skipped: None,
             synced: Synced::default(),
             component,
         }
@@ -224,6 +228,10 @@ impl UiComponent for PlacementsTabUi {
                     .response
                     .named(tr!("common-actions"));
             });
+
+            if let Some(skipped) = self.skipped {
+                ui.label(tr!("project-placements-tab-skipped-other-side", { count: skipped }));
+            }
         });
 
         ui.separator();
@@ -236,12 +244,13 @@ impl UiComponent for PlacementsTabUi {
     fn update<'context>(
         &mut self,
         command: Self::UiCommand,
-        _context: &mut Self::UiContext<'context>,
+        context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
         match command {
             PlacementsTabUiCommand::None => Some(PlacementsTabUiAction::None),
             PlacementsTabUiCommand::PhaseChanged(phase) => {
                 self.selected_phase = Some(phase);
+                self.skipped = None;
                 None
             }
             PlacementsTabUiCommand::PlacementsTableUiCommand(command) => {
@@ -280,23 +289,61 @@ impl UiComponent for PlacementsTabUi {
                     }),
                     Some(PlacementsTableUiAction::ApplySelection(selection)) => {
                         self.selection = Some(selection);
+                        self.skipped = None;
                         None
                     }
                 }
             }
             PlacementsTabUiCommand::PlacementActionClicked(action) => {
-                if let (Some(selection), Some(phase)) = (&self.selection, &self.selected_phase) {
-                    let apply_action = match action {
-                        PlacementAction::ApplyPhase => PlacementsTabUiApplyAction::ApplyPhase(phase.clone()),
-                        PlacementAction::RemovePhase => PlacementsTabUiApplyAction::RemovePhase(phase.clone()),
-                    };
-                    Some(PlacementsTabUiAction::ApplyPlacementsAction(
-                        selection.clone(),
-                        apply_action,
-                    ))
-                } else {
-                    None
+                self.skipped = None;
+
+                let (Some(selection), Some(phase)) = (&self.selection, &self.selected_phase) else {
+                    return None;
+                };
+
+                let (placements, apply_action) = match action {
+                    PlacementAction::ApplyPhase => {
+                        // the core only assigns placements on the phase's side of the PCB (`PLACEMENTS-2`)
+                        let pcb_side = context
+                            .data
+                            .phase_list()
+                            .iter()
+                            .find(|overview| overview.phase_reference.eq(phase))?
+                            .pcb_side;
+
+                        let (placements, skipped): (Vec<_>, Vec<_>) = selection
+                            .iter()
+                            .cloned()
+                            .partition(|item| {
+                                item.state
+                                    .placement
+                                    .pcb_side
+                                    .eq(&pcb_side)
+                            });
+
+                        if !skipped.is_empty() {
+                            self.skipped = Some(skipped.len());
+                        }
+
+                        (placements, PlacementsTabUiApplyAction::ApplyPhase(phase.clone()))
+                    }
+                    PlacementAction::RemovePhase => {
+                        // only from the chosen phase (`PLACEMENTS-3`)
+                        let placements = selection
+                            .iter()
+                            .filter(|item| item.state.phase.as_ref() == Some(phase))
+                            .cloned()
+                            .collect::<Vec<_>>();
+
+                        (placements, PlacementsTabUiApplyAction::RemovePhase(phase.clone()))
+                    }
+                };
+
+                if placements.is_empty() {
+                    return None;
                 }
+
+                Some(PlacementsTabUiAction::ApplyPlacementsAction(placements, apply_action))
             }
         }
     }

@@ -64,6 +64,10 @@ project-placements-tab-label = Placements
 project-placements-tab-phase-hover-text-no-phases = No phases defined.
 project-placements-tab-phase-hover-text-no-selection = No selection.
 project-placements-tab-phase-hover-text-with-selection = Phase to apply to selection.
+project-placements-tab-skipped-other-side = { $count ->
+    [one] 1 placement was not changed, it's on the other side of the PCB to the phase.
+   *[other] { $count } placements were not changed, they're on the other side of the PCB to the phase.
+}
 
 project-parts-tab-label = Parts
 

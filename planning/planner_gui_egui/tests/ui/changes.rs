@@ -378,3 +378,75 @@ fn the_add_phase_dialog_needs_a_valid_reference_a_side_and_a_process() {
     app.clear_field("Phase reference");
     app.wait_until_button_is_disabled("Ok");
 }
+
+/// `PLACEMENTS-2`, `PLACEMENTS-3`
+#[test]
+fn removing_a_phase_leaves_the_placements_of_other_phases_as_they_were() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project_with_placements_assigned_to_a_phase(&mut app, &folder);
+
+    // "R1", "R2" and "R3" are still selected, they're on the top.
+    app.click_row_header_of("J1");
+    app.choose_from_combo_box("Phase", "bottom_1");
+    app.choose_action_from_combo_box("Actions", "Apply");
+    app.wait_for_text_containing("placements were not changed, they're on the other side of the PCB to the phase.");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    app.choose_from_combo_box("Phase", "top_1");
+    app.wait_until_no_text_contains("placements were not changed");
+    app.choose_action_from_combo_box("Actions", "Remove");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    assert_eq!(saved_phase_of(&project, "R1"), None);
+
+    assert!(
+        saved_phase_of(&project, "J1")
+            .unwrap()
+            .contains("bottom_1")
+    );
+    let saved = fs::read_to_string(&project).unwrap();
+
+    let mut core = PlannerCoreService::new();
+    project_with_placements_assigned_to_a_phase_using_the_core(&mut core, &folder);
+    update(&mut core, Event::AssignPlacementsToPhase {
+        phase: Reference::from_raw_str("bottom_1"),
+        operation: SetOrClearAction::Set,
+        placements: Regex::new("^pcb=1::unit=1::ref_des=J1$").unwrap(),
+    });
+    update(&mut core, Event::AssignPlacementsToPhase {
+        phase: Reference::from_raw_str("top_1"),
+        operation: SetOrClearAction::Clear,
+        placements: Regex::new("pcb=1::unit=1::ref_des=R.*").unwrap(),
+    });
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `PLACEMENTS-2`
+#[test]
+fn applying_a_phase_to_a_placement_on_the_other_side_says_so() {
+    let mut app = App::start();
+    let folder = app.folder();
+
+    create_project_with_placements_assigned_to_a_phase(&mut app, &folder);
+
+    for ref_des in ["R1", "R2", "R3"] {
+        app.click_row_header_of(ref_des);
+    }
+    app.click_row_header_of("J1");
+    // "top_1" is still chosen.
+    app.choose_action_from_combo_box("Actions", "Apply");
+
+    app.wait_for_text_containing("1 placement was not changed, it's on the other side of the PCB to the phase.");
+    app.assert_button_is_disabled("Save");
+
+    // and the message goes once the selection changes.
+    app.click_row_header_of("J1");
+    app.wait_until_no_text_contains("placement was not changed");
+}
