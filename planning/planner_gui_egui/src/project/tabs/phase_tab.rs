@@ -10,7 +10,9 @@ use regex::Regex;
 use tracing::{debug, trace};
 
 use crate::forms::NamedResponse;
-use crate::i18n::conversions::{process_operation_status_to_i18n_key, process_task_status_to_i18n_key};
+use crate::i18n::conversions::{
+    process_operation_status_to_i18n_key, process_task_action_to_i18n_key, process_task_status_to_i18n_key,
+};
 use crate::project::data::{ProjectData, Synced};
 use crate::project::dialogs::placement_orderings::{
     PlacementOrderingsArgs, PlacementOrderingsModal, PlacementOrderingsModalAction, PlacementOrderingsModalUiCommand,
@@ -206,7 +208,7 @@ impl UiComponent for PhaseTabUi {
                                             if ui
                                                 .add(egui::Button::selectable(
                                                     false,
-                                                    format!("{:?}", action).to_string(),
+                                                    tr!(process_task_action_to_i18n_key(&action)),
                                                 ))
                                                 .clicked()
                                             {

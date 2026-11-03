@@ -86,3 +86,5 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-03 | "`Remove`" on the Placements tab only removes placements from the chosen phase (`PLACEMENTS-3`, `ISSUE-10`). "`Apply`" says how many placements were left as they were as they're on the other side of the PCB (`PLACEMENTS-2`, `ISSUE-11`). |
 | 2026-11-03 | Added a placement's phase cell (`PLACEMENTS-4`), and what can't be changed once a phase isn't pending, or before it can start (`PHASE-4`, `OPERATIONS-1`, `OPERATIONS-2`), awaiting review. Added `ISSUE-12`. |
 | 2026-11-03 | Fixed `ISSUE-12`: a "`Placed?`" cell is only editable once the task that places the placements has started, and only offers "`Pending`" once it's complete (`OPERATIONS-2`). |
+| 2026-11-03 | Added which actions a phase's tasks offer, abandoning a task, and skipping placements (`OPERATIONS-1`, `OPERATIONS-2`), awaiting review. Added `ISSUE-13`. |
+| 2026-11-03 | The actions a phase's tasks offer are translated (`OPERATIONS-1`, `ISSUE-13`). |

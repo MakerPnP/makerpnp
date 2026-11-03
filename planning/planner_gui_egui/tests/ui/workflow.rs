@@ -1050,7 +1050,7 @@ pub fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Pat
 }
 
 /// The same, using the core.
-fn project_with_phase_operations_recorded_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+pub fn project_with_phase_operations_recorded_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
     project_with_artifacts_generated_using_the_core(core, folder);
     for (operation, task, action) in [
         ("load_pcbs", "core::load_pcbs", TaskAction::Start),

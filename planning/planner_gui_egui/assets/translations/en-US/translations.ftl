@@ -281,6 +281,9 @@ process-status-pending = Pending
 process-status-incomplete = Incomplete
 process-status-complete = Complete
 process-status-abandoned = Abandoned
+process-task-action-start = Start
+process-task-action-complete = Complete
+process-task-action-abandon = Abandon
 
 gerber-file-function-assembly = Assembly
 gerber-file-function-component = Component

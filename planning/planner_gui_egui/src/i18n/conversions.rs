@@ -1,6 +1,6 @@
 use planner_app::{
     GerberFileFunction, GerberFileFunctionDiscriminants, OperationStatus, PcbAssemblyFlip, PcbSide, PhaseStatus,
-    PlacementSortingMode, PlacementStatus, ProjectPlacementStatus, TaskStatus,
+    PlacementSortingMode, PlacementStatus, ProjectPlacementStatus, TaskAction, TaskStatus,
 };
 use util::sorting::SortOrder;
 
@@ -74,6 +74,14 @@ pub fn process_task_status_to_i18n_key(status: &TaskStatus) -> &'static str {
     }
 }
 
+pub fn process_task_action_to_i18n_key(action: &TaskAction) -> &'static str {
+    match action {
+        TaskAction::Start => "process-task-action-start",
+        TaskAction::Complete => "process-task-action-complete",
+        TaskAction::Abandon => "process-task-action-abandon",
+    }
+}
+
 pub fn phase_status_to_i18n_key(status: &PhaseStatus) -> &'static str {
     match status {
         PhaseStatus::Pending => "process-status-pending",
@@ -116,5 +124,34 @@ pub fn pcb_orientation_pitch_flip_to_i18n_key(flip: PcbAssemblyFlip) -> &'static
         PcbAssemblyFlip::None => "pcb-assembly-orientation-flip-none",
         PcbAssemblyFlip::Pitch => "pcb-assembly-orientation-flip-pitch",
         PcbAssemblyFlip::Roll => "pcb-assembly-orientation-flip-roll",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use planner_app::TaskAction;
+
+    use super::process_task_action_to_i18n_key;
+
+    /// `ISSUE-13` showed the actions' names from the code.
+    #[test]
+    fn every_task_action_is_translated() {
+        for language in ["en-US", "es-ES"] {
+            let path = format!(
+                "{}/assets/translations/{language}/translations.ftl",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let translations = std::fs::read_to_string(&path).unwrap();
+
+            for action in [TaskAction::Start, TaskAction::Complete, TaskAction::Abandon] {
+                let key = process_task_action_to_i18n_key(&action);
+                assert!(
+                    translations
+                        .lines()
+                        .any(|line| line.starts_with(&format!("{key} = "))),
+                    "'{key}' is not in {path}"
+                );
+            }
+        }
     }
 }
