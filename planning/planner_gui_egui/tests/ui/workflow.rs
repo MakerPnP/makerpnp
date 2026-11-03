@@ -21,7 +21,7 @@ use util::sorting::SortOrder;
 
 use crate::fixture::App;
 
-fn update(core: &mut PlannerCoreService, event: Event) {
+pub fn update(core: &mut PlannerCoreService, event: Event) {
     core.update(event)
         .unwrap_or_else(|error| panic!("{error:?}"));
 }
@@ -39,7 +39,7 @@ fn project_saved_by_the_core(path: &Path, packages: &Path, package_mappings: &Pa
     fs::read_to_string(path).unwrap()
 }
 
-fn create_project(app: &mut App, folder: &Path) {
+pub fn create_project(app: &mut App, folder: &Path) {
     app.click_button("New project");
     app.type_into("Project name", "job1");
     app.when_a_file_dialog_opens_answer(Some(folder.to_path_buf()));
@@ -198,7 +198,7 @@ fn create_pcb_with_assigned_designs(app: &mut App, folder: &Path) {
     app.wait_for_enabled_button("Save");
 }
 
-fn save(app: &mut App) {
+pub fn save(app: &mut App) {
     app.click_button("Save");
     app.wait_until_button_is_disabled("Save");
 }
@@ -632,7 +632,7 @@ fn refreshing_from_changed_placements_saves_the_same_file_as_the_cli() {
 }
 
 /// Up to the end of the CLI's `sequence_07_assign_process_to_parts`, saved.
-fn create_project_with_a_part_assigned_to_a_process(app: &mut App, folder: &Path) {
+pub fn create_project_with_a_part_assigned_to_a_process(app: &mut App, folder: &Path) {
     create_project_with_an_assigned_variant(app, folder);
     fs::write(
         folder.join("design_a_variant_a_placements.csv"),
@@ -648,13 +648,13 @@ fn create_project_with_a_part_assigned_to_a_process(app: &mut App, folder: &Path
     app.wait_for_tab("Parts");
     app.choose_from_combo_box("Process", "manual");
     app.click_row_header_of("CONN1");
-    app.choose_from_combo_box("Actions", "Add");
+    app.choose_action_from_combo_box("Actions", "Add");
     app.wait_for_enabled_button("Save");
     save(app);
 }
 
 /// The same, using the core.
-fn project_with_a_part_assigned_to_a_process_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+pub fn project_with_a_part_assigned_to_a_process_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
     project_with_an_assigned_variant_using_the_core(core, folder);
     fs::write(
         folder.join("design_a_variant_a_placements.csv"),
@@ -690,7 +690,7 @@ fn assigning_a_process_to_a_part_saves_the_same_file_as_the_cli() {
 }
 
 /// A file dialog can only choose a file that exists (`PHASE-3`), which the CLI's `create-phase` doesn't need.
-fn given_a_load_out(folder: &Path, name: &str) -> PathBuf {
+pub fn given_a_load_out(folder: &Path, name: &str) -> PathBuf {
     let load_out = folder.join(name);
     fs::write(&load_out, "").unwrap();
     load_out
@@ -790,7 +790,7 @@ fn creating_a_second_phase_saves_the_same_file_as_the_cli() {
 }
 
 /// Up to the end of the CLI's `sequence_10_assign_placements_to_phase`, saved.
-fn create_project_with_placements_assigned_to_a_phase(app: &mut App, folder: &Path) {
+pub fn create_project_with_placements_assigned_to_a_phase(app: &mut App, folder: &Path) {
     create_project_with_two_phases(app, folder);
 
     app.double_click_text("Placements");
@@ -799,13 +799,13 @@ fn create_project_with_placements_assigned_to_a_phase(app: &mut App, folder: &Pa
         app.click_row_header_of(ref_des);
     }
     app.choose_from_combo_box("Phase", "top_1");
-    app.choose_from_combo_box("Actions", "Apply");
+    app.choose_action_from_combo_box("Actions", "Apply");
     app.wait_for_enabled_button("Save");
     save(app);
 }
 
 /// The same, using the core.
-fn project_with_placements_assigned_to_a_phase_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+pub fn project_with_placements_assigned_to_a_phase_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
     project_with_two_phases_using_the_core(core, folder);
     update(core, Event::AssignPlacementsToPhase {
         phase: Reference::from_raw_str("top_1"),
@@ -839,7 +839,7 @@ fn assigning_placements_to_a_phase_saves_the_same_files_as_the_cli() {
 
 /// Up to the end of the CLI's `sequence_11_assign_feeder_to_load_out_item`.  Changing a load-out doesn't change the
 /// project, so there is nothing to save.
-fn create_project_with_a_feeder_assigned(app: &mut App, folder: &Path) {
+pub fn create_project_with_a_feeder_assigned(app: &mut App, folder: &Path) {
     create_project_with_placements_assigned_to_a_phase(app, folder);
 
     app.double_click_text_containing("phase_1_top_1_load_out.csv");
@@ -849,7 +849,7 @@ fn create_project_with_a_feeder_assigned(app: &mut App, folder: &Path) {
 }
 
 /// The same, using the core.
-fn project_with_a_feeder_assigned_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+pub fn project_with_a_feeder_assigned_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
     project_with_placements_assigned_to_a_phase_using_the_core(core, folder);
     update(core, Event::AssignFeederToLoadOutItem {
         phase: Reference::from_raw_str("top_1"),
@@ -1039,10 +1039,10 @@ fn generating_artifacts_saves_the_same_files_as_the_cli() {
 fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Path) {
     create_project_with_artifacts_generated(app, folder);
 
-    app.choose_from_combo_box("load_pcbs: core::load_pcbs", "Start");
+    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Start");
     app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Incomplete");
-    app.choose_from_combo_box("load_pcbs: core::load_pcbs", "Complete");
-    app.choose_from_combo_box("automated_pnp: core::place_components", "Start");
+    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Complete");
+    app.choose_action_from_combo_box("automated_pnp: core::place_components", "Start");
     app.wait_for_combo_box_value("automated_pnp: core::place_components", "Incomplete");
     save(app);
 }
@@ -1176,7 +1176,6 @@ fn the_load_out_of_the_add_phase_dialog_is_required_and_can_be_cancelled_or_clea
     app.wait_for_file_dialogs();
     // a later change is handled after any change caused by the file dialog's answer.
     app.choose_from_combo_box("PCB Side", "Bottom");
-    app.wait_for_combo_box_value("PCB Side", "Bottom");
     app.wait_until_field_is_not_empty("Loadout source");
     app.wait_for_enabled_button("Ok");
 

@@ -14,7 +14,12 @@ has been chosen. "`Apply`" and "`Remove`", in "`Actions`", MUST be disabled unle
 **PLACEMENTS-2 — Result.** *Observed.* "`Apply`" MUST assign each selected placement to the phase, and the project then has unsaved
 changes. The result MUST be the same as the CLI's `project assign-placements-to-phase`, which selects placements using a regular
 expression where the GUI makes one exact match for each. This includes the core adding the placements' parts to the phase's
-load-out file, and adding the phase's process to those parts.
+load-out file, and adding the phase's process to those parts. A placement on the other side of the PCB to the phase is left as it
+was, see `ISSUE-11`.
+
+**PLACEMENTS-3 — Removing a phase.** *Observed.* "`Remove`" MUST remove each selected placement from the phase it's assigned to, and
+the project then has unsaved changes. This has to work with the rows that are still selected after "`Apply`": until 2026-11-03 it did
+nothing, as it used what the rows held when they were selected. It doesn't use the chosen phase, see `ISSUE-10`.
 
 ## Load-outs
 
@@ -24,6 +29,9 @@ Editing a part's "`Reference`" (`FORM-11`) MUST assign that feeder to that part 
 
 **LOADOUT-2 — Load-outs are not saved with the project.** *Observed.* A change to a load-out MUST be written to its file as soon as
 it is made. The project has no unsaved changes as a result, so "`Save`" stays disabled.
+
+**LOADOUT-3 — Feeders that can't be used.** *Observed.* Clearing a part's "`Reference`" MUST remove its feeder. An invalid reference is
+outlined in red while being edited, and finishing the edit MUST NOT change the load-out, with no other message.
 
 ## Placement orderings
 
@@ -42,5 +50,11 @@ unsaved changes. The result MUST be the same as the CLI's `project set-placement
   the core writes for the CLI's event (`LOADOUT-1`, `LOADOUT-2`).
 - `tests/ui/workflow.rs` chooses six orderings, one of them descending, saves, and compares the file with the one the core saves for
   the CLI's event (`ORDERING-1`, `ORDERING-2`).
-- Not covered yet: "`Remove`" on the Placements tab and "`<`" in the dialog, the disabled states when a phase is not pending, the
-  Placements table's own "`Phase`" cell editor, clearing a feeder, "`Add parts to load-out.`", and cancelling the dialog.
+- `tests/ui/changes.rs` removes a phase from one placement and from all those still selected, and compares the files with the ones the
+  core saves (`PLACEMENTS-3`). It also deselects every row, and checks "`Actions`" becomes disabled (`PLACEMENTS-1`).
+- `tests/ui/changes.rs` clears a feeder and compares the load-out, and enters an invalid feeder and checks the load-out doesn't change
+  (`LOADOUT-3`).
+- `tests/ui/changes.rs` moves an ordering back with "`<`" and compares the file, and cancels the dialog and checks the project hasn't
+  changed (`ORDERING-1`, `ORDERING-2`).
+- Not covered yet: the disabled states when a phase is not pending, the Placements table's own "`Phase`" cell editor, and
+  "`Add parts to load-out.`". Selecting another row after rows have been added or removed has not been checked.

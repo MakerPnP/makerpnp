@@ -62,6 +62,21 @@ impl PlacementsTabUi {
         {
             self.placements_table_ui
                 .update_placements(placements.placements.clone(), data.phase_list().to_vec());
+
+            // the rows stay selected, so what's known about them has to stay up to date, otherwise an action compares
+            // the new phase with the phase a placement had when it was selected.
+            if let Some(selection) = &mut self.selection {
+                *selection = selection
+                    .iter()
+                    .filter_map(|selected| {
+                        placements
+                            .placements
+                            .iter()
+                            .find(|placement| placement.path.eq(&selected.path))
+                            .cloned()
+                    })
+                    .collect();
+            }
         }
     }
 }
@@ -134,7 +149,10 @@ impl UiComponent for PlacementsTabUi {
 
             ui.separator();
 
-            let have_selection = self.selection.is_some();
+            let have_selection = self
+                .selection
+                .as_ref()
+                .is_some_and(|selection| !selection.is_empty());
             let have_phases = !phases.is_empty();
 
             ui.add_enabled_ui(have_phases, |ui|{

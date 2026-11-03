@@ -17,5 +17,6 @@ expressions where the GUI uses exact matches.
 
 - `tests/ui/workflow.rs` selects one part, adds a process to it, saves, and compares the file with the one the core saves
   for the CLI's event (`PARTS-1`, `PARTS-2`).
-- Not covered yet: "`Remove`", selecting several parts, deselecting, the filter, editing a part's processes in its cell,
-  and reordering columns and rows.
+- `tests/ui/changes.rs` removes the process, adds one to two parts after deselecting a third, and compares the files with the ones the
+  core saves. It also deselects the only row, and checks "`Actions`" becomes disabled (`PARTS-1`, `PARTS-2`).
+- Not covered yet: the filter, and editing a part's processes in its cell.

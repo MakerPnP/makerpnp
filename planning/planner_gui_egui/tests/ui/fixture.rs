@@ -183,6 +183,88 @@ impl App {
         });
     }
 
+    /// For a check that is made after the application has handled what it depends on, so waiting isn't needed.
+    pub fn assert_button_is_disabled(&mut self, label: &str) {
+        self.wait_for_button(label);
+        assert!(!self.is_button_enabled(label), "button '{label}' should be disabled");
+    }
+
+    pub fn is_button_enabled(&self, label: &str) -> bool {
+        self.harness
+            .query_by_role_and_label(Role::Button, label)
+            .is_some_and(|button| !button.accesskit_node().is_disabled())
+    }
+
+    /// Clicks a button that appears several times, the one in the same row as the text.
+    pub fn click_button_in_row(&mut self, row_text: &str, label: &str) {
+        self.wait_for_text(row_text);
+        self.wait_for_the_layout();
+        let row = self.text_position(row_text).y;
+        self.harness
+            .query_all_by_role_and_label(Role::Button, label)
+            .find(|button| (button.rect().center().y - row).abs() < 12.0)
+            .expect("the row has the button")
+            .click();
+        self.harness.step();
+    }
+
+    /// Clicks the first of the buttons with this label, the one nearest the top of a tab.
+    pub fn click_first_button(&mut self, label: &str) {
+        self.wait_for_the_layout();
+        self.harness
+            .query_all_by_role_and_label(Role::Button, label)
+            .next()
+            .expect("there is a button")
+            .click();
+        self.harness.step();
+    }
+
+    pub fn wait_until_combo_box_is_disabled(&mut self, label: &str) {
+        self.wait_until(&format!("combo box '{label}' was disabled"), |app| {
+            app.harness
+                .query_by_role_and_label(Role::ComboBox, label)
+                .is_some_and(|combo_box| combo_box.accesskit_node().is_disabled())
+        });
+    }
+
+    pub fn clear_field(&mut self, label: &str) {
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::TextInput, label)
+            .click();
+        self.harness.step();
+        self.harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        self.harness.step();
+        self.harness
+            .key_press(egui::Key::Backspace);
+        self.harness.step();
+        self.wait_until_field_is_empty(label);
+    }
+
+    pub fn wait_until_text_is_gone(&mut self, text: &str) {
+        self.wait_until(&format!("text '{text}' was gone"), |app| app.count_text(text) == 0);
+    }
+
+    pub fn count_tabs_containing(&self, text: &str) -> usize {
+        self.harness
+            .query_all(By::new().role(Role::Tab))
+            .filter(|tab| {
+                let node = tab.accesskit_node();
+
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|label| label.contains(text))
+            })
+            .count()
+    }
+
+    pub fn wait_until_no_tab_contains(&mut self, text: &str) {
+        self.wait_until(&format!("no tab contained '{text}'"), |app| {
+            app.count_tabs_containing(text) == 0
+        });
+    }
+
     pub fn wait_for_enabled_button(&mut self, label: &str) {
         self.wait_until(&format!("button '{label}' was enabled"), |app| {
             app.harness
@@ -327,9 +409,17 @@ impl App {
             .unwrap()
             .click();
         self.harness.step();
-        self.data_table_cell_editor_at(position)
-            .unwrap()
-            .type_text(value);
+        self.harness
+            .key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+        self.harness.step();
+        if value.is_empty() {
+            self.harness
+                .key_press(egui::Key::Backspace);
+        } else {
+            self.data_table_cell_editor_at(position)
+                .unwrap()
+                .type_text(value);
+        }
         self.harness.step();
         self.wait_until(&format!("the cell's editor contained '{value}'"), |app| {
             app.data_table_cell_editor_at(position)
@@ -337,8 +427,8 @@ impl App {
                     field
                         .accesskit_node()
                         .value()
-                        .as_deref()
-                        == Some(value)
+                        .unwrap_or_default()
+                        == value
                 })
         });
 
@@ -534,7 +624,16 @@ impl App {
     }
 
     /// Opens a combo box and clicks one of its options.
+    /// Waits for the choice to be shown.  Showing it can move other controls, for example by removing the field's
+    /// error, and commands are handled on other threads (`GARCH-11`), so without waiting they could move while the
+    /// next control is being clicked.
     pub fn choose_from_combo_box(&mut self, label: &str, option: &str) {
+        self.choose_action_from_combo_box(label, option);
+        self.wait_for_combo_box_value(label, option);
+    }
+
+    /// For a combo box that doesn't show what was chosen, such as a menu of actions.
+    pub fn choose_action_from_combo_box(&mut self, label: &str, option: &str) {
         self.wait_until(&format!("combo box '{label}' was enabled"), |app| {
             app.harness
                 .query_by_role_and_label(Role::ComboBox, label)

@@ -145,7 +145,10 @@ impl UiComponent for PartsTabUi {
                 .response
                 .named(tr!("form-common-choice-process"));
 
-            let have_selection = self.selection.is_some();
+            let have_selection = self
+                .selection
+                .as_ref()
+                .is_some_and(|selection| !selection.is_empty());
             let have_process = self.selected_process.is_some();
 
             ui.add_enabled_ui(have_selection && have_process, |ui| {
