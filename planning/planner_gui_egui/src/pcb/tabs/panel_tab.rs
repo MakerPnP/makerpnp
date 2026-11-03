@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::BufWriter;
-use std::sync::mpsc::Sender;
 
 use derivative::Derivative;
 use eframe::emath::Vec2;
@@ -33,6 +32,7 @@ use crate::pcb::tabs::panel_tab::gerber_builder::GerberBuilder;
 use crate::pcb::tabs::panel_tab::gerber_util::{
     gerber_line_commands, gerber_path_commands, gerber_point_commands, gerber_rectangle_commands,
 };
+use crate::sync::Enqueue;
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
@@ -165,7 +165,7 @@ impl PanelTabUi {
         panel_sizing: &PanelSizing,
         initial_panel_sizing: &PanelSizing,
         state: &PanelTabUiState,
-        sender: Sender<PanelTabUiCommand>,
+        sender: Enqueue<PanelTabUiCommand>,
         pcb_overview: &PcbOverview,
         assembly_orientation: &PcbAssemblyOrientation,
         initial_assembly_orientation: &PcbAssemblyOrientation,
@@ -223,7 +223,7 @@ impl PanelTabUi {
     }
 
     /// show top/bottom selector
-    fn top_bottom_controls(state: &PanelTabUiState, sender: &Sender<PanelTabUiCommand>, ui: &mut Ui) {
+    fn top_bottom_controls(state: &PanelTabUiState, sender: &Enqueue<PanelTabUiCommand>, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.label(tr!("pcb-panel-tab-input-show-top-bottom"));
 
@@ -264,7 +264,7 @@ impl PanelTabUi {
     fn orientation_controls(
         assembly_orientation: &PcbAssemblyOrientation,
         _state: &PanelTabUiState,
-        sender: &Sender<PanelTabUiCommand>,
+        sender: &Enqueue<PanelTabUiCommand>,
         ui: &mut Ui,
     ) {
         fn flip_ui(ui: &mut Ui, flip: &mut PcbAssemblyFlip, salt: &str) -> egui::Response {
@@ -369,7 +369,7 @@ impl PanelTabUi {
         }
     }
 
-    fn panel_size_controls(panel_sizing: &PanelSizing, sender: &Sender<PanelTabUiCommand>, ui: &mut Ui) {
+    fn panel_size_controls(panel_sizing: &PanelSizing, sender: &Enqueue<PanelTabUiCommand>, ui: &mut Ui) {
         ui.label(tr!("pcb-panel-tab-panel-size-header"));
 
         let mut size = panel_sizing.size;
@@ -402,7 +402,7 @@ impl PanelTabUi {
         }
     }
 
-    fn edge_rails_controls(panel_sizing: &PanelSizing, sender: &Sender<PanelTabUiCommand>, ui: &mut Ui) {
+    fn edge_rails_controls(panel_sizing: &PanelSizing, sender: &Enqueue<PanelTabUiCommand>, ui: &mut Ui) {
         let mut edge_rails = panel_sizing.edge_rails.clone();
 
         ui.label(tr!("pcb-panel-tab-panel-edge-rails-header"));
@@ -484,7 +484,7 @@ impl PanelTabUi {
     fn fiducials_controls(
         panel_sizing: &PanelSizing,
         state: &PanelTabUiState,
-        sender: &Sender<PanelTabUiCommand>,
+        sender: &Enqueue<PanelTabUiCommand>,
         text_height: f32,
         ui: &mut Ui,
     ) {
@@ -681,7 +681,7 @@ impl PanelTabUi {
     fn design_configuration_controls(
         panel_sizing: &PanelSizing,
         pcb_overview: &PcbOverview,
-        sender: &Sender<PanelTabUiCommand>,
+        sender: &Enqueue<PanelTabUiCommand>,
         text_height: f32,
         ui: &mut Ui,
     ) {
@@ -909,7 +909,7 @@ impl PanelTabUi {
     fn unit_positions_controls(
         panel_sizing: &PanelSizing,
         pcb_overview: &PcbOverview,
-        sender: &Sender<PanelTabUiCommand>,
+        sender: &Enqueue<PanelTabUiCommand>,
         text_height: f32,
         ui: &mut Ui,
     ) {

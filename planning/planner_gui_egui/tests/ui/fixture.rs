@@ -18,7 +18,8 @@ const WINDOW_SIZE: egui::Vec2 = egui::vec2(1920.0, 1080.0);
 /// The simulated time per frame, short enough for the frames of a double-click to count as one.
 const STEP: f32 = 0.05;
 
-/// Commands are handled on other threads, so tests have to wait for their results.
+/// A command sent while drawing a frame is handled at the start of the next (`GARCH-11`), and file dialogs answer on a
+/// thread of their own, so tests wait for results rather than counting frames.
 const TIMEOUT: Duration = Duration::from_secs(10);
 const POLL_INTERVAL: Duration = Duration::from_millis(5);
 
@@ -629,7 +630,7 @@ impl App {
 
         self.click_at(position);
         self.click_at(position);
-        // an editor is shown as soon as the table handles the click, it doesn't wait for other threads.
+        // an editor is shown as soon as the table handles the click, it doesn't wait for a command to be handled.
         self.harness.run_steps(10);
 
         let editors = [Role::TextInput, Role::ComboBox, Role::RadioButton]
@@ -807,8 +808,8 @@ impl App {
 
     /// Opens a combo box and clicks one of its options.
     /// Waits for the choice to be shown.  Showing it can move other controls, for example by removing the field's
-    /// error, and commands are handled on other threads (`GARCH-11`), so without waiting they could move while the
-    /// next control is being clicked.
+    /// error, and commands are handled in a later frame (`GARCH-11`), so without waiting they could move while the next
+    /// control is being clicked.
     pub fn choose_from_combo_box(&mut self, label: &str, option: &str) {
         self.choose_action_from_combo_box(label, option);
         self.wait_for_combo_box_value(label, option);

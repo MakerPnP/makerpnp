@@ -78,18 +78,23 @@ again.
 **GARCH-11 — Commands are handled in order.** *Target.* Commands MUST be handled one at a time, in the order they were
 sent, on the thread that draws the frames. No component needs a lock, and a frame always sees a finished update.
 
-Gaps: the code is not there yet. Frames are drawn on the UI thread, and commands are handled on a separate thread
-(`ui_app.rs`, `with_file_dialogs`). Each `configure_mapper` starts another thread (`sync.rs`, `Slot::start`), so
-commands from different components have no defined order. Follow-up commands are sent through a tokio runtime
-(`task/`, `runtime/`). Most state is in a `Value`, which is a mutex, and tests have to wait for results as a
-consequence. The results of two core updates can also arrive in the opposite order to the updates. So a
-project's or PCB's modified state carries the core's generation, and one older than the last applied is ignored. Until
-2026-11-03 it wasn't, and after "`Refresh`", which makes two updates, "`Save`" was sometimes left disabled while the project
-had unsaved changes.
+Since 2026-11-03, commands are handled on the thread that draws the frames, at the start of each frame, in the order
+they were sent through any component (`sync.rs`, `Enqueue`; `ui_app.rs`, `handle_commands`). The commands a `Task`
+produces are handled after those already sent, and a task has nothing to wait for (`task/`). A command sent while a frame
+is drawn is handled at the start of the next frame. At most 1000 commands are handled in one frame, and any left in the
+next, so a command that always leads to another can't stop frames being drawn.
+
+Gaps: most state is still in a `Value`, which is a mutex, though only one thread uses them now, and file dialogs answer
+on a thread of their own, which each frame checks (`file_picker.rs`). Until 2026-11-03, commands were handled on other
+threads: each `configure_mapper` started one, so commands from different components had no defined order, and follow-up
+commands went through a tokio runtime. The results of two core updates could arrive in the opposite order to the updates,
+and after "`Refresh`", which makes two updates, "`Save`" was sometimes left disabled while the project had unsaved
+changes. A project's or PCB's modified state still carries the core's generation, and one older than the last applied
+is ignored.
 
 **GARCH-12 — Short operations.** *Confirmed.* While the core is handling an event, the GUI MAY stop responding, as long
 as the operation is short. `AppTabs` stays locked throughout `update`, and every frame needs that lock. Moving the work
-to the UI thread (`GARCH-11`) does not change this.
+to the UI thread (`GARCH-11`) did not change this.
 
 **GARCH-12a — Long operations.** *Confirmed.* An operation known to take a long time MUST NOT be a single event that the
 GUI waits for. The core MUST instead have an event to submit it, which returns an identifier, and events that use that
@@ -130,4 +135,8 @@ appears there has not been checked.
   check that doing so sends no commands and does not change the saved state.
 - `src/project/mod.rs` applies a newer modified state and then an older one, and checks the project is still modified
   (`GARCH-11`).
-- Once `GARCH-11` is met, a test can run one frame and check the result directly, with no waiting.
+- `src/sync.rs` checks commands sent through different components are queued in the order they were sent, and that
+  those sent before a component is connected are passed on once it is. `src/task/mod.rs` checks a task produces its
+  values in order (`GARCH-11`).
+- The tests in `tests/ui` still wait for results, rather than counting frames, as a command is handled in the frame
+  after it's sent, and file dialogs answer on another thread.

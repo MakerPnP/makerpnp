@@ -21,8 +21,6 @@ math = { path = "../../common/math" }
 eda_units = { path = "../../eda/eda_units", features = ["gerber"] }
 
 # tasks/async
-tokio = { workspace = true, features = ["full"]}
-futures =  { workspace = true }
 
 # serialization
 serde = { workspace = true, features = ["derive", "rc"] }

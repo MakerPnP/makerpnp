@@ -1,5 +1,3 @@
-use std::sync::mpsc::Sender;
-
 use egui::{Button, Frame, Resize, Response, RichText, TextEdit, Ui, Widget, WidgetInfo, WidgetType};
 use egui_i18n::{tr, translate_fluent};
 use egui_taffy::taffy::prelude::{fit_content, fr, length, percent, span};
@@ -8,6 +6,7 @@ use egui_taffy::{Tui, TuiBuilderLogic};
 use i18n::fluent_argument_helpers::json::build_fluent_args;
 use validator::{ValidateArgs, ValidationError, ValidationErrors};
 
+use crate::sync::Enqueue;
 use crate::sync::{Value, ValueGuard};
 
 pub mod validation;
@@ -18,11 +17,11 @@ use crate::forms::transforms::resize_x_transform;
 pub struct Form<F, C> {
     validation_errors: Result<(), ValidationErrors>,
     fields: Value<F>,
-    sender: Sender<C>,
+    sender: Enqueue<C>,
 }
 
 impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
-    pub fn new(fields: &Value<F>, sender: &Sender<C>, context: F::Args) -> Self {
+    pub fn new(fields: &Value<F>, sender: &Enqueue<C>, context: F::Args) -> Self {
         let fields = fields.clone();
         let sender = sender.clone();
         let validation_errors = {
@@ -125,7 +124,7 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
         field_name: &str,
         label: String,
         tui: &mut Tui,
-        mut ui_builder: impl FnMut(&mut Ui, ValueGuard<'_, F>, Sender<C>) -> Response,
+        mut ui_builder: impl FnMut(&mut Ui, ValueGuard<'_, F>, Enqueue<C>) -> Response,
     ) {
         let default_style = Self::form_default_style();
 
@@ -158,7 +157,7 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
         field_name: &str,
         label: String,
         tui: &mut Tui,
-        mut ui_builder: impl FnMut(&mut Tui, ValueGuard<'_, F>, Sender<C>),
+        mut ui_builder: impl FnMut(&mut Tui, ValueGuard<'_, F>, Enqueue<C>),
     ) {
         let default_style = Self::form_default_style();
 

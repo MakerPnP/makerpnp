@@ -3,12 +3,10 @@ use std::fmt::{Debug, Formatter};
 use tracing::trace;
 
 use crate::sync::Enqueue;
-use crate::sync::Slot;
 
 pub struct ComponentState<UiCommand> {
+    /// Commands sent before the mapper is configured are kept, and passed on once it is.
     pub sender: Enqueue<UiCommand>,
-    #[allow(dead_code)]
-    slot: Slot<UiCommand>,
 }
 
 impl<UiCommand> Debug for ComponentState<UiCommand> {
@@ -20,28 +18,23 @@ impl<UiCommand> Debug for ComponentState<UiCommand> {
 
 impl<UiCommand: Send + Clone + 'static> Default for ComponentState<UiCommand> {
     fn default() -> Self {
-        let (sender, slot) = crate::sync::channel::<UiCommand>();
-
         Self {
-            sender,
-            slot,
+            sender: Enqueue::pending(),
         }
     }
 }
 
 impl<UiCommand: Send + Clone + Debug + 'static> ComponentState<UiCommand> {
+    /// Passes each command sent to this component to `sender`, as it's sent, wrapped by `wrapper`.
     pub fn configure_mapper<F, WrappedUiCommand>(&mut self, sender: Enqueue<WrappedUiCommand>, mut wrapper: F)
     where
         F: FnMut(UiCommand) -> WrappedUiCommand + Send + 'static,
         WrappedUiCommand: Send + 'static,
     {
-        self.slot.start({
-            move |command| {
-                //trace!("command: {:?}", command);
-                sender
-                    .send(wrapper(command))
-                    .expect("sent");
-            }
+        self.sender.connect(move |command| {
+            sender
+                .send(wrapper(command))
+                .expect("sent");
         });
     }
 

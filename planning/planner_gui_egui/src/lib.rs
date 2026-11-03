@@ -10,7 +10,6 @@ pub mod pcb;
 pub mod planner_app_core;
 pub mod profiling;
 pub mod project;
-pub mod runtime;
 pub mod sync;
 pub mod tabs;
 pub mod task;

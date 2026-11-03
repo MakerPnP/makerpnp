@@ -844,7 +844,7 @@ pub fn create_project_with_a_feeder_assigned(app: &mut App, folder: &Path) {
 
     app.double_click_text_containing("phase_1_top_1_load_out.csv");
     // only the load-out's table has this column. The Placements tab shows "RES1" twice, and stays shown until the
-    // load-out's tab has been opened, which happens on another thread (`GARCH-11`).
+    // load-out's tab has been opened, which happens in a later frame (`GARCH-11`).
     app.wait_for_text("Reference");
     app.edit_data_table_cell("RES1", "Reference", "FEEDER_1", "RES2");
     app.wait_for_text("FEEDER_1");

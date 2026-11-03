@@ -90,3 +90,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-03 | The actions a phase's tasks offer are translated (`OPERATIONS-1`, `ISSUE-13`). |
 | 2026-11-03 | Added adding a phase's parts to its load-out (`LOADOUT-4`), awaiting review, and that an empty table isn't drawn at all (`FORM-8`). |
 | 2026-11-03 | An older modified state no longer replaces a newer one, which sometimes left "`Save`" disabled after "`Refresh`" while the project had unsaved changes (`GARCH-11`). |
+| 2026-11-03 | Commands are now handled on the thread that draws the frames, in the order they were sent, with no tokio runtime (`GARCH-11`). |

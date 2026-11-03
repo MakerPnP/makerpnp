@@ -2459,7 +2459,6 @@ mod refresh_tests {
     use std::collections::VecDeque;
     use std::path::PathBuf;
 
-    use futures::StreamExt;
     use planner_app::{Event, LoadOutSource, PcbSide, PlacementSortingItem, PlacementSortingMode, Reference};
     use tempfile::TempDir;
     use util::sorting::SortOrder;
@@ -2480,12 +2479,10 @@ mod refresh_tests {
             match action {
                 Some(ProjectAction::UiCommand(command)) => queue.push_back(command),
                 Some(ProjectAction::Task(_key, task)) => {
-                    if let Some(stream) = task::into_stream(task) {
-                        for action in futures::executor::block_on(stream.collect::<Vec<_>>()) {
-                            match action {
-                                ProjectAction::UiCommand(command) => queue.push_back(command),
-                                other => panic!("unsupported action in task: {:?}", other),
-                            }
+                    for action in task::run_to_completion(task) {
+                        match action {
+                            ProjectAction::UiCommand(command) => queue.push_back(command),
+                            other => panic!("unsupported action in task: {:?}", other),
                         }
                     }
                 }

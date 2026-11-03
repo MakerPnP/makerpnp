@@ -17,8 +17,8 @@ pub enum PlannerAction {
     SetModifiedState {
         project_modified: bool,
         pcbs_modified: bool,
-        /// the core's generation when this state was taken. Actions can arrive out of order (`GARCH-11`), so an older
-        /// state must not replace a newer one.
+        /// the core's generation when this state was taken. An older state must not replace a newer one. Until commands were
+        /// handled in order (`GARCH-11`), actions could arrive out of order.
         generation: u64,
     },
     ProjectView(ProjectView),

@@ -1,12 +1,10 @@
 use std::mem::MaybeUninit;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::mpsc::Sender;
 
 use eframe::epaint::Color32;
 use egui::{CentralPanel, Frame, ThemePreference};
 use egui_i18n::tr;
-use futures::StreamExt;
 use slotmap::SlotMap;
 use tracing::{debug, error, info, trace};
 
@@ -16,8 +14,7 @@ use crate::pcb::tabs::PcbTabs;
 use crate::pcb::{Pcb, PcbKey, PcbUiCommand};
 use crate::project::tabs::ProjectTabs;
 use crate::project::{Project, ProjectKey, ProjectUiCommand};
-use crate::runtime::tokio_runtime::TokioRuntime;
-use crate::sync::{Enqueue, Value, ValueGuard};
+use crate::sync::{Enqueue, Queue, Value, ValueGuard};
 use crate::tabs::TabKey;
 use crate::toolbar::{Toolbar, ToolbarContext, ToolbarUiCommand};
 use crate::ui_app::app_tabs::new_pcb::NewPcbArgs;
@@ -42,6 +39,10 @@ pub struct UiApp {
     // state contains fields that cannot be initialized using 'Default'
     #[serde(skip)]
     state: MaybeUninit<Value<AppState>>,
+
+    /// the commands to handle, in the order they were sent (`GARCH-11`).
+    #[serde(skip)]
+    commands: Option<Queue<UiCommand>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -334,6 +335,7 @@ impl Default for UiApp {
             app_tabs: Default::default(),
             config: Default::default(),
             state: MaybeUninit::uninit(),
+            commands: None,
         }
     }
 }
@@ -370,9 +372,8 @@ impl UiApp {
             // Safety: now safe to use i18n translation system (e.g. [`egui_i18n::tr!`])
         }
 
-        let (app_message_sender, mut app_slot) = crate::sync::channel::<UiCommand>();
-
-        let runtime = TokioRuntime::new();
+        let (app_message_sender, commands) = crate::sync::queue::<UiCommand>();
+        instance.commands = Some(commands);
 
         let state = Value::new(AppState::init(app_message_sender.clone(), file_dialogs));
 
@@ -380,42 +381,6 @@ impl UiApp {
         // Safety: `Self::state()` is now safe to call.
 
         let app_tabs = instance.app_tabs.clone();
-
-        // Define a handler function for the slot
-        let handler = {
-            let app_tabs = app_tabs.clone();
-            let config = instance.config.clone();
-            let context = cc.egui_ctx.clone();
-            let app_message_sender = app_message_sender.clone();
-
-            move |command: UiCommand| {
-                let task = handle_command(
-                    command,
-                    state.clone(),
-                    app_tabs.clone(),
-                    config.clone(),
-                    context.clone(),
-                );
-
-                if let Some(mut stream) = task::into_stream(task) {
-                    runtime.runtime().spawn({
-                        let app_message_sender = app_message_sender.clone();
-                        async move {
-                            trace!("running stream future");
-                            while let Some(command) = stream.next().await {
-                                trace!("command returned from future: {:?}", command);
-                                app_message_sender
-                                    .send(command)
-                                    .expect("sent");
-                            }
-                        }
-                    });
-                }
-            }
-        };
-
-        // Start the slot with the handler
-        app_slot.start(handler);
 
         let mut app_tabs = app_tabs.lock().unwrap();
         app_tabs
@@ -429,6 +394,48 @@ impl UiApp {
             });
 
         instance
+    }
+
+    /// The most commands handled in one frame, so that a command which always leads to another can't stop frames being
+    /// drawn. Any left are handled in the next frame.
+    const MAX_COMMANDS_PER_FRAME: usize = 1000;
+
+    /// Handles the commands sent so far, one at a time, in the order they were sent, along with the commands that
+    /// handling them leads to (`GARCH-11`).
+    fn handle_commands(&mut self, context: &egui::Context) {
+        let Some(commands) = self.commands.as_ref() else {
+            return;
+        };
+        // Safety: it's always safe, because `new` calls `state.write()`
+        let state = unsafe { self.state.assume_init_ref() }.clone();
+        let sender = state
+            .lock()
+            .unwrap()
+            .command_sender
+            .clone();
+
+        for _ in 0..Self::MAX_COMMANDS_PER_FRAME {
+            let Some(command) = commands.pop() else {
+                return;
+            };
+
+            let task = handle_command(
+                command,
+                state.clone(),
+                self.app_tabs.clone(),
+                self.config.clone(),
+                context.clone(),
+            );
+
+            // follow-up commands are handled after those already sent.
+            for command in task::run_to_completion(task) {
+                sender.send(command).expect("sent");
+            }
+        }
+
+        if !commands.is_empty() {
+            context.request_repaint();
+        }
     }
 
     /// Whether a file dialog is open, or its answer hasn't been handled yet.  Another can't be opened until it has.
@@ -618,6 +625,8 @@ impl eframe::App for UiApp {
     #[profiling::function]
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.handle_commands(&ctx);
+
         egui::Panel::top("top_panel").show(ui, |ui| {
             profiling::scope!("ui::top_panel");
             // The top panel is often a good place for a menu bar:
@@ -805,6 +814,16 @@ impl eframe::App for UiApp {
                 _ => {}
             }
         }
+
+        // commands sent while drawing this frame are handled at the start of the next one.
+        drop(app_state);
+        if self
+            .commands
+            .as_ref()
+            .is_some_and(|commands| !commands.is_empty())
+        {
+            ctx.request_repaint();
+        }
     }
 }
 
@@ -859,7 +878,7 @@ fn project_from_args(
     (project_commands.unwrap(), project_key, project_tabs.unwrap(), path)
 }
 
-fn configure_project_component(app_command_sender: Sender<UiCommand>, tab_key: TabKey, project: &mut Project) {
+fn configure_project_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabKey, project: &mut Project) {
     project
         .component
         .configure_mapper(app_command_sender, move |(key, command)| {
@@ -919,7 +938,7 @@ fn pcb_from_args(
     (pcb_commands.unwrap(), pcb_key, pcb_tabs.unwrap(), path)
 }
 
-fn configure_pcb_component(app_command_sender: Sender<UiCommand>, tab_key: TabKey, pcb: &mut Pcb) {
+fn configure_pcb_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabKey, pcb: &mut Pcb) {
     pcb.component
         .configure_mapper(app_command_sender, move |(key, command)| {
             trace!("pcb mapper. command: {:?}", command);
