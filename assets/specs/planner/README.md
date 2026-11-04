@@ -6,6 +6,26 @@ which process, with which feeders. It has one core and two front ends.
 These specifications describe what the planner must do, so that it can be changed without guessing what it was
 supposed to do, and so that every requirement can be traced to the tests that check it.
 
+## Principles
+
+- **A requirement starts with the user's workflow.** Each requirement begins as a change or improvement to how a user
+  does their work. Users then use a front end, the GUI or the CLI, to do what they need to do.
+- **The core does the work, for every front end.** The planning is done by the core, not by a front end. The goal is
+  that the CLI can do everything the GUI can, through the core. Later there may be other front ends, such as APIs and
+  MCP servers, and they should be able to do the same.
+- **The front ends drive the core.** What the GUI and the CLI need decides the direction of the core, and which events
+  it has.
+- **New core events are considered carefully.** Before an event is added to the core, consider how each front end
+  would use it: the GUI, the CLI, and later APIs and MCP servers. An event says what the user wants done, not how one
+  front end shows it. Events that only one front end uses are kept to a minimum, and the requirement that needs one
+  says why.
+- **The core is the most important thing to test.** A requirement's behaviour is checked through the core, and the
+  CLI's tests, first. A front end's tests check that it sends the core the right events and shows what the core
+  returns, for example by comparing the files saved through the GUI with those the core saves for the CLI's events.
+  Every change to the GUI updates the GUI's tests it affects, and adds tests for anything new.
+- **Issues have steps to repeat.** Problems are recorded in [`../issues/`](../issues/README.md), one file each, with
+  steps to repeat them that are kept up to date. They're how a fix is verified.
+
 ## Documents
 
 | Folder | Covers | Crate |
@@ -15,6 +35,9 @@ supposed to do, and so that every requirement can be traced to the tests that ch
 | `gui/` | Windows, tabs, toolbars, dialogs and controls | `planning/planner_gui_egui` |
 
 A front end's requirements cite the core requirements they depend on, and do not repeat them.
+
+Issues are not in this folder, they're in [`../issues/`](../issues/README.md), with the other tools' issues, and use the
+ID prefix `ISSUE`.
 
 | File | Area | ID prefix |
 |---|---|---|
@@ -31,7 +54,6 @@ A front end's requirements cite the core requirements they depend on, and do not
 | [gui/09-placements-and-load-outs.md](gui/09-placements-and-load-outs.md) | Assigning placements and feeders, and ordering placements | `PLACEMENTS`, `LOADOUT`, `ORDERING` |
 | [gui/10-artifacts-and-operations.md](gui/10-artifacts-and-operations.md) | Generating artifacts, and recording operations | `ARTIFACTS`, `OPERATIONS` |
 | [gui/11-processes.md](gui/11-processes.md) | Creating and editing processes, and a project's processes | `PROC`, `PROJPROC` |
-| [known-issues.md](known-issues.md) | Problems known and not yet fixed | `ISSUE` |
 
 ## Conventions
 
@@ -59,7 +81,7 @@ Every requirement has a status, because much of the planner was written before t
 | Term | Meaning |
 |---|---|
 | **Core** | `planner_app`: all the planning logic, with no user interface. |
-| **Front end** | A program that uses the core: the GUI or the CLI. |
+| **Front end** | A program that uses the core: the GUI or the CLI, and later APIs and MCP servers. |
 | **Process** | A way of attaching components to a PCB, as operations done in order, each with tasks done in order. See `PROCDEF`. |
 | **Document** | An open project, PCB or process. Each is a file. |
 | **Event** | A request to the core, to change something or to return a view. |
@@ -97,3 +119,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | Moved the planner's entries from the user's list of known issues (`KnownIssues.md`), which no longer exists (`ISSUE-14` to `ISSUE-19`). Three were out of date and are not kept: a task can no longer start before those before it are complete, nor a phase before the phases before it, and placements can no longer be recorded before their task has started (`OPERATIONS-1`, `OPERATIONS-2`). |
 | 2026-11-04 | Processes are no longer built into the planner. The user defines each in its own file, from a preset or from nothing, and a project keeps a copy of each process it uses, updated when its processes are refreshed (`PROCDEF`). A task has a reference chosen by the user and a kind (`PROCDEF-2`). A new project has no processes, and an old project's processes are moved to their own files when it's loaded (`PROCDEF-8`). Added the GUI's process documents and a project's processes (`PROC`, `PROJPROC`), awaiting review, and `ISSUE-20` to `ISSUE-22`. A new process is saved as it is created (`DOC-1`). |
 | 2026-11-04 | Added GUI tests for the rest of process documents and a project's processes (`PROC`, `PROJPROC`): opening a process, the New process form's validation, moving, deleting and editing operations and tasks, rules, invalid processes, "`Open file`", and the refreshes and removals the core refuses. "`Remove process`" is now named without its icon. |
+| 2026-11-04 | Added the principles: requirements start with the user's workflow, the core does the work for every front end, so the CLI can do everything the GUI can, new core events are considered for every front end, and the core is the most important thing to test. Moved the known issues to `../issues/`, one file each, with steps to repeat them, including those already fixed (`ISSUE-4`, `ISSUE-10` to `ISSUE-13`). Followed the steps of `ISSUE-1`, `ISSUE-7`, `ISSUE-8`, `ISSUE-21` and `ISSUE-22` from the CLI, and reproduced each. `ISSUE-7` also affects the CLI, and `ISSUE-18` also affects processes. |
