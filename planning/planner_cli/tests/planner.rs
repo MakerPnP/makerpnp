@@ -64,7 +64,7 @@ mod operation_sequence_1 {
         use std::path::Path;
         use std::sync::{Mutex, MutexGuard};
         use std::thread::sleep;
-        use std::time::Duration;
+        use std::time::{Duration, Instant};
 
         use util::source::Source;
 
@@ -186,10 +186,17 @@ mod operation_sequence_1 {
         /// IMPORTANT: lock content must be dropped manually, as static items are never dropped.
         static LOCK: Mutex<(usize, Option<Context>)> = Mutex::new((0, None));
 
+        /// How long a step waits for the sequence to move on before failing, as the step before it isn't running.
+        const STALLED: Duration = Duration::from_secs(30);
+
         /// Use a mutex to prevent multiple test threads interacting with the same static state.
         /// This can happen when tests use the same mock context.  Without this mechanism tests will
         /// interact with each other causing unexpected results and test failures.
+        ///
+        /// Each step runs after the one before it, so a step run on its own, filtered by name, fails once the sequence
+        /// has stalled, rather than waiting forever.
         pub fn acquire(sequence: usize) -> MutexGuard<'static, (usize, Option<Context>)> {
+            let mut last_seen = (usize::MAX, Instant::now());
             let mut lock = loop {
                 let mut lock = LOCK
                     .lock()
@@ -198,7 +205,21 @@ mod operation_sequence_1 {
                     lock.0 += 1;
                     break lock;
                 }
+                let reached = lock.0;
                 drop(lock);
+
+                if reached != last_seen.0 {
+                    last_seen = (reached, Instant::now());
+                } else if last_seen.1.elapsed() > STALLED {
+                    panic!(
+                        "operation_sequence_1 step {} waited {:?} for step {}, which isn't running. The steps depend \
+                         on each other: run the whole module, `cargo test -p planner_cli --test planner \
+                         operation_sequence_1`.",
+                        sequence,
+                        STALLED,
+                        sequence - 1
+                    );
+                }
 
                 sleep(Duration::from_millis(100));
             };
