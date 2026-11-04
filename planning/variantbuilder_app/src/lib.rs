@@ -19,7 +19,7 @@ pub use pnp::part::Part;
 pub use pnp::placement::RefDes;
 use serde_with::serde_as;
 pub use stores::assembly_rules::AssemblyRuleSource;
-use stores::bom::{BOMRecord, JLCPCBBOMRecord};
+use stores::bom::JLCPCBBOMRecord;
 pub use stores::eda_placements::EdaPlacementsSource;
 pub use stores::load_out::LoadOutSource;
 pub use stores::part_mappings::PartMappingsSource;
