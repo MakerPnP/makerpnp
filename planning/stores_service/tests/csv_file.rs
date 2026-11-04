@@ -30,21 +30,21 @@ fn read_parts(source: &PartsSource) -> Result<Vec<PartsViewItem>, String> {
 }
 
 fn read(source: &PartsSource) -> Result<Parts, String> {
-    match block_on(StoresService::new().perform(StoresOperation::ReadParts {
+    match block_on(StoresService::new().perform_once(StoresOperation::ReadParts {
         source: source.clone(),
     })) {
-        StoresOutput::PartsRead(result) => result,
+        Some(StoresOutput::PartsRead(result)) => result,
         output => panic!("unexpected output: {:?}", output),
     }
 }
 
 fn resolve(source: &PartsSource) -> PartsSource {
-    match block_on(StoresService::new().perform(StoresOperation::ResolveSource {
+    match block_on(StoresService::new().perform_once(StoresOperation::ResolveSource {
         source: source.clone(),
     })) {
-        StoresOutput::SourceResolved {
+        Some(StoresOutput::SourceResolved {
             source,
-        } => source,
+        }) => source,
         output => panic!("unexpected output: {:?}", output),
     }
 }

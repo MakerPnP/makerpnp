@@ -83,6 +83,21 @@ view, as every view of it shows that revision already, and the core MUST log
 "`stores_app: Parts unchanged. source: '<source>', revision: '<revision>'`" at info level. It still clears the error of
 a load refused before.
 
+**STORE-9 — Watching.** *Confirmed.* A data source MUST be watched once it's identified, once however often, and by
+however many tabs, it's opened, so that a change made by anyone, such as the CLI, an editor or another application, is
+shown by every view of it, without the user asking. A change MUST read the data source again, as loading it would, so an
+unchanged revision sends no view (`STORE-8`), and a refused read says why and keeps the parts loaded before (`STORE-3`).
+A change while the data source is being read MUST read it again once that read is done, and the parts of the first read
+MUST NOT be sent, as they may be out of date. The service's own reads MUST NOT be changes, or a data source would be
+read again and again. *Observed*: a file is watched by watching its folder, so that a file replaced by another, as an
+editor may save it, is still watched, and only changes to the file's contents, or its being created or removed, are
+changes. A watch is an operation whose results are a stream, one for each change, until the shell drops it. The service
+MUST log "`stores_service::csv_file: Watching the data source. source: '<source>'`" at info level, or
+"`Unable to watch the data source.`" at warn level, saying why, in which case the data source is still shown, though a
+change isn't. The core MUST log "`stores_app: Data source changed. source: '<source>'`" at info level for each change,
+and "`stores_app: Data source changed while being read, reading it again. source: '<source>'`" when it reads it again.
+The GUI watches each data source it shows. The CLI doesn't, as it's done before a data source could change.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -100,6 +115,12 @@ a load refused before.
 - `planning/stores_app/tests/parts.rs` checks the view and the view model say the revision read, that loading again an
   unchanged data source sends no view, and that a changed one sends its new revision, and that an unchanged load after
   a refused one clears the error (`STORE-3`, `STORE-8`).
+- `planning/stores_app/tests/parts.rs` checks a data source is watched once it's identified, and once however often it's
+  opened, that a change reads it again and sends its view, that a change leaving its contents as they were sends no
+  view, that a change leaving it unreadable says why and keeps the parts, and that a change while it's read reads it
+  again, sending only the parts read after the change (`STORE-3`, `STORE-8`, `STORE-9`).
+- `planning/stores_service/tests/watch.rs` checks a watch says when the file is written, and when it's replaced by
+  another renamed over it, and says nothing when it's read, or when another file in its folder is written (`STORE-9`).
 - `planning/stores_service/tests/csv_file.rs` checks a file's revision is the same while its contents are, however its
   path is written, and when it's written again unchanged, that it changes when they do, and that another file with the
   same contents has the same revision (`STORE-8`).
@@ -114,7 +135,7 @@ a load refused before.
   "`stores_app: Received event. event: SourceResolved {`",
   "`stores_service: Performing stores operation. operation: ReadParts {`",
   "`stores_app: Received event. event: PartsRead {`", "`stores_app: Loaded parts. source: '`" and "`part_count: 2`" are
-  logged, in order, with no "`Event failed.`" (`STORE-4`, `STORE-7`).
+  logged, in order, with no "`Event failed.`", and no "`Watching the data source.`" (`STORE-4`, `STORE-7`, `STORE-9`).
 - `planning/planner_cli/tests/parts.rs` lists a file without the "`Manufacturer`" header, checks the CLI fails saying
   which header is missing, and that "`stores_app: Received event. event: OpenParts {`",
   "`stores_service: Performing stores operation. operation: ReadParts {`",
@@ -123,4 +144,7 @@ a load refused before.
 - `tests/ui/parts_sources.rs`, in the GUI, checks "`stores_app: Parts already loaded. source: '`" is logged, and no
   "`Loaded parts.`", when a second tab opens a data source another tab shows (`STORE-5`, `STORE-6`, and `PARTSRC-5` in
   `../gui/12-parts-sources.md`), and that the stores service's operations and their results are logged, in order
-  (`STORE-7`).
+  (`STORE-7`). It checks a change to the file, made outside the GUI, is shown by both tabs, with
+  "`stores_app: Received event. event: SourceChanged {`", "`stores_app: Data source changed. source: '`" and
+  "`stores_app: Loaded parts. source: '`" logged, in order, with no "`ReloadClicked`" and no "`event: LoadParts`", and
+  that the second tab starts no second watch (`STORE-9`).

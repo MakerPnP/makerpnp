@@ -122,9 +122,10 @@ fn ok_needs_a_data_source_and_a_file() {
     app.wait_until_button_is_disabled("Ok");
 }
 
-/// `PARTSRC-3`, `STORE-3`, the error says which header is missing, and "Reload" shows the file once it's fixed.
+/// `PARTSRC-3`, `STORE-3`, `STORE-9`, the error says which header is missing, and the file is shown once it's fixed,
+/// without "Reload", which then finds it unchanged.
 #[test]
-fn a_file_without_the_headers_shows_why_and_can_be_reloaded() {
+fn a_file_without_the_headers_shows_why_and_is_shown_once_fixed() {
     let mut app = App::start();
     let parts = given_a_parts_file(&app.folder(), "parts.csv", "\"Maker\",\"Mpn\"\n\"RESCO\",\"RES1\"\n");
 
@@ -139,16 +140,22 @@ fn a_file_without_the_headers_shows_why_and_can_be_reloaded() {
     ]);
     assert_eq!(app.count_text("RES1"), 0);
 
+    // `STORE-9`, the file was watched once identified, though it couldn't be read.
     fs::write(&parts, PARTS).unwrap();
-    app.click_button("Reload");
     app.wait_for_text("RESCO");
     app.wait_until_no_text_contains("Missing header.");
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
-        "stores_app: Received event. event: LoadParts {",
+        "stores_app: Data source changed. source: '",
         "stores_app: Loaded parts. source: '",
     ]);
-    app.assert_not_logged("Event failed.");
+
+    app.click_button("Reload");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
+        "stores_app: Received event. event: LoadParts {",
+        "stores_app: Parts unchanged. source: '",
+    ]);
+    app.wait_for_text("RESCO");
 }
 
 /// `PARTSRC-3`, `FORM-8`, a file with only the headers has no parts, and no table is drawn.
@@ -164,8 +171,8 @@ fn a_file_with_no_parts_says_so() {
     assert_eq!(app.count_text("Manufacturer"), 0);
 }
 
-/// `PARTSRC-5`, `STORE-5`, `STORE-6`, a data source shown in two tabs is loaded once, even when its path is written
-/// differently, and "Reload" in one tab shows the data source's current parts in both.
+/// `PARTSRC-5`, `STORE-5`, `STORE-6`, `STORE-9`, a data source shown in two tabs is loaded once, even when its path is
+/// written differently, and a change to its file, by anyone, is shown in both, without "Reload".
 #[test]
 fn a_data_source_can_be_shown_in_two_tabs() {
     let mut app = App::start();
@@ -210,26 +217,30 @@ fn a_data_source_can_be_shown_in_two_tabs() {
         "stores_app: Parts already loaded. source: '",
     ]);
     app.assert_not_logged("Loaded parts.");
+    // `STORE-9`, and watched once.
+    app.assert_not_logged("operation: WatchSource {");
+    app.assert_not_logged("Event failed.");
 
+    // changed by another process, as the CLI or an editor would.
     fs::write(&parts, "\"Manufacturer\",\"Mpn\"\n\"NEWCO\",\"NEW1\"\n").unwrap();
-    app.click_button("Reload");
     app.wait_for_text("NEWCO");
-    assert_eq!(app.count_text("RESCO"), 0);
+    app.wait_until_text_is_gone("RESCO");
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
-        "stores_app: Received event. event: LoadParts {",
+        "stores_app: Received event. event: SourceChanged {",
+        "stores_app: Data source changed. source: '",
         "stores_app: Loaded parts. source: '",
     ]);
 
-    // the first tab shows the parts loaded by the other, without being reloaded. "other_parts.csv" is shown first, so
-    // that the parts are seen to change with the tab.
+    // the first tab shows the change too. "other_parts.csv" is shown first, so that the parts are seen to change with
+    // the tab.
     app.click_tab_containing("other_parts.csv");
     app.wait_for_text("DIODECO");
     assert_eq!(app.count_text("NEWCO"), 0);
     app.click_nth_tab_containing("parts.csv", 0);
     app.wait_for_text("NEWCO");
     assert_eq!(app.count_text("RESCO"), 0);
-    app.assert_not_logged("Event failed.");
+    // without "Reload".
+    app.assert_not_logged("ReloadClicked");
     app.assert_not_logged("event: LoadParts");
 }
 

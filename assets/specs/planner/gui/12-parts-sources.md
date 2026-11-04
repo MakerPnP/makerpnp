@@ -21,8 +21,9 @@ the tab MUST then show its parts in a table (`STORE-2`). *Observed*: the tab is 
 shows "`CSV file: <path>`", the file's canonical path once the stores service has identified it (`STORE-6`), and
 "`Reload`". The table's columns are "`Manufacturer`", "`MPN`", and then a column for each of the parts' other values,
 named as in the file. If the core refuses the data source, the tab MUST show the core's error, which names a missing
-header (`STORE-3`). "`Reload`" MUST load the data source again (`STORE-1`), so that the tab shows the file's parts once
-it's fixed, or once it's changed. The error is the data source's: every tab showing it MUST show the error, and keep
+header (`STORE-3`). The tab MUST show the file's parts once it's fixed, or once it's changed, without "`Reload`", as the
+data source is watched (`STORE-9`), even if it couldn't be read. "`Reload`" MUST load the data source again (`STORE-1`),
+for a data source whose watch was refused, or whose change wasn't noticed. The error is the data source's: every tab showing it MUST show the error, and keep
 showing the parts loaded before, if any. A data source with no parts MUST say "`There are no parts.`", with no table
 (`FORM-8`). The GUI doesn't wait for the stores service (`STORE-7`), so until the parts are read the tab says
 "`Loading the parts...`".
@@ -31,14 +32,14 @@ showing the parts loaded before, if any. A data source with no parts MUST say "`
 had been chosen MUST open it again (`STORE-5`), so that tabs showing the same data source load it once.
 
 **PARTSRC-5 — One core for every tab.** *Confirmed.* The GUI MUST have one stores core, used by every tab, so that a data
-source can be shown in more than one tab, and is loaded once however many tabs show it (`STORE-5`, `STORE-6`). A change
-to a data source MUST be shown by every tab that uses it, once it's loaded again from any of them, without each being
-reloaded. *Observed*: the GUI MUST keep one view of each data source's parts, the latest the core sent, which every tab
-showing it shows, so that the tabs don't each keep a copy of the parts. The GUI has one stores service too (`STORE-7`),
-whose operations are done on a runtime of their own, and whose results come back as a command,
-"`UiApp command. command: StoresReply(`", handled in order with the others (`GARCH-11`). *Target*: a change made outside the GUI, for
-example to the file, or by the CLI, MUST be shown without "`Reload`". The gap: only "`Reload`" loads the data source
-again.
+source can be shown in more than one tab, and is loaded, and watched, once however many tabs show it (`STORE-5`,
+`STORE-6`, `STORE-9`). A change to a data source MUST be shown by every tab that uses it, once it's loaded again from
+any of them, without each being reloaded. A change made outside the GUI, for example to the file by an editor, or by the
+CLI, MUST be shown by every tab that uses it, without "`Reload`" (`STORE-9`). *Observed*: the GUI MUST keep one view of
+each data source's parts, the latest the core sent, which every tab showing it shows, so that the tabs don't each keep a
+copy of the parts. The GUI has one stores service too (`STORE-7`), whose operations are done on a runtime of their own,
+and whose results come back as a command, "`UiApp command. command: StoresReply(`", handled in order with the others
+(`GARCH-11`). A watch's results go on until the GUI closes, each one a "`StoresReply`".
 
 ## Acceptance criteria
 
@@ -58,18 +59,22 @@ again.
   "`Ok`" (`PARTSRC-1`, `PARTSRC-2`, `FORM-5`).
 - `tests/ui/parts_sources.rs` opens a file without the "`Manufacturer`" header, checks the error says so and that
   "`stores_app: Received event. event: OpenParts {`" and "`stores_app: Event failed. error: UnableToLoadParts {`" are
-  logged, in order, then fixes the file, clicks "`Reload`", and checks the parts are shown and the error isn't, and that
-  "`PartsTab command. command: ReloadClicked`", "`stores_app: Received event. event: LoadParts {`" and
-  "`stores_app: Loaded parts. source: '`" are logged, in order (`PARTSRC-3`, `STORE-3`).
+  logged, in order, then fixes the file, and checks the parts are shown and the error isn't, without "`Reload`", and
+  that "`stores_app: Data source changed. source: '`" and "`stores_app: Loaded parts. source: '`" are logged, in order.
+  It then clicks "`Reload`", and checks "`PartsTab command. command: ReloadClicked`",
+  "`stores_app: Received event. event: LoadParts {`" and "`stores_app: Parts unchanged. source: '`" are logged, in
+  order (`PARTSRC-3`, `STORE-3`, `STORE-9`).
 - `tests/ui/parts_sources.rs` opens a file with only the headers, and checks "`There are no parts.`" is shown, with no
   table (`PARTSRC-3`).
 - `tests/ui/parts_sources.rs` opens two data sources, checks each tab shows its own data source's parts, then opens one
   of them again in a third tab, with its path written with "`..`". It checks the path shown is the canonical one, and
   that "`PartsTab command. command: Open`", "`stores_app: Received event. event: OpenParts {`" and
-  "`stores_app: Parts already loaded. source: '`" are logged, in order, with no "`Loaded parts.`". It then changes the
-  file, clicks "`Reload`" in the third tab, checks the changed parts are shown, and, after showing the other data
-  source's tab, that the first tab shows them too, with no "`Event failed.`", and no "`LoadParts`" but the third tab's
-  (`PARTSRC-5`, `STORE-5`, `STORE-6`).
+  "`stores_app: Parts already loaded. source: '`" are logged, in order, with no "`Loaded parts.`", no second
+  "`WatchSource`" and no "`Event failed.`". It then changes the file, as another process would, checks the changed parts
+  are shown in the third tab, and that "`stores_app: Received event. event: SourceChanged {`",
+  "`stores_app: Data source changed. source: '`" and "`stores_app: Loaded parts. source: '`" are logged, in order, and,
+  after showing the other data source's tab, that the first tab shows them too, with no "`ReloadClicked`" and no
+  "`LoadParts`" (`PARTSRC-5`, `STORE-5`, `STORE-6`, `STORE-9`).
 - `tests/ui/parts_sources.rs` shows one data source in two tabs, makes the file invalid, clicks "`Reload`", and checks
   the error and the parts loaded before are shown, and logged, in order, then that the other data source's tab has no
   error, and that the first tab showing the data source shows the error and the parts loaded before

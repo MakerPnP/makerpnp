@@ -6,6 +6,8 @@
 //!
 //! Each back end is a module, chosen by the data source, for example [`csv_file`] for a file.
 
+use futures::stream::{self, BoxStream};
+use futures::StreamExt;
 use stores_protocol::{StoresOperation, StoresOutput};
 use tracing::debug;
 
@@ -19,25 +21,44 @@ impl StoresService {
         Self {}
     }
 
-    /// Does the operation, and returns what the core that asked for it is given.
-    pub async fn perform(&self, operation: StoresOperation) -> StoresOutput {
+    /// Does the operation, and returns what the core that asked for it is given: one result, or, for an operation
+    /// that's a stream, such as [`StoresOperation::WatchSource`], a result each time there is one, until the stream is
+    /// dropped (`StoresOperation::is_stream`).
+    ///
+    /// The stream owns what it needs, so it can be polled on any thread, or none.
+    pub fn perform(&self, operation: StoresOperation) -> BoxStream<'static, StoresOutput> {
         // `LOG-3`, what the shell was asked to do for a core.
         debug!("Performing stores operation. operation: {:?}", operation);
 
         match operation {
             StoresOperation::ResolveSource {
                 source,
-            } => StoresOutput::SourceResolved {
-                source: csv_file::resolve(&source),
-            },
+            } => stream::once(async move {
+                StoresOutput::SourceResolved {
+                    source: csv_file::resolve(&source),
+                }
+            })
+            .boxed(),
             StoresOperation::ReadParts {
                 source,
-            } => StoresOutput::PartsRead(
-                csv_file::read_parts(&source)
-                    .await
-                    // `{:#}` includes each cause, for example which header is missing.
-                    .map_err(|error| format!("{:#}", error)),
-            ),
+            } => stream::once(async move {
+                StoresOutput::PartsRead(
+                    csv_file::read_parts(&source)
+                        .await
+                        // `{:#}` includes each cause, for example which header is missing.
+                        .map_err(|error| format!("{:#}", error)),
+                )
+            })
+            .boxed(),
+            StoresOperation::WatchSource {
+                source,
+            } => csv_file::watch(&source),
         }
+    }
+
+    /// Does an operation that has one result, see [`Self::perform`].
+    pub async fn perform_once(&self, operation: StoresOperation) -> Option<StoresOutput> {
+        debug_assert!(!operation.is_stream());
+        self.perform(operation).next().await
     }
 }

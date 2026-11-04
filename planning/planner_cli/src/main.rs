@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use clap::Parser;
 use crossbeam_channel::unbounded;
 use futures::executor::block_on;
@@ -91,8 +91,12 @@ fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
                     } = request.operation;
                     views.push(view);
                 }
+                // `STORE-9`, the CLI is done before a data source could change, so it doesn't watch them.
+                stores_app::Effect::Stores(request) if request.operation.is_stream() => {}
                 stores_app::Effect::Stores(mut request) => {
-                    let output = block_on(service.perform(request.operation.clone()));
+                    let output = block_on(service.perform_once(request.operation.clone())).ok_or_else(|| {
+                        anyhow!("No result from the stores service. operation: {:?}", request.operation)
+                    })?;
                     effects.extend(core.resolve(&mut request, output)?);
                 }
             }

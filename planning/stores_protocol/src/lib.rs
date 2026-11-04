@@ -60,6 +60,19 @@ pub enum StoresOperation {
 
     /// The parts of a parts data source, in the order it has them. Answered with [`StoresOutput::PartsRead`].
     ReadParts { source: PartsSource },
+
+    /// Watches the data source, as the stores service identified it, for changes, by anyone, for example another
+    /// process (`STORE-9`). A stream: answered with [`StoresOutput::Changed`] each time it may have changed, for as long
+    /// as the shell can watch it. A shell that can't, such as the CLI, which is done before anything could change,
+    /// doesn't answer it.
+    WatchSource { source: Source },
+}
+
+impl StoresOperation {
+    /// Whether the operation is answered more than once, see [`StoresOperation::WatchSource`].
+    pub fn is_stream(&self) -> bool {
+        matches!(self, StoresOperation::WatchSource { .. })
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
@@ -70,6 +83,10 @@ pub enum StoresOutput {
     /// The parts, and the revision they were read from, or why they couldn't be read, for example which header is
     /// missing.
     PartsRead(Result<Parts, String>),
+
+    /// The data source watched may have changed. It may not have, for example when a file was written with the same
+    /// contents, which its revision shows once it's read again (`STORE-8`).
+    Changed,
 }
 
 impl Operation for StoresOperation {
@@ -91,6 +108,7 @@ impl Debug for StoresOutput {
                 parts,
             })) => write!(f, "PartsRead(Ok(<{} parts>, revision: {:?}))", parts.len(), revision.0),
             StoresOutput::PartsRead(Err(error)) => write!(f, "PartsRead(Err({:?}))", error),
+            StoresOutput::Changed => f.write_str("Changed"),
         }
     }
 }

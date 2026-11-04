@@ -40,10 +40,14 @@ fn item(manufacturer: &str, mpn: &str, fields: &[(&str, &str)]) -> PartsViewItem
 }
 
 /// A shell, which answers each store operation the core asks for with `answer`, and keeps the views the core sends.
+///
+/// It keeps the watches the core asks for, which are streams, so a test can say a data source changed (`STORE-9`).
 struct Shell {
     core: Core<Stores>,
-    /// The operations the core asked for, in order, since they were last taken.
+    /// The operations the core asked for, in order, since they were last taken, except watches.
     operations: Vec<StoresOperation>,
+    /// The watches the core asked for, by data source.
+    watches: Vec<(PartsSource, crux_core::Request<StoresOperation>)>,
 }
 
 impl Shell {
@@ -51,6 +55,7 @@ impl Shell {
         Self {
             core: Core::new(),
             operations: vec![],
+            watches: vec![],
         }
     }
 
@@ -59,10 +64,37 @@ impl Shell {
     fn process(
         &mut self,
         event: Event,
+        answer: impl FnMut(&StoresOperation) -> StoresOutput,
+    ) -> (Vec<PartsView>, Option<String>) {
+        let effects = self.core.process_event(event);
+        self.run(effects, answer)
+    }
+
+    /// Says the data source watched changed, as the stores service would, and answers every operation it leads to.
+    fn change(
+        &mut self,
+        source: &PartsSource,
+        answer: impl FnMut(&StoresOperation) -> StoresOutput,
+    ) -> (Vec<PartsView>, Option<String>) {
+        let index = self
+            .watches
+            .iter()
+            .position(|(watched, _request)| watched == source)
+            .expect("watched");
+        let effects = self
+            .core
+            .resolve(&mut self.watches[index].1, StoresOutput::Changed)
+            .unwrap();
+        self.run(effects, answer)
+    }
+
+    fn run(
+        &mut self,
+        effects: Vec<Effect>,
         mut answer: impl FnMut(&StoresOperation) -> StoresOutput,
     ) -> (Vec<PartsView>, Option<String>) {
         let mut views = vec![];
-        let mut effects: VecDeque<Effect> = self.core.process_event(event).into();
+        let mut effects: VecDeque<Effect> = effects.into();
         while let Some(effect) = effects.pop_front() {
             match effect {
                 Effect::Render(_) => {}
@@ -71,6 +103,16 @@ impl Shell {
                         view,
                     } = request.operation;
                     views.push(view);
+                }
+                Effect::Stores(request) if request.operation.is_stream() => {
+                    let StoresOperation::WatchSource {
+                        source,
+                    } = &request.operation
+                    else {
+                        panic!("unexpected stream: {:?}", request.operation)
+                    };
+                    self.watches
+                        .push((source.clone(), request));
                 }
                 Effect::Stores(mut request) => {
                     self.operations
@@ -89,6 +131,13 @@ impl Shell {
 
     fn take_operations(&mut self) -> Vec<StoresOperation> {
         std::mem::take(&mut self.operations)
+    }
+
+    fn watched(&self) -> Vec<PartsSource> {
+        self.watches
+            .iter()
+            .map(|(source, _request)| source.clone())
+            .collect()
     }
 
     fn status(&self, source: &PartsSource) -> Option<PartsSourceStatus> {
@@ -125,6 +174,10 @@ fn service(
         StoresOperation::ReadParts {
             ..
         } => StoresOutput::PartsRead(Err("No such file.".to_string())),
+        // kept by the shell, not answered.
+        StoresOperation::WatchSource {
+            ..
+        } => unreachable!(),
     }
 }
 
@@ -571,4 +624,177 @@ fn an_unchanged_load_after_a_refused_one_clears_the_error() {
             .and_then(|status| status.error),
         None
     );
+}
+
+/// `STORE-9`, a data source is watched once it's identified, once however often it's opened, and a change reads it
+/// again, and sends its view, without being asked.
+#[test]
+fn a_change_to_a_data_source_watched_reads_it_again() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    let other_spelling = source("/folder/other/../parts.csv");
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
+    );
+    shell.process(
+        Event::OpenParts {
+            source: other_spelling.clone(),
+        },
+        service(&[other_spelling.clone()], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
+    );
+    shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
+    );
+    assert_eq!(shell.watched(), vec![parts.clone()]);
+    shell.take_operations();
+
+    let (views, error) = shell.change(&parts, service(&[], &parts, Ok(vec![item("CAPCO", "CAP1", &[])])));
+
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![StoresOperation::ReadParts {
+        source: parts.clone(),
+    }]);
+    assert_eq!(views[0].parts, vec![item("CAPCO", "CAP1", &[])]);
+
+    // still watched, so another change is seen too.
+    let (views, _error) = shell.change(&parts, service(&[], &parts, Ok(vec![item("DIODECO", "D1", &[])])));
+    assert_eq!(views[0].parts, vec![item("DIODECO", "D1", &[])]);
+}
+
+/// `STORE-8`, `STORE-9`, a change that leaves the contents as they were, for example a file written again unchanged,
+/// sends no view.
+#[test]
+fn a_change_that_leaves_the_contents_unchanged_sends_no_view() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    let items = vec![item("RESCO", "RES1", &[])];
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(items.clone())),
+    );
+
+    let (views, error) = shell.change(&parts, service(&[], &parts, Ok(items)));
+
+    assert_eq!(error, None);
+    assert_eq!(views, vec![]);
+}
+
+/// `STORE-3`, `STORE-9`, a change that leaves the data source unreadable, for example a file saved half-written, says
+/// why, and keeps the parts loaded before, and the next change, once it's readable again, sends its view.
+#[test]
+fn a_change_that_leaves_the_data_source_unreadable_keeps_the_parts() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
+    );
+
+    let (views, error) = shell.change(&parts, service(&[], &parts, Err("Missing header.".to_string())));
+    assert!(error.is_some());
+    assert_eq!(views, vec![]);
+    let status = shell.status(&parts).unwrap();
+    assert!(status.loaded);
+    assert!(status.error.is_some());
+
+    let (views, error) = shell.change(&parts, service(&[], &parts, Ok(vec![item("CAPCO", "CAP1", &[])])));
+    assert_eq!(error, None);
+    assert_eq!(views[0].parts, vec![item("CAPCO", "CAP1", &[])]);
+    assert_eq!(
+        shell
+            .status(&parts)
+            .and_then(|status| status.error),
+        None
+    );
+}
+
+/// `STORE-9`, a change while the parts are being read makes them out of date, so they're read again once they are,
+/// and only the parts read after the change are sent.
+#[test]
+fn a_change_while_the_parts_are_read_reads_them_again() {
+    let core: Core<Stores> = Core::new();
+    let parts = source("/folder/parts.csv");
+    let take = |effects: Vec<Effect>| {
+        let mut stores = vec![];
+        let mut views = vec![];
+        for effect in effects {
+            match effect {
+                Effect::Stores(request) => stores.push(request),
+                Effect::PartsView(request) => {
+                    let PartsViewRendererOperation::View {
+                        view,
+                    } = request.operation;
+                    views.push(view);
+                }
+                Effect::Render(_) => {}
+            }
+        }
+        (stores, views)
+    };
+
+    let (mut stores, _views) = take(core.process_event(Event::OpenParts {
+        source: parts.clone(),
+    }));
+    let (stores_after_resolve, _views) = take(
+        core.resolve(&mut stores[0], StoresOutput::SourceResolved {
+            source: parts.clone(),
+        })
+        .unwrap(),
+    );
+    let mut read_request = None;
+    let mut watch = None;
+    for request in stores_after_resolve {
+        match request.operation {
+            StoresOperation::ReadParts {
+                ..
+            } => read_request = Some(request),
+            StoresOperation::WatchSource {
+                ..
+            } => watch = Some(request),
+            _ => panic!("unexpected operation"),
+        }
+    }
+    let (mut read_request, mut watch) = (read_request.expect("a read"), watch.expect("a watch"));
+
+    // changed while being read.
+    let (stores, views) = take(
+        core.resolve(&mut watch, StoresOutput::Changed)
+            .unwrap(),
+    );
+    assert!(stores.is_empty());
+    assert!(views.is_empty());
+
+    // the parts read before the change aren't used, and are read again.
+    let (mut stores, views) = take(
+        core.resolve(
+            &mut read_request,
+            StoresOutput::PartsRead(Ok(read(vec![item("OLDCO", "OLD1", &[])]))),
+        )
+        .unwrap(),
+    );
+    assert!(views.is_empty());
+    assert_eq!(stores.len(), 1);
+    assert_eq!(stores[0].operation, StoresOperation::ReadParts {
+        source: parts.clone(),
+    });
+
+    let (_stores, views) = take(
+        core.resolve(
+            &mut stores[0],
+            StoresOutput::PartsRead(Ok(read(vec![item("NEWCO", "NEW1", &[])]))),
+        )
+        .unwrap(),
+    );
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].parts, vec![item("NEWCO", "NEW1", &[])]);
 }

@@ -53,6 +53,8 @@ fn lists_the_parts_with_their_other_values() -> Result<(), anyhow::Error> {
         "part_count: 2",
     ]);
     assert!(!trace.contains("Event failed."));
+    // `STORE-9`, the CLI is done before the file could change, so it doesn't watch it.
+    assert!(!trace.contains("Watching the data source."));
 
     Ok(())
 }

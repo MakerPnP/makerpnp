@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::{Arc, Mutex};
 
+use futures::StreamExt;
 use stores_app::{
     Core, Effect, Event, PartsSource, PartsSourceStatus, PartsView, PartsViewRendererOperation, Stores,
     StoresOperation, StoresOutput,
@@ -48,14 +49,15 @@ impl Debug for StoresCoreService {
     }
 }
 
-/// The result of a store operation, for the core that asked for it.
+/// A result of a store operation, for the core that asked for it.
 ///
-/// A command, so cloned, though only the first clone handled gives the result to the core.
+/// An operation that's a stream, such as a watch, has many, which share the one request, as each is given to the core
+/// through it (`STORE-9`).
 #[derive(Clone)]
 pub struct StoresReply {
     operation: StoresOperation,
     output: StoresOutput,
-    request: Arc<Mutex<Option<crux_core::Request<StoresOperation>>>>,
+    request: Arc<Mutex<crux_core::Request<StoresOperation>>>,
 }
 
 /// Says what the operation and its output were, as the command is logged.
@@ -95,15 +97,14 @@ impl StoresCoreService {
         self.handle_effects(effects);
     }
 
-    /// Gives the core the result of an operation it asked for.
+    /// Gives the core a result of an operation it asked for.
     pub fn resolve(&mut self, reply: StoresReply) {
-        let Some(mut request) = reply.request.lock().unwrap().take() else {
-            return;
+        let result = {
+            let mut request = reply.request.lock().unwrap();
+            self.core
+                .resolve(&mut *request, reply.output)
         };
-        match self
-            .core
-            .resolve(&mut request, reply.output)
-        {
+        match result {
             Ok(effects) => self.handle_effects(effects),
             Err(cause) => error!("Unable to give the stores core a result. cause: {:?}", cause),
         }
@@ -126,23 +127,31 @@ impl StoresCoreService {
         }
     }
 
+    /// Has the stores service do the operation, and sends each of its results back as a command. A watch's results go
+    /// on until the application closes, when the runtime, and with it the watch, is dropped.
     fn perform(&self, request: crux_core::Request<StoresOperation>) {
-        let service = self.service.clone();
         let replies = self.replies.clone();
         let operation = request.operation.clone();
+        let mut outputs = self.service.perform(operation.clone());
+        let request = Arc::new(Mutex::new(request));
         self.runtime.spawn(
             async move {
-                let output = service.perform(operation.clone()).await;
-                let reply = StoresReply {
-                    operation,
-                    output,
-                    request: Arc::new(Mutex::new(Some(request))),
-                };
-                // the GUI may be closing, in which case there's nothing to give the result to.
-                let _ = replies
-                    .sender
-                    .send(UiCommand::StoresReply(reply));
-                replies.ui_context.request_repaint();
+                while let Some(output) = outputs.next().await {
+                    let reply = StoresReply {
+                        operation: operation.clone(),
+                        output,
+                        request: request.clone(),
+                    };
+                    // the GUI may be closing, in which case there's nothing to give the result to.
+                    if replies
+                        .sender
+                        .send(UiCommand::StoresReply(reply))
+                        .is_err()
+                    {
+                        return;
+                    }
+                    replies.ui_context.request_repaint();
+                }
             }
             // logged where the core asked for it, for example to a test's logs.
             .with_current_subscriber(),

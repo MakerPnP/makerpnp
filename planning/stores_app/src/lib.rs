@@ -42,6 +42,10 @@ struct PartsSourceState {
     revision: Option<Revision>,
     /// Whether the parts are being read.
     reading: bool,
+    /// Whether the data source changed while its parts were being read, so they're out of date once read (`STORE-9`).
+    changed_while_reading: bool,
+    /// Whether the core asked for the data source to be watched (`STORE-9`).
+    watching: bool,
     /// Why the last load was refused, until one succeeds.
     error: Option<String>,
 }
@@ -98,6 +102,8 @@ pub enum Event {
     },
     /// The parts of the data source, as the stores service identified it.
     PartsRead { source: PartsSource, output: StoresOutput },
+    /// The data source, as the stores service identified it, may have changed (`STORE-9`).
+    SourceChanged { source: PartsSource, output: StoresOutput },
 }
 
 /// What the data source was resolved for.
@@ -259,18 +265,53 @@ impl Stores {
                     .entry(resolved.clone())
                     .or_default();
 
-                match intent {
+                // `STORE-9`, once for each data source, so that its views are updated whoever changes it.
+                let watch = match state.watching {
+                    true => Command::done(),
+                    false => {
+                        state.watching = true;
+                        Self::watch(resolved.clone())
+                    }
+                };
+
+                let command = match intent {
                     Intent::Open if state.parts.is_some() => {
                         info!("Parts already loaded. source: '{}'", resolved);
-                        Ok(render::render().and(Self::parts_view(model, resolved)?))
+                        render::render().and(Self::parts_view(model, resolved)?)
                     }
                     // another open is reading them, and its view will be sent to every view of the data source.
-                    Intent::Open if state.reading => Ok(render::render()),
+                    Intent::Open if state.reading => render::render(),
                     Intent::Open | Intent::Load => {
                         state.reading = true;
-                        Ok(render::render().and(Self::read(resolved)))
+                        render::render().and(Self::read(resolved))
                     }
+                };
+
+                Ok(command.and(watch))
+            }
+            Event::SourceChanged {
+                source,
+                output,
+            } => {
+                let StoresOutput::Changed = output else {
+                    return Err(StoresError::UnexpectedOutput {
+                        output: format!("{:?}", output),
+                    });
+                };
+                info!("Data source changed. source: '{}'", source);
+                let state = model
+                    .sources
+                    .entry(source.clone())
+                    .or_default();
+
+                if state.reading {
+                    // the parts being read may be from before the change, so they're read again once they are.
+                    state.changed_while_reading = true;
+                    return Ok(render::render());
                 }
+
+                state.reading = true;
+                Ok(render::render().and(Self::read(source)))
             }
             Event::PartsRead {
                 source,
@@ -280,6 +321,16 @@ impl Stores {
                     .sources
                     .entry(source.clone())
                     .or_default();
+
+                // `STORE-9`, out of date, as the data source changed while they were read, so they're read again.
+                if state.changed_while_reading {
+                    state.changed_while_reading = false;
+                    info!(
+                        "Data source changed while being read, reading it again. source: '{}'",
+                        source
+                    );
+                    return Ok(Self::read(source));
+                }
                 state.reading = false;
 
                 let parts = match output {
@@ -340,6 +391,17 @@ impl Stores {
         .then_send(move |output| Event::SourceResolved {
             source: source.clone(),
             intent,
+            output,
+        })
+    }
+
+    /// A stream: the shell answers each time the data source may have changed, for as long as it can watch it.
+    fn watch(source: PartsSource) -> Command<Effect, Event> {
+        Command::stream_from_shell(StoresOperation::WatchSource {
+            source: source.clone(),
+        })
+        .then_send(move |output| Event::SourceChanged {
+            source: source.clone(),
             output,
         })
     }

@@ -40,6 +40,8 @@ anyhow = { version = "1.0.100" }
 dunce = { version = "1.0.5" }
 # a data source's revision, from its contents, the same in every process
 sha2 = { version = "0.10.9" }
+# noticing changes to a data source's file, whoever made them
+notify = { version = "8.2.0" }
 regex = { version = "1.12.2" }
 time = { version = "0.3.44" }
 indexmap = { version = "2.12.1" }

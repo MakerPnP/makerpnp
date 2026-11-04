@@ -72,8 +72,8 @@ a data source, with nothing to keep them in step, which matters once data source
   change says which revision it was based on, and is refused if the data source has changed since, as happens when
   another process, or another connection to a database, changed it. A refusal, or a notice that a data source changed,
   makes every core and view using it ask again.
-- **Changes from other processes are noticed.** The service watches the files it has read, and tells the shell when
-  one changes, whoever changed it, for example the CLI, or an editor. The shell tells every core, which reloads it.
+- **Changes from other processes are noticed.** Each core asks the service to watch the data sources it uses, and is
+  told when one changes, whoever changed it, for example the CLI, or an editor, and reads it again (`STORE-9`).
 - **No shared process for now.** Each process has its own service; the file or database is the record of what's
   stored, and the revision checks keep changes safe across processes. A stores server, shared by many processes, may
   come later, using the same service.
@@ -87,8 +87,8 @@ a data source, with nothing to keep them in step, which matters once data source
 | 3 | "Open parts" in the GUI: choose a parts data source, and show its parts in a table, through the stores core. A data source shown by many tabs is loaded once, and kept once, and reloading it in one tab updates them all. | Done |
 | 4 | The stores service (`planning/stores_service`), async, with a CSV file back end. The stores core is pure, and the CLI and the GUI have the service do its operations. | Done |
 | 5 | Revisions: each view of a data source says which revision of it it shows. | Done |
-| 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | Next |
-| 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | |
+| 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | Done |
+| 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Next |
 | 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | |
 | 9 | A variant builder: define the variant and choose its data sources. | |
 | 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |

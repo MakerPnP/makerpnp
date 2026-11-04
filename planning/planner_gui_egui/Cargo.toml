@@ -18,6 +18,7 @@ stores_app = { path = "../stores_app" }
 stores_service = { path = "../stores_service" }
 crux_core = { workspace = true }
 tokio = { workspace = true }
+futures = { workspace = true }
 
 args = { path = "../../common/args" }
 util = { path = "../../common/util" }
