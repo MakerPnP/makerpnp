@@ -1,9 +1,18 @@
+//! The Variant Builder's core: builds an assembly variant's placements, and its BOM, from a design's EDA placements.
+//!
+//! It's pure: every data source it reads, and every file it writes, is read and written by the stores service, which
+//! its shell asks, so it's tested with no files (`STORE-7`, `STORE-14`).
+
+// A core does no IO, see `clippy.toml`.
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
 
 use anyhow::Error;
 pub use assembly::assembly_variant::AssemblyVariant;
 use assembly::AssemblyVariantProcessor;
+use crux_core::command::CommandContext;
 use crux_core::macros::effect;
 use crux_core::render::RenderOperation;
 pub use crux_core::Core;
@@ -15,6 +24,7 @@ use eda::substitution::{
 };
 pub use eda::EdaTool;
 use part_mapper::{PartMapper, PartMapperError, PartMappingError, PartMappingResult, PlacementPartMappingResult};
+pub use pnp::load_out::LoadOutItem;
 pub use pnp::part::Part;
 pub use pnp::placement::RefDes;
 use serde_with::serde_as;
@@ -27,13 +37,18 @@ pub use stores::parts::PartsSource;
 use stores::placements::PlacementRecord;
 pub use stores::placements::PlacementsSource;
 pub use stores::substitutions::EdaSubstitutionsSource;
-use stores::{assembly_rules, eda_placements, load_out, part_mappings, parts, substitutions};
+use stores::{assembly_rules, part_mappings, substitutions};
+pub use stores_protocol::{
+    Document, Parts, PartsViewItem, Records, RecordsKind, RecordsOf, Revision, Source, StoresOperation, StoresOutput,
+};
 use termtree::Tree;
 use thiserror::Error;
 use tracing::Level;
 use tracing::{error, info, trace};
 
 extern crate serde_regex;
+
+type Context = CommandContext<Effect, Event>;
 
 #[derive(Default)]
 pub struct VariantBuilder;
@@ -52,6 +67,8 @@ pub struct OperationViewModel {
 #[derive(Debug)]
 pub enum Effect {
     Render(RenderOperation),
+    /// A store operation, done by the stores service (`STORE-7`).
+    Stores(StoresOperation),
 }
 
 #[serde_as]
@@ -72,9 +89,45 @@ pub enum Event {
         ref_des_exclude_list: Vec<String>,
         ref_des_disable_list: Vec<String>,
     },
+    /// The variant was built, and its files written, or why not.
+    Built {
+        result: Result<(), String>,
+    },
     //
     // Views
     //
+}
+
+/// What [`Event::Build`] builds, from what.
+struct BuildArgs {
+    eda_tool: EdaTool,
+    placements: EdaPlacementsSource,
+    assembly_variant: AssemblyVariant,
+    parts: PartsSource,
+    part_mappings: PartMappingsSource,
+    substitutions: Vec<EdaSubstitutionsSource>,
+    load_out: Option<LoadOutSource>,
+    assembly_rules: Option<AssemblyRuleSource>,
+    output: String,
+    output_bom: Option<String>,
+    ref_des_exclude_list: Vec<String>,
+    ref_des_disable_list: Vec<String>,
+}
+
+/// The records of each data source, as read by the stores service, in the order they're read.
+struct Inputs {
+    eda_placements: Vec<EdaPlacement>,
+    substitutions: Vec<(EdaSubstitutionsSource, Vec<BTreeMap<String, String>>)>,
+    parts: Vec<PartsViewItem>,
+    part_mappings: Vec<BTreeMap<String, String>>,
+    load_out_items: Vec<LoadOutItem>,
+    assembly_rules: Vec<BTreeMap<String, String>>,
+}
+
+/// The contents of each file to write.
+struct Outputs {
+    placements: String,
+    bom: Option<String>,
 }
 
 impl App for VariantBuilder {
@@ -100,33 +153,34 @@ impl App for VariantBuilder {
                 ref_des_exclude_list,
                 ref_des_disable_list,
             } => {
-                let try_fn = |_model: &mut Model| -> Result<Command<Self::Effect, Self::Event>, AppError> {
-                    build_assembly_variant(
-                        eda_tool,
-                        &placements,
-                        assembly_variant,
-                        &parts,
-                        &part_mappings,
-                        &substitutions,
-                        &load_out,
-                        &assembly_rules,
-                        &output,
-                        &output_bom,
-                        &ref_des_exclude_list,
-                        &ref_des_disable_list,
-                    )
-                    .map_err(|cause| AppError::OperationError(cause.into()))?;
-
-                    Ok(render::render())
+                let args = BuildArgs {
+                    eda_tool,
+                    placements,
+                    assembly_variant,
+                    parts,
+                    part_mappings,
+                    substitutions,
+                    load_out,
+                    assembly_rules,
+                    output,
+                    output_bom,
+                    ref_des_exclude_list,
+                    ref_des_disable_list,
                 };
-
-                match try_fn(model) {
-                    Ok(command) => command,
-                    Err(e) => {
-                        model.error.replace(format!("{:?}", e));
-                        render::render()
-                    }
+                Command::new(|ctx| async move {
+                    let result = build(&ctx, args).await;
+                    ctx.send_event(Event::Built {
+                        result,
+                    });
+                })
+            }
+            Event::Built {
+                result,
+            } => {
+                if let Err(cause) = result {
+                    model.error.replace(cause);
                 }
+                render::render()
             }
         }
     }
@@ -144,22 +198,148 @@ enum AppError {
     OperationError(anyhow::Error),
 }
 
-#[tracing::instrument(level = Level::DEBUG)]
-fn build_assembly_variant(
-    eda_tool: EdaTool,
-    placements_source: &EdaPlacementsSource,
-    assembly_variant: AssemblyVariant,
-    parts_source: &PartsSource,
-    part_mappings_source: &PartMappingsSource,
-    eda_substitutions_sources: &[EdaSubstitutionsSource],
-    load_out_source: &Option<LoadOutSource>,
-    assembly_rules_source: &Option<AssemblyRuleSource>,
-    output: &String,
-    output_bom: &Option<String>,
-    ref_des_exclude_list: &Vec<String>,
-    ref_des_disable_list: &Vec<String>,
-) -> Result<(), Error> {
-    let original_eda_placements = eda_placements::load_eda_placements(eda_tool, placements_source)?;
+/// Reads each data source, by the stores service, builds the variant, then writes its placements, and its BOM, by the
+/// stores service, as documents whose contents the core makes (`STORE-14`). The first that can't be read or written
+/// says why, and stops the rest.
+async fn build(ctx: &Context, args: BuildArgs) -> Result<(), String> {
+    let inputs = read_inputs(ctx, &args).await?;
+
+    // the variant is built between the reads and the writes, as the rules it's built with can't be held across them.
+    let outputs =
+        build_assembly_variant(&args, inputs).map_err(|cause| format!("{:?}", AppError::OperationError(cause)))?;
+
+    write_document(ctx, &PathBuf::from(&args.output), outputs.placements).await?;
+    info!("Output written to '{}'", args.output);
+
+    if let (Some(output_bom), Some(bom)) = (&args.output_bom, outputs.bom) {
+        write_document(ctx, &PathBuf::from(output_bom), bom).await?;
+        info!("BOM written to '{}'", output_bom);
+    }
+
+    Ok(())
+}
+
+/// The records of each data source, in the order they were read when the core read them itself.
+async fn read_inputs(ctx: &Context, args: &BuildArgs) -> Result<Inputs, String> {
+    let eda_placements = match read_required(
+        ctx,
+        RecordsKind::EdaPlacements {
+            eda_tool: args.eda_tool,
+        },
+        &args.placements,
+    )
+    .await?
+    {
+        RecordsOf::EdaPlacements {
+            placements, ..
+        } => placements,
+        records => return Err(unexpected(&records)),
+    };
+
+    let mut substitutions = vec![];
+    for source in args.substitutions.iter() {
+        match read_required(ctx, RecordsKind::Substitutions, source).await? {
+            RecordsOf::Substitutions(rows) => substitutions.push((source.clone(), rows)),
+            records => return Err(unexpected(&records)),
+        }
+    }
+
+    let parts = read_parts(ctx, &args.parts).await?;
+
+    let part_mappings = match read_required(ctx, RecordsKind::PartMappings, &args.part_mappings).await? {
+        RecordsOf::PartMappings(rows) => rows,
+        records => return Err(unexpected(&records)),
+    };
+
+    let load_out_items = match &args.load_out {
+        Some(source) => match read_required(ctx, RecordsKind::LoadOut, source).await? {
+            RecordsOf::LoadOut(items) => items,
+            records => return Err(unexpected(&records)),
+        },
+        None => vec![],
+    };
+
+    let assembly_rules = match &args.assembly_rules {
+        Some(source) => match read_required(ctx, RecordsKind::AssemblyRules, source).await? {
+            RecordsOf::AssemblyRules(rows) => rows,
+            records => return Err(unexpected(&records)),
+        },
+        None => vec![],
+    };
+
+    Ok(Inputs {
+        eda_placements,
+        substitutions,
+        parts,
+        part_mappings,
+        load_out_items,
+        assembly_rules,
+    })
+}
+
+/// The records of a data source that must exist, read by the stores service (`STORE-11`).
+async fn read_required(ctx: &Context, kind: RecordsKind, source: &Source) -> Result<RecordsOf, String> {
+    match ctx
+        .request_from_shell(StoresOperation::ReadRecords {
+            kind,
+            source: source.clone(),
+        })
+        .await
+    {
+        StoresOutput::RecordsRead(Ok(Some(records))) => Ok(records.records),
+        StoresOutput::RecordsRead(Ok(None)) => Err(format!("Data source not found. source: '{}'", source)),
+        StoresOutput::RecordsRead(Err(cause)) => Err(cause),
+        output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
+/// The parts, read by the stores service.
+async fn read_parts(ctx: &Context, source: &PartsSource) -> Result<Vec<PartsViewItem>, String> {
+    match ctx
+        .request_from_shell(StoresOperation::ReadParts {
+            source: source.clone(),
+        })
+        .await
+    {
+        StoresOutput::PartsRead(Ok(parts)) => Ok(parts.parts),
+        StoresOutput::PartsRead(Err(cause)) => Err(cause),
+        output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
+/// Writes the document, by the stores service (`STORE-10`).
+async fn write_document(ctx: &Context, path: &PathBuf, contents: String) -> Result<Revision, String> {
+    match ctx
+        .request_from_shell(StoresOperation::WriteDocument {
+            path: path.clone(),
+            contents,
+        })
+        .await
+    {
+        StoresOutput::DocumentWritten(result) => result,
+        output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
+fn unexpected(records: &RecordsOf) -> String {
+    format!("Unexpected records. kind: {:?}", records.kind())
+}
+
+/// Builds the variant from the data sources' records, logging as it goes, and makes the contents of its files.
+#[tracing::instrument(level = Level::DEBUG, skip_all)]
+fn build_assembly_variant(args: &BuildArgs, inputs: Inputs) -> Result<Outputs, Error> {
+    let BuildArgs {
+        eda_tool,
+        assembly_variant,
+        output_bom,
+        ref_des_exclude_list,
+        ref_des_disable_list,
+        ..
+    } = args;
+    let eda_tool = *eda_tool;
+    let assembly_variant = assembly_variant.clone();
+
+    let original_eda_placements = inputs.eda_placements;
     info!("Loaded {} placements", original_eda_placements.len());
 
     // FUTURE show unmatched elements from the `ref_des_exclude_list`
@@ -169,10 +349,11 @@ fn build_assembly_variant(
         .filter(|placement| !ref_des_exclude_list.contains(&placement.ref_des))
         .collect();
 
-    let eda_substitution_rules = eda_substitutions_sources
+    let eda_substitution_rules = inputs
+        .substitutions
         .iter()
-        .try_fold(vec![], |mut rules, source| {
-            let source_rules = substitutions::load_eda_substitutions(source)?;
+        .try_fold(vec![], |mut rules, (source, rows)| {
+            let source_rules = substitutions::build_eda_substitutions(rows)?;
             info!("Loaded {} substitution rules from {}", source_rules.len(), source);
             rules.extend(source_rules);
 
@@ -196,29 +377,27 @@ fn build_assembly_variant(
         }
     }
 
-    let parts_and_meta_data = parts::load_parts(parts_source)?;
+    let parts_and_meta_data: Vec<(Part, HashMap<String, String>)> = inputs
+        .parts
+        .into_iter()
+        .map(|item| (item.part, item.fields.into_iter().collect()))
+        .collect();
     info!("Loaded {} parts", parts_and_meta_data.len());
 
     // FUTURE avoid cloning parts
-    let parts = parts_and_meta_data
+    let parts: Vec<Part> = parts_and_meta_data
         .iter()
         .map(|(part, _meta_data)| part.clone())
         .collect();
 
-    let part_mappings = part_mappings::load_part_mappings(&parts, part_mappings_source)?;
+    let part_mappings = part_mappings::build_part_mappings(&parts, &inputs.part_mappings)?;
     info!("Loaded {} part mappings", part_mappings.len());
     trace!("{:?}", part_mappings);
 
-    let load_out_items = match load_out_source {
-        Some(source) => load_out::load_items(source),
-        None => Ok(vec![]),
-    }?;
+    let load_out_items = inputs.load_out_items;
     info!("Loaded {} load-out items", load_out_items.len());
 
-    let assembly_rules = match assembly_rules_source {
-        Some(source) => assembly_rules::load(source),
-        None => Ok(vec![]),
-    }?;
+    let assembly_rules = assembly_rules::build(&inputs.assembly_rules)?;
     info!("Loaded {} assembly rules", assembly_rules.len());
 
     info!("Assembly variant: {}", assembly_variant.name);
@@ -257,27 +436,24 @@ fn build_assembly_variant(
         }
     }
 
-    write_output_csv(output, matched_mappings)?;
+    let placements = output_csv(matched_mappings)?;
 
-    info!("Output written to '{}'", output);
+    let bom = match output_bom {
+        Some(_) => Some(output_bom_csv(eda_tool, matched_mappings, &parts_and_meta_data)?),
+        None => None,
+    };
 
-    if let Some(output_bom) = output_bom {
-        write_output_bom_csv(eda_tool, output_bom, matched_mappings, &parts_and_meta_data)?;
-        info!("BOM written to '{}'", output_bom);
-    }
-
-    Ok(())
+    Ok(Outputs {
+        placements,
+        bom,
+    })
 }
 
-fn write_output_csv(
-    output_file_name: &String,
-    matched_mappings: &Vec<PlacementPartMappingResult>,
-) -> anyhow::Result<()> {
-    let output_path = PathBuf::from(output_file_name);
-
+/// The variant's placements, as CSV.
+fn output_csv(matched_mappings: &Vec<PlacementPartMappingResult>) -> anyhow::Result<String> {
     let mut writer = csv::WriterBuilder::new()
         .quote_style(QuoteStyle::Always)
-        .from_path(output_path)?;
+        .from_writer(vec![]);
 
     for matched_mapping in matched_mappings.iter() {
         match matched_mapping {
@@ -303,24 +479,28 @@ fn write_output_csv(
         }
     }
 
-    writer.flush()?;
-
-    Ok(())
+    csv_contents(writer)
 }
 
-fn write_output_bom_csv(
+/// The writer's CSV.
+fn csv_contents(writer: csv::Writer<Vec<u8>>) -> anyhow::Result<String> {
+    let contents = writer
+        .into_inner()
+        .map_err(|error| anyhow::anyhow!("{}", error))?;
+    Ok(String::from_utf8(contents)?)
+}
+
+/// The variant's BOM, as CSV.
+fn output_bom_csv(
     eda_tool: EdaTool,
-    output_file_name: &String,
     matched_mappings: &Vec<PlacementPartMappingResult>,
     parts_and_meta_data: &Vec<(Part, HashMap<String, String>)>,
-) -> anyhow::Result<()> {
-    let output_path = PathBuf::from(output_file_name);
-
+) -> anyhow::Result<String> {
     // FIXME normal = headers, JLCPCB = no-headers.
     let mut writer = csv::WriterBuilder::new()
         .has_headers(false)
         .quote_style(QuoteStyle::Always)
-        .from_path(output_path)?;
+        .from_writer(vec![]);
 
     let parts_and_meta_data: HashMap<Part, HashMap<String, String>> = parts_and_meta_data
         .iter()
@@ -389,9 +569,7 @@ fn write_output_bom_csv(
         writer.serialize(bom_record)?;
     }
 
-    writer.flush()?;
-
-    Ok(())
+    csv_contents(writer)
 }
 
 fn build_mapping_tree(

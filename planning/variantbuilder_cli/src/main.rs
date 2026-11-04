@@ -43,6 +43,8 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
                     bail!(error)
                 }
             }
+            // done by `core::process_effect`, before the effect would be sent here.
+            Effect::Stores(_) => {}
         }
     }
     Ok(())

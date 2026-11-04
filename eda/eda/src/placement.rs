@@ -1,7 +1,7 @@
 use pnp::pcb::PcbSide;
 use rust_decimal::Decimal;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct EdaPlacementField {
     pub name: String,
     // FUTURE if there's a requirement to store other EDA specific data types other than String, perhaps implement an enum named EdaPlacementValue.
@@ -19,7 +19,7 @@ impl EdaPlacementField {
 
 /// Uses right-handed cartesian coordinate system
 /// See https://en.wikipedia.org/wiki/Cartesian_coordinate_system
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct EdaPlacement {
     pub ref_des: String,
     pub place: bool,

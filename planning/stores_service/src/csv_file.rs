@@ -153,6 +153,17 @@ pub async fn read_records(kind: RecordsKind, source: &Source) -> Result<Option<R
             stores::package_mappings::read_package_mapping_rows(contents.as_slice()).map(RecordsOf::PackageMappings)
         }
         RecordsKind::Placements => stores::placements::read_placements(contents.as_slice()).map(RecordsOf::Placements),
+        RecordsKind::EdaPlacements {
+            eda_tool,
+        } => stores::eda_placements::read_eda_placements(eda_tool, contents.as_slice()).map(|placements| {
+            RecordsOf::EdaPlacements {
+                eda_tool,
+                placements,
+            }
+        }),
+        RecordsKind::PartMappings => stores::csv::read_rows(contents.as_slice()).map(RecordsOf::PartMappings),
+        RecordsKind::Substitutions => stores::csv::read_rows(contents.as_slice()).map(RecordsOf::Substitutions),
+        RecordsKind::AssemblyRules => stores::csv::read_rows(contents.as_slice()).map(RecordsOf::AssemblyRules),
     }
     .map_err(|error| format!("Unable to read the records. source: '{}', cause: '{:#}'", source, error))?;
 
@@ -194,5 +205,11 @@ fn name(kind: RecordsKind) -> &'static str {
         RecordsKind::Packages => "packages",
         RecordsKind::PackageMappings => "package mappings",
         RecordsKind::Placements => "placements",
+        RecordsKind::EdaPlacements {
+            ..
+        } => "eda placements",
+        RecordsKind::PartMappings => "part mappings",
+        RecordsKind::Substitutions => "eda substitutions",
+        RecordsKind::AssemblyRules => "assembly rules",
     }
 }

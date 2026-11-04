@@ -18,6 +18,18 @@ use thiserror::Error;
 
 pub mod packages;
 
+/// Each record's fields, by header, from a CSV whose records are made by a core, such as part mappings (`STORE-11`).
+pub fn read_rows(reader: impl std::io::Read) -> anyhow::Result<Vec<std::collections::BTreeMap<String, String>>> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
+
+    let mut rows = vec![];
+    for result in csv_reader.deserialize() {
+        let row: std::collections::BTreeMap<String, String> = result.map_err(anyhow::Error::from)?;
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
 // FUTURE Investigate whether the `build` methods should be taking `self` instead of `&self` to avoid additional allocations
 //        Most of the time records are parsed, then domain objects are built based on the records then the records
 //        is discarded.
@@ -132,6 +144,11 @@ pub enum PartMappingRecordError {
 }
 
 impl PartMappingRecord {
+    /// A record from its fields, by name, as read from a CSV row.
+    pub fn from_fields(fields: HashMap<String, String>) -> Self {
+        Self(fields)
+    }
+
     pub fn build_part_mapping<'part>(
         &self,
         parts: &'part [Part],
@@ -269,6 +286,11 @@ pub enum SubstitutionRecordError {
 }
 
 impl SubstitutionRecord {
+    /// A record from its fields, by name, as read from a CSV row.
+    pub fn from_fields(fields: HashMap<String, String>) -> Self {
+        Self(fields)
+    }
+
     pub fn build_eda_substitution(&self) -> anyhow::Result<EdaSubstitutionRule, SubstitutionRecordError> {
         // NOTE: Initially the SubstitutionRecord had more properties and was using serde flatten on the fields but there was a bug;
         //       so we have to do some deserialization manually instead.
@@ -412,6 +434,21 @@ pub struct AssemblyRuleRecord {
 }
 
 impl AssemblyRuleRecord {
+    /// A record from its fields, by name, as read from a CSV row.
+    pub fn from_fields(fields: &HashMap<String, String>) -> Result<Self, anyhow::Error> {
+        let field = |name: &str| {
+            fields
+                .get(name)
+                .cloned()
+                .ok_or_else(|| anyhow::anyhow!("Missing field. field: {:?}", name))
+        };
+        Ok(Self {
+            ref_des: field("RefDes")?,
+            manufacturer: field("Manufacturer")?,
+            mpn: field("Mpn")?,
+        })
+    }
+
     pub fn build_assembly_rule(&self) -> Result<AssemblyRule, anyhow::Error> {
         Ok(AssemblyRule {
             ref_des: self.ref_des.clone(),

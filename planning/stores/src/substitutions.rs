@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::{anyhow, Context, Error};
 use eda::substitution::EdaSubstitutionRule;
 use tracing::Level;
@@ -34,6 +36,19 @@ pub fn load_eda_substitutions(source: &EdaSubstitutionsSource) -> Result<Vec<Eda
         eda_substitutions.push(eda_substitution);
     }
     Ok(eda_substitutions)
+}
+
+/// The substitution rules, made from each one's fields, see [`crate::csv::read_rows`].
+pub fn build_eda_substitutions(rows: &[BTreeMap<String, String>]) -> Result<Vec<EdaSubstitutionRule>, Error> {
+    rows.iter()
+        .map(|row| {
+            let record = SubstitutionRecord::from_fields(row.clone().into_iter().collect());
+            trace!("{:?}", record);
+            record
+                .build_eda_substitution()
+                .with_context(|| format!("Building substitution from record. record: {:?}", record))
+        })
+        .collect()
 }
 
 #[cfg(test)]

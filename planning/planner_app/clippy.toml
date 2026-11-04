@@ -1,7 +1,6 @@
 # A core does no IO: it asks its shell for each store operation, which the stores service does (`STORE-7`).
 # Clippy reads this file for this crate only, and `#![deny(clippy::disallowed_methods, clippy::disallowed_types)]` in
-# the crate's root makes each use an error. IO the core still does, until it's moved to the stores service, is marked
-# `HACK: core-io-hack`, see `Hacks.md`.
+# the crate's root makes each use an error.
 
 disallowed-methods = [
     { path = "std::fs::read", reason = "a core does no IO, the stores service does it (STORE-7)" },

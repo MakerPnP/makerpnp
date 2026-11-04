@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::{anyhow, Context, Error};
 use part_mapper::part_mapping::PartMapping;
 use pnp::part::Part;
@@ -38,6 +40,22 @@ pub fn load_part_mappings<'part>(
         part_mappings.push(part_mapping);
     }
     Ok(part_mappings)
+}
+
+/// The part mappings, made from each one's fields, see [`crate::csv::read_rows`], and the parts they map to.
+pub fn build_part_mappings<'part>(
+    parts: &'part [Part],
+    rows: &[BTreeMap<String, String>],
+) -> Result<Vec<PartMapping<'part>>, Error> {
+    rows.iter()
+        .map(|row| {
+            let record = PartMappingRecord::from_fields(row.clone().into_iter().collect());
+            trace!("{:?}", record);
+            record
+                .build_part_mapping(parts)
+                .with_context(|| format!("Building part mapping from record. record: {:?}", record))
+        })
+        .collect()
 }
 
 #[cfg(test)]

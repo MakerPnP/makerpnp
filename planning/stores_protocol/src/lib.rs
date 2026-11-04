@@ -16,6 +16,8 @@ use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
 
 use crux_core::capability::Operation;
+pub use eda::placement::EdaPlacement;
+pub use eda::EdaTool;
 pub use pnp::load_out::LoadOutItem;
 pub use pnp::package::Package;
 pub use pnp::part::Part;
@@ -133,6 +135,16 @@ pub enum RecordsKind {
     /// Each record's fields by name, as each mapping is made with the packages, by the core.
     PackageMappings,
     Placements,
+    /// The placements from an EDA tool's file, whose format depends on the tool.
+    EdaPlacements {
+        eda_tool: EdaTool,
+    },
+    /// Each record's fields by name, as each mapping is made with the parts, by the core.
+    PartMappings,
+    /// Each record's fields by name, as each rule is made by the core.
+    Substitutions,
+    /// Each record's fields by name, as each rule is made by the core.
+    AssemblyRules,
 }
 
 /// A data source's records, of its kind.
@@ -142,6 +154,13 @@ pub enum RecordsOf {
     Packages(Vec<Package>),
     PackageMappings(Vec<BTreeMap<String, String>>),
     Placements(Vec<Placement>),
+    EdaPlacements {
+        eda_tool: EdaTool,
+        placements: Vec<EdaPlacement>,
+    },
+    PartMappings(Vec<BTreeMap<String, String>>),
+    Substitutions(Vec<BTreeMap<String, String>>),
+    AssemblyRules(Vec<BTreeMap<String, String>>),
 }
 
 impl RecordsOf {
@@ -151,6 +170,14 @@ impl RecordsOf {
             RecordsOf::Packages(_) => RecordsKind::Packages,
             RecordsOf::PackageMappings(_) => RecordsKind::PackageMappings,
             RecordsOf::Placements(_) => RecordsKind::Placements,
+            RecordsOf::EdaPlacements {
+                eda_tool, ..
+            } => RecordsKind::EdaPlacements {
+                eda_tool: *eda_tool,
+            },
+            RecordsOf::PartMappings(_) => RecordsKind::PartMappings,
+            RecordsOf::Substitutions(_) => RecordsKind::Substitutions,
+            RecordsOf::AssemblyRules(_) => RecordsKind::AssemblyRules,
         }
     }
 
@@ -160,6 +187,12 @@ impl RecordsOf {
             RecordsOf::Packages(records) => records.len(),
             RecordsOf::PackageMappings(records) => records.len(),
             RecordsOf::Placements(records) => records.len(),
+            RecordsOf::EdaPlacements {
+                placements, ..
+            } => placements.len(),
+            RecordsOf::PartMappings(records) => records.len(),
+            RecordsOf::Substitutions(records) => records.len(),
+            RecordsOf::AssemblyRules(records) => records.len(),
         }
     }
 

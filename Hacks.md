@@ -61,22 +61,3 @@ for action in actions {
     }
 }
 ```
-## core-io-hack
-
-```
-HACK: core-io-hack - the <file> is read or written by the core, until the stores service does it.
-```
-
-A core does no IO (`STORE-7`): `clippy.toml` in each core's crate, and in `planning`, which the planner's core uses,
-denies the methods and types that touch the disk. The IO the core still does is allowed with
-`#[allow(clippy::disallowed_methods, clippy::disallowed_types)]` and this comment, so each is easy to find, and each is
-a step of the mission that moves it to the stores service (`assets/missions/variant-builder.md`). Remove the hack, and
-the `allow`, once the stores service reads or writes the file.
-
-example:
-
-```rust
-// HACK: core-io-hack - the BOM is written by the core, until the stores service writes it.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
-fn write_bom(path: &Path, records: &[BOMRecord]) -> Result<(), Error> {
-```

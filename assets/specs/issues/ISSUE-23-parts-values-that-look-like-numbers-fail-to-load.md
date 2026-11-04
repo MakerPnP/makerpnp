@@ -40,7 +40,11 @@ From the CLI, in an empty folder:
 
 ## Last repeated
 
-2026-11-04, CLI, Windows 11, after the stores core was made pure, reading the file through the stores service
+2026-11-05, CLI, Windows 11, after the Variant Builder's core was made to read its parts through the stores service, as
+the stores core does (`STORE-14`): not reproduced, the part was listed with `1234` and `0402`, and the expected log
+lines were logged, in order.
+
+Before that, 2026-11-04, CLI, Windows 11, after the stores core was made pure, reading the file through the stores service
 (`STORE-7`): not reproduced, the part was listed with `1234` and `0402`, and the expected log lines were logged, in
 order, with the service's operations between them.
 

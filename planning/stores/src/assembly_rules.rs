@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::{anyhow, Context, Error};
 use assembly::rules::AssemblyRule;
 use tracing::Level;
@@ -34,4 +36,19 @@ pub fn load(source: &AssemblyRuleSource) -> Result<Vec<AssemblyRule>, Error> {
         assembly_rules.push(assembly_rule);
     }
     Ok(assembly_rules)
+}
+
+/// The assembly rules, made from each one's fields, see [`crate::csv::read_rows`].
+pub fn build(rows: &[BTreeMap<String, String>]) -> Result<Vec<AssemblyRule>, Error> {
+    rows.iter()
+        .map(|row| {
+            let fields = row.clone().into_iter().collect();
+            let record = AssemblyRuleRecord::from_fields(&fields)
+                .with_context(|| format!("Building assembly rule from record. record: {:?}", row))?;
+            trace!("{:?}", record);
+            record
+                .build_assembly_rule()
+                .with_context(|| format!("Building assembly rule from record. record: {:?}", record))
+        })
+        .collect()
 }

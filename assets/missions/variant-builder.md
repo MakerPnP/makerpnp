@@ -88,8 +88,8 @@ a data source, with nothing to keep them in step, which matters once data source
 | 4 | The stores service (`planning/stores_service`), async, with a CSV file back end. The stores core is pure, and the CLI and the GUI have the service do its operations. | Done |
 | 5 | Revisions: each view of a data source says which revision of it it shows. | Done |
 | 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | Done |
-| 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Next |
-| 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | |
+| 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Done |
+| 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Next |
 | 9 | A variant builder: define the variant and choose its data sources. | |
 | 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |
 | 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
@@ -112,4 +112,4 @@ what they show is as it was.
 | Load-outs, packages, package mappings, placements | The project's data sources, used by many events, read before the event, which is processed again with them, and changes nothing unless it succeeds (`STORE-11`). | Done |
 | `GenerateArtifacts` | The files made for a phase, and the report, made by the core and written by the service, in order (`STORE-12`). | Done |
 | `RecordPhaseOperation` | Each phase's operation history, read and written by the service as a document (`STORE-13`). | Done |
-| The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules, load-outs and the BOM. | Next |
+| The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules and load-outs read by the service as records, and the placements and BOM written as documents (`STORE-14`). | Done |

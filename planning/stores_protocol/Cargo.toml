@@ -7,6 +7,7 @@ edition = "2021"
 # stays pure, and so that they can be sent to a stores server, for example by a web shell.
 
 [dependencies]
+eda = { path = "../../eda/eda" }
 pnp = { path = "../../pnp/pnp" }
 util = { path = "../../common/util" }
 

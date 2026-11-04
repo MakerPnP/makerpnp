@@ -18,6 +18,14 @@ pub fn load_eda_placements(eda_tool: EdaTool, source: &EdaPlacementsSource) -> R
         .path()
         .map_err(|error| anyhow!("Unsupported source type. cause: {:?}", error))?;
 
+    let file =
+        std::fs::File::open(&path).with_context(|| format!("Error reading placements. file: {}", path.display()))?;
+
+    read_eda_placements(eda_tool, file).with_context(|| format!("Error reading placements. file: {}", path.display()))
+}
+
+/// The placements, from the EDA tool's CSV, whose delimiter depends on the tool.
+pub fn read_eda_placements(eda_tool: EdaTool, reader: impl std::io::Read) -> Result<Vec<EdaPlacement>, Error> {
     let mut csv_reader_builder = csv::ReaderBuilder::new();
 
     // TODO consider moving the creation of the CSV reader builder into the EdaTool specific modules.
@@ -30,9 +38,7 @@ pub fn load_eda_placements(eda_tool: EdaTool, source: &EdaPlacementsSource) -> R
         _ => &mut csv_reader_builder,
     };
 
-    let mut csv_reader = csv_reader_builder
-        .from_path(path.clone())
-        .with_context(|| format!("Error reading placements. file: {}", path.display()))?;
+    let mut csv_reader = csv_reader_builder.from_reader(reader);
 
     let mut placements: Vec<EdaPlacement> = vec![];
 

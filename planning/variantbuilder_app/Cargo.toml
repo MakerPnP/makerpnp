@@ -21,6 +21,9 @@ pnp = { path = "../../pnp/pnp"}
 part_mapper = { path = "../part_mapper"}
 eda = { path = "../../eda/eda" }
 stores = { path = "../stores"}
+stores_protocol = { path = "../stores_protocol" }
 
 [dev-dependencies]
 crux_core = { workspace = true, features = ["testing"] }
+rust_decimal = { workspace = true }
+rust_decimal_macros = { workspace = true }

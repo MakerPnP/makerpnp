@@ -72,9 +72,10 @@ operation it's asked to do, as "`stores_service: Performing stores operation. op
 An operation's result says how many parts were read, not what they are, as it's logged. A core given the result of a
 different operation MUST refuse it, as a fault in the shell. The planner's core uses the stores service to write a
 project's documents (`STORE-10`), the records of its data sources (`STORE-11`), the artifacts it generates
-(`STORE-12`), and each phase's operation history (`STORE-13`), so it reads and writes no file itself. *Target*: the
-Variant Builder's core MUST use the stores service for every file it reads and writes too. The gap: it reads and
-writes them itself, and nothing tells the planner's core when a file changes. They're being moved to the stores service an event at a time (`../../missions/variant-builder.md`).
+(`STORE-12`), and each phase's operation history (`STORE-13`), and the Variant Builder's core to read and write its
+files (`STORE-14`), so neither reads or writes a file itself, which `clippy.toml` in each core's crate checks. *Target*:
+the planner's core MUST be told when a file it read changes. The gap: only the stores core watches its data sources
+(`STORE-9`).
 
 **STORE-8 — Revisions.** *Confirmed.* Each view of a data source MUST say which revision of the data source it shows, so
 that a view that's out of date can be known, and a change can say which revision it was based on. Two reads of a data
@@ -178,6 +179,20 @@ the core logs "`planner_app: Created operation history file. path: <path>`" or
 "`planner_app: Received event. event: OperationHistoryWritten {`". *Target*: the project's change made by recording
 the operation is kept if its history can't be written, as the write's result comes after the event.
 
+**STORE-14 — The Variant Builder's files.** *Confirmed.* Building a variant MUST have the stores service read each of
+its data sources, as records (`STORE-11`): the EDA placements, in the EDA tool's format, then each substitutions file,
+in the order given, then the parts, the part mappings, the load-out, if there is one, and the assembly rules, if there
+are any. The part mappings, substitutions and assembly rules MUST be read as each record's fields, by name, and made
+by the core, as their rules can't be sent between the core and the service. The variant's placements, then its BOM, if
+asked for, MUST be written by the stores service, as documents whose contents the core makes (`STORE-10`), so that the
+core is tested with no files. A data source that doesn't exist MUST say
+"`Data source not found. source: '<source>'`". The first data source that can't be read, or file that can't be
+written, MUST say why, and stop the rest, so nothing is written if a data source can't be read. *Observed*: the files
+are as they were, and the core logs as it did, "`Loaded <n> placements`" and so on, in the same order, once every data
+source is read, then "`Output written to '<path>'`" and "`BOM written to '<path>'`" once each is written. The service
+logs "`Loading <records>. source: '<source>'`" as it reads each, before them, as the core's reading of each no longer
+comes between them.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -254,6 +269,13 @@ the operation is kept if its history can't be written, as the write's result com
   "`planner_app: Updated operation history file. path: `" and
   "`planner_app: Received event. event: OperationHistoryWritten { result: Ok(()) }`" are logged, in order, with no
   "`Event failed.`" (`STORE-13`).
+- `planning/variantbuilder_app/tests/build.rs`, with no files, answers the Variant Builder's core's reads and writes
+  itself, and checks building reads each data source in order, then writes the placements and the BOM, as CSV, that
+  with no BOM asked for only the placements are written, that a data source that doesn't exist says so, the data
+  sources after it aren't read, and nothing is written, and that placements that can't be written say why, and the BOM
+  isn't written (`STORE-14`).
+- `planning/variantbuilder_cli/tests/variantbuilder.rs` builds variants of DipTrace, KiCad and EasyEDA designs, and
+  checks the "`Loaded`" lines are logged in order, and that the placements are as before (`STORE-14`).
 - `planning/planner_cli/tests/planner.rs` checks "`Created load-out. source: '`" is logged before the phase is created,
   that "`Loading load-out. source: '`" is logged before the placements are assigned to the phase, and
   "`Storing load-out. source: '`" after, and that the load-out is as before (`STORE-11`). It creates a phase with a
