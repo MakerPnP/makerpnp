@@ -43,7 +43,7 @@ pub use planning::project::ProjectProcess;
 use planning::project::{PartStateError, PcbOperationError, Project, ProjectError, ProjectPcb};
 pub use planning::report::{IssueKind, IssueSeverity, ProjectReport};
 pub use planning::variant::VariantName;
-use planning::{file, pcb, process, project, report};
+use planning::{file, pcb, project, report};
 pub use pnp::load_out::LoadOutItem;
 pub use pnp::object_path::ObjectPath;
 use pnp::package::Package;
@@ -114,6 +114,8 @@ type ModelPcbs = BTreeMap<PathBuf, ModelPcb>;
 pub struct ModelProcess {
     definition: ProcessDefinition,
     modified: bool,
+    /// The contents being written, until they are, so the process is only said to be saved if it's still as written.
+    writing: Option<String>,
 }
 
 type ModelProcesses = BTreeMap<PathBuf, ModelProcess>;
@@ -135,6 +137,8 @@ pub struct Model {
     ///
     /// A project doesn't use these, it keeps its own copy of each process it uses, see [`ProjectProcess`].
     model_processes: ModelProcesses,
+    /// Process documents being created, until their files are written (`DOC-1`).
+    creating_processes: ModelProcesses,
 
     error: Option<(chrono::DateTime<chrono::Utc>, String)>,
 }
@@ -327,33 +331,85 @@ impl Model {
         Ok(render::render())
     }
 
-    /// Load a process document, no project required.
-    fn load_process(&mut self, path: &PathBuf) -> Result<(), AppError> {
-        let definition = process::load_process(path).map_err(AppError::IoError)?;
+    /// A process document, read for [`Event::LoadProcess`], no project required.
+    fn process_read(&mut self, path: PathBuf, output: StoresOutput) -> Result<Command<Effect, Event>, AppError> {
+        let definition = Self::process_from_output(&path, output)?;
         definition
             .validate()
             .map_err(|cause| AppError::ProcessError(ProcessError::InvalidProcess(cause)))?;
 
         self.model_processes
-            .insert(path.clone(), ModelProcess {
+            .insert(path, ModelProcess {
                 definition,
                 modified: false,
+                writing: None,
             });
 
-        Ok(())
+        Ok(render::render())
     }
 
-    fn save_process(&mut self, path: &PathBuf) -> Result<(), AppError> {
+    /// The process read, or why it couldn't be.
+    fn process_from_output(path: &PathBuf, output: StoresOutput) -> Result<ProcessDefinition, AppError> {
+        let StoresOutput::DocumentRead(result) = output else {
+            return Err(AppError::UnexpectedOutput {
+                output,
+            });
+        };
+        let document = result
+            .map_err(AppError::StoresError)?
+            .ok_or_else(|| AppError::StoresError(format!("Process not found. path: {:?}", path)))?;
+
+        process_from_contents(path, &document.contents).map_err(AppError::StoresError)
+    }
+
+    /// Has the process's file written (`STORE-10`), see [`Event::ProcessWritten`].
+    fn save_process(&mut self, path: &PathBuf) -> Result<Command<Effect, Event>, AppError> {
+        info!("Saving process. path: {}", path.display());
         let model_process = self
             .model_processes
             .get_mut(path)
             .ok_or(AppError::ProcessNotLoaded(path.clone()))?;
 
-        process::save_process(&model_process.definition, path).map_err(AppError::IoError)?;
+        let contents = file::to_string(&model_process.definition).map_err(|cause| AppError::IoError(cause.into()))?;
+        model_process.writing = Some(contents.clone());
 
-        model_process.modified = false;
+        Ok(Planner::write_process(path.clone(), contents))
+    }
 
-        Ok(())
+    /// The process's file was written, or wasn't, for [`Event::CreateProcess`], [`Event::SaveProcess`] or
+    /// [`Event::SaveAllProcesses`].
+    fn process_written(&mut self, path: PathBuf, output: StoresOutput) -> Result<Command<Effect, Event>, AppError> {
+        let StoresOutput::DocumentWritten(result) = output else {
+            return Err(AppError::UnexpectedOutput {
+                output,
+            });
+        };
+
+        // `DOC-1`, a process being created is only created once its file is written.
+        if let Some(mut model_process) = self.creating_processes.remove(&path) {
+            result.map_err(AppError::StoresError)?;
+            info!("Saved process. path: {:?}", path);
+            model_process.modified = false;
+            self.model_processes
+                .insert(path, model_process);
+            return Ok(render::render());
+        }
+
+        let model_process = self
+            .model_processes
+            .get_mut(&path)
+            .ok_or(AppError::ProcessNotLoaded(path.clone()))?;
+        let written = model_process.writing.take();
+        // a refused write leaves the process's changes unsaved.
+        result.map_err(AppError::StoresError)?;
+
+        info!("Saved process. path: {:?}", path);
+        // the process may have been changed while it was written, in which case those changes aren't saved.
+        if written.is_some() && written == file::to_string(&model_process.definition).ok() {
+            model_process.modified = false;
+        }
+
+        Ok(render::render())
     }
 
     fn model_process_mut(&mut self, path: &PathBuf) -> Result<&mut ModelProcess, AppError> {
@@ -457,6 +513,29 @@ async fn write_document(ctx: &Context, path: &PathBuf, contents: String) -> Resu
     {
         StoresOutput::DocumentWritten(result) => result,
         output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
+/// A process, from its document's contents.
+fn process_from_contents(path: &PathBuf, contents: &str) -> Result<ProcessDefinition, String> {
+    file::from_str::<ProcessDefinition>(contents)
+        .map_err(|cause| format!("Unable to read the process. path: {:?}, cause: '{}'", path, cause))
+}
+
+/// The processes read for [`Event::RefreshProcesses`], by the reference of the process each replaces.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ProcessDefinitions(Vec<(ProcessReference, ProcessDefinition)>);
+
+/// Says which processes were read, not what's in them, as the event is logged.
+impl Debug for ProcessDefinitions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_list()
+            .entries(
+                self.0
+                    .iter()
+                    .map(|(reference, _)| reference.to_string()),
+            )
+            .finish()
     }
 }
 
@@ -837,6 +916,12 @@ pub enum Event {
     AddProcess {
         process_file: FileReference,
     },
+    /// Internal: the process's file, read for [`Event::AddProcess`], or why it couldn't be (`STORE-10`).
+    ProjectProcessRead {
+        process_file: FileReference,
+        path: PathBuf,
+        output: StoresOutput,
+    },
     /// Removes a process from the project.  Its file is not deleted.
     RemoveProcess {
         process_reference: ProcessReference,
@@ -846,6 +931,11 @@ pub enum Event {
     /// A process that has changed can't be updated while a phase that uses it is in progress, and then no process is
     /// updated.
     RefreshProcesses,
+    /// Internal: each of the project's processes, read for [`Event::RefreshProcesses`], or why one couldn't be
+    /// (`STORE-10`).
+    ProcessesRead {
+        definitions: Result<ProcessDefinitions, String>,
+    },
     ApplyPackageSources {
         packages_source: Option<PackagesSource>,
         package_mappings_source: Option<PackageMappingsSource>,
@@ -1047,8 +1137,19 @@ pub enum Event {
     LoadProcess {
         path: PathBuf,
     },
+    /// Internal: the process's file, read for [`Event::LoadProcess`], or why it couldn't be (`STORE-10`).
+    ProcessRead {
+        path: PathBuf,
+        output: StoresOutput,
+    },
     SaveProcess {
         path: PathBuf,
+    },
+    /// Internal: the process's file was written, or wasn't, for [`Event::CreateProcess`], [`Event::SaveProcess`] or
+    /// [`Event::SaveAllProcesses`] (`STORE-10`).
+    ProcessWritten {
+        path: PathBuf,
+        output: StoresOutput,
     },
     SaveAllProcesses,
     /// Replaces the definition in a process document.
@@ -1514,37 +1615,42 @@ impl Planner {
                 };
                 definition.reference = reference;
 
+                // `DOC-1`, as with a new project or PCB, a new process is saved as it is created, and is created once
+                // it's saved, see `Event::ProcessWritten`.
+                info!("Saving process. path: {}", path.display());
+                let contents = file::to_string(&definition).map_err(|cause| AppError::IoError(cause.into()))?;
                 model
-                    .model_processes
+                    .creating_processes
                     .insert(path.clone(), ModelProcess {
                         definition,
                         modified: true,
+                        writing: None,
                     });
 
-                // as with a new project or PCB, a new process is saved as it is created.
-                model.save_process(&path)?;
-
-                Ok(render::render())
+                Ok(Self::write_process(path, contents))
             }),
             Event::LoadProcess {
                 path,
-            } => Box::new(move |model: &mut Model| {
+            } => Box::new(move |_model: &mut Model| {
                 // Note: doesn't require a project.
                 info!("Load process. path: {:?}", &path);
 
-                model.load_process(&path)?;
-
-                Ok(render::render())
+                Ok(Self::read_process(path.clone(), move |output| Event::ProcessRead {
+                    path: path.clone(),
+                    output,
+                }))
             }),
+            Event::ProcessRead {
+                path,
+                output,
+            } => Box::new(move |model: &mut Model| model.process_read(path, output)),
             Event::SaveProcess {
                 path,
-            } => Box::new(move |model: &mut Model| {
-                model.save_process(&path)?;
-
-                info!("Saved process. path: {:?}", path);
-
-                Ok(render::render())
-            }),
+            } => Box::new(move |model: &mut Model| model.save_process(&path)),
+            Event::ProcessWritten {
+                path,
+                output,
+            } => Box::new(move |model: &mut Model| model.process_written(path, output)),
             Event::SaveAllProcesses => Box::new(|model: &mut Model| {
                 let paths = model
                     .model_processes
@@ -1552,11 +1658,12 @@ impl Planner {
                     .cloned()
                     .collect::<Vec<_>>();
 
+                let mut commands = vec![];
                 for path in paths {
-                    model.save_process(&path)?;
+                    commands.push(model.save_process(&path)?);
                 }
 
-                Ok(render::render())
+                Ok(Command::all(commands))
             }),
             Event::ApplyProcessDefinition {
                 path,
@@ -1565,6 +1672,7 @@ impl Planner {
                 let ModelProcess {
                     definition,
                     modified,
+                    ..
                 } = model.model_process_mut(&path)?;
 
                 process_definition
@@ -1589,6 +1697,7 @@ impl Planner {
                 let ModelProcess {
                     definition,
                     modified,
+                    ..
                 } = model.model_process_mut(&path)?;
 
                 info!("Edit process. path: {:?}, edit: {:?}", path, edit);
@@ -1703,17 +1812,38 @@ impl Planner {
                 process_file,
             } => Box::new(move |model: &mut Model| {
                 let ModelProject {
+                    project_directory, ..
+                } = model
+                    .model_project
+                    .as_ref()
+                    .ok_or(AppError::OperationRequiresProject)?;
+
+                let process_path = process_file.build_path(project_directory);
+
+                // `STORE-10`, added once it's read, see `Event::ProjectProcessRead`.
+                Ok(Self::read_process(process_path.clone(), move |output| {
+                    Event::ProjectProcessRead {
+                        process_file: process_file.clone(),
+                        path: process_path.clone(),
+                        output,
+                    }
+                }))
+            }),
+            Event::ProjectProcessRead {
+                process_file,
+                path: process_path,
+                output,
+            } => Box::new(move |model: &mut Model| {
+                let definition = Model::process_from_output(&process_path, output)?;
+
+                let ModelProject {
                     project,
                     modified,
-                    project_directory,
                     ..
                 } = model
                     .model_project
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
-
-                let process_path = process_file.build_path(project_directory);
-                let definition = process::load_process(&process_path).map_err(AppError::IoError)?;
 
                 project
                     .add_process(process_file, definition)
@@ -1746,31 +1876,74 @@ impl Planner {
             Event::RefreshProcesses => Box::new(move |model: &mut Model| {
                 let ModelProject {
                     project,
-                    modified,
                     project_directory,
+                    ..
+                } = model
+                    .model_project
+                    .as_ref()
+                    .ok_or(AppError::OperationRequiresProject)?;
+
+                let files = project
+                    .processes
+                    .iter()
+                    .filter_map(|project_process| {
+                        project_process
+                            .process_file
+                            .as_ref()
+                            .map(|process_file| {
+                                (
+                                    project_process
+                                        .definition
+                                        .reference
+                                        .clone(),
+                                    process_file.build_path(project_directory),
+                                )
+                            })
+                    })
+                    .collect::<Vec<_>>();
+
+                // `STORE-10`, read every file first, so that nothing changes if one can't be read, see
+                // `Event::ProcessesRead`.
+                Ok(Command::new(|ctx| async move {
+                    let mut definitions = vec![];
+                    let mut error = None;
+                    for (process_reference, process_path) in files {
+                        info!("Loading process. path: {}", process_path.display());
+                        let definition = read_document(&ctx, &process_path)
+                            .await
+                            .and_then(|document| {
+                                document.ok_or_else(|| format!("Process not found. path: {:?}", process_path))
+                            })
+                            .and_then(|document| process_from_contents(&process_path, &document.contents));
+                        match definition {
+                            Ok(definition) => definitions.push((process_reference, definition)),
+                            Err(cause) => {
+                                error = Some(cause);
+                                break;
+                            }
+                        }
+                    }
+                    ctx.send_event(Event::ProcessesRead {
+                        definitions: match error {
+                            Some(error) => Err(error),
+                            None => Ok(ProcessDefinitions(definitions)),
+                        },
+                    });
+                }))
+            }),
+            Event::ProcessesRead {
+                definitions,
+            } => Box::new(move |model: &mut Model| {
+                let ProcessDefinitions(definitions) = definitions.map_err(AppError::StoresError)?;
+
+                let ModelProject {
+                    project,
+                    modified,
                     ..
                 } = model
                     .model_project
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
-
-                // read every file first, so that nothing changes if one can't be read.
-                let mut definitions = vec![];
-                for project_process in project.processes.iter() {
-                    let Some(process_file) = &project_process.process_file else {
-                        continue;
-                    };
-                    let process_path = process_file.build_path(project_directory);
-                    let definition = process::load_process(&process_path).map_err(AppError::IoError)?;
-
-                    definitions.push((
-                        project_process
-                            .definition
-                            .reference
-                            .clone(),
-                        definition,
-                    ));
-                }
 
                 // update a copy, so that nothing changes if one process can't be updated.
                 let mut updated_project = project.clone();
@@ -3132,6 +3305,30 @@ impl Planner {
             path: path.clone(),
         })
         .then_send(move |output| Event::PcbRead {
+            path: path.clone(),
+            output,
+        })
+    }
+
+    /// Has the stores service read the process's file, then gives the core the event made from the output.
+    fn read_process(
+        path: PathBuf,
+        event: impl FnOnce(StoresOutput) -> Event + Send + 'static,
+    ) -> Command<Effect, Event> {
+        info!("Loading process. path: {}", path.display());
+        Command::request_from_shell(StoresOperation::ReadDocument {
+            path,
+        })
+        .then_send(event)
+    }
+
+    /// Has the stores service write the process's file, then gives the core [`Event::ProcessWritten`].
+    fn write_process(path: PathBuf, contents: String) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::WriteDocument {
+            path: path.clone(),
+            contents,
+        })
+        .then_send(move |output| Event::ProcessWritten {
             path: path.clone(),
             output,
         })

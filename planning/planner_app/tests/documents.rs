@@ -11,7 +11,7 @@ use planner_app::{
 };
 use planning::file::{self, FileReference};
 use planning::pcb::Pcb;
-use planning::process::{ProcessDefinition, ProcessPresetFactory};
+use planning::process::{ProcessDefinition, ProcessPresetFactory, ProcessReference};
 use planning::project::{Project, ProjectPcb, ProjectProcess};
 use util::source::Source;
 
@@ -692,4 +692,166 @@ fn an_event_needing_a_pcb_that_is_not_loaded_says_so() {
     let error = shell.error().expect("an error");
     assert!(error.contains("PCB not loaded."), "{error}");
     assert_eq!(shell.reads().len(), reads);
+}
+
+fn process_path(name: &str) -> PathBuf {
+    PathBuf::from("projects").join(format!("{}.process.json", name))
+}
+
+fn create_process(name: &str, preset: &str) -> Event {
+    Event::CreateProcess {
+        path: process_path(name),
+        reference: ProcessReference::from_raw_str(name),
+        preset: Some(preset.to_string()),
+    }
+}
+
+/// Changes the process document, with no store operations.
+fn change_the_process(name: &str) -> Event {
+    let mut process_definition = ProcessPresetFactory::by_preset_name("manual").unwrap();
+    process_definition.reference = ProcessReference::from_raw_str(name);
+    Event::ApplyProcessDefinition {
+        path: process_path(name),
+        process_definition,
+    }
+}
+
+fn processes_modified(shell: &Shell) -> bool {
+    shell.core.view().processes_modified
+}
+
+/// `DOC-1`, `STORE-10`, creating a process has the stores service write its file, and it then has no unsaved changes,
+/// and one whose file can't be written isn't created.
+#[test]
+fn creating_a_process_writes_its_file() {
+    let mut shell = Shell::default();
+
+    shell.process(create_process("pnp", "pnp"));
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.writes(), vec![process_path("pnp")]);
+    assert_eq!(shell.document(&process_path("pnp"))["reference"], "pnp");
+    assert!(!processes_modified(&shell));
+
+    shell
+        .refused
+        .insert(process_path("other"), "Unable to write the document.".to_string());
+    shell.process(create_process("other", "pnp"));
+    assert!(shell.error().is_some());
+    shell.process(Event::SaveProcess {
+        path: process_path("other"),
+    });
+    let error = shell.error().expect("an error");
+    assert!(error.contains("ProcessNotLoaded"), "{error}");
+}
+
+/// `STORE-10`, saving a process has the stores service write its changes, a refused save keeps them unsaved, and
+/// saving every process writes each.
+#[test]
+fn saving_a_process_writes_it() {
+    let mut shell = Shell::default();
+    shell.process(create_process("pnp", "pnp"));
+    shell.process(create_process("manual", "pnp"));
+    shell.process(change_the_process("pnp"));
+    assert!(processes_modified(&shell));
+
+    shell
+        .refused
+        .insert(process_path("pnp"), "Unable to write the document.".to_string());
+    shell.process(Event::SaveProcess {
+        path: process_path("pnp"),
+    });
+    assert!(shell.error().is_some());
+    assert!(processes_modified(&shell));
+
+    shell.refused.clear();
+    shell.process(Event::SaveAllProcesses);
+    assert_eq!(shell.error(), None);
+    assert!(!processes_modified(&shell));
+    // after the two created, and the one refused.
+    assert_eq!(shell.writes()[3..], [process_path("manual"), process_path("pnp")]);
+}
+
+/// `STORE-10`, loading a process has the stores service read it, and one that doesn't exist says so.
+#[test]
+fn loading_a_process_reads_it() {
+    let mut shell = Shell::default();
+    shell.given_a_document(
+        &process_path("pnp"),
+        &ProcessPresetFactory::by_preset_name("pnp").unwrap(),
+    );
+
+    shell.process(Event::LoadProcess {
+        path: process_path("pnp"),
+    });
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads(), vec![process_path("pnp")]);
+
+    shell.process(Event::LoadProcess {
+        path: process_path("other"),
+    });
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Process not found."), "{error}");
+}
+
+/// `STORE-10`, adding a process to a project has the stores service read it, and one that can't be read isn't added.
+#[test]
+fn adding_a_process_to_a_project_reads_it() {
+    let mut shell = Shell::default();
+    shell.process(create_project("job1"));
+
+    shell.process(Event::AddProcess {
+        process_file: FileReference::Relative(PathBuf::from("pnp.process.json")),
+    });
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Process not found."), "{error}");
+    assert!(!shell.project_modified());
+
+    shell.given_a_document(
+        &process_path("pnp"),
+        &ProcessPresetFactory::by_preset_name("pnp").unwrap(),
+    );
+    shell.process(Event::AddProcess {
+        process_file: FileReference::Relative(PathBuf::from("pnp.process.json")),
+    });
+    assert_eq!(shell.error(), None);
+    assert!(shell.project_modified());
+    shell.process(Event::Save);
+    assert_eq!(
+        shell.document(&project_path("job1"))["processes"][0]["reference"],
+        "pnp"
+    );
+}
+
+/// `STORE-10`, refreshing has the stores service read each of the project's processes, and if one can't be read,
+/// nothing changes.
+#[test]
+fn refreshing_processes_reads_each() {
+    let mut shell = Shell::default();
+    shell.process(create_project("job1"));
+    shell.given_a_document(
+        &process_path("pnp"),
+        &ProcessPresetFactory::by_preset_name("pnp").unwrap(),
+    );
+    shell.process(Event::AddProcess {
+        process_file: FileReference::Relative(PathBuf::from("pnp.process.json")),
+    });
+    shell.process(Event::Save);
+
+    // changed outside the core.
+    let mut changed = ProcessPresetFactory::by_preset_name("manual").unwrap();
+    changed.reference = ProcessReference::from_raw_str("pnp");
+    shell.given_a_document(&process_path("pnp"), &changed);
+    shell
+        .refused
+        .insert(process_path("pnp"), "Unable to read the document.".to_string());
+    shell.process(Event::RefreshProcesses);
+    assert!(shell.error().is_some());
+    assert!(!shell.project_modified());
+
+    shell.refused.clear();
+    shell.process(Event::RefreshProcesses);
+    assert_eq!(shell.error(), None);
+    assert!(shell.project_modified());
+    assert_eq!(shell.reads().last(), Some(&process_path("pnp")));
 }

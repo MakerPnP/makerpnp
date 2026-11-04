@@ -215,7 +215,7 @@ pub fn create_process(app: &mut App, folder: &Path, reference: &str, preset: Opt
     app.wait_for_tab(&format!("{reference}.process.json"));
 }
 
-/// `DOC-1`, `PROC-1`
+/// `DOC-1`, `PROC-1`, `STORE-10`
 #[test]
 fn a_new_process_from_a_preset_saves_the_same_file_as_the_cli() {
     let mut app = App::start();
@@ -227,6 +227,15 @@ fn a_new_process_from_a_preset_saves_the_same_file_as_the_cli() {
     // only shown after the core has created the process.
     app.wait_for_button("Add operation");
     app.wait_until_button_is_disabled("Save");
+    // once the stores service has written its file.
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: CreateProcess {",
+        "planner_app: Saving process. path: ",
+        "stores_service: Performing stores operation. operation: WriteDocument { path: ",
+        "planner_app: Received event. event: ProcessWritten {",
+        "planner_app: Saved process. path: ",
+    ]);
+    app.assert_not_logged("Event failed.");
     let saved = fs::read_to_string(&process).unwrap();
 
     // what the CLI's `sequence_07_create_process_from_preset` does.
