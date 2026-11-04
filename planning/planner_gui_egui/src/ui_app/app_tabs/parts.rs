@@ -4,19 +4,19 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use derivative::Derivative;
-use egui::{Button, Ui, WidgetText};
+use egui::{Button, TextEdit, Ui, Widget, WidgetText};
 use egui_i18n::tr;
 use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use serde::{Deserialize, Serialize};
-use stores_app::{Event, PartsSource, PartsSourceStatus, PartsView};
+use stores_app::{Event, Part, PartsChange, PartsSource, PartsSourceStatus, PartsView};
 use tracing::debug;
 use validator::{Validate, ValidationError};
 
 use crate::data_sources::parts_table::show_parts_table;
 use crate::file_picker::{FileDialogs, Picker};
-use crate::forms::{Form, PickerFieldAction, picker_field};
+use crate::forms::{Form, NamedResponse, PickerFieldAction, picker_field};
 use crate::stores_core::StoresCoreService;
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
@@ -47,6 +47,12 @@ pub struct PartsTab {
 
     #[serde(skip)]
     file_picker: Value<Picker>,
+
+    /// The part to add or remove, as typed (`PARTSRC-6`).
+    #[serde(skip)]
+    manufacturer: String,
+    #[serde(skip)]
+    mpn: String,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +63,10 @@ pub enum PartsTabUiCommand {
     CsvFilePicked(PathBuf),
     Submit,
     ReloadClicked,
+    ManufacturerChanged(String),
+    MpnChanged(String),
+    AddPartClicked,
+    RemovePartClicked,
 
     // internal
     /// Opens the data source, using its parts if they're loaded already, as when another tab shows them.
@@ -98,6 +108,35 @@ impl PartsTab {
             .lock()
             .unwrap()
             .process(event(source.clone()));
+    }
+
+    /// The part typed, if both its manufacturer and MPN are.
+    fn part(&self) -> Option<Part> {
+        let (manufacturer, mpn) = (self.manufacturer.trim(), self.mpn.trim());
+        (!manufacturer.is_empty() && !mpn.is_empty()).then(|| Part::new(manufacturer.to_string(), mpn.to_string()))
+    }
+
+    /// Has the stores core make the change to the parts shown, based on the revision of the view shown, so that it's
+    /// refused if the data source has changed since (`STORE-15`).
+    fn change(&self, stores: &Value<StoresCoreService>, change: impl FnOnce(Part) -> PartsChange) {
+        let (Some(source), Some(part)) = (&self.source, self.part()) else {
+            return;
+        };
+        let mut stores = stores.lock().unwrap();
+        let Some(revision) = stores
+            .parts_source_status(source)
+            .and_then(|status| stores.parts_view(&status.source))
+            .map(|view| view.revision.clone())
+        else {
+            // the buttons are disabled until the parts are shown.
+            return;
+        };
+
+        stores.process(Event::ChangeParts {
+            source: source.clone(),
+            revision,
+            change: change(part),
+        });
     }
 }
 
@@ -214,6 +253,27 @@ impl UiComponent for PartsTab {
                 // every tab showing the data source shows the parts loaded (`PARTSRC-5`).
                 self.process(&context.stores, |source| Event::LoadParts {
                     source,
+                });
+                None
+            }
+            PartsTabUiCommand::ManufacturerChanged(manufacturer) => {
+                self.manufacturer = manufacturer;
+                None
+            }
+            PartsTabUiCommand::MpnChanged(mpn) => {
+                self.mpn = mpn;
+                None
+            }
+            PartsTabUiCommand::AddPartClicked => {
+                self.change(&context.stores, |part| PartsChange::Add {
+                    part,
+                    fields: Default::default(),
+                });
+                None
+            }
+            PartsTabUiCommand::RemovePartClicked => {
+                self.change(&context.stores, |part| PartsChange::Remove {
+                    part,
                 });
                 None
             }
@@ -348,6 +408,10 @@ impl PartsTab {
                     ui.colored_label(ui.visuals().error_fg_color, error);
                 }
 
+                if let (Some(status), Some(view)) = (status.as_ref(), view.as_ref()) {
+                    self.show_change(ui, status, view);
+                }
+
                 ui.separator();
 
                 // the store operations are done without the GUI waiting for them, so the parts may not be read yet.
@@ -368,6 +432,74 @@ impl PartsTab {
                     show_parts_table(ui, view);
                 }
             });
+    }
+}
+
+impl PartsTab {
+    /// The part to add or remove, and the buttons that do it, enabled only for a part that is, or isn't, shown, and
+    /// while no other change is being made, and why the data source's last change was refused, if it was
+    /// (`PARTSRC-6`, `STORE-15`).
+    fn show_change(&self, ui: &mut Ui, status: &PartsSourceStatus, view: &PartsView) {
+        ui.horizontal(|ui| {
+            let manufacturer_label = tr!("parts-source-input-manufacturer");
+            let mut manufacturer = self.manufacturer.clone();
+            if TextEdit::singleline(&mut manufacturer)
+                .hint_text(manufacturer_label.clone())
+                .desired_width(150.0)
+                .ui(ui)
+                .named(manufacturer_label)
+                .changed()
+            {
+                self.component
+                    .send(PartsTabUiCommand::ManufacturerChanged(manufacturer));
+            }
+
+            let mpn_label = tr!("parts-source-input-mpn");
+            let mut mpn = self.mpn.clone();
+            if TextEdit::singleline(&mut mpn)
+                .hint_text(mpn_label.clone())
+                .desired_width(150.0)
+                .ui(ui)
+                .named(mpn_label)
+                .changed()
+            {
+                self.component
+                    .send(PartsTabUiCommand::MpnChanged(mpn));
+            }
+
+            let shown = self.part().map(|part| {
+                view.parts
+                    .iter()
+                    .any(|item| item.part == part)
+            });
+            let can_change = !status.changing;
+
+            if ui
+                .add_enabled(
+                    can_change && shown == Some(false),
+                    Button::new(tr!("parts-source-button-add-part")),
+                )
+                .clicked()
+            {
+                self.component
+                    .send(PartsTabUiCommand::AddPartClicked);
+            }
+            if ui
+                .add_enabled(
+                    can_change && shown == Some(true),
+                    Button::new(tr!("parts-source-button-remove-part")),
+                )
+                .clicked()
+            {
+                self.component
+                    .send(PartsTabUiCommand::RemovePartClicked);
+            }
+        });
+
+        // the data source's, so shown by every tab showing it, until a change succeeds.
+        if let Some(error) = &status.change_error {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
     }
 }
 

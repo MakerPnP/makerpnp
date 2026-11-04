@@ -89,8 +89,8 @@ a data source, with nothing to keep them in step, which matters once data source
 | 5 | Revisions: each view of a data source says which revision of it it shows. | Done |
 | 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | Done |
 | 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Done |
-| 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Next |
-| 9 | A variant builder: define the variant and choose its data sources. | |
+| 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Done |
+| 9 | A variant builder: define the variant and choose its data sources. | Next |
 | 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |
 | 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
 | 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
@@ -122,4 +122,4 @@ Each is a commit, the core first.
 |---|---|
 | The stores core: add a part, set its other values, or remove it, based on a revision, and refused if the data source changed since, by the core or the stores service (`STORE-15`). | Done |
 | The CLI: `planner_cli parts --source <file> add`, `set` and `remove`, based on the revision read, or one given (`STORE-16`). | Done |
-| The GUI: add and remove parts from a parts tab, seen by every tab showing the data source. | Next |
+| The GUI: add and remove parts from a parts tab, seen by every tab showing the data source (`PARTSRC-6`). Setting a part's other values from the GUI is left to step 11. | Done |

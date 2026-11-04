@@ -41,6 +41,16 @@ copy of the parts. The GUI has one stores service too (`STORE-7`), whose operati
 and whose results come back as a command, "`UiApp command. command: StoresReply(`", handled in order with the others
 (`GARCH-11`). A watch's results go on until the GUI closes, each one a "`StoresReply`".
 
+**PARTSRC-6 — Adding and removing parts.** *Confirmed.* Once its parts are shown, the tab MUST have "`Manufacturer`"
+and "`MPN`", for the part to add or remove, "`Add part`", which has the stores core add the part, after the others,
+and "`Remove part`", which has it remove the part (`STORE-15`). Each change MUST be based on the revision of the parts
+the tab shows, so it's refused if the data source has changed since, and every tab showing the data source MUST then
+show the change, or, if it's refused, why, until a change succeeds, as the error is the data source's (`PARTSRC-5`).
+*Observed*: "`Add part`" is enabled only for a part, both its manufacturer and its MPN typed, that isn't shown, and
+"`Remove part`" only for one that is, and neither while a change to the data source is being written. A part added has
+no other values; they're empty, as each part has a value of every name. The part typed is kept once it's added or
+removed.
+
 ## Acceptance criteria
 
 - `tests/ui/parts_sources.rs` opens a CSV file using "`Open parts`", and checks the tab's label, the columns, and each
@@ -79,5 +89,16 @@ and whose results come back as a command, "`UiApp command. command: StoresReply(
   the error and the parts loaded before are shown, and logged, in order, then that the other data source's tab has no
   error, and that the first tab showing the data source shows the error and the parts loaded before
   (`PARTSRC-3`, `PARTSRC-5`, `STORE-3`).
+- `tests/ui/parts_sources.rs` checks "`Add part`" and "`Remove part`" are disabled until a part is typed, that only
+  "`Remove part`" is enabled for a part shown, and only "`Add part`" for one that isn't. It adds a part, checks only
+  "`Remove part`" is then enabled, that "`PartsTab command. command: AddPartClicked`",
+  "`stores_app: Received event. event: ChangeParts {`",
+  "`stores_service: Performing stores operation. operation: WriteParts {`", its "`StoresReply`",
+  "`stores_app: Received event. event: PartsWritten {`" and "`stores_app: Changed parts. source: '`" are logged, in
+  order, with no "`Event failed.`", and that the file has the part, with empty values. It then removes it, and checks
+  "`RemovePartClicked`" and "`Changed parts.`" are logged, in order, and that the file is as it was (`PARTSRC-6`,
+  `STORE-15`).
 - Not covered yet: restoring a parts tab when the GUI starts again (`PARTSRC-4`), as the GUI's tests start with no saved
-  state, and "`Loading the parts...`", which is shown only until the stores service has read the file.
+  state, and "`Loading the parts...`", which is shown only until the stores service has read the file. A change refused
+  as the file changed since, in the GUI (`PARTSRC-6`), as the watch reads the file again as soon as it's changed, so
+  the GUI's tests can't change it between the parts being shown and the change; the core's tests check it.

@@ -284,3 +284,59 @@ fn a_refused_reload_is_shown_by_every_tab_showing_the_data_source() {
     app.wait_for_text_containing("Missing header. header: 'Manufacturer'");
     app.wait_for_text("RESCO");
 }
+
+/// `PARTSRC-6`, `STORE-15`, a part typed is added, and removed, by the stores core, each change based on the revision
+/// of the parts shown, the buttons enabled only for a part that isn't, or is, shown.
+#[test]
+fn adding_and_removing_a_part_changes_the_file() {
+    let mut app = App::start();
+    let parts = given_a_parts_file(&app.folder(), "parts.csv", PARTS);
+
+    choose_csv_file(&mut app, &parts);
+    app.click_button("Ok");
+    app.wait_for_text("RESCO");
+
+    // no part typed.
+    app.assert_button_is_disabled("Add part");
+    app.assert_button_is_disabled("Remove part");
+
+    // a part that's shown can only be removed.
+    app.type_into("Manufacturer", "RESCO");
+    app.type_into("MPN", "1234");
+    app.wait_for_enabled_button("Remove part");
+    app.assert_button_is_disabled("Add part");
+
+    app.type_into("Manufacturer", "LEDCO");
+    app.type_into("MPN", "LED1");
+    app.wait_for_enabled_button("Add part");
+    app.assert_button_is_disabled("Remove part");
+
+    app.click_button("Add part");
+    // now shown, so it can only be removed.
+    app.wait_for_enabled_button("Remove part");
+    app.wait_until_button_is_disabled("Add part");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: AddPartClicked",
+        "stores_app: Received event. event: ChangeParts {",
+        "stores_service: Performing stores operation. operation: WriteParts {",
+        "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: WriteParts {",
+        "stores_app: Received event. event: PartsWritten {",
+        "stores_app: Changed parts. source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+    assert_eq!(
+        fs::read_to_string(&parts).unwrap(),
+        format!("{PARTS}\"LEDCO\",\"LED1\",\"\",\"\"\n")
+    );
+
+    app.click_button("Remove part");
+    app.wait_for_enabled_button("Add part");
+    app.wait_until_button_is_disabled("Remove part");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: RemovePartClicked",
+        "stores_app: Received event. event: ChangeParts {",
+        "stores_app: Changed parts. source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+    assert_eq!(fs::read_to_string(&parts).unwrap(), PARTS);
+}
