@@ -9,7 +9,7 @@ use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use planner_app::{ObjectPath, PanelSizing, PcbOverview, PcbSide, PlacementPositionUnit};
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::forms::TABLE_TWO_ROWS_HEIGHT;
 use crate::i18n::conversions::{gerber_file_function_to_i18n_key, pcb_side_to_i18n_key};
@@ -41,7 +41,6 @@ impl GerberViewerTabUi {
         gerber_viewer_ui
             .component
             .configure_mapper(component.sender.clone(), |gerber_viewer_command| {
-                trace!("gerber_viewer mapper. command: {:?}", gerber_viewer_command);
                 GerberViewerTabUiCommand::GerberViewerUiCommand(gerber_viewer_command)
             });
 
@@ -304,6 +303,8 @@ impl UiComponent for GerberViewerTabUi {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("GerberViewerTabUi command. command: {:?}", command);
         match command {
             GerberViewerTabUiCommand::None => Some(GerberViewerTabUiAction::None),
             GerberViewerTabUiCommand::GerberViewerUiCommand(command) => {

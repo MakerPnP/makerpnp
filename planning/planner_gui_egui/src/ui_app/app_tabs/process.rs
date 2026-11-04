@@ -114,6 +114,8 @@ impl UiComponent for ProcessTab {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ProcessTab command. command: {:?}", command);
         match command {
             ProcessTabUiCommand::ProcessCommand {
                 key,

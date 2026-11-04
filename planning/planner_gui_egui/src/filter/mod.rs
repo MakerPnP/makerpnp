@@ -5,6 +5,7 @@ use derivative::Derivative;
 use egui::{Frame, Margin, Style, Ui};
 use egui_i18n::tr;
 use regex::{Regex, RegexBuilder};
+use tracing::debug;
 
 use crate::ui_component::{ComponentState, UiComponent};
 
@@ -256,6 +257,8 @@ impl UiComponent for Filter {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("Filter command. command: {:?}", command);
         match command {
             FilterUiCommand::ExpressionChanged(expression) => {
                 self.expression = expression;

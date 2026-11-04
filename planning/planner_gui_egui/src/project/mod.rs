@@ -204,7 +204,6 @@ impl Project {
         toolbar
             .component
             .configure_mapper(component_sender.clone(), move |command| {
-                trace!("project toolbar mapper. command: {:?}", command);
                 (key, ProjectUiCommand::ToolbarCommand(command))
             });
 
@@ -257,7 +256,6 @@ impl Project {
         project_tabs
             .component
             .configure_mapper(component_sender.clone(), move |command| {
-                trace!("project inner-tab mapper. command: {:?}", command);
                 (key, ProjectUiCommand::TabCommand(command))
             });
 
@@ -445,7 +443,6 @@ impl Project {
                     .component
                     .configure_mapper(self.component.sender.clone(), {
                         move |command| {
-                            trace!("phase ui mapper. command: {:?}", command);
                             (key, ProjectUiCommand::PhaseTabUiCommand {
                                 phase: phase.clone(),
                                 command,
@@ -475,7 +472,6 @@ impl Project {
                     .component
                     .configure_mapper(self.component.sender.clone(), {
                         move |command| {
-                            trace!("process ui mapper. command: {:?}", command);
                             (key, ProjectUiCommand::ProcessTabUiCommand {
                                 process: process.clone(),
                                 command,
@@ -501,7 +497,6 @@ impl Project {
                     .component
                     .configure_mapper(self.component.sender.clone(), {
                         move |command| {
-                            trace!("load out ui mapper. command: {:?}", command);
                             (key, ProjectUiCommand::LoadOutTabUiCommand {
                                 load_out_source: load_out_source.clone(),
                                 command,
@@ -526,7 +521,6 @@ impl Project {
                     .component
                     .configure_mapper(self.component.sender.clone(), {
                         move |command| {
-                            trace!("pcb ui mapper. command: {:?}", command);
                             (key, ProjectUiCommand::PcbTabUiCommand {
                                 pcb_index,
                                 command,
@@ -551,7 +545,6 @@ impl Project {
                     .component
                     .configure_mapper(self.component.sender.clone(), {
                         move |command| {
-                            trace!("pcb ui mapper. command: {:?}", command);
                             (key, ProjectUiCommand::UnitAssignmentsTabUiCommand {
                                 pcb_index,
                                 command,
@@ -599,7 +592,7 @@ impl Project {
 
     fn navigate(&mut self, key: ProjectKey, path: NavigationPath) -> Option<ProjectAction> {
         // if the path starts with `/project/` then show/hide UI elements based on the path,
-        info!("project::navigate. path: {}", path);
+        debug!("Navigating. path: '{}'", path);
 
         #[must_use]
         fn handle_root(key: &ProjectKey, path: &NavigationPath) -> Option<ProjectAction> {
@@ -652,7 +645,6 @@ impl Project {
                     .unwrap()
                     .as_str()
                     .to_string();
-                debug!("phase_reference: {}", phase_reference);
 
                 let reference = Reference::from_raw(phase_reference);
                 let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowPhase(reference)));
@@ -673,7 +665,6 @@ impl Project {
                     .unwrap()
                     .as_str()
                     .to_string();
-                debug!("process_reference: {}", process_reference);
 
                 let reference = Reference::from_raw(process_reference);
                 let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowProcess(reference)));
@@ -694,7 +685,6 @@ impl Project {
                     .unwrap()
                     .as_str()
                     .to_string();
-                debug!("phase_reference: {}", phase_reference);
 
                 let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowPhaseLoadout {
                     phase: Reference(phase_reference),
@@ -718,7 +708,6 @@ impl Project {
                     .as_str()
                     .parse::<u16>()
                     .unwrap();
-                debug!("pcb: {}", pcb_index);
 
                 let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowPcb(pcb_index)));
 
@@ -740,7 +729,6 @@ impl Project {
                     .as_str()
                     .parse::<u16>()
                     .unwrap();
-                debug!("pcb: {}", pcb_index);
 
                 let task = Task::done(ProjectAction::UiCommand(ProjectUiCommand::ShowPcbUnitAssignments(
                     pcb_index,
@@ -873,7 +861,6 @@ impl Project {
         modal
             .component
             .configure_mapper(self.component.sender.clone(), move |command| {
-                trace!("add phase modal mapper. command: {:?}", command);
                 (key, ProjectUiCommand::AddPhaseModalCommand(command))
             });
 
@@ -900,7 +887,6 @@ impl Project {
             modal
                 .component
                 .configure_mapper(self.component.sender.clone(), move |command| {
-                    trace!("package sources modal mapper. command: {:?}", command);
                     (key, ProjectUiCommand::PackageSourcesModalCommand(command))
                 });
 
@@ -1029,6 +1015,8 @@ impl UiComponent for Project {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("Project command. command: {:?}", command);
         let (key, command) = command;
 
         let action = self.handle_command(key, command);
@@ -1172,29 +1160,21 @@ impl Project {
                 self.on_project_opened();
                 None
             }
-            ProjectUiCommand::Load => {
-                debug!("Loading project from path. path: {}", self.path.display());
-
-                self.planner_core_service
-                    .update(Event::Load {
-                        path: self.path.clone(),
-                    })
-                    .when_ok(key, |_tasks| Some(ProjectUiCommand::Loaded))
-            }
+            ProjectUiCommand::Load => self
+                .planner_core_service
+                .update(Event::Load {
+                    path: self.path.clone(),
+                })
+                .when_ok(key, |_tasks| Some(ProjectUiCommand::Loaded)),
             ProjectUiCommand::Loaded => {
                 self.on_project_opened();
                 None
             }
-            ProjectUiCommand::Save => {
-                debug!("Saving project. path: {}", self.path.display());
-                self.planner_core_service
-                    .update(Event::Save)
-                    .when_ok(key, |_| Some(ProjectUiCommand::Saved))
-            }
-            ProjectUiCommand::Saved => {
-                debug!("Saved project.");
-                None
-            }
+            ProjectUiCommand::Save => self
+                .planner_core_service
+                .update(Event::Save)
+                .when_ok(key, |_| Some(ProjectUiCommand::Saved)),
+            ProjectUiCommand::Saved => None,
             ProjectUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
@@ -1358,12 +1338,6 @@ impl Project {
                         None => None,
                         Some(PackageSourcesModalAction::Submit(args)) => {
                             self.package_sources_modal.take();
-
-                            debug!(
-                                "packages: {:?}, package_mappings: {:?}",
-                                args.packages_source, args.package_mappings_source
-                            );
-
                             self.planner_core_service
                                 .update(Event::ApplyPackageSources {
                                     packages_source: args.packages_source,
@@ -1394,9 +1368,7 @@ impl Project {
                 let action = project_tabs.update(tab_command, &mut tab_context);
                 match action {
                     None => {}
-                    Some(ProjectTabAction::None) => {
-                        debug!("ProjectTabAction::None");
-                    }
+                    Some(ProjectTabAction::None) => {}
                 }
                 None
             }
@@ -1590,8 +1562,6 @@ impl Project {
                         Some(ProjectAction::Task(key, Task::batch(tasks)))
                     }
                     Some(PartsTabUiAction::ApplyPartsAction(parts, apply_action)) => {
-                        debug!("apply_action: {:?}", apply_action);
-
                         let (process, operation) = match apply_action {
                             PartsTabUiApplyAction::AddProcess(process) => (process, AddOrRemoveAction::Add),
                             PartsTabUiApplyAction::RemoveProcess(process) => (process, AddOrRemoveAction::Remove),
@@ -1688,8 +1658,6 @@ impl Project {
                 process,
                 command,
             } => {
-                trace!("process: {:?}, command: {:?}", process, command);
-
                 let process_ui_action = {
                     let mut guard = self.project_ui_state.lock().unwrap();
                     let state = &mut *guard;
@@ -1749,20 +1717,15 @@ impl Project {
                         phase,
                         part,
                         feeder,
-                    }) => {
-                        debug!(
-                            "update feeder. phase: {:?}, part: {:?}, feeder: {:?}",
-                            phase, part, feeder
-                        );
-                        self.planner_core_service
-                            .update(Event::AssignFeederToLoadOutItem {
-                                phase,
-                                feeder_reference: feeder,
-                                manufacturer: exact_match(&part.manufacturer),
-                                mpn: exact_match(&part.mpn),
-                            })
-                            .when_ok(key, |_| None)
-                    }
+                    }) => self
+                        .planner_core_service
+                        .update(Event::AssignFeederToLoadOutItem {
+                            phase,
+                            feeder_reference: feeder,
+                            manufacturer: exact_match(&part.manufacturer),
+                            mpn: exact_match(&part.mpn),
+                        })
+                        .when_ok(key, |_| None),
                 }
             }
             ProjectUiCommand::PlacementsTabUiCommand(command) => {
@@ -1979,7 +1942,6 @@ impl ProjectUiState {
             .explorer_tab_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("explorer ui mapper. command: {:?}", command);
                 (key, ProjectUiCommand::ExplorerTabUiCommand(command))
             });
 
@@ -1987,7 +1949,6 @@ impl ProjectUiState {
             .overview_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("overview ui mapper. command: {:?}", command);
                 (key, ProjectUiCommand::OverviewTabUiCommand(command))
             });
 
@@ -1995,7 +1956,6 @@ impl ProjectUiState {
             .issues_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("issues ui mapper. command: {:?}", command);
                 (key, ProjectUiCommand::IssuesTabUiCommand(command))
             });
 
@@ -2003,7 +1963,6 @@ impl ProjectUiState {
             .parts_tab_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("parts ui mapper. command: {:?}", command);
                 (key, ProjectUiCommand::PartsTabUiCommand(command))
             });
 
@@ -2011,7 +1970,6 @@ impl ProjectUiState {
             .placements_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("placements ui mapper. command: {:?}", command);
                 (key, ProjectUiCommand::PlacementsTabUiCommand(command))
             });
 

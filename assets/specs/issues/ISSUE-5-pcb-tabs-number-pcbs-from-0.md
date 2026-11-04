@@ -27,6 +27,8 @@ object paths.
 
 Seen in the UI tests on 2026-11-02. Not repeated since.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 The labels are made from the PCB's index, in `project/tabs/pcb_tab.rs` and `project/tabs/unit_assignments_tab.rs`.

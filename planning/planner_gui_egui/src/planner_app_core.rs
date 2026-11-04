@@ -4,7 +4,7 @@ use planner_app::effects::pcb_view_renderer::PcbViewRendererOperation;
 use planner_app::effects::process_view_renderer::ProcessViewRendererOperation;
 use planner_app::effects::project_view_renderer::ProjectViewRendererOperation;
 use planner_app::{Effect, Event, PcbView, Planner, ProcessView, ProjectView};
-use tracing::{error, trace};
+use tracing::trace;
 
 type Core = Arc<planner_app::Core<Planner>>;
 
@@ -64,8 +64,6 @@ impl PlannerCoreService {
     }
 
     fn process(&mut self, event: Event) -> Result<Vec<PlannerAction>, PlannerError> {
-        trace!("event: {:?}", event);
-
         let mut actions: Vec<PlannerAction> = Vec::new();
 
         for effect in self.core.process_event(event) {
@@ -88,10 +86,7 @@ impl PlannerCoreService {
             Effect::Render(_) => {
                 let mut view = core.view();
                 let task = match view.error.take() {
-                    Some(error) => {
-                        error!("core error: {:?}", error);
-                        Err(PlannerError::CoreError(error))
-                    }
+                    Some(error) => Err(PlannerError::CoreError(error)),
                     None => Ok(PlannerAction::SetModifiedState {
                         project_modified: view.project_modified,
                         pcbs_modified: view.pcbs_modified,

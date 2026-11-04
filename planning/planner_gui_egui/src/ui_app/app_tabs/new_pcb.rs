@@ -8,6 +8,7 @@ use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use validator::Validate;
 
 use crate::file_picker::{FileDialogs, Picker};
@@ -104,6 +105,8 @@ impl UiComponent for NewPcbTab {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("NewPcbTab command. command: {:?}", command);
         match command {
             NewPcbTabUiCommand::NameChanged(name) => {
                 self.fields.lock().unwrap().name = name;

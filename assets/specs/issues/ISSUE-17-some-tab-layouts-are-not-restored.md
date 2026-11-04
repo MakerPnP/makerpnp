@@ -27,6 +27,8 @@ No reliable steps are known yet. To look for them:
 
 Not repeated since it was moved from the user's list of known issues on 2026-11-04.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 The cause is in `egui_dock`.

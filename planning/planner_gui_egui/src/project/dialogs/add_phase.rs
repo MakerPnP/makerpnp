@@ -11,6 +11,7 @@ use egui_taffy::taffy::{AlignItems, FlexDirection, Style};
 use egui_taffy::{Tui, taffy, tui};
 use planner_app::{LoadOutSource, PcbSide, ProcessReference, Reference};
 use taffy::Size;
+use tracing::debug;
 use validator::Validate;
 
 use crate::file_picker::{FileDialogs, Picker};
@@ -313,6 +314,8 @@ impl UiComponent for AddPhaseModal {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("AddPhaseModal command. command: {:?}", command);
         match command {
             AddPhaseModalUiCommand::Submit => {
                 let fields = self.fields.lock().unwrap();

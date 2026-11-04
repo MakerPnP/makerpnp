@@ -355,7 +355,7 @@ fn a_projects_process_tab_shows_its_copy_and_opens_its_file() {
     assert_eq!(app.count_tabs_containing("manual.process.json"), 1);
 }
 
-/// `PROJPROC-3`
+/// `PROJPROC-3`, `LOG-1`, `LOG-3`
 #[test]
 fn removing_a_process_saves_the_same_file_as_the_cli_and_closes_its_tab() {
     let mut app = App::start();
@@ -368,6 +368,14 @@ fn removing_a_process_saves_the_same_file_as_the_cli_and_closes_its_tab() {
     app.double_click_text("manual");
     app.click_button("Remove process");
     app.wait_until_button_is_gone("Remove process");
+
+    // the click, as the project and the tab received it, then the event the core received, in order, and no failure.
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::project: Project command. command: (ProjectKey(1v1), ProcessTabUiCommand { process: Reference(\"manual\"), command: RemoveClicked })",
+        "planner_gui_egui::project::tabs::process_tab: ProcessTabUi command. command: RemoveClicked",
+        "planner_app: Received event. event: RemoveProcess { process_reference: Reference(\"manual\") }",
+    ]);
+    app.assert_not_logged("Event failed.");
     app.wait_for_enabled_button("Save");
     save(&mut app);
 
@@ -400,7 +408,7 @@ fn removing_a_process_saves_the_same_file_as_the_cli_and_closes_its_tab() {
     );
 }
 
-/// `PROJPROC-3`, `PROCDEF-7`
+/// `PROJPROC-3`, `PROCDEF-7`, `LOG-2`, `LOG-3`, `LOG-8`
 #[test]
 fn a_process_used_by_a_phase_cannot_be_removed() {
     let mut app = App::start();
@@ -417,6 +425,19 @@ fn a_process_used_by_a_phase_cannot_be_removed() {
     app.double_click_text("manual");
     app.click_button("Remove process");
     app.wait_for_text_containing("ProcessInUse");
+
+    // the click, the event, and why the core refused it, in order.
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::project::tabs::process_tab: ProcessTabUi command. command: RemoveClicked",
+        "planner_app: Received event. event: RemoveProcess { process_reference: Reference(\"manual\") }",
+        "planner_app: Event failed. error: ProcessError(ProcessInUse { process_reference: Reference(\"manual\") })",
+    ]);
+    // then the project receives the error to show it, and the error isn't logged again (`LOG-8`).
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::project: Project command. command: (ProjectKey(1v1), Error(CoreError((",
+    ]);
+    app.assert_not_logged("ProcessInUse");
+
     app.click_button("Ok");
 
     app.wait_for_button("Remove process");
@@ -424,7 +445,7 @@ fn a_process_used_by_a_phase_cannot_be_removed() {
     assert_eq!(saved, fs::read_to_string(&project).unwrap());
 }
 
-/// `PROJPROC-3`, `PROCDEF-6`
+/// `PROJPROC-3`, `PROCDEF-6`, `LOG-2`, `LOG-3`
 #[test]
 fn a_process_cannot_be_refreshed_once_a_phase_using_it_has_started() {
     let mut app = App::start();
@@ -452,6 +473,14 @@ fn a_process_cannot_be_refreshed_once_a_phase_using_it_has_started() {
     app.double_click_text("pnp");
     app.click_button("Refresh processes");
     app.wait_for_text_containing("ProcessInProgress");
+
+    // the click, the event, and why the core refused it, in order.
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::project::tabs::process_tab: ProcessTabUi command. command: RefreshClicked",
+        "planner_app: Received event. event: RefreshProcesses",
+        "planner_app: Event failed. error: ProcessError(ProcessInProgress {",
+    ]);
+
     app.click_button("Ok");
 
     app.assert_button_is_disabled("Save");

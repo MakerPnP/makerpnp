@@ -9,6 +9,7 @@ use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use planner_app::{ProcessPresetFactory, ProcessReference};
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 use validator::Validate;
 
 use crate::file_picker::{FileDialogs, Picker};
@@ -105,6 +106,8 @@ impl UiComponent for NewProcessTab {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("NewProcessTab command. command: {:?}", command);
         match command {
             NewProcessTabUiCommand::ReferenceChanged(reference) => {
                 self.fields.lock().unwrap().reference = reference;

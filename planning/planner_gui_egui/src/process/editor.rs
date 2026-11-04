@@ -600,6 +600,8 @@ impl UiComponent for ProcessEditorUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ProcessEditorUi command. command: {:?}", command);
         let Some(state) = &mut self.state else {
             return match command {
                 ProcessEditorUiCommand::None => Some(ProcessEditorUiAction::None),

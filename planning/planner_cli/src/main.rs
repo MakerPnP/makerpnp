@@ -4,7 +4,6 @@ use anyhow::bail;
 use clap::Parser;
 use crossbeam_channel::unbounded;
 use planner_app::{Effect, Event};
-use tracing::trace;
 
 use crate::core::Core;
 use crate::opts::{build_project_file_path, ModeCommand, Opts, PcbCommand, ProcessCommand, ProjectCommand};
@@ -65,7 +64,6 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
     core::update(&core, event, &Arc::new(tx))?;
 
     while let Ok(effect) = rx.recv() {
-        trace!("run_loop. effect: {:?}", effect);
         match effect {
             _render @ Effect::Render(_) => {
                 let view = core.view();

@@ -444,7 +444,6 @@ impl PlacementsTableUi {
         filter
             .component_state
             .configure_mapper(component.sender.clone(), |filter_ui_command| {
-                trace!("filter ui mapper. command: {:?}", filter_ui_command);
                 PlacementsTableUiCommand::FilterCommand(filter_ui_command)
             });
 
@@ -630,6 +629,8 @@ impl UiComponent for PlacementsTableUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PlacementsTableUi command. command: {:?}", command);
         match command {
             PlacementsTableUiCommand::None => Some(PlacementsTableUiAction::None),
             PlacementsTableUiCommand::FilterCommand(command) => {

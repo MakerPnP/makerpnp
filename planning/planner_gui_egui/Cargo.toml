@@ -51,6 +51,10 @@ rfd = { workspace = true }
 i18n = { path = "../../common/i18n", features = ["args", "json"] }
 
 # logging
+# `--trace` and `-v`, as the CLI has them (`LOG-5`)
+cli = { path = "../../common/cli", features = ["tracing"] }
+clap = { workspace = true, features = ["derive"] }
+clap-verbosity-flag = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tracing = { workspace = true }
 regex = { workspace = true }

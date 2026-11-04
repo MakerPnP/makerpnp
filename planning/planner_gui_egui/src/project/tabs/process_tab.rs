@@ -161,6 +161,8 @@ impl UiComponent for ProcessTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ProcessTabUi command. command: {:?}", command);
         match command {
             ProcessTabUiCommand::None => Some(ProcessTabUiAction::None),
             ProcessTabUiCommand::OpenClicked(process_file) => Some(ProcessTabUiAction::Open(process_file)),

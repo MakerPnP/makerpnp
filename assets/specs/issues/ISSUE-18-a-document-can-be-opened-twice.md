@@ -29,6 +29,8 @@ overwritten by saving the other.
 Not repeated since it was moved from the user's list of known issues on 2026-11-04. From the code, `open_project_file`,
 `open_pcb_file` and `open_process_file` in `ui_app.rs` always add a tab.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Workaround
 
 Open each document once.

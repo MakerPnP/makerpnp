@@ -1,5 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::path::PathBuf;
+
+use clap::Parser;
+use clap_verbosity_flag::{InfoLevel, Verbosity};
 use eframe::egui_glow::HardwareAcceleration;
 // hide console window on Windows in release
 use i18n::I18nConfig;
@@ -7,18 +11,39 @@ use planner_gui_egui::ui_app::UiApp;
 /// Run as follows:
 /// `run --package planner_gui_egui --bin planner_gui_egui`
 ///
-/// To enable logging, set the environment variable appropriately, for example:
+/// To write the logs to a file, as the CLI does, use `--trace <file>`, and `-v` for more detail, for example
+/// `planner_gui_egui --trace planner.log -v` (`LOG-5`).
+///
+/// Otherwise, to log to the console, set the environment variable appropriately, for example:
 /// `RUST_LOG=debug,eframe=warn,egui_glow=warn,egui=warn`
 use tracing::info;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, fmt};
 
+#[derive(Parser, Debug)]
+#[command(name = "planner_gui_egui")]
+#[command(version, about = "MakerPnP - Planner", long_about = None)]
+struct Opts {
+    /// Trace log file, written as the CLI's `--trace` writes it. Without it, logs go to the console, filtered by
+    /// `RUST_LOG`.
+    #[arg(long, num_args = 0..=1, default_missing_value = "trace.log")]
+    trace: Option<PathBuf>,
+
+    #[command(flatten)]
+    verbose: Verbosity<InfoLevel>,
+}
+
 fn main() {
-    tracing_subscriber::registry()
-        .with(fmt::layer())
-        .with(EnvFilter::from_default_env())
-        .init();
+    let opts = Opts::parse();
+
+    match opts.trace {
+        Some(path) => cli::tracing::configure_tracing(Some(path), opts.verbose).expect("configured tracing"),
+        None => tracing_subscriber::registry()
+            .with(fmt::layer())
+            .with(EnvFilter::from_default_env())
+            .init(),
+    }
 
     info!("Started");
 

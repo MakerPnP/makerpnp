@@ -28,6 +28,8 @@ reference, shows a spinner until it's closed.
 
 Not yet repeated. The steps are from reading the code.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Workaround
 
 Close the tab, and open the process again from the project explorer.

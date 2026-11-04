@@ -127,10 +127,11 @@ impl UiComponent for HomeTab {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("HomeTab command. command: {:?}", command);
         match command {
             HomeTabUiCommand::None => Some(HomeTabAction::None),
             HomeTabUiCommand::SetShowOnStartup(value) => {
-                debug!("SetShowOnStartup: {}", value);
                 context
                     .config
                     .lock()

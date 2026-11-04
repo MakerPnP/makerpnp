@@ -150,6 +150,8 @@ impl UiComponent for PcbTabUi {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PcbTabUi command. command: {:?}", command);
         match command {
             PcbTabUiCommand::None => Some(PcbTabUiAction::None),
             PcbTabUiCommand::CreateUnitAssignmentClicked => Some(PcbTabUiAction::ShowUnitAssignments(self.pcb_index)),

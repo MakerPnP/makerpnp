@@ -3,6 +3,7 @@ use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use planner_app::{PcbInstanceIndex, PhaseOverview, PhaseReference, ProjectOverview};
+use tracing::debug;
 
 use crate::forms::NamedResize;
 use crate::i18n::conversions::phase_status_to_i18n_key;
@@ -279,6 +280,8 @@ impl UiComponent for OverviewTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("OverviewTabUi command. command: {:?}", command);
         match command {
             OverviewTabUiCommand::None => Some(OverviewTabUiAction::None),
             OverviewTabUiCommand::AddPhaseClicked => Some(OverviewTabUiAction::AddPhase),

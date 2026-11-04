@@ -266,7 +266,6 @@ impl PartTableUi {
         filter
             .component_state
             .configure_mapper(component.sender.clone(), |filter_ui_command| {
-                trace!("filter ui mapper. command: {:?}", filter_ui_command);
                 PartTableUiCommand::FilterCommand(filter_ui_command)
             });
 
@@ -404,6 +403,8 @@ impl UiComponent for PartTableUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PartTableUi command. command: {:?}", command);
         match command {
             PartTableUiCommand::None => Some(PartTableUiAction::None),
             PartTableUiCommand::FilterCommand(command) => {

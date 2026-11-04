@@ -29,6 +29,8 @@ again.
 Not repeated since it was moved from the user's list of known issues on 2026-11-04. The exact errors aren't recorded;
 update these steps with them when it's next repeated.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Workaround
 
 Remove the project's assignments for the PCB before changing it.

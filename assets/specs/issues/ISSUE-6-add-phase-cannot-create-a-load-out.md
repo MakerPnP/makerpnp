@@ -28,6 +28,8 @@ creates the file if it doesn't exist.
 Not yet repeated with the real dialog. The steps are from reading the code. The UI tests answer the dialog themselves,
 and deliberately use files that exist.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 Could be fixed with a save dialog, or a "New" button.

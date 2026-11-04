@@ -3,7 +3,7 @@ use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_i18n::tr;
 use planner_app::{ObjectPath, PcbSide, PhaseReference, PlacementPositionUnit, PlacementState, PlacementsItem};
-use tracing::trace;
+use tracing::debug;
 
 use crate::forms::NamedResponse;
 use crate::project::data::{ProjectData, Synced};
@@ -40,7 +40,6 @@ impl PlacementsTabUi {
         placements_table_ui
             .component
             .configure_mapper(component.sender.clone(), |placements_table_command| {
-                trace!("placements table mapper. command: {:?}", placements_table_command);
                 PlacementsTabUiCommand::PlacementsTableUiCommand(placements_table_command)
             });
 
@@ -246,6 +245,8 @@ impl UiComponent for PlacementsTabUi {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PlacementsTabUi command. command: {:?}", command);
         match command {
             PlacementsTabUiCommand::None => Some(PlacementsTabUiAction::None),
             PlacementsTabUiCommand::PhaseChanged(phase) => {

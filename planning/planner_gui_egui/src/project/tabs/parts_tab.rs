@@ -5,7 +5,7 @@ use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_i18n::tr;
 use planner_app::{Part, ProcessReference};
-use tracing::trace;
+use tracing::debug;
 
 use crate::forms::NamedResponse;
 use crate::project::data::{ProjectData, Synced};
@@ -38,7 +38,6 @@ impl PartsTabUi {
         part_table_ui
             .component
             .configure_mapper(component.sender.clone(), |part_table_command| {
-                trace!("part table mapper. command: {:?}", part_table_command);
                 PartsTabUiCommand::PartTableUiCommand(part_table_command)
             });
 
@@ -191,6 +190,8 @@ impl UiComponent for PartsTabUi {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PartsTabUi command. command: {:?}", command);
         match command {
             PartsTabUiCommand::None => Some(PartsTabUiAction::None),
             PartsTabUiCommand::ProcessChanged(process) => {

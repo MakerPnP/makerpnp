@@ -23,7 +23,7 @@ use planner_app::{
 };
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
-use tracing::{debug, trace};
+use tracing::debug;
 
 use crate::forms::{NamedResize, NamedResponse, TABLE_TWO_ROWS_HEIGHT};
 use crate::i18n::conversions::pcb_orientation_pitch_flip_to_i18n_key;
@@ -114,7 +114,6 @@ impl PanelTabUi {
         gerber_viewer_ui
             .component
             .configure_mapper(component.sender.clone(), |gerber_viewer_command| {
-                trace!("gerber_viewer mapper. command: {:?}", gerber_viewer_command);
                 PanelTabUiCommand::GerberViewerUiCommand(gerber_viewer_command)
             });
 
@@ -1207,7 +1206,8 @@ impl UiComponent for PanelTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
-        debug!("PanelTabUi::update, command: {:?}", command);
+        // `LOG-3`
+        debug!("PanelTabUi command. command: {:?}", command);
         let mut update_panel_preview = false;
         let action = match command {
             PanelTabUiCommand::None => Some(PanelTabUiAction::None),

@@ -661,6 +661,8 @@ impl UiComponent for GerberViewerUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("GerberViewerUi command. command: {:?}", command);
         match command {
             GerberViewerUiCommand::None => Some(GerberViewerUiAction::None),
             GerberViewerUiCommand::LocateView(point) => {

@@ -4,7 +4,7 @@ use derivative::Derivative;
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use planner_app::{LoadOutSource, Part, Reference};
-use tracing::{debug, trace};
+use tracing::debug;
 use util::path::clip_path;
 
 use crate::project::data::{ProjectData, Synced};
@@ -36,7 +36,6 @@ impl LoadOutTabUi {
         load_out_table_ui
             .component
             .configure_mapper(component.sender.clone(), |load_out_table_command| {
-                trace!("phase load_out table mapper. command: {:?}", load_out_table_command);
                 LoadOutTabUiCommand::LoadoutTableUiCommand(load_out_table_command)
             });
 
@@ -109,6 +108,8 @@ impl UiComponent for LoadOutTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("LoadOutTabUi command. command: {:?}", command);
         match command {
             LoadOutTabUiCommand::None => Some(LoadOutTabUiAction::None),
             LoadOutTabUiCommand::LoadoutTableUiCommand(command) => self

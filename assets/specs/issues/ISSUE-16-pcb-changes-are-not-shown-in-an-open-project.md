@@ -25,6 +25,8 @@ Changes made to a PCB are not shown in a project that uses it until the PCB is l
 
 Not repeated since it was moved from the user's list of known issues on 2026-11-04.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Workaround
 
 Save the project and close it, edit the PCB, then open the project again.

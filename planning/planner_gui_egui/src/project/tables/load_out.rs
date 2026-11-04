@@ -249,7 +249,6 @@ impl LoadOutTableUi {
         filter
             .component_state
             .configure_mapper(component.sender.clone(), |filter_ui_command| {
-                trace!("filter ui mapper. command: {:?}", filter_ui_command);
                 LoadOutTableUiCommand::FilterCommand(filter_ui_command)
             });
 
@@ -364,6 +363,8 @@ impl UiComponent for LoadOutTableUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("LoadOutTableUi command. command: {:?}", command);
         match command {
             LoadOutTableUiCommand::None => Some(LoadOutTableUiAction::None),
             LoadOutTableUiCommand::FilterCommand(command) => {

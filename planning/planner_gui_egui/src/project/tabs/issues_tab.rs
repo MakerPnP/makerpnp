@@ -4,6 +4,7 @@ use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use planner_app::{IssueKind, ProjectReport};
+use tracing::debug;
 
 use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
@@ -192,6 +193,8 @@ impl UiComponent for IssuesTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("IssuesTabUi command. command: {:?}", command);
         match command {
             IssuesTabUiCommand::None => Some(IssuesTabUiAction::None),
             IssuesTabUiCommand::RefreshClicked => Some(IssuesTabUiAction::RefreshIssues),

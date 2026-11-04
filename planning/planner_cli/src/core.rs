@@ -12,8 +12,6 @@ pub fn new() -> Core {
 }
 
 pub fn update(core: &Core, event: Event, tx: &Arc<Sender<Effect>>) -> anyhow::Result<()> {
-    trace!("event: {:?}", event);
-
     for effect in core.process_event(event) {
         process_effect(core, effect, tx)?;
     }

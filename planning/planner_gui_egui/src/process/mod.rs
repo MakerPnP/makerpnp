@@ -10,7 +10,7 @@ use egui::Ui;
 use egui_i18n::tr;
 use planner_app::{Event, ProcessDefinition, ProcessReference, ProcessView};
 use slotmap::new_key_type;
-use tracing::{debug, error};
+use tracing::debug;
 
 use crate::planner_app_core::{PlannerAction, PlannerCoreService, PlannerError};
 use crate::process::editor::{ProcessEditorUi, ProcessEditorUiAction, ProcessEditorUiCommand, ProcessEditorUiContext};
@@ -165,6 +165,8 @@ impl UiComponent for Process {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("Process command. command: {:?}", command);
         let (key, command) = command;
 
         match command {
@@ -173,7 +175,6 @@ impl UiComponent for Process {
                 reference,
                 preset,
             } => {
-                debug!("Creating process. path: {:?}", self.path);
                 let event = Event::CreateProcess {
                     path: self.path.clone(),
                     reference,
@@ -186,7 +187,6 @@ impl UiComponent for Process {
                 )
             }
             ProcessUiCommand::Load => {
-                debug!("Loading process. path: {:?}", self.path);
                 let event = Event::LoadProcess {
                     path: self.path.clone(),
                 };
@@ -197,7 +197,6 @@ impl UiComponent for Process {
                 )
             }
             ProcessUiCommand::Save => {
-                debug!("Saving process. path: {:?}", self.path);
                 let event = Event::SaveProcess {
                     path: self.path.clone(),
                 };
@@ -207,12 +206,8 @@ impl UiComponent for Process {
                     Some(ProcessUiCommand::Saved),
                 )
             }
-            ProcessUiCommand::Saved => {
-                debug!("Saved process. path: {:?}", self.path);
-                None
-            }
+            ProcessUiCommand::Saved => None,
             ProcessUiCommand::Error(error) => {
-                error!("Process error. error: {:?}", error);
                 let (PlannerError::CoreError((_, message)) | PlannerError::Other((_, message))) = error;
                 self.error = Some(message);
                 None

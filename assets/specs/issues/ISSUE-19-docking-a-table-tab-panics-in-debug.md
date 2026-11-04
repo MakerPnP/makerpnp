@@ -26,6 +26,8 @@ In a debug build, putting back a tab with a data table, after pulling it out of 
 
 Not repeated since it was moved from the user's list of known issues on 2026-11-04.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Workaround
 
 Use a release build, or keep tabs with data tables in the window.

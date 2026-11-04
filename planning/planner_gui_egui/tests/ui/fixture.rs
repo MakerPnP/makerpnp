@@ -61,11 +61,63 @@ impl FileDialogs for ScriptedFileDialogs {
     }
 }
 
+/// What the application logs while a test runs, at debug level and above, in the format `planner_gui_egui --trace`
+/// writes, without the time. For example ` INFO planner_app: Created project successfully.`
+///
+/// Each test runs on its own thread, so each captures only its own logs (`LOG-6`).
+#[derive(Clone, Default)]
+struct Logs(Arc<Mutex<Vec<u8>>>);
+
+impl Logs {
+    fn content(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+impl std::io::Write for Logs {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0
+            .lock()
+            .unwrap()
+            .extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// The whole application, with a temporary folder for its files and no saved state.
 pub struct App {
     harness: Harness<'static, UiApp>,
     file_dialogs: Arc<ScriptedFileDialogs>,
     folder: TempDir,
+    logs: Logs,
+    /// Where the logs not yet checked by `wait_for_logs_in_order` start.
+    logs_checked_to: usize,
+    // last, so the logs are captured until everything else is dropped.
+    _logs_guard: tracing::subscriber::DefaultGuard,
+}
+
+impl Drop for App {
+    /// Shows the logs of a test that failed, as they're often what explains it. If `PLANNER_GUI_TEST_LOGS` names a
+    /// folder, each test's logs are also written to `<folder>/<test name>.log`.
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            eprintln!("logs:\n{}", self.logs.content());
+        }
+        if let Some(folder) = std::env::var_os("PLANNER_GUI_TEST_LOGS") {
+            let test_name = std::thread::current()
+                .name()
+                .unwrap_or("unnamed")
+                .replace("::", ".");
+            let path = Path::new(&folder).join(format!("{test_name}.log"));
+            if let Err(error) = std::fs::write(&path, self.logs.content()) {
+                eprintln!("failed to write the logs. path: {}, error: {error}", path.display());
+            }
+        }
+    }
 }
 
 impl App {
@@ -80,6 +132,18 @@ impl App {
             });
         });
 
+        let logs = Logs::default();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer({
+                let logs = logs.clone();
+                move || logs.clone()
+            })
+            .with_ansi(false)
+            .without_time()
+            .with_max_level(tracing::Level::DEBUG)
+            .finish();
+        let logs_guard = tracing::subscriber::set_default(subscriber);
+
         let file_dialogs = Arc::new(ScriptedFileDialogs::default());
         let harness = Harness::builder()
             .with_size(WINDOW_SIZE)
@@ -93,7 +157,47 @@ impl App {
             harness,
             file_dialogs,
             folder: TempDir::new().unwrap(),
+            logs,
+            logs_checked_to: 0,
+            _logs_guard: logs_guard,
         }
+    }
+
+    /// Waits for each message to be logged, in order, after those found by the previous call, as
+    /// `assert_contains_inorder!` checks the CLI's trace. A message is matched by any part of its line, for example
+    /// `"planner_app: Event failed."`. Order matters: the first message must be logged before the second, and so on.
+    pub fn wait_for_logs_in_order(&mut self, messages: &[&str]) {
+        let deadline = Instant::now() + TIMEOUT;
+        loop {
+            let logs = self.logs.content();
+            match find_in_order(&logs[self.logs_checked_to..], messages) {
+                Ok(end) => {
+                    self.logs_checked_to += end;
+                    return;
+                }
+                Err(index) if Instant::now() > deadline => {
+                    panic!(
+                        "timed out waiting for the logs, in order.\nnot found, at index {index}:\n{}\nexpected:\n{:#?}\nlogs since those last checked:\n{}",
+                        messages[index],
+                        messages,
+                        &logs[self.logs_checked_to..]
+                    );
+                }
+                Err(_) => {}
+            }
+            self.harness.step();
+            std::thread::sleep(POLL_INTERVAL);
+        }
+    }
+
+    /// Checks nothing logged since those found by `wait_for_logs_in_order` contains the text.
+    pub fn assert_not_logged(&self, text: &str) {
+        let logs = self.logs.content();
+        let unchecked = &logs[self.logs_checked_to..];
+        assert!(
+            !unchecked.contains(text),
+            "expected nothing logged to contain '{text}', logs since those last checked:\n{unchecked}"
+        );
     }
 
     /// Saves a new project in the temporary folder, using the core, so the format is always the current one.
@@ -1023,4 +1127,36 @@ impl App {
         shown.sort();
         shown
     }
+}
+
+/// Finds each message in the logs, in order, returning where the line of the last one ends, or the index of the first
+/// not found. Each message is found after the line of the one before, so two messages can't match the same line.
+fn find_in_order(logs: &str, messages: &[&str]) -> Result<usize, usize> {
+    let mut end = 0;
+    for (index, message) in messages.iter().enumerate() {
+        match logs[end..].find(message) {
+            Some(start) => {
+                let matched = end + start + message.len();
+                end = match logs[matched..].find('\n') {
+                    Some(newline) => matched + newline + 1,
+                    None => logs.len(),
+                };
+            }
+            None => return Err(index),
+        }
+    }
+    Ok(end)
+}
+
+/// `LOG-7`
+#[test]
+fn logs_are_found_only_in_the_order_given() {
+    let logs = "DEBUG a: Clicked.\nDEBUG planner_app: Received event. event: Save\n INFO planner_app: Saved project.\n";
+
+    assert!(find_in_order(logs, &["Clicked.", "Received event. event: Save", "Saved project."]).is_ok());
+    assert!(find_in_order(logs, &["Clicked.", "Saved project."]).is_ok());
+    assert_eq!(find_in_order(logs, &["Saved project.", "Clicked."]), Err(1));
+    assert_eq!(find_in_order(logs, &["Clicked.", "Clicked."]), Err(1));
+    // each message is found on a line of its own.
+    assert_eq!(find_in_order(logs, &["Received event.", "event: Save"]), Err(1));
 }

@@ -277,6 +277,8 @@ impl UiComponent for PlacementOrderingsModal {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PlacementOrderingsModal command. command: {:?}", command);
         match command {
             PlacementOrderingsModalUiCommand::Submit => {
                 let fields = self.fields.lock().unwrap();

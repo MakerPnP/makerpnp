@@ -58,7 +58,8 @@ pub fn handle_command(
     config: Value<Config>,
     ui_context: Context,
 ) -> Task<UiCommand> {
-    trace!("Handling command: {:?}", command);
+    // `LOG-3`
+    debug!("UiApp command. command: {:?}", command);
 
     match command {
         UiCommand::None => Task::none(),

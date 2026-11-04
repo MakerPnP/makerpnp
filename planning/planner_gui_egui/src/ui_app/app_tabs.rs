@@ -6,7 +6,7 @@ use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, NodeIndex, Split, Style};
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
-use tracing::{error, trace};
+use tracing::{debug, error};
 
 use crate::config::Config;
 use crate::file_picker::FileDialogs;
@@ -608,7 +608,6 @@ impl AppTabs {
         match tabs.tabs.get_mut(&tab_key).unwrap() {
             TabKind::NewProcess(new_process_tab, tab_kind_component) => {
                 tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
-                    trace!("tab kind mapper. command: {:?}", command);
                     (tab_key, TabUiCommand::TabKindCommand(command))
                 });
 
@@ -617,7 +616,6 @@ impl AppTabs {
                 new_process_tab
                     .component
                     .configure_mapper(tab_kind_component_sender, move |command| {
-                        trace!("new process tab mapper. command: {:?}", command);
                         TabKindUiCommand::NewProcessTabCommand {
                             command,
                         }
@@ -635,7 +633,6 @@ impl AppTabs {
         match tabs.tabs.get_mut(&tab_key).unwrap() {
             TabKind::NewProject(new_project_tab, tab_kind_component) => {
                 tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
-                    trace!("tab kind mapper. command: {:?}", command);
                     (tab_key, TabUiCommand::TabKindCommand(command))
                 });
 
@@ -644,7 +641,6 @@ impl AppTabs {
                 new_project_tab
                     .component
                     .configure_mapper(tab_kind_component_sender, move |command| {
-                        trace!("new project tab mapper. command: {:?}", command);
                         TabKindUiCommand::NewProjectTabCommand {
                             command,
                         }
@@ -662,7 +658,6 @@ impl AppTabs {
         match tabs.tabs.get_mut(&tab_key).unwrap() {
             TabKind::NewPcb(new_pcb_tab, tab_kind_component) => {
                 tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
-                    trace!("tab kind mapper. command: {:?}", command);
                     (tab_key, TabUiCommand::TabKindCommand(command))
                 });
 
@@ -671,7 +666,6 @@ impl AppTabs {
                 new_pcb_tab
                     .component
                     .configure_mapper(tab_kind_component_sender, move |command| {
-                        trace!("new pcb tab mapper. command: {:?}", command);
                         TabKindUiCommand::NewPcbTabCommand {
                             command,
                         }
@@ -717,7 +711,6 @@ impl AppTabs {
         match tabs.tabs.get_mut(&tab_key).unwrap() {
             TabKind::Home(home_tab, tab_kind_component) => {
                 tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
-                    trace!("tab kind mapper. command: {:?}", command);
                     (tab_key, TabUiCommand::TabKindCommand(command))
                 });
 
@@ -726,7 +719,6 @@ impl AppTabs {
                 home_tab
                     .component
                     .configure_mapper(tab_kind_component_sender, move |command| {
-                        trace!("home tab mapper. command: {:?}", command);
                         TabKindUiCommand::HomeTabCommand {
                             command,
                         }
@@ -800,6 +792,8 @@ impl UiComponent for AppTabs {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("AppTabs command. command: {:?}", command);
         let (tab_key, command) = command;
         match command {
             TabUiCommand::TabKindCommand(tab_kind_command) => {

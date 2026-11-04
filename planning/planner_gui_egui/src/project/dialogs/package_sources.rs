@@ -10,7 +10,7 @@ use egui_taffy::taffy::{AlignItems, FlexDirection, Style};
 use egui_taffy::{Tui, taffy, tui};
 use planner_app::{PackageMappingsSource, PackagesSource};
 use taffy::Size;
-use tracing::error;
+use tracing::{debug, error};
 use validator::Validate;
 
 use crate::file_picker::{FileDialogs, PickError, Picker};
@@ -284,6 +284,8 @@ impl UiComponent for PackageSourcesModal {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PackageSourcesModal command. command: {:?}", command);
         match command {
             PackageSourcesModalUiCommand::Submit => {
                 let fields = self.fields.lock().unwrap();

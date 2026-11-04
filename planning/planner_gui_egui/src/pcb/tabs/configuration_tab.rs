@@ -16,7 +16,7 @@ use egui_taffy::taffy::{AlignContent, AlignItems, Display, FlexDirection, Size, 
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use nalgebra::Vector2;
 use planner_app::{DesignIndex, DesignName, GerberFileFunction, PcbOverview, PcbUnitIndex};
-use tracing::{debug, trace};
+use tracing::debug;
 use util::range_utils::{RangeIntoUsize, clamp_inclusive_range};
 use validator::{Validate, ValidationError};
 
@@ -768,7 +768,6 @@ impl ConfigurationUi {
         modal
             .component
             .configure_mapper(self.component.sender.clone(), move |command| {
-                trace!("manage gerbers modal mapper. command: {:?}", command);
                 ConfigurationTabUiCommand::ManageGerbersModalUiCommand(command)
             });
 
@@ -1111,6 +1110,8 @@ impl UiComponent for ConfigurationUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ConfigurationUi command. command: {:?}", command);
         match command {
             ConfigurationTabUiCommand::None => Some(ConfigurationTabUiAction::None),
 

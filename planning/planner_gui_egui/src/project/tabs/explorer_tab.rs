@@ -318,6 +318,8 @@ impl UiComponent for ExplorerTabUi {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ExplorerTabUi command. command: {:?}", command);
         match command {
             ExplorerTabUiCommand::Navigate(path) => {
                 if let Some(project_tree) = context.data.project_tree.get() {

@@ -31,6 +31,8 @@ Zooming with Ctrl and + doesn't show the problem, as it scales the row height an
 
 Not yet repeated. The steps are from reading the code.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 The minimum needs to be worked out at runtime from the style in use, likely from the body text size, `interact_size`

@@ -1,5 +1,6 @@
 use egui::Ui;
 use egui_i18n::tr;
+use tracing::debug;
 
 use crate::ui_component::{ComponentState, UiComponent};
 
@@ -115,6 +116,8 @@ impl UiComponent for ProjectToolbar {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ProjectToolbar command. command: {:?}", command);
         match command {
             ProjectToolbarUiCommand::ProjectExplorerClicked => Some(ProjectToolbarAction::ShowProjectExplorer),
             ProjectToolbarUiCommand::RefreshClicked => Some(ProjectToolbarAction::Refresh),

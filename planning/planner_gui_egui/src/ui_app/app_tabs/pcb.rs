@@ -116,6 +116,8 @@ impl UiComponent for PcbTab {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PcbTab command. command: {:?}", command);
         match command {
             PcbTabUiCommand::PcbCommand {
                 key,

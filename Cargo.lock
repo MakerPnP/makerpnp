@@ -4451,6 +4451,9 @@ version = "0.1.0"
 dependencies = [
  "args",
  "chrono",
+ "clap",
+ "clap-verbosity-flag",
+ "cli",
  "derivative",
  "eda_units",
  "eframe",

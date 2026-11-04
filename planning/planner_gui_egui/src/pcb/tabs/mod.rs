@@ -1,6 +1,7 @@
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, NodeIndex, Split, Style};
+use tracing::debug;
 
 use crate::pcb::{PcbTabKind, PcbUiState};
 use crate::sync::Value;
@@ -80,6 +81,8 @@ impl UiComponent for PcbTabs {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PcbTabs command. command: {:?}", command);
         match command {
             PcbTabUiCommand::None => Some(PcbTabAction::None),
         }

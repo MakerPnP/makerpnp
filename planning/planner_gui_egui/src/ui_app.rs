@@ -6,7 +6,7 @@ use eframe::epaint::Color32;
 use egui::{CentralPanel, Frame, ThemePreference};
 use egui_i18n::tr;
 use slotmap::SlotMap;
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info};
 
 use crate::config::Config;
 use crate::file_picker::{FileDialogs, NativeFileDialogs, PickError, Picker};
@@ -90,7 +90,6 @@ impl AppState {
         toolbar
             .component
             .configure_mapper(sender.clone(), |command: ToolbarUiCommand| {
-                trace!("app toolbar mapper. command: {:?}", command);
                 UiCommand::ToolbarCommand(command)
             });
 
@@ -164,11 +163,8 @@ impl AppState {
         let mut project_tab = ProjectTab::new(label, path, project_key, project_tabs);
         project_tab
             .component
-            .configure_mapper(tab_kind_sender, |command| {
-                trace!("project tab mapper. command: {:?}", command);
-                TabKindUiCommand::ProjectTabCommand {
-                    command,
-                }
+            .configure_mapper(tab_kind_sender, |command| TabKindUiCommand::ProjectTabCommand {
+                command,
             });
 
         let tab_kind = TabKind::Project(project_tab, tab_kind_component);
@@ -281,11 +277,8 @@ impl AppState {
         let mut pcb_tab = PcbTab::new(label, path, pcb_key, pcb_tabs);
         pcb_tab
             .component
-            .configure_mapper(tab_kind_sender, |command| {
-                trace!("pcb tab mapper. command: {:?}", command);
-                TabKindUiCommand::PcbTabCommand {
-                    command,
-                }
+            .configure_mapper(tab_kind_sender, |command| TabKindUiCommand::PcbTabCommand {
+                command,
             });
 
         let tab_kind = TabKind::Pcb(pcb_tab, tab_kind_component);
@@ -378,11 +371,8 @@ impl AppState {
         let mut process_tab = ProcessTab::new(label, path, process_key);
         process_tab
             .component
-            .configure_mapper(tab_kind_sender, |command| {
-                trace!("process tab mapper. command: {:?}", command);
-                TabKindUiCommand::ProcessTabCommand {
-                    command,
-                }
+            .configure_mapper(tab_kind_sender, |command| TabKindUiCommand::ProcessTabCommand {
+                command,
             });
 
         TabKind::Process(process_tab, tab_kind_component)
@@ -500,12 +490,9 @@ impl UiApp {
         let mut app_tabs = app_tabs.lock().unwrap();
         app_tabs
             .component
-            .configure_mapper(app_message_sender, |(tab_key, command)| {
-                trace!("app tabs mapper. command: {:?}", command);
-                UiCommand::TabCommand {
-                    tab_key,
-                    command,
-                }
+            .configure_mapper(app_message_sender, |(tab_key, command)| UiCommand::TabCommand {
+                tab_key,
+                command,
             });
 
         instance
@@ -1038,17 +1025,14 @@ fn project_from_args(
 fn configure_project_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabKey, project: &mut Project) {
     project
         .component
-        .configure_mapper(app_command_sender, move |(key, command)| {
-            trace!("project mapper. command: {:?}", command);
-            UiCommand::TabCommand {
-                tab_key,
-                command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProjectTabCommand {
-                    command: ProjectTabUiCommand::ProjectCommand {
-                        key,
-                        command,
-                    },
-                }),
-            }
+        .configure_mapper(app_command_sender, move |(key, command)| UiCommand::TabCommand {
+            tab_key,
+            command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProjectTabCommand {
+                command: ProjectTabUiCommand::ProjectCommand {
+                    key,
+                    command,
+                },
+            }),
         });
 }
 
@@ -1097,17 +1081,14 @@ fn pcb_from_args(
 
 fn configure_pcb_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabKey, pcb: &mut Pcb) {
     pcb.component
-        .configure_mapper(app_command_sender, move |(key, command)| {
-            trace!("pcb mapper. command: {:?}", command);
-            UiCommand::TabCommand {
-                tab_key,
-                command: TabUiCommand::TabKindCommand(TabKindUiCommand::PcbTabCommand {
-                    command: PcbTabUiCommand::PcbCommand {
-                        key,
-                        command,
-                    },
-                }),
-            }
+        .configure_mapper(app_command_sender, move |(key, command)| UiCommand::TabCommand {
+            tab_key,
+            command: TabUiCommand::TabKindCommand(TabKindUiCommand::PcbTabCommand {
+                command: PcbTabUiCommand::PcbCommand {
+                    key,
+                    command,
+                },
+            }),
         });
 }
 
@@ -1131,17 +1112,14 @@ fn process_from_path(
 fn configure_process_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabKey, process: &mut Process) {
     process
         .component
-        .configure_mapper(app_command_sender, move |(key, command)| {
-            trace!("process mapper. command: {:?}", command);
-            UiCommand::TabCommand {
-                tab_key,
-                command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
-                    command: ProcessTabUiCommand::ProcessCommand {
-                        key,
-                        command,
-                    },
-                }),
-            }
+        .configure_mapper(app_command_sender, move |(key, command)| UiCommand::TabCommand {
+            tab_key,
+            command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
+                command: ProcessTabUiCommand::ProcessCommand {
+                    key,
+                    command,
+                },
+            }),
         });
 }
 

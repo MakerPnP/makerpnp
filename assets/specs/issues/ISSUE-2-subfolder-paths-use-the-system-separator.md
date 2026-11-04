@@ -32,6 +32,8 @@ backslash in it, so it doesn't find the PCB.
 Not yet repeated. The steps are from reading the code (`pcb_file_reference` in `project/mod.rs` strips the project's
 folder from the path and keeps the rest as it is).
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 A PCB or process directly in the project's folder has no separator, so isn't affected. Paths given to the CLI with

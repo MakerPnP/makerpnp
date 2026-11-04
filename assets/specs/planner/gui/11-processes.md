@@ -76,7 +76,9 @@ MUST have "`Open file`", which opens the process's file as a process document (`
 - `tests/ui/processes.rs` checks a project's process tab shows its file, reference, operations, tasks and kinds, and
   that "`Open file`" opens the process document, and shows the same tab when clicked again (`PROJPROC-2`).
 - `tests/ui/processes.rs` removes a process, saves, compares the file with the one the core saves, and checks its tab is
-  closed and its file isn't deleted. It checks a process used by a phase can't be removed, and one used by a phase that
-  has started can't be refreshed, that the error is shown, and that the project is unchanged. It checks refreshing
-  unchanged processes doesn't change the project (`PROJPROC-3`, `PROCDEF-6`, `PROCDEF-7`).
+  closed and its file isn't deleted. It checks the tab's command and the `RemoveProcess` event are logged, in order,
+  with no "`Event failed.`" (`LOG-1`, `LOG-3`). It checks a process used by a phase can't be removed, and one used by a
+  phase that has started can't be refreshed, that the error is shown, that the tab's command, the event and
+  "`Event failed.`" are logged, in order (`LOG-2`), and that the project is unchanged. It checks refreshing unchanged
+  processes doesn't change the project (`PROJPROC-3`, `PROCDEF-6`, `PROCDEF-7`).
 - Not covered yet: restoring a process's tab when the GUI starts again, and `ISSUE-20`.

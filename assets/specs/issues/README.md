@@ -12,28 +12,109 @@ verified, so they're kept up to date.
   - A table with its **Status**, the **Tool** and the part of it affected (core, CLI or GUI), the **Requirements** it
     concerns, when it was **Found**, and, once fixed, the test it's **Checked by**.
   - **Description**: what's wrong, from the user's point of view.
-  - **Steps to repeat**: numbered steps from a known starting point, using the exact commands, labels and values, each
-    followed by **Expected** and **Actual**. Where the core is at fault, give the CLI's steps first: they're the
-    quickest to repeat and the easiest to turn into a test. Add the GUI's steps if they differ.
+  - **Steps to repeat**, with **Expected** and **Actual**, see below.
   - **Last repeated**: when the steps were last followed, how (CLI, GUI or a test), on which system and commit, and
     whether the issue was reproduced. Steps that come from reading the code, and haven't been followed, say so.
   - **Notes**: what's known of the cause, and suggested fixes.
   - **Workaround**, if there is one.
-- **Keeping the steps up to date.** When a change alters a command, label or workflow that an issue's steps use, update
-  the steps in the same change. When an issue is seen again, or its steps are followed, update **Last repeated**, and
-  correct the steps if they didn't work as written.
-- **Fixing an issue.** Follow the steps to repeat before and after the fix. Add a test that follows them and cites the
-  issue's ID, set **Status** to "Fixed on `<date>`, in `<commit>`", name the test in **Checked by**, and keep the steps,
-  with **Actual** saying what happened before the fix. The behaviour that was decided becomes a requirement in the
-  tool's specification.
+
+### Observing an issue
+
+The planner's logs show what happened, and in what order: each command a GUI component received, each event the core
+received, and why the core refused one (`LOG-1` to `LOG-3` in `../planner/core/03-logging.md`). To observe an issue,
+follow its steps with the logs written to a file, at debug level:
+
+- CLI: `planner_cli --trace planner.log -v <command>`. Each command adds to the file.
+- GUI: `planner_gui_egui --trace planner.log -v`.
+- GUI tests: set `PLANNER_GUI_TEST_LOGS` to a folder, and each test's logs are written there.
+
+A log line is quoted by its target and message, leaving out the time, for example
+"`planner_app: Event failed. error: ProcessError(ProcessInUse {`". Part of a line is enough, as long as it can't be
+mistaken for another.
+
+### Steps to repeat
+
+- Numbered steps from a known starting point, such as an empty folder, using the exact commands, labels and values.
+  Where the core is at fault, give the CLI's steps first: they're the quickest to repeat and the easiest to turn into
+  a test. Add the GUI's steps if they differ.
+- After a step that does something, list the log lines it must produce, in the order they're logged, as "Logs, in
+  order:". These show that the step was followed as written: for a click, the component's command (`LOG-3`), and for
+  anything sent to the core, the event (`LOG-1`). Other lines may come between them.
+- **Expected** and **Actual** each say what the user sees, and the log lines that show it, in order. Name a line that
+  must not be logged as such, for example "no `Event failed.`". The log lines are what tell Expected from Actual, so
+  give at least one line that Expected has and Actual doesn't, or the other way round.
+- Steps that haven't been followed, or whose log lines haven't been recorded, say so in **Last repeated**. Record the
+  log lines the next time the steps are followed.
+
+### Keeping the steps up to date
+
+When a change alters a command, label, workflow or log message that an issue's steps use, update the steps in the same
+change. When an issue is seen again, or its steps are followed, update **Last repeated**, and correct the steps and log
+lines if they didn't match.
+
+### What "fixed" means
+
+An issue is fixed when all of these are true:
+
+1. Its steps to repeat, followed after the fix, give **Expected**: what the user sees, and the expected log lines, in
+   order, with none of the lines that only **Actual** has.
+2. A test follows the steps and checks the expected log lines in order, as well as the result, such as a file's
+   content. Where the core was at fault, it's a CLI test, using `assert_contains_inorder!`. Where the GUI was at fault,
+   it's a GUI test, using `wait_for_logs_in_order` and `assert_not_logged`. The test cites the issue's ID.
+3. The behaviour that was decided is a requirement in the tool's specification, whose acceptance criteria name the log
+   lines, in order.
+4. **Status** says "Fixed on `<date>`, in `<commit>`", **Checked by** names the test, and **Actual** keeps what happened
+   before the fix, with its log lines.
+
+Issues fixed before 2026-11-04 were checked by tests that don't check the logs (`ISSUE-4`, `ISSUE-10` to `ISSUE-13`).
 
 ### Status
 
 | Status | Meaning |
 |---|---|
 | **Open** | Not fixed. |
-| **Fixed** | Fixed, and checked by a test. |
+| **Fixed** | Fixed, as [What "fixed" means](#what-fixed-means) describes. |
 | **Withdrawn** | Not a problem after all, or no longer possible. The file says why. |
+
+### A new issue
+
+```markdown
+# ISSUE-<n> — <What's wrong, in a few words>
+
+| | |
+|---|---|
+| Status | Open |
+| Tool | Planner: <core, CLI or GUI> |
+| Requirements | <IDs, or "None yet"> |
+| Found | <date> |
+
+## Description
+
+<What's wrong, from the user's point of view.>
+
+## Steps to repeat
+
+From the CLI, in an empty folder:
+
+1. `planner_cli --trace planner.log -v <command>`
+
+   Logs, in order:
+   - `planner_app: Received event. event: <Event> {`
+
+**Expected:** <what the user sees>. Logs, in order:
+- `<target>: <message>`
+
+**Actual:** <what the user sees>. Logs, in order:
+- `<target>: <message>`
+
+## Last repeated
+
+<date>, <CLI, GUI or a test>, <system>, after `<commit>`: <reproduced or not>.
+
+## Notes
+
+## Workaround
+```
 
 ## Issues
 

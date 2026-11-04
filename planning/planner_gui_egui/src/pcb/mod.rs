@@ -20,7 +20,7 @@ use tabs::explorer_tab::{ExplorerTab, ExplorerTabUiCommand, ExplorerTabUiContext
 use tabs::gerber_viewer_tab::{
     GerberViewerTab, GerberViewerTabUi, GerberViewerTabUiAction, GerberViewerTabUiCommand, GerberViewerTabUiContext,
 };
-use tracing::{debug, error, info, trace};
+use tracing::{debug, trace};
 
 use crate::pcb::core_helper::PcbCoreHelper;
 use crate::pcb::tabs::explorer_tab::ExplorerTabUiAction;
@@ -134,7 +134,6 @@ impl Pcb {
         pcb_tabs
             .component
             .configure_mapper(component_sender, move |command| {
-                trace!("pcb inner-tab mapper. command: {:?}", command);
                 (key, PcbUiCommand::TabCommand(command))
             });
 
@@ -210,7 +209,6 @@ impl Pcb {
                     .component
                     .configure_mapper(self.component.sender.clone(), {
                         move |command| {
-                            trace!("gerber viewer tab ui mapper. command: {:?}", command);
                             (key, PcbUiCommand::GerberViewerTabUiCommand {
                                 args: args.clone(),
                                 command,
@@ -259,7 +257,7 @@ impl Pcb {
 
     fn navigate(&mut self, key: &PcbKey, navigation_path: NavigationPath) -> Option<PcbAction> {
         // if the path starts with `/pcb/` then show/hide UI elements based on the path,
-        info!("pcb::navigate. navigation_path: {}", navigation_path);
+        debug!("Navigating. navigation_path: '{}'", navigation_path);
 
         #[must_use]
         fn handle_root(key: &PcbKey, navigation_path: &NavigationPath) -> Option<PcbAction> {
@@ -307,8 +305,6 @@ impl Pcb {
                     .map(|value| value.as_str().parse::<PcbSide>().ok())
                     .flatten();
 
-                debug!("pcb_side: {:?}", pcb_side);
-
                 let args = GerberViewerUiInstanceArgs {
                     mode: GerberViewerMode::Panel,
                     pcb_side,
@@ -338,8 +334,6 @@ impl Pcb {
                     .name("side")
                     .map(|value| value.as_str().parse::<PcbSide>().ok())
                     .flatten();
-
-                debug!("design_index: {}, pcb_side: {:?}", design_index, pcb_side);
 
                 let args = GerberViewerUiInstanceArgs {
                     mode: GerberViewerMode::Design(design_index),
@@ -449,7 +443,6 @@ impl PcbUiState {
             .explorer_tab_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("explorer tab ui mapper. command: {:?}", command);
                 (key, PcbUiCommand::ExplorerTabUiCommand(command))
             });
 
@@ -457,7 +450,6 @@ impl PcbUiState {
             .configuration_tab_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("configuration tab ui mapper. command: {:?}", command);
                 (key, PcbUiCommand::ConfigurationTabUiCommand(command))
             });
 
@@ -465,7 +457,6 @@ impl PcbUiState {
             .panel_tab_ui
             .component
             .configure_mapper(sender.clone(), move |command| {
-                trace!("panel tab ui mapper. command: {:?}", command);
                 (key, PcbUiCommand::PanelTabUiCommand(command))
             });
 
@@ -579,6 +570,8 @@ impl UiComponent for Pcb {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("Pcb command. command: {:?}", command);
         let (key, command) = command;
 
         match command {
@@ -587,21 +580,19 @@ impl UiComponent for Pcb {
                 path,
                 name,
                 units,
-            } => {
-                debug!("Creating PCB. path: {:?}", self.path);
-                self.planner_core_service
-                    .update(Event::CreatePcb {
-                        name,
-                        units,
-                        path: path.clone(),
-                        unit_map: None,
+            } => self
+                .planner_core_service
+                .update(Event::CreatePcb {
+                    name,
+                    units,
+                    path: path.clone(),
+                    unit_map: None,
+                })
+                .when_ok(key, |_| {
+                    Some(PcbUiCommand::Created {
+                        path,
                     })
-                    .when_ok(key, |_| {
-                        Some(PcbUiCommand::Created {
-                            path,
-                        })
-                    })
-            }
+                }),
             PcbUiCommand::Created {
                 path,
             } => {
@@ -611,8 +602,6 @@ impl UiComponent for Pcb {
                 Some(PcbAction::Task(key, Task::batch(tasks)))
             }
             PcbUiCommand::Load => {
-                debug!("Loading PCB. path: {:?}", self.path);
-
                 let path = self.path.clone();
 
                 self.planner_core_service
@@ -622,16 +611,12 @@ impl UiComponent for Pcb {
                     .when_ok(key, |_| Some(PcbUiCommand::Loaded))
             }
             PcbUiCommand::Loaded => {
-                debug!("Loaded PCB. path: {:?}", self.path);
-
                 let task1 = self.show_explorer(self.path.clone());
                 let task2 = self.show_configuration(self.path.clone());
                 let tasks = vec![task1, task2];
                 Some(PcbAction::Task(key, Task::batch(tasks)))
             }
             PcbUiCommand::Save => {
-                debug!("Saving PCB. path: {:?}", self.path);
-
                 let path = self.path.clone();
 
                 self.planner_core_service
@@ -640,12 +625,8 @@ impl UiComponent for Pcb {
                     })
                     .when_ok(key, |_| Some(PcbUiCommand::Saved))
             }
-            PcbUiCommand::Saved => {
-                debug!("Saved PCB. path: {:?}", self.path);
-                None
-            }
-            PcbUiCommand::Error(error) => {
-                error!("PCB error. error: {:?}", error);
+            PcbUiCommand::Saved => None,
+            PcbUiCommand::Error(_error) => {
                 // TODO show a dialog for PCB errors
                 None
             }
@@ -667,8 +648,6 @@ impl UiComponent for Pcb {
             PcbUiCommand::PcbView(view) => {
                 match view {
                     PcbView::PcbOverview(pcb_overview) => {
-                        debug!("Received PCB overview.");
-
                         let mut pcb_ui_state = self.pcb_ui_state.lock().unwrap();
 
                         for gerber_viewer_ui in pcb_ui_state
@@ -691,8 +670,6 @@ impl UiComponent for Pcb {
                         self.pcb_overview = Some(pcb_overview);
                     }
                     PcbView::PanelSizing(panel_sizing) => {
-                        debug!("Received panel sizing.");
-
                         let mut pcb_ui_state = self.pcb_ui_state.lock().unwrap();
 
                         pcb_ui_state
@@ -782,9 +759,7 @@ impl UiComponent for Pcb {
                 let action = pcb_tabs.update(tab_command, &mut tab_context);
                 match action {
                     None => {}
-                    Some(PcbTabAction::None) => {
-                        debug!("PcbTabAction::None");
-                    }
+                    Some(PcbTabAction::None) => {}
                 }
                 None
             }

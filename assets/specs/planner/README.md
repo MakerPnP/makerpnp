@@ -23,6 +23,10 @@ supposed to do, and so that every requirement can be traced to the tests that ch
   CLI's tests, first. A front end's tests check that it sends the core the right events and shows what the core
   returns, for example by comparing the files saved through the GUI with those the core saves for the CLI's events.
   Every change to the GUI updates the GUI's tests it affects, and adds tests for anything new.
+- **What happened can be seen in the logs.** The core logs each event it receives, and why it refused one, and each of
+  the GUI's components logs each command it receives, so the logs show what the user did and what the core was asked
+  to do, in order (`LOG`). Issues and acceptance criteria name the log lines that show a behaviour, in order, and tests
+  check them in that order.
 - **Issues have steps to repeat.** Problems are recorded in [`../issues/`](../issues/README.md), one file each, with
   steps to repeat them that are kept up to date. They're how a fix is verified.
 
@@ -43,6 +47,7 @@ ID prefix `ISSUE`.
 |---|---|---|
 | [core/01-documents.md](core/01-documents.md) | Creating documents | `DOC` |
 | [core/02-processes.md](core/02-processes.md) | Defining processes, and a project's copies of them | `PROCDEF` |
+| [core/03-logging.md](core/03-logging.md) | What is logged, and how the logs are captured and checked | `LOG` |
 | [gui/01-architecture.md](gui/01-architecture.md) | How the GUI is structured, and how it uses the core | `GARCH` |
 | [gui/02-forms.md](gui/02-forms.md) | Controls shared by the GUI's forms | `FORM` |
 | [gui/03-pcb-configuration.md](gui/03-pcb-configuration.md) | A PCB's designs and which units use them | `PCBCFG` |
@@ -64,6 +69,8 @@ ID prefix `ISSUE`.
 - Each area ends with **acceptance criteria**: concrete scenarios that automated tests must cover.
 - Tests cite the IDs they check, so a requirement's tests can be found by searching for its ID.
 - Controls are found in tests by their role and label, as a user would find them, never by position.
+- Acceptance criteria may name log lines, by their target and message, which tests must find in the order given
+  (`LOG-7`). Changing such a message means changing the criteria and tests that name it.
 
 ### Status
 
@@ -120,3 +127,5 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | Processes are no longer built into the planner. The user defines each in its own file, from a preset or from nothing, and a project keeps a copy of each process it uses, updated when its processes are refreshed (`PROCDEF`). A task has a reference chosen by the user and a kind (`PROCDEF-2`). A new project has no processes, and an old project's processes are moved to their own files when it's loaded (`PROCDEF-8`). Added the GUI's process documents and a project's processes (`PROC`, `PROJPROC`), awaiting review, and `ISSUE-20` to `ISSUE-22`. A new process is saved as it is created (`DOC-1`). |
 | 2026-11-04 | Added GUI tests for the rest of process documents and a project's processes (`PROC`, `PROJPROC`): opening a process, the New process form's validation, moving, deleting and editing operations and tasks, rules, invalid processes, "`Open file`", and the refreshes and removals the core refuses. "`Remove process`" is now named without its icon. |
 | 2026-11-04 | Added the principles: requirements start with the user's workflow, the core does the work for every front end, so the CLI can do everything the GUI can, new core events are considered for every front end, and the core is the most important thing to test. Moved the known issues to `../issues/`, one file each, with steps to repeat them, including those already fixed (`ISSUE-4`, `ISSUE-10` to `ISSUE-13`). Followed the steps of `ISSUE-1`, `ISSUE-7`, `ISSUE-8`, `ISSUE-21` and `ISSUE-22` from the CLI, and reproduced each. `ISSUE-7` also affects the CLI, and `ISSUE-18` also affects processes. |
+| 2026-11-04 | Added logging (`LOG`): the core logs each event it receives, and why it refused one, and each of the GUI's components logs each command it receives. The GUI accepts `--trace` and `-v`, as the CLI does. The GUI's tests capture each test's logs, and check them in order, as the CLI's do. Issues' steps to repeat now name the log lines that show each step and tell Expected from Actual, and an issue is fixed when a test checks the expected log lines in order. Recorded the log lines of `ISSUE-1`, `ISSUE-7`, `ISSUE-8`, `ISSUE-21` and `ISSUE-22`. |
+| 2026-11-04 | Log messages must now be in the form "`<message>.[ <context>[, ...]]`", with values only in the context, as "`<key>: <value>`", and strings in single quotes (`LOG-4`). The same information is logged once only (`LOG-8`): removed 84 log lines that repeated a command, event or error already logged, including each mapper's trace, each front end's trace of the events it sent, the GUI's "`core error:`", and the GUI's document load and save messages. "`pcb::navigate.`" and "`project::navigate.`" are now "`Navigating.`", at debug level. In the GUI's tests, each logged message is now found on a line of its own (`LOG-7`). |

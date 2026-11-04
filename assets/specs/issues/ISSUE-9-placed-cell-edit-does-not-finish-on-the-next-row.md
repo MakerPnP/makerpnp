@@ -28,6 +28,8 @@ should.
 
 Seen failing, and seen working by clicking another cell of the row, in a UI test on 2026-11-03. Not repeated since.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 The likely cause, from the code, is that the editor's three radio buttons make it taller than its row, so it covers the

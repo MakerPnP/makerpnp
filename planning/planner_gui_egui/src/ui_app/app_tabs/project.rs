@@ -130,6 +130,8 @@ impl UiComponent for ProjectTab {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ProjectTab command. command: {:?}", command);
         match command {
             ProjectTabUiCommand::ProjectCommand {
                 key,

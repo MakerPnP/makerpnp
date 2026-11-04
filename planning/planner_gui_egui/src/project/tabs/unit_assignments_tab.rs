@@ -1037,6 +1037,8 @@ impl UiComponent for UnitAssignmentsTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("UnitAssignmentsTabUi command. command: {:?}", command);
         let mut fields = self.fields.lock().unwrap();
         let existing_designs = fields
             .design_variants

@@ -349,6 +349,8 @@ impl UiComponent for ManageGerbersModal {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ManageGerbersModal command. command: {:?}", command);
         match command {
             ManagerGerbersModalUiCommand::Close => Some(ManagerGerberModalAction::CloseDialog),
             ManagerGerbersModalUiCommand::Remove {
@@ -376,10 +378,6 @@ impl UiComponent for ManageGerbersModal {
                 index,
                 function_discriminant,
             } => {
-                debug!(
-                    "function changed, index: {}, function: {:?}",
-                    index, function_discriminant
-                );
                 let choice = self
                     .gerber_file_functions
                     .get_mut(index)
@@ -391,7 +389,6 @@ impl UiComponent for ManageGerbersModal {
                 index,
                 pcb_side,
             } => {
-                debug!("pcb side changed, index: {}, pcb_side: {:?}", index, pcb_side);
                 let choice = self
                     .gerber_file_functions
                     .get_mut(index)

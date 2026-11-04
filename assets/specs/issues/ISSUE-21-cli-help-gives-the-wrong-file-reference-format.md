@@ -18,22 +18,27 @@ but the CLI only accepts `relative=` or `absolute=` (see `ISSUE-22`).
 In a folder with a project `job1` and a process file `pnp.process.json`:
 
 1. `planner_cli project --project job1 add-pcb --help`, and the same for `add-process`.
-2. `planner_cli project --project job1 add-process --file relative:pnp.process.json`
-3. `planner_cli project --project job1 add-process --file <the absolute path of pnp.process.json>`
+2. `planner_cli --trace planner.log -v project --project job1 add-process --file relative:pnp.process.json`
+3. `planner_cli --trace planner.log -v project --project job1 add-process --file <the absolute path of pnp.process.json>`
 
-**Expected:** each form the help gives is accepted.
+**Expected:** each form the help gives is accepted. Logs, in order, for steps 2 and 3:
+- `planner_app: Received event. event: AddProcess { process_file:`
+- `planning::project: Added process. process: 'pnp'`
 
 **Actual:** step 1's help gives `relative:<path>` for `add-pcb`, and a bare absolute path for both. Steps 2 and 3 fail
-with "Invalid file reference format. Required format is 'relative=path' or 'absolute=path'."
+with exit code 2, and the console shows "error: Invalid file reference format. Required format is 'relative=path' or
+'absolute=path'." Nothing is logged, and `planner.log` isn't created, as the arguments are checked before logging
+starts.
 
 ## Last repeated
 
-2026-11-04, Windows, after `6f983ed0`: reproduced.
+2026-11-04, Windows, after `8a4ed2ae`, with `LOG-1` and `LOG-2` added: reproduced, with no log file.
 
 ## Notes
 
 The help is in `opts.rs`. The parsing is `FileReferenceParser` in `common/cli/src/parsers.rs`, and
-`FileReference::try_from` in `planning/src/file.rs`.
+`FileReference::try_from` in `planning/src/file.rs`. A test of the fix can check the CLI's exit code and the
+`AddProcess` event in its trace.
 
 ## Workaround
 

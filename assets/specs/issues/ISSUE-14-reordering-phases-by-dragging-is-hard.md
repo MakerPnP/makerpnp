@@ -25,6 +25,8 @@ The dragged items can also be duplicated.
 
 Not repeated since it was moved from the user's list of known issues on 2026-11-04.
 
+Its log lines haven't been recorded yet. Record them, with `--trace planner.log -v`, when the steps are next followed.
+
 ## Notes
 
 The explorer uses `egui_ltreeview`, which also duplicates the dragged items (a `FIXME` in `explorer_tab.rs`).

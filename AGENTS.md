@@ -17,6 +17,9 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
   conventions, and the change log. Read the area's spec before changing the planner's behaviour; the specs on disk are
   authoritative, and tests cite their requirement IDs. Its "Principles" say how the core and the front ends share the
   work: read them before adding a core event.
+- [`assets/specs/planner/core/03-logging.md`](assets/specs/planner/core/03-logging.md): what is logged, and how to capture
+  the logs, `--trace <file> -v` for the CLI and the GUI. Use the logs to observe an issue, and check the log lines in
+  order in tests, as `assert_contains_inorder!` and the GUI fixture's `wait_for_logs_in_order` do.
 - [`planning/planner_cli/tests/planner.rs`](planning/planner_cli/tests/planner.rs): the CLI's `operation_sequence_1`,
   which the GUI's workflow tests mirror step by step.
 - [`planning/planner_gui_egui/tests/ui/`](planning/planner_gui_egui/tests/ui/): the GUI's tests, run against the whole

@@ -256,6 +256,8 @@ impl UiComponent for ExplorerUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ExplorerUi command. command: {:?}", command);
         match command {
             ExplorerTabUiCommand::Navigate(path) => {
                 self.select_path(&path);

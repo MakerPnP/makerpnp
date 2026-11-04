@@ -2905,10 +2905,14 @@ impl App for Planner {
     type Effect = Effect;
 
     fn update(&self, event: Self::Event, model: &mut Self::Model) -> Command<Self::Effect, Self::Event> {
+        // `LOG-1`, every event, so the logs show what each front end asked for, in order.
+        debug!("Received event. event: {:?}", event);
         let try_fn = self.update_inner(event);
 
         match try_fn(model) {
             Err(e) => {
+                // `LOG-2`, so a refusal can be seen in the logs, whichever front end sent the event.
+                warn!("Event failed. error: {:?}", e);
                 model
                     .error
                     .replace((chrono::DateTime::from(SystemTime::now()), format!("{:?}", e)));

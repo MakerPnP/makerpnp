@@ -1033,7 +1033,7 @@ mod operation_sequence_1 {
         Ok(())
     }
 
-    /// `PROCDEF-1`, `PROCDEF-2`, `PROCDEF-3`
+    /// `PROCDEF-1`, `PROCDEF-2`, `PROCDEF-3`, `LOG-1`, `LOG-2`
     #[test]
     fn sequence_08_define_process() -> Result<(), anyhow::Error> {
         // given
@@ -1077,16 +1077,21 @@ mod operation_sequence_1 {
             "add-task --operation load_pcbs --task place_again --kind place_components",
         ])?;
 
-        // then it fails, and the process is unchanged
+        // then it fails, and the process is unchanged, and the logs show the event and why it failed, in order (`LOG-1`, `LOG-2`)
         cmd_assert.failure();
-        assert_contains_inorder!(trace_content, ["Edit process.",]);
+        assert_contains_inorder!(trace_content, [
+            "planner_app: Received event. event: EditProcess {",
+            "edit: AddTask { operation: Reference(\"load_pcbs\"), task: Reference(\"place_again\"), kind: PlaceComponents }",
+            "planner_app: Edit process.",
+            "planner_app: Event failed. error: ProcessError(InvalidProcess(MoreThanOnePlaceComponentsTask { process: Reference(\"manual\") }))",
+        ]);
         let process_content: String = read_and_show_file(&ctx.manual_process_path)?;
         assert_eq!(process_content, expected_process_content);
 
         Ok(())
     }
 
-    /// `PROCDEF-5`, `PROCDEF-6`
+    /// `PROCDEF-5`, `PROCDEF-6`, `LOG-1`, `LOG-2`
     #[test]
     fn sequence_09_add_processes() -> Result<(), anyhow::Error> {
         // given
@@ -1238,17 +1243,23 @@ mod operation_sequence_1 {
         assert_eq!(project_content, expected_project_content);
 
         // and when the same process is added again
-        let (_trace_content, cmd_assert) = run_cli_inner(ctx, vec![
+        let (trace_content, cmd_assert) = run_cli_inner(ctx, vec![
             ctx.trace_log_arg.as_str(),
             "project",
             ctx.path_arg.as_str(),
             ctx.project_arg.as_str(),
+            "-vvv",
             "add-process",
             "--file relative=pnp.process.json",
         ])?;
 
         // then it fails, and the project is unchanged
         cmd_assert.failure();
+        // and the logs show the event and why it failed, in order (`LOG-1`, `LOG-2`)
+        assert_contains_inorder!(trace_content, [
+            "planner_app: Received event. event: AddProcess { process_file: Relative(\"pnp.process.json\") }",
+            "planner_app: Event failed. error: ProcessError(DuplicateProcessFile { process_file: Relative(\"pnp.process.json\") })",
+        ]);
         let project_content: String = read_and_show_file(&ctx.test_project_path)?;
         assert_eq!(project_content, expected_project_content);
 

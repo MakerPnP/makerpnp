@@ -50,7 +50,6 @@ impl PhaseTabUi {
         placements_table_ui
             .component
             .configure_mapper(component.sender.clone(), |placements_table_command| {
-                trace!("phase placements table mapper. command: {:?}", placements_table_command);
                 PhaseTabUiCommand::PlacementsTableUiCommand(placements_table_command)
             });
 
@@ -212,7 +211,6 @@ impl UiComponent for PhaseTabUi {
                                                 ))
                                                 .clicked()
                                             {
-                                                debug!("clicked: {:?}", action);
                                                 self.component
                                                     .send(PhaseTabUiCommand::TaskAction {
                                                         operation: operation_state.reference.clone(),
@@ -315,6 +313,8 @@ impl UiComponent for PhaseTabUi {
         command: Self::UiCommand,
         context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("PhaseTabUi command. command: {:?}", command);
         match command {
             PhaseTabUiCommand::None => Some(PhaseTabUiAction::None),
             PhaseTabUiCommand::PlacementsTableUiCommand(command) => {
@@ -374,7 +374,6 @@ impl UiComponent for PhaseTabUi {
                     modal
                         .component
                         .configure_mapper(self.component.sender.clone(), move |command| {
-                            trace!("placement orderings modal mapper. command: {:?}", command);
                             PhaseTabUiCommand::PlacementOrderingsModalUiCommand(command)
                         });
 

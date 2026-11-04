@@ -1,5 +1,6 @@
 use egui::Ui;
 use egui_i18n::tr;
+use tracing::debug;
 
 use crate::tabs::TabKey;
 use crate::ui_component::{ComponentState, UiComponent};
@@ -150,6 +151,8 @@ impl UiComponent for Toolbar {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("Toolbar command. command: {:?}", command);
         match command {
             ToolbarUiCommand::ShowHomeTabClicked => Some(ToolbarAction::ShowHomeTab),
             ToolbarUiCommand::CloseAllTabsClicked => Some(ToolbarAction::CloseAllTabs),

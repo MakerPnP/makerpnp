@@ -16,21 +16,30 @@ found.
 
 In a folder with a project `job1` and a process file `pnp.process.json`:
 
-1. `planner_cli project --project job1 add-process --file absolute=<the absolute path of pnp.process.json>`
+1. `planner_cli --trace planner.log -v project --project job1 add-process --file absolute=<the absolute path of pnp.process.json>`
 
-**Expected:** the process is added, with its absolute path.
+**Expected:** the process is added, with its absolute path. Logs, in order:
+- `planner_app: Received event. event: AddProcess { process_file: Absolute("<the absolute path>") }`, with no
+  `absolute=`
+- `planning::process: Loading process. path: <the absolute path>`
+- `planning::project: Added process. process: 'pnp'`
+- no `Event failed.`
 
-**Actual:** the CLI tries to load `absolute=<path>`, and fails. On Windows the error is
-`IoError(Os { code: 123, kind: InvalidFilename, ... })`.
+**Actual:** the CLI fails, with exit code 1. Logs, in order:
+- `planner_app: Received event. event: AddProcess { process_file: Absolute("absolute=<the absolute path>") }`
+- `planning::process: Loading process. path: absolute=<the absolute path>`
+- `planner_app: Event failed. error: IoError(`, on Windows
+  `IoError(Os { code: 123, kind: InvalidFilename, message: "The filename, directory name, or volume label syntax is incorrect." })`
 
 `add-pcb` reads its file the same way.
 
 ## Last repeated
 
-2026-11-04, Windows, after `6f983ed0`: reproduced.
+2026-11-04, Windows, after `8a4ed2ae`, with `LOG-1` and `LOG-2` added: reproduced.
 
 ## Notes
 
+The event's `Absolute("absolute=…")` shows that the CLI's parsing is at fault, not the core's loading.
 `FileReference::try_from` in `planning/src/file.rs` builds the path from the whole value, rather than from what follows
 `=`.
 

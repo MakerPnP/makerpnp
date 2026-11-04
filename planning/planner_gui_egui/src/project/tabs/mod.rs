@@ -2,6 +2,7 @@ use derivative::Derivative;
 use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_dock::{DockArea, DockState, NodeIndex, Split, Style};
+use tracing::debug;
 
 use crate::project::{ProjectTabKind, ProjectUiState};
 use crate::sync::Value;
@@ -90,6 +91,8 @@ impl UiComponent for ProjectTabs {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
+        // `LOG-3`
+        debug!("ProjectTabs command. command: {:?}", command);
         match command {
             ProjectTabUiCommand::None => Some(ProjectTabAction::None),
         }
