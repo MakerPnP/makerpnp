@@ -4,7 +4,8 @@
 //! each shell. Each process has one, shared by all of its cores. It's async, and not tied to a thread, so that it can be
 //! used by a shell that has no threads, such as a web shell, which would have back ends of its own.
 //!
-//! Each back end is a module, chosen by the data source, for example [`csv_file`] for a file.
+//! Each back end is a module, chosen by the data source, for example [`csv_file`] for a file, or by the document, for
+//! example [`document_file`].
 
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
@@ -12,8 +13,11 @@ use stores_protocol::{StoresOperation, StoresOutput};
 use tracing::debug;
 
 pub mod csv_file;
+pub mod document_file;
 
-#[derive(Debug, Default)]
+/// A handle to the process's stores service: its clones are the same service, so a shell can give one to each of its
+/// cores.
+#[derive(Debug, Default, Clone)]
 pub struct StoresService {}
 
 impl StoresService {
@@ -53,6 +57,16 @@ impl StoresService {
             StoresOperation::WatchSource {
                 source,
             } => csv_file::watch(&source),
+            StoresOperation::ReadDocument {
+                path,
+            } => stream::once(async move { StoresOutput::DocumentRead(document_file::read(&path).await) }).boxed(),
+            StoresOperation::WriteDocument {
+                path,
+                contents,
+            } => {
+                stream::once(async move { StoresOutput::DocumentWritten(document_file::write(&path, &contents).await) })
+                    .boxed()
+            }
         }
     }
 

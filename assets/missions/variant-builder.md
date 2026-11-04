@@ -95,3 +95,20 @@ a data source, with nothing to keep them in step, which matters once data source
 | 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
 | 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
 | 13 | Confirming BOM items. | |
+
+### Step 7, an event at a time
+
+Each is a commit. A document, a project, a PCB or a process, is read and written as it is, the core making and reading
+its contents (`STORE-10`). A data source, such as a load-out or packages, is read and written by the service, which knows
+its format, as parts are. The GUI's planner cores wait for the service for now, as they waited for the files before, so
+what they show is as it was.
+
+| Events | What | Status |
+|---|---|---|
+| `CreateProject`, `Save` | The project's file is written by the service, and a project is only created once it is. | Done |
+| `Load` | The project, its PCBs, and moving its processes to their own files. | Next |
+| `CreatePcb`, `CreateProjectPcb`, `LoadPcb`, `SavePcb`, `SaveAllPcbs`, `AddPcb`, `RefreshPcbs` | PCB documents. | |
+| `CreateProcess`, `LoadProcess`, `SaveProcess`, `SaveAllProcesses`, `AddProcess`, `RefreshProcesses` | Process documents. | |
+| Load-outs, packages, package mappings, placements | The project's data sources, used by many events. | |
+| `GenerateArtifacts` | The files made for a phase. | |
+| The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules, load-outs and the BOM. | |

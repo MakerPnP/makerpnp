@@ -50,7 +50,7 @@ pub fn create_project(app: &mut App, folder: &Path) {
     app.wait_for_tab("project-job1.mpnp.json");
 }
 
-/// `DOC-1`
+/// `DOC-1`, `STORE-10`
 #[test]
 fn a_new_project_is_saved_as_it_is_created() {
     let mut app = App::start();
@@ -60,6 +60,13 @@ fn a_new_project_is_saved_as_it_is_created() {
 
     // only shown after the core has created the project.
     app.wait_for_tab("Overview");
+    // once the stores service has written its file.
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: CreateProject {",
+        "stores_service: Performing stores operation. operation: WriteDocument { path: ",
+        "planner_app: Received event. event: ProjectWritten {",
+        "planner_app: Created project successfully.",
+    ]);
     assert!(
         folder
             .join("project-job1.mpnp.json")

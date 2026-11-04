@@ -3,9 +3,14 @@
 //! A core never reads or writes a data source itself. It asks for a [`StoresOperation`], the shell has the stores
 //! service do it, and the core is given the [`StoresOutput`]. So the cores are pure, and are tested with outputs made
 //! up by the tests, and every core in a process shares the one stores service.
+//!
+//! A data source, such as a parts file, is read and written by the service, which knows its format, so that it can have
+//! back ends of other kinds, such as a database. A document, such as a project, is read and written as it is, by the
+//! core that keeps it (`STORE-10`).
 
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::path::PathBuf;
 
 use crux_core::capability::Operation;
 pub use pnp::part::Part;
@@ -52,7 +57,29 @@ pub struct Parts {
     pub parts: Vec<PartsViewItem>,
 }
 
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+/// A document, such as a project, a PCB or a process, as its core keeps it, and the revision it was read from
+/// (`STORE-10`).
+///
+/// The core that keeps the document reads and writes its contents, so the service doesn't need to know what's in it.
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct Document {
+    pub revision: Revision,
+    pub contents: String,
+}
+
+/// Says how long the contents are, not what they are, as a document is logged, and may be large.
+impl Debug for Document {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Document(<{} bytes>, revision: {:?})",
+            self.contents.len(),
+            self.revision.0
+        )
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub enum StoresOperation {
     /// The data source as the stores service identifies it, so that one file is one data source however its path is
     /// written (`STORE-6`). Answered with [`StoresOutput::SourceResolved`].
@@ -66,6 +93,54 @@ pub enum StoresOperation {
     /// as the shell can watch it. A shell that can't, such as the CLI, which is done before anything could change,
     /// doesn't answer it.
     WatchSource { source: Source },
+
+    /// The document at the path, if there is one (`STORE-10`). Answered with [`StoresOutput::DocumentRead`].
+    ReadDocument { path: PathBuf },
+
+    /// Writes the document's contents to the path, replacing any document there (`STORE-10`). Answered with
+    /// [`StoresOutput::DocumentWritten`].
+    WriteDocument { path: PathBuf, contents: String },
+}
+
+/// Says how long a document written is, not what it is, as an operation is logged.
+impl Debug for StoresOperation {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StoresOperation::ResolveSource {
+                source,
+            } => f
+                .debug_struct("ResolveSource")
+                .field("source", source)
+                .finish(),
+            StoresOperation::ReadParts {
+                source,
+            } => f
+                .debug_struct("ReadParts")
+                .field("source", source)
+                .finish(),
+            StoresOperation::WatchSource {
+                source,
+            } => f
+                .debug_struct("WatchSource")
+                .field("source", source)
+                .finish(),
+            StoresOperation::ReadDocument {
+                path,
+            } => f
+                .debug_struct("ReadDocument")
+                .field("path", path)
+                .finish(),
+            StoresOperation::WriteDocument {
+                path,
+                contents,
+            } => write!(
+                f,
+                "WriteDocument {{ path: {:?}, contents: <{} bytes> }}",
+                path,
+                contents.len()
+            ),
+        }
+    }
 }
 
 impl StoresOperation {
@@ -87,6 +162,12 @@ pub enum StoresOutput {
     /// The data source watched may have changed. It may not have, for example when a file was written with the same
     /// contents, which its revision shows once it's read again (`STORE-8`).
     Changed,
+
+    /// The document, or `None` if there's no document at the path, or why it couldn't be read.
+    DocumentRead(Result<Option<Document>, String>),
+
+    /// The revision of the document written, or why it couldn't be written.
+    DocumentWritten(Result<Revision, String>),
 }
 
 impl Operation for StoresOperation {
@@ -109,6 +190,8 @@ impl Debug for StoresOutput {
             })) => write!(f, "PartsRead(Ok(<{} parts>, revision: {:?}))", parts.len(), revision.0),
             StoresOutput::PartsRead(Err(error)) => write!(f, "PartsRead(Err({:?}))", error),
             StoresOutput::Changed => f.write_str("Changed"),
+            StoresOutput::DocumentRead(result) => write!(f, "DocumentRead({:?})", result),
+            StoresOutput::DocumentWritten(result) => write!(f, "DocumentWritten({:?})", result),
         }
     }
 }

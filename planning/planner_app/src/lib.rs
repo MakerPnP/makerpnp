@@ -59,6 +59,7 @@ use stores::load_out::LoadOutOperationError;
 pub use stores::load_out::LoadOutSource;
 pub use stores::package_mappings::PackageMappingsSource;
 pub use stores::packages::PackagesSource;
+pub use stores_protocol::{StoresOperation, StoresOutput};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 use util::source::SourceError;
@@ -81,6 +82,8 @@ pub struct ModelProject {
     project_directory: PathBuf,
     project: Project,
     modified: bool,
+    /// The contents being written, until they are, so the project is only said to be saved if it's still as written.
+    writing: Option<String>,
 }
 
 impl ModelProject {
@@ -115,6 +118,9 @@ type ModelProcesses = BTreeMap<PathBuf, ModelProcess>;
 #[derive(Default)]
 pub struct Model {
     model_project: Option<ModelProject>,
+    /// A project being created, until its file is written (`DOC-1`), so a project whose file can't be written isn't
+    /// created, and the project before it is kept.
+    creating_project: Option<ModelProject>,
     /// PCBs that have been created/loaded.
     ///
     /// Important: Can contain instances of [`ModelPcb`] that have been created or loaded, but not assigned to a project yet.
@@ -222,26 +228,59 @@ impl Model {
         Ok(())
     }
 
-    /// Save a PCB, no project required.
-    fn save_project(&mut self) -> Result<(), AppError> {
-        let ModelProject {
-            project,
-            path,
-            modified,
-            ..
-        } = self
+    /// Has the project's file written (`STORE-10`), see [`Event::ProjectWritten`].
+    fn save_project(&mut self) -> Result<Command<Effect, Event>, AppError> {
+        let model_project = self
             .model_project
             .as_mut()
             .ok_or(AppError::OperationRequiresProject)?;
 
-        info!("Save project. path: {:?}", &path);
+        info!("Save project. path: {:?}", &model_project.path);
 
-        file::save(project, path).map_err(AppError::IoError)?;
+        let contents = file::to_string(&model_project.project).map_err(|cause| AppError::IoError(cause.into()))?;
+        model_project.writing = Some(contents.clone());
+
+        Ok(Planner::write_project(model_project.path.clone(), contents))
+    }
+
+    /// The project's file was written, or wasn't, for [`Event::CreateProject`] or [`Event::Save`].
+    fn project_written(&mut self, path: PathBuf, output: StoresOutput) -> Result<Command<Effect, Event>, AppError> {
+        let StoresOutput::DocumentWritten(result) = output else {
+            return Err(AppError::UnexpectedOutput {
+                output,
+            });
+        };
+
+        // `DOC-1`, a project being created is only created once its file is written, otherwise the project before it,
+        // if any, is kept.
+        if let Some(mut model_project) = self
+            .creating_project
+            .take_if(|model_project| model_project.path == path)
+        {
+            result.map_err(AppError::StoresError)?;
+            model_project.modified = false;
+            self.model_project
+                .replace(model_project);
+            info!("Created project successfully.");
+            return Ok(render::render());
+        }
+
+        let model_project = self
+            .model_project
+            .as_mut()
+            .filter(|model_project| model_project.path == path)
+            .ok_or(AppError::OperationRequiresProject)?;
+        let written = model_project.writing.take();
+        // a refused write leaves the project's changes unsaved.
+        result.map_err(AppError::StoresError)?;
 
         info!("Saved project. path: {:?}", path);
-        *modified = false;
+        // the project may have been changed while it was written, in which case those changes aren't saved.
+        if written.is_some() && written == file::to_string(&model_project.project).ok() {
+            model_project.modified = false;
+        }
 
-        Ok(())
+        Ok(render::render())
     }
 
     fn save_pcb(&mut self, path: &PathBuf) -> Result<(), AppError> {
@@ -355,6 +394,8 @@ pub enum Effect {
     ProjectView(ProjectViewRendererOperation),
     PcbView(PcbViewRendererOperation),
     ProcessView(ProcessViewRendererOperation),
+    /// A store operation, done by the stores service, as the core does none itself (`STORE-7`).
+    Stores(StoresOperation),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
@@ -608,10 +649,13 @@ pub enum Event {
         packages: Option<PackagesSource>,
         package_mappings: Option<PackageMappingsSource>,
     },
-    // TODO consider if the 'shell' should be loading and saving the project, not the core?
-    //      currently the core does all loading/saving and uses stores too, this might not be how
-    //      crux is intended to be used.
     Save,
+    /// Internal: the project's file was written, or wasn't, for [`Event::CreateProject`] or [`Event::Save`]
+    /// (`STORE-10`).
+    ProjectWritten {
+        path: PathBuf,
+        output: StoresOutput,
+    },
     Load {
         /// The name of the project file
         path: PathBuf,
@@ -876,20 +920,21 @@ impl Planner {
                 let project_directory = path.parent().unwrap().to_path_buf();
 
                 let project = Project::new(name, packages, package_mappings);
+                let contents = file::to_string(&project).map_err(|cause| AppError::IoError(cause.into()))?;
+
+                // `DOC-1`, as with a new PCB, a new project is saved as it is created, and is created once it's saved,
+                // see `Event::ProjectWritten`.
                 model
-                    .model_project
+                    .creating_project
                     .replace(ModelProject {
-                        path,
+                        path: path.clone(),
                         project_directory,
                         project,
                         modified: true,
+                        writing: None,
                     });
 
-                // as with a new PCB, a new project is saved as it is created.
-                model.save_project()?;
-
-                info!("Created project successfully.");
-                Ok(render::render())
+                Ok(Self::write_project(path, contents))
             }),
             Event::Load {
                 path,
@@ -909,17 +954,18 @@ impl Planner {
                         project_directory: project_directory.clone(),
                         project,
                         modified,
+                        writing: None,
                     });
 
                 model.load_unloaded_project_pcbs(&project_directory)?;
 
                 Ok(render::render())
             }),
-            Event::Save => Box::new(|model: &mut Model| {
-                model.save_project()?;
-
-                Ok(render::render())
-            }),
+            Event::Save => Box::new(|model: &mut Model| model.save_project()),
+            Event::ProjectWritten {
+                path,
+                output,
+            } => Box::new(move |model: &mut Model| model.project_written(path, output)),
             Event::CreateProjectPcb {
                 name,
                 units,
@@ -2898,6 +2944,20 @@ impl Planner {
     }
 }
 
+impl Planner {
+    /// Has the stores service write the project's file, then gives the core [`Event::ProjectWritten`].
+    fn write_project(path: PathBuf, contents: String) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::WriteDocument {
+            path: path.clone(),
+            contents,
+        })
+        .then_send(move |output| Event::ProjectWritten {
+            path: path.clone(),
+            output,
+        })
+    }
+}
+
 impl App for Planner {
     type Event = Event;
     type Model = Model;
@@ -2976,6 +3036,12 @@ enum AppError {
     PcbOperationError(PcbOperationError),
     #[error("IO error. cause: {0}")]
     IoError(std::io::Error),
+    /// A store operation was refused, saying why, for example a file that can't be written (`STORE-10`).
+    #[error("Stores error. cause: {0}")]
+    StoresError(String),
+    /// The shell gave the result of a different operation, a fault in the shell (`STORE-7`).
+    #[error("Unexpected output. output: {output:?}")]
+    UnexpectedOutput { output: StoresOutput },
 
     #[error("Unknown phase reference. reference: {0}")]
     UnknownPhaseReference(Reference),

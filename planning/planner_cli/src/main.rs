@@ -7,7 +7,6 @@ use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{PartsView, PartsViewRendererOperation, Stores};
-use stores_service::StoresService;
 
 use crate::core::Core;
 use crate::opts::{
@@ -71,8 +70,8 @@ fn main() -> anyhow::Result<()> {
 /// The parts mode uses the stores core, which has the data sources, not the planner's core.
 fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
     let core: crux_core::Core<Stores> = crux_core::Core::new();
-    // `STORE-7`, does the store operations the core asks for.
-    let service = StoresService::new();
+    // `STORE-7`, does the store operations the core asks for, the one the planner's core uses too.
+    let service = crate::core::stores_service();
 
     // the CLI does one thing at a time, so it waits for each operation.
     let process = |event: stores_app::Event| -> anyhow::Result<Vec<PartsView>> {
@@ -176,6 +175,10 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
             }
             Effect::PcbView(_) | Effect::ProcessView(_) => {
                 // Currently, the CLI app should not cause these effects.
+                unreachable!()
+            }
+            Effect::Stores(_) => {
+                // done, and their results given to the core, as they're asked for, see `core::process_effect`.
                 unreachable!()
             }
         }

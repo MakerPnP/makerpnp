@@ -7,10 +7,12 @@
 //! The stores service is async, so its operations are done on a runtime of their own, and the GUI doesn't wait for them.
 //! Each result is sent back as a command, [`UiCommand::StoresReply`], which is handled, in order with the others, on the
 //! thread that draws the frames (`GARCH-11`), where it's given to the core.
+//!
+//! The planner's cores use the same stores service, see [`stores_service`].
 
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Formatter};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::StreamExt;
 use stores_app::{
@@ -24,9 +26,14 @@ use tracing::instrument::WithSubscriber;
 use crate::sync::Enqueue;
 use crate::ui_commands::UiCommand;
 
+/// The process's stores service, shared by all of its cores: the stores core, and each tab's planner core (`STORE-7`).
+pub fn stores_service() -> &'static StoresService {
+    static SERVICE: OnceLock<StoresService> = OnceLock::new();
+    SERVICE.get_or_init(StoresService::new)
+}
+
 pub struct StoresCoreService {
     core: Core<Stores>,
-    service: Arc<StoresService>,
     runtime: tokio::runtime::Runtime,
     replies: Replies,
 
@@ -80,7 +87,6 @@ impl StoresCoreService {
 
         Self {
             core: Core::new(),
-            service: Arc::new(StoresService::new()),
             runtime,
             replies: Replies {
                 sender,
@@ -132,7 +138,7 @@ impl StoresCoreService {
     fn perform(&self, request: crux_core::Request<StoresOperation>) {
         let replies = self.replies.clone();
         let operation = request.operation.clone();
-        let mut outputs = self.service.perform(operation.clone());
+        let mut outputs = stores_service().perform(operation.clone());
         let request = Arc::new(Mutex::new(request));
         self.runtime.spawn(
             async move {

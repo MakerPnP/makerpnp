@@ -10,6 +10,7 @@ pnp = { path = "../../pnp/pnp" }
 args = { path = "../../common/args" }
 math = { path = "../../common/math" }
 stores = { path = "../stores" }
+stores_protocol = { path = "../stores_protocol" }
 package_mapper = { path = "../package_mapper" }
 util = { path = "../../common/util" }
 
@@ -40,3 +41,4 @@ markdown = ["planning/markdown"]
 
 [dev-dependencies]
 crux_core = { workspace = true, features = ["testing"] }
+serde_json = { workspace = true }

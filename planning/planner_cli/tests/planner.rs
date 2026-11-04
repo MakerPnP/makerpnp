@@ -271,7 +271,15 @@ mod operation_sequence_1 {
         cmd_assert.success();
 
         // and
-        assert_contains_inorder!(trace_content, ["Created project successfully",]);
+        // `DOC-1`, `STORE-10`, the project is created once the stores service has written its file.
+        assert_contains_inorder!(trace_content, [
+            "planner_app: Received event. event: CreateProject {",
+            "Creating project. path: ",
+            "stores_service: Performing stores operation. operation: WriteDocument { path: ",
+            "planner_app: Received event. event: ProjectWritten {",
+            "output: DocumentWritten(Ok(",
+            "Created project successfully",
+        ]);
 
         // and
         let project_content: String = read_and_show_file(&ctx.test_project_path)?;

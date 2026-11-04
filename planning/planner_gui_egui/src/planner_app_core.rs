@@ -1,10 +1,14 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
+use futures::executor::block_on;
 use planner_app::effects::pcb_view_renderer::PcbViewRendererOperation;
 use planner_app::effects::process_view_renderer::ProcessViewRendererOperation;
 use planner_app::effects::project_view_renderer::ProjectViewRendererOperation;
 use planner_app::{Effect, Event, PcbView, Planner, ProcessView, ProjectView};
 use tracing::trace;
+
+use crate::stores_core::stores_service;
 
 type Core = Arc<planner_app::Core<Planner>>;
 
@@ -66,7 +70,30 @@ impl PlannerCoreService {
     fn process(&mut self, event: Event) -> Result<Vec<PlannerAction>, PlannerError> {
         let mut actions: Vec<PlannerAction> = Vec::new();
 
-        for effect in self.core.process_event(event) {
+        let mut effects: VecDeque<Effect> = self.core.process_event(event).into();
+        while let Some(effect) = effects.pop_front() {
+            // `STORE-7`, the stores service does the store operations the core asks for. The GUI waits for them, as it
+            // did when the core did them itself, so the actions are as they were.
+            // FUTURE: don't wait, as the stores core doesn't, see `crate::stores_core`.
+            let effect = match effect {
+                Effect::Stores(mut request) => {
+                    let output =
+                        block_on(stores_service().perform_once(request.operation.clone())).ok_or_else(|| {
+                            PlannerError::Other((
+                                chrono::Utc::now(),
+                                format!("No result from the stores service. operation: {:?}", request.operation),
+                            ))
+                        })?;
+                    let resolved = self
+                        .core
+                        .resolve(&mut request, output)
+                        .map_err(|cause| PlannerError::Other((chrono::Utc::now(), format!("{:?}", cause))))?;
+                    effects.extend(resolved);
+                    continue;
+                }
+                effect => effect,
+            };
+
             let action = Self::process_effect(&self.core, effect, self.generation);
             match action {
                 Ok(action) => {
@@ -118,6 +145,10 @@ impl PlannerCoreService {
 
                 Ok(PlannerAction::ProcessView(view))
             }
+            Effect::Stores(request) => Err(PlannerError::Other((
+                chrono::Utc::now(),
+                format!("Unexpected stores operation. operation: {:?}", request.operation),
+            ))),
         }
     }
 }

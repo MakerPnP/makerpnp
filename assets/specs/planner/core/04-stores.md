@@ -70,9 +70,11 @@ operations and their results are in `planning/stores_protocol`, which has no IO,
 back end is a module of the service, chosen by the data source: `csv_file` for files today. The service MUST log each
 operation it's asked to do, as "`stores_service: Performing stores operation. operation: <operation>`" at debug level.
 An operation's result says how many parts were read, not what they are, as it's logged. A core given the result of a
-different operation MUST refuse it, as a fault in the shell. *Target*: the planner's core and the Variant Builder's core
-MUST use the stores service too. The gap: they read and write their files themselves, so they share nothing with the
-stores core, and nothing tells them when a file changes.
+different operation MUST refuse it, as a fault in the shell. The planner's core uses the stores service to write a
+project's file, when it's created and when it's saved (`STORE-10`). *Target*: the planner's core and the Variant
+Builder's core MUST use the stores service for every file they read and write. The gap: they read and write the others
+themselves, so they share nothing with the stores core, and nothing tells them when a file changes. They're being moved
+to the stores service an event at a time (`../../missions/variant-builder.md`).
 
 **STORE-8 — Revisions.** *Confirmed.* Each view of a data source MUST say which revision of the data source it shows, so
 that a view that's out of date can be known, and a change can say which revision it was based on. Two reads of a data
@@ -98,6 +100,18 @@ change isn't. The core MUST log "`stores_app: Data source changed. source: '<sou
 and "`stores_app: Data source changed while being read, reading it again. source: '<source>'`" when it reads it again.
 The GUI watches each data source it shows. The CLI doesn't, as it's done before a data source could change.
 
+**STORE-10 — Documents.** *Confirmed.* A document, such as a project, a PCB or a process, MUST be read and written by the
+stores service, as it is: the core that keeps it makes its contents, and reads them, so that the service needn't know
+what's in it, and the core is tested with documents kept in memory by its tests. Reading a document that doesn't exist
+MUST say so, and not be an error, so that a core can tell it apart from one that can't be read. A refused write MUST
+say why, naming the path. Each read and write MUST say the document's revision (`STORE-8`). A change MUST only be said
+to be saved once its document is written, and only if the document hasn't changed again since it was sent to be
+written, so that a later change isn't lost, and a refused write MUST keep the changes unsaved. *Observed*: the back end
+is `document_file`, which writes the contents given, so a project's file is as it was when the core wrote it itself. The
+operations are logged as the service's others are (`STORE-7`), saying how long the contents are, not what they are, as
+a document may be large. The planner's core logs "`planner_app: Received event. event: ProjectWritten {`" when it's
+given the result, then "`Created project successfully.`" or "`Saved project. path: <path>`" at info level.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -121,6 +135,19 @@ The GUI watches each data source it shows. The CLI doesn't, as it's done before 
   again, sending only the parts read after the change (`STORE-3`, `STORE-8`, `STORE-9`).
 - `planning/stores_service/tests/watch.rs` checks a watch says when the file is written, and when it's replaced by
   another renamed over it, and says nothing when it's read, or when another file in its folder is written (`STORE-9`).
+- `planning/stores_service/tests/document_file.rs` writes a document and reads it as it was written, with the revision
+  written, checks writing again replaces it, with a revision that changes only if its contents do, that a document that
+  doesn't exist is none, and that one that can't be written says why, naming its path (`STORE-8`, `STORE-10`).
+- `planning/planner_app/tests/documents.rs`, with no files, answers the planner's core's writes itself, and checks
+  creating a project writes its file, ending with a new line, with no unsaved changes, that a project whose file can't
+  be written isn't created, says why, and keeps the project before it, that saving writes the project's changes, that a
+  refused save keeps them unsaved, that a change made while the project is written is still unsaved once it is, and that
+  the result of a different operation is refused (`DOC-1`, `STORE-7`, `STORE-10`).
+- `planning/planner_cli/tests/planner.rs` creates a project, and checks
+  "`planner_app: Received event. event: CreateProject {`", "`Creating project. path: `",
+  "`stores_service: Performing stores operation. operation: WriteDocument { path: `",
+  "`planner_app: Received event. event: ProjectWritten {`", "`output: DocumentWritten(Ok(`" and
+  "`Created project successfully`" are logged, in order, and that the file is as before (`DOC-1`, `STORE-10`).
 - `planning/stores_service/tests/csv_file.rs` checks a file's revision is the same while its contents are, however its
   path is written, and when it's written again unchanged, that it changes when they do, and that another file with the
   same contents has the same revision (`STORE-8`).

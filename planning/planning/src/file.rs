@@ -58,15 +58,28 @@ pub fn load<'de, T: Deserialize<'de>>(file_path: &PathBuf) -> Result<T, std::io:
 }
 
 pub fn save<'se, T: Serialize>(t: &T, file_path: &PathBuf) -> Result<(), std::io::Error> {
-    let file = File::create(file_path)?;
-    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
-    let mut ser = serde_json::Serializer::with_formatter(file, formatter);
-    t.serialize(&mut ser)?;
-
-    let mut file = ser.into_inner();
-    let _written = file.write(b"\n")?;
+    let mut file = File::create(file_path)?;
+    file.write_all(to_string(t)?.as_bytes())?;
 
     Ok(())
+}
+
+/// A document's contents, as they're saved, so a core can have them written for it, without writing them itself.
+pub fn to_string<T: Serialize>(t: &T) -> Result<String, serde_json::Error> {
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(Vec::new(), formatter);
+    t.serialize(&mut ser)?;
+
+    let mut contents = ser.into_inner();
+    contents.push(b'\n');
+
+    // serde_json only writes UTF-8.
+    Ok(String::from_utf8(contents).expect("UTF-8"))
+}
+
+/// A document, from its contents, as read for a core.
+pub fn from_str<'de, T: Deserialize<'de>>(contents: &'de str) -> Result<T, serde_json::Error> {
+    serde_json::from_str(contents)
 }
 
 impl TryFrom<&str> for FileReference {
