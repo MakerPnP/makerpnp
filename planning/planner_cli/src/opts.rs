@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use cli::args::{
     AddOrRemoveOperationArg, PcbSideArg, PlacementOperationArg, SetOrClearOperationArg, TaskActionArg, TaskKindArg,
@@ -74,6 +74,60 @@ pub(crate) struct PartsCommandArgs {
 pub(crate) enum PartsCommand {
     /// List the parts, as CSV, with each part's other values
     List,
+    /// Add a part, after the others, e.g. 'add --manufacturer RESCO --mpn RES1 --value LCSC=C1234'
+    Add {
+        #[command(flatten)]
+        part: PartArgs,
+        /// Another value of the part, by name, e.g. 'LCSC=C1234'; repeat it for each value
+        #[arg(long = "value", value_name = "NAME=VALUE", value_parser = parse_part_value)]
+        values: Vec<(String, String)>,
+        #[command(flatten)]
+        revision: RevisionArgs,
+    },
+    /// Set a part's other values, keeping those not named, e.g. 'set --manufacturer RESCO --mpn RES1 --value LCSC=C1'
+    Set {
+        #[command(flatten)]
+        part: PartArgs,
+        /// Another value of the part, by name, e.g. 'LCSC=C1234'; repeat it for each value
+        #[arg(long = "value", value_name = "NAME=VALUE", value_parser = parse_part_value, required = true)]
+        values: Vec<(String, String)>,
+        #[command(flatten)]
+        revision: RevisionArgs,
+    },
+    /// Remove a part, e.g. 'remove --manufacturer RESCO --mpn RES1'
+    Remove {
+        #[command(flatten)]
+        part: PartArgs,
+        #[command(flatten)]
+        revision: RevisionArgs,
+    },
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct PartArgs {
+    /// The part's manufacturer, e.g. 'RESCO'
+    #[arg(long, value_name = "MANUFACTURER")]
+    pub(crate) manufacturer: String,
+    /// The part's manufacturer part number, e.g. 'RES1'
+    #[arg(long, value_name = "MPN")]
+    pub(crate) mpn: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RevisionArgs {
+    /// The revision of the parts the change is based on, as logged when they were loaded, e.g. by 'list'. The change
+    /// is refused if the parts have changed since. Defaults to the revision read before the change is made.
+    #[arg(long, value_name = "REVISION")]
+    pub(crate) revision: Option<String>,
+}
+
+/// A part's value, as 'NAME=VALUE'.
+fn parse_part_value(value: &str) -> Result<(String, String), String> {
+    value
+        .split_once('=')
+        .map(|(name, value)| (name.to_string(), value.to_string()))
+        .filter(|(name, _value)| !name.is_empty())
+        .ok_or_else(|| format!("Expected 'NAME=VALUE'. value: '{}'", value))
 }
 
 #[derive(Debug, Parser)]

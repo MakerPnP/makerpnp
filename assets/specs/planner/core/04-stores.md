@@ -219,6 +219,14 @@ parts are written. Once written, the service's watch says the data source change
 again, finding its revision unchanged (`STORE-8`). *Target*: the service's check and its write MUST be one operation, so
 a change made by another process between them isn't lost. The gap: they're two, though the time between them is short.
 
+**STORE-16 — Changing parts from the CLI.** *Observed.* `planner_cli parts --source <file> add`, `set` and `remove`
+MUST open the data source (`STORE-5`), then change its parts (`STORE-15`): `add` adds a part, `set` sets a part's
+other values, keeping those not named, and `remove` removes a part, each naming the part with `--manufacturer` and
+`--mpn`, and its other values with `--value <NAME>=<VALUE>`, once for each value. A change MUST be based on the
+revision given with `--revision`, as logged when the parts were loaded, or else on the revision just read, so that a
+change made by anyone since is refused. If the core refuses, the CLI MUST fail with the core's error, and the file is
+left as it was.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -253,6 +261,14 @@ a change made by another process between them isn't lost. The gap: they're two, 
 - `planning/stores_service/tests/csv_file.rs` checks parts are written with the file's columns in the order they were,
   new ones after them, every value quoted, with the revision of the file as it's read back, and that a file changed, or
   removed, since the change's revision isn't written, the refusal saying its revision now, or none (`STORE-15`).
+- `planning/planner_cli/tests/parts.rs` adds a part, sets a part's values and removes a part, checking the file, with
+  its columns in the order they were, and that
+  "`stores_app: Received event. event: ChangeParts {`",
+  "`stores_service: Performing stores operation. operation: WriteParts {`",
+  "`stores_service::csv_file: Storing parts. source: '`", "`stores_app: Received event. event: PartsWritten {`" and
+  "`stores_app: Changed parts. source: '`" are logged, in order, with no "`Event failed.`". It checks a change based on
+  another revision, given with `--revision`, fails, saying the parts have changed, with nothing written, and that a part
+  that's there already isn't added again (`STORE-15`, `STORE-16`).
 - `planning/stores_service/tests/document_file.rs` writes a document and reads it as it was written, with the revision
   written, checks writing again replaces it, with a revision that changes only if its contents do, that a document that
   doesn't exist is none, and that one that can't be written says why, naming its path (`STORE-8`, `STORE-10`).

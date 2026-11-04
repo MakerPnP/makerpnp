@@ -146,8 +146,11 @@ Here's a recent screenshot:
 The PlannerCLI has the same functionality as the PlannerGUI, but with a command line interface.
 
 Its `parts` mode uses the stores core (`planning/stores_app`), which has the user's data sources, for example
-`planner_cli parts --source parts.csv list` lists a parts file's parts as CSV. The stores core is pure: the CLI has the
-stores service (`planning/stores_service`) read the file for it, as the GUI does.
+`planner_cli parts --source parts.csv list` lists a parts file's parts as CSV, and
+`planner_cli parts --source parts.csv add --manufacturer RESCO --mpn RES1 --value LCSC=C1234` adds a part, as `set`
+sets a part's other values and `remove` removes one. A change is refused if the file has changed since it was read, or
+since the revision given with `--revision`. The stores core is pure: the CLI has the stores service
+(`planning/stores_service`) read and write the file for it, as the GUI does.
 
 Here's the current help output:
 

@@ -121,5 +121,5 @@ Each is a commit, the core first.
 | What | Status |
 |---|---|
 | The stores core: add a part, set its other values, or remove it, based on a revision, and refused if the data source changed since, by the core or the stores service (`STORE-15`). | Done |
-| The CLI: `planner_cli parts --source <file> add`, `set` and `remove`, based on the revision read, or one given. | Next |
-| The GUI: add and remove parts from a parts tab, seen by every tab showing the data source. | |
+| The CLI: `planner_cli parts --source <file> add`, `set` and `remove`, based on the revision read, or one given (`STORE-16`). | Done |
+| The GUI: add and remove parts from a parts tab, seen by every tab showing the data source. | Next |

@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::sync::Arc;
 
 use anyhow::{anyhow, bail};
@@ -6,11 +6,11 @@ use clap::Parser;
 use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
-use stores_app::{PartsView, PartsViewRendererOperation, Stores};
+use stores_app::{Part, PartsChange, PartsView, PartsViewRendererOperation, Revision, Stores};
 
 use crate::core::Core;
 use crate::opts::{
-    build_project_file_path, ModeCommand, Opts, PartsCommand, PartsCommandArgs, PcbCommand, ProcessCommand,
+    build_project_file_path, ModeCommand, Opts, PartArgs, PartsCommand, PartsCommandArgs, PcbCommand, ProcessCommand,
     ProjectCommand,
 };
 
@@ -104,16 +104,72 @@ fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
     };
 
     let source = parts_args.source.clone();
-    match parts_args.command {
+    // opening sends the parts view.
+    let views = process(stores_app::Event::OpenParts {
+        source: source.clone(),
+    })?;
+
+    let to_part = |args: &PartArgs| Part::new(args.manufacturer.clone(), args.mpn.clone());
+    let to_fields = |values: &[(String, String)]| {
+        values
+            .iter()
+            .cloned()
+            .collect::<BTreeMap<_, _>>()
+    };
+
+    let (change, revision) = match &parts_args.command {
         PartsCommand::List => {
-            // opening sends the parts view.
-            for view in process(stores_app::Event::OpenParts {
-                source,
-            })? {
-                write_parts_csv(&view, std::io::stdout())?;
+            for view in views.iter() {
+                write_parts_csv(view, std::io::stdout())?;
             }
+            return Ok(());
         }
-    }
+        PartsCommand::Add {
+            part,
+            values,
+            revision,
+        } => (
+            PartsChange::Add {
+                part: to_part(part),
+                fields: to_fields(values),
+            },
+            revision,
+        ),
+        PartsCommand::Set {
+            part,
+            values,
+            revision,
+        } => (
+            PartsChange::SetFields {
+                part: to_part(part),
+                fields: to_fields(values),
+            },
+            revision,
+        ),
+        PartsCommand::Remove {
+            part,
+            revision,
+        } => (
+            PartsChange::Remove {
+                part: to_part(part),
+            },
+            revision,
+        ),
+    };
+
+    // `STORE-15`, based on the revision given, or else the one just read, so a change made since is refused.
+    let revision = match &revision.revision {
+        Some(revision) => Revision(revision.clone()),
+        None => views
+            .last()
+            .map(|view| view.revision.clone())
+            .ok_or_else(|| anyhow!("No parts view. source: '{}'", source))?,
+    };
+    process(stores_app::Event::ChangeParts {
+        source,
+        revision,
+        change,
+    })?;
 
     Ok(())
 }
