@@ -8,6 +8,9 @@
 //! back ends of other kinds, such as a database. A document, such as a project, is read and written as it is, by the
 //! core that keeps it (`STORE-10`).
 
+// A core does no IO, see `clippy.toml`.
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;

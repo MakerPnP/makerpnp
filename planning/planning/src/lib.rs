@@ -1,3 +1,6 @@
+// Used by the planner's core, so, as the core, it does no IO, see `clippy.toml`.
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
 pub mod actions;
 pub mod design;
 

@@ -42,3 +42,5 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
 
 - [`support/git/hooks/`](support/git/hooks/): the repo's git hooks; `pre-push` checks formatting.
 - [`.github/workflows/rust.yml`](.github/workflows/rust.yml): what CI builds and tests.
+- `clippy.toml` in each core's crate: the cores do no IO. IO not yet moved to the stores service is marked
+  `HACK: core-io-hack`.

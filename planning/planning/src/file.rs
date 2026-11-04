@@ -1,6 +1,4 @@
 use std::fmt::Display;
-use std::fs::File;
-use std::io::Write;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -48,20 +46,6 @@ impl Display for FileReference {
             FileReference::Absolute(path) => write!(f, "absolute='{}'", path.display()),
         }
     }
-}
-
-pub fn load<'de, T: Deserialize<'de>>(file_path: &PathBuf) -> Result<T, std::io::Error> {
-    let file = File::open(file_path.clone())?;
-    let mut de = serde_json::Deserializer::from_reader(file);
-    let t = T::deserialize(&mut de)?;
-    Ok(t)
-}
-
-pub fn save<'se, T: Serialize>(t: &T, file_path: &PathBuf) -> Result<(), std::io::Error> {
-    let mut file = File::create(file_path)?;
-    file.write_all(to_string(t)?.as_bytes())?;
-
-    Ok(())
 }
 
 /// A document's contents, as they're saved, so a core can have them written for it, without writing them itself.

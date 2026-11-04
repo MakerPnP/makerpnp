@@ -1,3 +1,6 @@
+// A core does no IO, see `clippy.toml`.
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
 use std::path::{Path, PathBuf};

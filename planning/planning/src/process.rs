@@ -19,17 +19,14 @@
 use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::ControlFlow;
-use std::path::PathBuf;
 
 use dyn_clone::DynClone;
 use dyn_eq::DynEq;
 use indexmap::IndexMap;
 use pnp::reference::Reference;
 use thiserror::Error;
-use tracing::info;
 use util::dynamic::as_any::AsAny;
 
-use crate::file;
 use crate::file::FileReference;
 use crate::phase::PhaseState;
 use crate::placement::PlacementStatus;
@@ -39,7 +36,7 @@ pub type ProcessReference = Reference;
 
 /// The /definition/ of a process.
 ///
-/// A process is defined in its own file, see [`load_process`] and [`save_process`].  A project keeps a copy of the
+/// A process is defined in its own file, read and written by the stores service (`STORE-10`).  A project keeps a copy of the
 /// definition of each process it uses, see `ProjectProcess`.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct ProcessDefinition {
@@ -415,16 +412,6 @@ pub enum ProcessDefinitionError {
         operation: OperationReference,
         task: TaskReference,
     },
-}
-
-pub fn load_process(path: &PathBuf) -> Result<ProcessDefinition, std::io::Error> {
-    info!("Loading process. path: {}", path.display());
-    file::load::<ProcessDefinition>(path)
-}
-
-pub fn save_process(process: &ProcessDefinition, path: &PathBuf) -> Result<(), std::io::Error> {
-    info!("Saving process. path: {}", path.display());
-    file::save(process, path)
 }
 
 /// Processes a new process can be made from, so the user doesn't have to start from nothing.

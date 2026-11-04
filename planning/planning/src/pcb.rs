@@ -333,11 +333,6 @@ pub fn create_pcb(
     Ok(pcb)
 }
 
-pub fn load_pcb(path: &PathBuf) -> Result<Pcb, std::io::Error> {
-    info!("Loading PCB from {}", path.display());
-    file::load::<Pcb>(path).map(ensure_panel_sizing)
-}
-
 /// A PCB, from its document's contents, as read for a core.
 pub fn from_contents(contents: &str) -> Result<Pcb, serde_json::Error> {
     file::from_str::<Pcb>(contents).map(ensure_panel_sizing)

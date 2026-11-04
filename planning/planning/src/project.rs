@@ -49,7 +49,7 @@ use crate::process::{
 #[cfg(feature = "markdown")]
 use crate::report::project_report_json_to_markdown;
 use crate::variant::VariantName;
-use crate::{file, operation_history, pcb, placement, report};
+use crate::{operation_history, placement, report};
 
 #[serde_as]
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -671,26 +671,6 @@ impl ProjectPcb {
             pcb_file,
             unit_assignments: BTreeMap::default(),
         }
-    }
-
-    pub fn load_pcb(&mut self, project_directory: &PathBuf) -> Result<(FileReference, Pcb, PathBuf), std::io::Error> {
-        let path = self
-            .pcb_file
-            .build_path(project_directory);
-
-        let pcb = pcb::load_pcb(&path)?;
-
-        Ok((self.pcb_file.clone(), pcb, path))
-    }
-
-    pub fn save_pcb(&mut self, project_directory: &PathBuf, pcb: &Pcb) -> Result<(), std::io::Error> {
-        file::save(
-            pcb,
-            &self
-                .pcb_file
-                .build_path(project_directory),
-        )?;
-        Ok(())
     }
 
     /// Returns an vector of optional design variant assignments, one for each unit of the pcb.
@@ -2912,6 +2892,8 @@ mod project_process_tests {
 
     /// `PROCDEF-6`
     #[test]
+    // HACK: core-io-hack - starting a task writes the phase's operation history, which the test removes.
+    #[allow(clippy::disallowed_methods)]
     fn a_process_cannot_be_changed_once_a_phase_using_it_has_started() {
         let mut project = project_with_manual_process();
         let manual = project.processes[0].definition.clone();

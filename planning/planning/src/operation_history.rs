@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::fs::File;
 use std::path::PathBuf;
 
 use anyhow::Error;
@@ -91,11 +90,13 @@ pub struct OperationHistoryItem {
     pub extra: HashMap<String, Value>,
 }
 
+// HACK: core-io-hack - the operation history is written by the core, until the stores service writes it.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
 pub fn write(phase_log_path: PathBuf, operation_history: &Vec<OperationHistoryItem>) -> Result<(), Error> {
     // TODO use a context for better error messages
     let is_new = !phase_log_path.exists();
 
-    let file = File::create(phase_log_path.clone())?;
+    let file = std::fs::File::create(phase_log_path.clone())?;
 
     let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
     let mut ser = serde_json::Serializer::with_formatter(file, formatter);
@@ -109,6 +110,8 @@ pub fn write(phase_log_path: PathBuf, operation_history: &Vec<OperationHistoryIt
     Ok(())
 }
 
+// HACK: core-io-hack - the operation history is read by the core, until the stores service reads it.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
 pub fn read_or_default(phase_log_path: &PathBuf) -> Result<Vec<OperationHistoryItem>, Error> {
     let is_new = !phase_log_path.exists();
     if is_new {
@@ -116,7 +119,7 @@ pub fn read_or_default(phase_log_path: &PathBuf) -> Result<Vec<OperationHistoryI
     }
 
     // TODO use a context for better error messages
-    let file = File::open(phase_log_path.clone())?;
+    let file = std::fs::File::open(phase_log_path.clone())?;
 
     let operation_history = serde_json::from_reader(file)?;
 

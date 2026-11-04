@@ -1,7 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
-use std::fs::File;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -937,8 +936,10 @@ pub(crate) fn build_report_file_path(name: &str, directory: &Path) -> PathBuf {
     report_file_path
 }
 
+// HACK: core-io-hack - the report is written by the core, until the stores service writes it.
+#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
 pub(crate) fn project_report_save_as_json(report: &ProjectReport, report_file_path: &PathBuf) -> anyhow::Result<()> {
-    let report_file = File::create(report_file_path)?;
+    let report_file = std::fs::File::create(report_file_path)?;
     let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
     let mut ser = serde_json::Serializer::with_formatter(report_file, formatter);
     report.serialize(&mut ser)?;
@@ -952,6 +953,8 @@ pub(crate) fn project_report_save_as_json(report: &ProjectReport, report_file_pa
 }
 
 #[cfg(feature = "markdown")]
+// HACK: core-io-hack - the markdown report is read and written by the core, until the stores service does it.
+#[allow(clippy::disallowed_methods)]
 pub fn project_report_json_to_markdown(json_report_file_name: &PathBuf) -> anyhow::Result<()> {
     let json_string = std::fs::read_to_string(json_report_file_name)?;
 

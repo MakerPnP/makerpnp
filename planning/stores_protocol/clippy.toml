@@ -1,0 +1,34 @@
+# A core does no IO: it asks its shell for each store operation, which the stores service does (`STORE-7`).
+# Clippy reads this file for this crate only, and `#![deny(clippy::disallowed_methods, clippy::disallowed_types)]` in
+# the crate's root makes each use an error. IO the core still does, until it's moved to the stores service, is marked
+# `HACK: core-io-hack`, see `Hacks.md`.
+
+disallowed-methods = [
+    { path = "std::fs::read", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::read_to_string", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::write", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::create_dir", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::create_dir_all", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::remove_file", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::remove_dir_all", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::copy", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::rename", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::metadata", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::read_dir", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::canonicalize", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::exists", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::try_exists", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::is_file", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::is_dir", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::metadata", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::canonicalize", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::path::Path::read_dir", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "util::source::Source::try_from_path", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
+    { path = "util::source::Source::try_from_path_inner", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
+    { path = "util::source::Source::try_from_absolute_path", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
+    { path = "util::source::Source::try_from_relative_path", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
+]
+disallowed-types = [
+    { path = "std::fs::File", reason = "a core does no IO, the stores service does it (STORE-7)" },
+    { path = "std::fs::OpenOptions", reason = "a core does no IO, the stores service does it (STORE-7)" },
+]

@@ -7,6 +7,9 @@
 //! The core is pure: it asks its shell for each store operation, as a [`StoresOperation`] effect, which the shell has
 //! the stores service do, and is given the result as an event (`STORE-7`).
 
+// A core does no IO, see `clippy.toml`.
+#![deny(clippy::disallowed_methods, clippy::disallowed_types)]
+
 use std::collections::BTreeMap;
 use std::future::Future;
 
