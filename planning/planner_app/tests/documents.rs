@@ -1130,3 +1130,52 @@ fn assigning_a_variant_reads_its_placements_first() {
     assert_eq!(shell.records_reads(), vec![(RecordsKind::Placements, placements)]);
     assert!(shell.project_modified());
 }
+
+fn artifact_path(name: &str) -> PathBuf {
+    PathBuf::from("projects").join(name)
+}
+
+/// `STORE-12`, generating the artifacts has the stores service write each phase's placements, then the report, and,
+/// with the `markdown` feature, its markdown.
+#[test]
+fn generating_artifacts_writes_each_artifact_in_order() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.process(create_phase("top_1", "top_1"));
+    let written_before = shell.writes().len();
+
+    shell.process(Event::GenerateArtifacts);
+
+    assert_eq!(shell.error(), None);
+    let written = shell.writes()[written_before..].to_vec();
+    assert_eq!(written[..2], [
+        artifact_path("top_1_placements.csv"),
+        artifact_path("job1_report.json")
+    ]);
+    // the markdown report, only with the `markdown` feature, which another crate in the workspace may enable.
+    assert!(
+        written[2..].is_empty() || written[2..] == [artifact_path("job1_report.md")],
+        "{written:?}"
+    );
+    assert!(shell.documents[&artifact_path("job1_report.json")].ends_with("}\n"));
+}
+
+/// `STORE-12`, an artifact that can't be written says why, and the ones after it aren't written.
+#[test]
+fn an_artifact_that_can_not_be_written_stops_the_rest() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.process(create_phase("top_1", "top_1"));
+    shell.refused.insert(
+        artifact_path("top_1_placements.csv"),
+        "Unable to write the document.".to_string(),
+    );
+
+    shell.process(Event::GenerateArtifacts);
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to write the document."), "{error}");
+    assert!(!shell
+        .writes()
+        .contains(&artifact_path("job1_report.json")));
+}

@@ -936,58 +936,29 @@ pub(crate) fn build_report_file_path(name: &str, directory: &Path) -> PathBuf {
     report_file_path
 }
 
-// HACK: core-io-hack - the report is written by the core, until the stores service writes it.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
-pub(crate) fn project_report_save_as_json(report: &ProjectReport, report_file_path: &PathBuf) -> anyhow::Result<()> {
-    let report_file = std::fs::File::create(report_file_path)?;
+/// The report, as its JSON, indented by 4 spaces, ending with a new line.
+pub(crate) fn project_report_as_json(report: &ProjectReport) -> anyhow::Result<String> {
     let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
-    let mut ser = serde_json::Serializer::with_formatter(report_file, formatter);
+    let mut ser = serde_json::Serializer::with_formatter(vec![], formatter);
     report.serialize(&mut ser)?;
 
-    let mut report_file = ser.into_inner();
-    let _written = report_file.write(b"\n")?;
+    let mut json = ser.into_inner();
+    json.write_all(b"\n")?;
 
-    info!("Generated JSON report. path: {:?}", report_file_path);
-
-    Ok(())
+    Ok(String::from_utf8(json)?)
 }
 
+/// The report, as markdown, made from its JSON.
 #[cfg(feature = "markdown")]
-// HACK: core-io-hack - the markdown report is read and written by the core, until the stores service does it.
-#[allow(clippy::disallowed_methods)]
-pub fn project_report_json_to_markdown(json_report_file_name: &PathBuf) -> anyhow::Result<()> {
-    let json_string = std::fs::read_to_string(json_report_file_name)?;
-
-    let json = serde_json::from_str(&json_string)?;
+pub fn project_report_json_to_markdown(json: &str) -> anyhow::Result<String> {
+    let json = serde_json::from_str(json)?;
 
     let renderer = MarkdownRenderer::default();
-    let markdown = renderer.render(&json);
+    Ok(renderer.render(&json))
+}
 
-    /// Replace the file extension with a different one.
-    ///
-    /// * New extension should not start with a '.'.
-    /// * If there's no existing extension, it adds the new one
-    /// * If there is an extension, it replaces it.
-    fn replace_extension(mut path: PathBuf, extension: &str) -> PathBuf {
-        assert!(!extension.starts_with('.'));
-        if let Some(file_name) = path
-            .file_name()
-            .and_then(|n| n.to_str())
-        {
-            if let Some(new_name) = Path::new(file_name)
-                .with_extension(extension)
-                .to_str()
-            {
-                path.set_file_name(new_name);
-            }
-        }
-        path
-    }
-
-    let markdown_file_name = replace_extension(json_report_file_name.clone(), "md");
-    std::fs::write(&markdown_file_name, markdown)?;
-
-    info!("Generated Markdown report. path: {:?}", markdown_file_name);
-
-    Ok(())
+/// The markdown report's path: the JSON report's, with the extension `md`.
+#[cfg(feature = "markdown")]
+pub(crate) fn markdown_report_file_path(json_report_file_path: &Path) -> PathBuf {
+    json_report_file_path.with_extension("md")
 }

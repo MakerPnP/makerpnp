@@ -71,10 +71,10 @@ back end is a module of the service, chosen by the data source: `csv_file` for f
 operation it's asked to do, as "`stores_service: Performing stores operation. operation: <operation>`" at debug level.
 An operation's result says how many parts were read, not what they are, as it's logged. A core given the result of a
 different operation MUST refuse it, as a fault in the shell. The planner's core uses the stores service to write a
-project's documents (`STORE-10`), and the records of its data sources (`STORE-11`). *Target*: the planner's core and
-the Variant Builder's core MUST use the stores service for every file they read and write. The gap: the planner's core
-still writes the artifacts it generates, and each phase's operation history, itself, and nothing tells it when a file
-changes. They're being moved to the stores service an event at a time (`../../missions/variant-builder.md`).
+project's documents (`STORE-10`), the records of its data sources (`STORE-11`), and the artifacts it generates
+(`STORE-12`). *Target*: the planner's core and the Variant Builder's core MUST use the stores service for every file
+they read and write. The gap: the planner's core still reads and writes each phase's operation history itself, and
+nothing tells it when a file changes. They're being moved to the stores service an event at a time (`../../missions/variant-builder.md`).
 
 **STORE-8 — Revisions.** *Confirmed.* Each view of a data source MUST say which revision of the data source it shows, so
 that a view that's out of date can be known, and a change can say which revision it was based on. Two reads of a data
@@ -155,6 +155,18 @@ project's folder, in every event, as the phase keeps it as it was given (`ISSUE-
 the project and writes a load-out, such as assigning placements to a phase, keeps the project's change if the
 load-out's write is refused, as the write's result comes after the event.
 
+**STORE-12 — Artifacts.** *Confirmed.* The artifacts the planner's core generates, each phase's placements, the
+project's JSON report, and, with the `markdown` feature, its markdown report, MUST be made by the core, as their
+contents, and written by the stores service, as documents are (`STORE-10`), so that generating them is tested with no
+files. They MUST be written in order, each phase's placements in the phases' order, then the report, and the first that
+can't be written MUST say why, and stop the rest being written. *Observed*: each is written with `WriteDocument`. Once
+each is written the core logs, at info level, "`planner_app: Generated phase placements. phase: '<phase>', path:
+<path>`", "`planner_app: Generated JSON report. path: <path>`" or "`planner_app: Generated Markdown report. path:
+<path>`", then, given "`planner_app: Received event. event: ArtifactsWritten {`", "`planner_app: Generated
+artifacts.`". The markdown report is made from the JSON report's contents, not by reading its file. *Target*: the
+project's change made by generating the artifacts, its phases' operation states, is kept if an artifact can't be
+written, as the writes' results come after the event.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -209,6 +221,18 @@ load-out's write is refused, as the write's result comes after the event.
   feeder that can't be assigned writes nothing, that a load-out that can't be written says why, that a load-out that
   doesn't exist says so when it's viewed, and that assigning a variant to a unit reads the variant's placements first,
   once (`STORE-11`).
+- `planning/planner_app/tests/documents.rs` checks generating the artifacts writes the phase's placements, then the
+  JSON report, ending with a new line, then, with the `markdown` feature, the markdown report, and that an artifact
+  that can't be written says why, and the report after it isn't written (`STORE-12`).
+- `tests/ui/workflow.rs`, in the GUI, generates the artifacts, and checks
+  "`planner_app: Received event. event: GenerateArtifacts`",
+  "`stores_service: Performing stores operation. operation: WriteDocument { path: `",
+  "`planner_app: Generated phase placements. phase: 'top_1', path: `", the same for `bottom_1`,
+  "`planner_app: Generated JSON report. path: `", "`planner_app: Generated Markdown report. path: `",
+  "`planner_app: Received event. event: ArtifactsWritten { result: Ok(()) }`" and
+  "`planner_app: Generated artifacts.`" are logged, in order, with no "`Event failed.`", and that the files are as the
+  CLI's. The CLI's `sequence_16_generate_artifacts` checks the "`Generated`" lines in order, and the files, as before
+  (`STORE-12`).
 - `planning/planner_cli/tests/planner.rs` checks "`Created load-out. source: '`" is logged before the phase is created,
   that "`Loading load-out. source: '`" is logged before the placements are assigned to the phase, and
   "`Storing load-out. source: '`" after, and that the load-out is as before (`STORE-11`). It creates a phase with a

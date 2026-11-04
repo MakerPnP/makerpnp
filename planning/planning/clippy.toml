@@ -27,6 +27,8 @@ disallowed-methods = [
     { path = "util::source::Source::try_from_path_inner", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
     { path = "util::source::Source::try_from_absolute_path", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
     { path = "util::source::Source::try_from_relative_path", reason = "checks the disk; use Source::from_path, the stores service says if it doesn't exist (STORE-11)" },
+    { path = "csv::WriterBuilder::from_path", reason = "writes a file; write to a buffer, and have the stores service write it (STORE-12)" },
+    { path = "csv::ReaderBuilder::from_path", reason = "reads a file; read from the contents the stores service read (STORE-11)" },
 ]
 disallowed-types = [
     { path = "std::fs::File", reason = "a core does no IO, the stores service does it (STORE-7)" },

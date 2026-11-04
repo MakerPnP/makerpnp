@@ -46,8 +46,6 @@ use crate::process::{
     can_modify_operation, can_modify_task, OperationReference, OperationStatus, ProcessDefinition, ProcessError,
     ProcessReference, SerializableTaskState, TaskAction, TaskKind, TaskReference, TaskStatus,
 };
-#[cfg(feature = "markdown")]
-use crate::report::project_report_json_to_markdown;
 use crate::variant::VariantName;
 use crate::{operation_history, placement, report};
 
@@ -872,13 +870,33 @@ pub enum ArtifactGenerationError {
     UnableToSaveReport { reason: Error },
 }
 
+/// A file made by generating the artifacts, to be written by the stores service (`STORE-12`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Artifact {
+    pub kind: ArtifactKind,
+    pub path: PathBuf,
+    pub contents: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ArtifactKind {
+    PhasePlacements { phase: PhaseReference },
+    JsonReport,
+    MarkdownReport,
+}
+
+/// The artifacts, in the order they're written: each phase's placements, in the phases' order, then the report.
+///
+/// Nothing is written, so a core can have the stores service write them (`STORE-12`).
 pub fn generate_artifacts(
     project: &Project,
     pcbs: &[&Pcb],
     directory: &Path,
     phase_load_out_items_map: BTreeMap<Reference, Vec<LoadOutItem>>,
     part_packages: &BTreeMap<&Part, &Package>,
-) -> Result<(), ArtifactGenerationError> {
+) -> Result<Vec<Artifact>, ArtifactGenerationError> {
+    let mut artifacts = vec![];
+
     for reference in project.phase_orderings.iter() {
         let phase = project.phases.get(reference).unwrap();
 
@@ -888,34 +906,44 @@ pub fn generate_artifacts(
 
         let phase_placement_states = build_phase_placement_states(project, reference);
 
-        generate_phase_artifacts(
+        artifacts.push(generate_phase_artifacts(
             pcbs,
             phase,
             load_out_items.as_slice(),
             part_packages,
             directory,
             &phase_placement_states,
-        )?;
+        )?);
     }
 
     let report = report::project_generate_report(project, pcbs, &phase_load_out_items_map);
 
     let report_file_path = report::build_report_file_path(&project.name, directory);
 
-    report::project_report_save_as_json(&report, &report_file_path).map_err(|err| {
-        ArtifactGenerationError::UnableToSaveReport {
-            reason: err,
-        }
+    let json = report::project_report_as_json(&report).map_err(|err| ArtifactGenerationError::UnableToSaveReport {
+        reason: err,
     })?;
 
     #[cfg(feature = "markdown")]
-    project_report_json_to_markdown(&report_file_path).map_err(|err| ArtifactGenerationError::UnableToSaveReport {
-        reason: err.into(),
-    })?;
+    let markdown =
+        report::project_report_json_to_markdown(&json).map_err(|err| ArtifactGenerationError::UnableToSaveReport {
+            reason: err,
+        })?;
 
-    info!("Generated artifacts.");
+    artifacts.push(Artifact {
+        kind: ArtifactKind::JsonReport,
+        path: report_file_path.clone(),
+        contents: json,
+    });
 
-    Ok(())
+    #[cfg(feature = "markdown")]
+    artifacts.push(Artifact {
+        kind: ArtifactKind::MarkdownReport,
+        path: report::markdown_report_file_path(&report_file_path),
+        contents: markdown,
+    });
+
+    Ok(artifacts)
 }
 
 pub fn build_phase_placement_states<'a>(
@@ -941,7 +969,7 @@ fn generate_phase_artifacts(
     part_packages: &BTreeMap<&Part, &Package>,
     directory: &Path,
     phase_placement_states: &[(&ObjectPath, &PlacementState)],
-) -> Result<(), ArtifactGenerationError> {
+) -> Result<Artifact, ArtifactGenerationError> {
     let pcb_unit_positioning_map = build_pcbs_unit_positioning_map(pcbs);
 
     // make a Vec so we can sort it, we're not cloning the paths and states themselves
@@ -958,15 +986,16 @@ fn generate_phase_artifacts(
     let mut phase_placements_path = PathBuf::from(directory);
     phase_placements_path.push(format!("{}_placements.csv", phase.reference));
 
-    store_phase_placements_as_csv(&phase_placements_path, &phase_placement_states, load_out_items)
+    let contents = phase_placements_as_csv(&phase_placement_states, load_out_items)
         .map_err(|e| ArtifactGenerationError::PhasePlacementsGenerationError(e))?;
 
-    info!(
-        "Generated phase placements. phase: '{}', path: {:?}",
-        phase.reference, phase_placements_path
-    );
-
-    Ok(())
+    Ok(Artifact {
+        kind: ArtifactKind::PhasePlacements {
+            phase: phase.reference.clone(),
+        },
+        path: phase_placements_path,
+        contents,
+    })
 }
 
 /// returns a vector containing a vector of unit positions.
@@ -1185,16 +1214,14 @@ pub struct PhasePlacementRecord {
     pub rotation: Decimal,
 }
 
-pub fn store_phase_placements_as_csv(
-    output_path: &PathBuf,
+/// The phase's placements, as their CSV.
+pub fn phase_placements_as_csv(
     placement_states: &[(&ObjectPath, &PlacementState)],
     load_out_items: &[LoadOutItem],
-) -> Result<(), Error> {
-    trace!("Writing phase placements. output_path: {:?}", output_path);
-
+) -> Result<String, Error> {
     let mut writer = csv::WriterBuilder::new()
         .quote_style(QuoteStyle::Always)
-        .from_path(output_path)?;
+        .from_writer(vec![]);
 
     for (object_path, placement_state) in placement_states.iter() {
         let feeder_reference =
@@ -1222,9 +1249,10 @@ pub fn store_phase_placements_as_csv(
         })?;
     }
 
-    writer.flush()?;
-
-    Ok(())
+    let contents = writer
+        .into_inner()
+        .map_err(|error| anyhow::anyhow!("Unable to write the CSV. cause: {}", error))?;
+    Ok(String::from_utf8(contents)?)
 }
 
 #[derive(Error, Debug)]

@@ -1230,7 +1230,7 @@ fn project_with_artifacts_generated_using_the_core(core: &mut PlannerCoreService
     update(core, Event::GenerateArtifacts);
 }
 
-/// `ARTIFACTS-1`
+/// `ARTIFACTS-1`, `STORE-12`
 #[test]
 fn generating_artifacts_saves_the_same_files_as_the_cli() {
     let mut app = App::start();
@@ -1240,6 +1240,19 @@ fn generating_artifacts_saves_the_same_files_as_the_cli() {
         ["top_1_placements.csv", "bottom_1_placements.csv", "job1_report.json"].map(|name| folder.join(name));
 
     create_project_with_artifacts_generated(&mut app, &folder);
+
+    // the stores service writes each artifact, in order.
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: GenerateArtifacts",
+        "stores_service: Performing stores operation. operation: WriteDocument { path: ",
+        "planner_app: Generated phase placements. phase: 'top_1', path: ",
+        "planner_app: Generated phase placements. phase: 'bottom_1', path: ",
+        "planner_app: Generated JSON report. path: ",
+        "planner_app: Generated Markdown report. path: ",
+        "planner_app: Received event. event: ArtifactsWritten { result: Ok(()) }",
+        "planner_app: Generated artifacts.",
+    ]);
+    app.assert_not_logged("Event failed.");
 
     let saved = fs::read_to_string(&project).unwrap();
     let saved_artifacts = artifacts

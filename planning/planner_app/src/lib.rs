@@ -43,7 +43,7 @@ pub use planning::process::{
 };
 use planning::process::{ProcessError, ProcessPresetFactoryError};
 pub use planning::project::ProjectProcess;
-use planning::project::{PartStateError, PcbOperationError, Project, ProjectError, ProjectPcb};
+use planning::project::{Artifact, ArtifactKind, PartStateError, PcbOperationError, Project, ProjectError, ProjectPcb};
 pub use planning::report::{IssueKind, IssueSeverity, ProjectReport};
 pub use planning::variant::VariantName;
 use planning::{file, pcb, project, report};
@@ -1029,6 +1029,10 @@ pub enum Event {
         placement_orderings: Vec<PlacementSortingItem>,
     },
     GenerateArtifacts,
+    /// Internal: the artifacts were written, or one wasn't, and the rest weren't (`STORE-12`).
+    ArtifactsWritten {
+        result: Result<(), String>,
+    },
     RecordPhaseOperation {
         phase: PhaseReference,
         operation: OperationReference,
@@ -2434,7 +2438,7 @@ impl Planner {
                 let mut package_mappings = Vec::new();
                 let part_packages_map = Self::part_packages_map(project, &stored, &mut package_mappings)?;
 
-                project::generate_artifacts(
+                let artifacts = project::generate_artifacts(
                     project,
                     &pcbs,
                     &project_directory,
@@ -2442,6 +2446,16 @@ impl Planner {
                     &part_packages_map,
                 )
                 .map_err(|cause| AppError::OperationError(cause.into()))?;
+
+                // `STORE-12`
+                Ok(render::render().and(Self::write_artifacts(artifacts)))
+            }),
+            Event::ArtifactsWritten {
+                result,
+            } => Box::new(move |_model: &mut Model| {
+                result.map_err(AppError::StoresError)?;
+                info!("Generated artifacts.");
+
                 Ok(render::render())
             }),
             Event::RecordPhaseOperation {
@@ -3467,6 +3481,35 @@ impl Planner {
         .then_send(move |output| Event::ProcessWritten {
             path: path.clone(),
             output,
+        })
+    }
+
+    /// Has the stores service write each artifact, in order, stopping at the first that can't be written, then gives
+    /// the core [`Event::ArtifactsWritten`] (`STORE-12`).
+    fn write_artifacts(artifacts: Vec<Artifact>) -> Command<Effect, Event> {
+        Command::new(|ctx| async move {
+            let mut result = Ok(());
+            for Artifact {
+                kind,
+                path,
+                contents,
+            } in artifacts
+            {
+                if let Err(cause) = write_document(&ctx, &path, contents).await {
+                    result = Err(cause);
+                    break;
+                }
+                match kind {
+                    ArtifactKind::PhasePlacements {
+                        phase,
+                    } => info!("Generated phase placements. phase: '{}', path: {:?}", phase, path),
+                    ArtifactKind::JsonReport => info!("Generated JSON report. path: {:?}", path),
+                    ArtifactKind::MarkdownReport => info!("Generated Markdown report. path: {:?}", path),
+                }
+            }
+            ctx.send_event(Event::ArtifactsWritten {
+                result,
+            });
         })
     }
 
