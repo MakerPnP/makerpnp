@@ -6,6 +6,7 @@ use std::time::SystemTime;
 
 use anyhow::{anyhow, Error};
 pub use args::Arg;
+use crux_core::command::CommandContext;
 use crux_core::macros::effect;
 use crux_core::render::RenderOperation;
 pub use crux_core::Core;
@@ -59,7 +60,7 @@ use stores::load_out::LoadOutOperationError;
 pub use stores::load_out::LoadOutSource;
 pub use stores::package_mappings::PackageMappingsSource;
 pub use stores::packages::PackagesSource;
-pub use stores_protocol::{StoresOperation, StoresOutput};
+pub use stores_protocol::{Document, Revision, StoresOperation, StoresOutput};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
 use util::source::SourceError;
@@ -154,18 +155,6 @@ impl Model {
     }
 
     // FUTURE consider adding a 'refresh_project_pcbs' that re-loads them.
-
-    /// Load PCBs for the project that are not already loaded.
-    ///
-    /// * Requires a project to be loaded.
-    /// * Stops and returns on the first error.
-    fn load_unloaded_project_pcbs(&mut self, root: &PathBuf) -> Result<(), AppError> {
-        let Some(model_project) = &mut self.model_project else {
-            return Err(AppError::OperationRequiresProject);
-        };
-
-        Self::load_project_pcbs_inner(&mut model_project.project, &mut self.model_pcbs, root)
-    }
 
     fn load_project_pcbs_inner(
         project: &mut Project,
@@ -340,7 +329,11 @@ impl Model {
 /// is, otherwise a number is added to the name, e.g. `pnp_2.process.json`.
 ///
 /// Returns whether any process was given a file.
-fn migrate_processes_to_files(project: &mut Project, project_directory: &PathBuf) -> Result<bool, AppError> {
+async fn migrate_processes_to_files(
+    ctx: &Context,
+    project: &mut Project,
+    project_directory: &PathBuf,
+) -> Result<bool, String> {
     let indexes = project.processes_without_files();
 
     for index in indexes.iter() {
@@ -365,13 +358,22 @@ fn migrate_processes_to_files(project: &mut Project, project_directory: &PathBuf
             };
             let path = project_directory.join(&file_name);
 
-            if !path.exists() {
-                process::save_process(definition, &path).map_err(AppError::IoError)?;
-                break file_name;
-            }
-
-            if matches!(process::load_process(&path), Ok(existing) if existing.eq(definition)) {
-                break file_name;
+            // `STORE-10`
+            match read_document(ctx, &path).await {
+                Ok(None) => {
+                    info!("Saving process. path: {}", path.display());
+                    let contents = file::to_string(definition).map_err(|cause| format!("{:?}", cause))?;
+                    write_document(ctx, &path, contents).await?;
+                    break file_name;
+                }
+                Ok(Some(document)) => {
+                    if matches!(file::from_str::<ProcessDefinition>(&document.contents), Ok(existing) if existing.eq(definition))
+                    {
+                        break file_name;
+                    }
+                }
+                // a file that can't be read isn't used, as one that's different isn't.
+                Err(_) => {}
             }
 
             number += 1;
@@ -385,6 +387,112 @@ fn migrate_processes_to_files(project: &mut Project, project_directory: &PathBuf
     }
 
     Ok(!indexes.is_empty())
+}
+
+/// What a store operation is given, in a command that does more than one, see [`Command::new`].
+type Context = CommandContext<Effect, Event>;
+
+/// The document at the path, if there is one, read by the stores service (`STORE-10`).
+async fn read_document(ctx: &Context, path: &PathBuf) -> Result<Option<Document>, String> {
+    match ctx
+        .request_from_shell(StoresOperation::ReadDocument {
+            path: path.clone(),
+        })
+        .await
+    {
+        StoresOutput::DocumentRead(result) => result,
+        output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
+/// Writes the document, by the stores service (`STORE-10`).
+async fn write_document(ctx: &Context, path: &PathBuf, contents: String) -> Result<Revision, String> {
+    match ctx
+        .request_from_shell(StoresOperation::WriteDocument {
+            path: path.clone(),
+            contents,
+        })
+        .await
+    {
+        StoresOutput::DocumentWritten(result) => result,
+        output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
+/// A project read for [`Event::Load`], with the PCBs it uses that weren't loaded already.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct LoadedProject {
+    project: Project,
+    /// Whether its processes were moved to their own files, so it has unsaved changes.
+    migrated: bool,
+    pcbs: Vec<(PathBuf, Pcb)>,
+    /// Why a PCB couldn't be read. The project is still loaded, with the PCBs read before it, as it was when the core
+    /// read its files itself.
+    pcb_error: Option<String>,
+}
+
+/// Says which PCBs were read, not what's in them, as the event is logged.
+impl Debug for LoadedProject {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LoadedProject")
+            .field("migrated", &self.migrated)
+            .field(
+                "pcbs",
+                &self
+                    .pcbs
+                    .iter()
+                    .map(|(path, _)| path)
+                    .collect::<Vec<_>>(),
+            )
+            .field("pcb_error", &self.pcb_error)
+            .finish()
+    }
+}
+
+/// Reads the project, moves its processes to their own files, and reads the PCBs it uses that aren't loaded.
+async fn read_project(ctx: &Context, path: &PathBuf, loaded_pcbs: &BTreeSet<PathBuf>) -> Result<LoadedProject, String> {
+    let document = read_document(ctx, path)
+        .await?
+        .ok_or_else(|| format!("Project not found. path: {:?}", path))?;
+    let mut project: Project = file::from_str(&document.contents)
+        .map_err(|cause| format!("Unable to read the project. path: {:?}, cause: '{}'", path, cause))?;
+
+    let project_directory = path.parent().unwrap().to_path_buf();
+    let migrated = migrate_processes_to_files(ctx, &mut project, &project_directory).await?;
+
+    let mut pcbs = vec![];
+    let mut pcb_error = None;
+    for project_pcb in project.pcbs.iter() {
+        let pcb_path = project_pcb
+            .pcb_file
+            .build_path(&project_directory);
+        if loaded_pcbs.contains(&pcb_path) {
+            continue;
+        }
+        info!("Loading PCB. path: {:?}", pcb_path);
+        let pcb = read_document(ctx, &pcb_path)
+            .await
+            .and_then(|document| document.ok_or_else(|| format!("PCB not found. path: {:?}", pcb_path)))
+            .and_then(|document| {
+                pcb::from_contents(&document.contents)
+                    .map_err(|cause| format!("Unable to read the PCB. path: {:?}, cause: '{}'", pcb_path, cause))
+            });
+        match pcb {
+            Ok(pcb) => pcbs.push((pcb_path, pcb)),
+            // stops at the first error.
+            Err(error) => {
+                pcb_error = Some(error);
+                break;
+            }
+        }
+    }
+
+    Ok(LoadedProject {
+        project,
+        migrated,
+        pcbs,
+        pcb_error,
+    })
 }
 
 #[effect]
@@ -659,6 +767,11 @@ pub enum Event {
     Load {
         /// The name of the project file
         path: PathBuf,
+    },
+    /// Internal: the project, read for [`Event::Load`], or why it couldn't be (`STORE-10`).
+    ProjectLoaded {
+        path: PathBuf,
+        loaded: Result<LoadedProject, String>,
     },
     AddPcb {
         pcb_file: FileReference,
@@ -941,23 +1054,55 @@ impl Planner {
             } => Box::new(move |model: &mut Model| {
                 info!("Load project. path: {:?}", &path);
 
-                let mut project: Project = file::load(&path).map_err(AppError::IoError)?;
+                // `STORE-10`, the PCBs already loaded aren't read again.
+                let loaded_pcbs = model
+                    .model_pcbs
+                    .keys()
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+
+                Ok(Command::new(|ctx| async move {
+                    let loaded = read_project(&ctx, &path, &loaded_pcbs).await;
+                    ctx.send_event(Event::ProjectLoaded {
+                        path,
+                        loaded,
+                    });
+                }))
+            }),
+            Event::ProjectLoaded {
+                path,
+                loaded,
+            } => Box::new(move |model: &mut Model| {
+                let LoadedProject {
+                    project,
+                    migrated,
+                    pcbs,
+                    pcb_error,
+                } = loaded.map_err(AppError::StoresError)?;
 
                 let project_directory = path.parent().unwrap().to_path_buf();
-
-                let modified = migrate_processes_to_files(&mut project, &project_directory)?;
-
                 model
                     .model_project
                     .replace(ModelProject {
-                        path: path.clone(),
-                        project_directory: project_directory.clone(),
+                        path,
+                        project_directory,
                         project,
-                        modified,
+                        modified: migrated,
                         writing: None,
                     });
-
-                model.load_unloaded_project_pcbs(&project_directory)?;
+                for (pcb_path, pcb) in pcbs {
+                    // loaded while the project was read.
+                    model
+                        .model_pcbs
+                        .entry(pcb_path)
+                        .or_insert(ModelPcb {
+                            pcb,
+                            modified: false,
+                        });
+                }
+                if let Some(error) = pcb_error {
+                    return Err(AppError::StoresError(error));
+                }
 
                 Ok(render::render())
             }),

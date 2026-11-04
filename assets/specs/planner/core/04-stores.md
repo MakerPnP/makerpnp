@@ -110,7 +110,12 @@ written, so that a later change isn't lost, and a refused write MUST keep the ch
 is `document_file`, which writes the contents given, so a project's file is as it was when the core wrote it itself. The
 operations are logged as the service's others are (`STORE-7`), saying how long the contents are, not what they are, as
 a document may be large. The planner's core logs "`planner_app: Received event. event: ProjectWritten {`" when it's
-given the result, then "`Created project successfully.`" or "`Saved project. path: <path>`" at info level.
+given the result, then "`Created project successfully.`" or "`Saved project. path: <path>`" at info level. Loading a
+project MUST read it, then give each of its processes that has no file a file of its own, written by the service, then
+read each PCB it uses that isn't loaded already, and only then load it, so a project that can't be read isn't loaded.
+A PCB that can't be read says why, and the project is still loaded, with the PCBs read before it. The core logs
+"`planner_app: Load project. path: <path>`", then "`planner_app: Loading PCB. path: <path>`" for each PCB, at info
+level, and "`planner_app: Received event. event: ProjectLoaded {`", which says which PCBs were read, not what's in them.
 
 ## Acceptance criteria
 
@@ -143,6 +148,19 @@ given the result, then "`Created project successfully.`" or "`Saved project. pat
   be written isn't created, says why, and keeps the project before it, that saving writes the project's changes, that a
   refused save keeps them unsaved, that a change made while the project is written is still unsaved once it is, and that
   the result of a different operation is refused (`DOC-1`, `STORE-7`, `STORE-10`).
+- `planning/planner_app/tests/documents.rs` checks loading reads the project and then each of its PCBs, with no unsaved
+  changes, and that loading again doesn't read the PCBs again. It checks a project that doesn't exist, can't be read, or
+  isn't a project, says why and isn't loaded, and that a PCB that can't be read says why, stops the PCBs being read, and
+  leaves the project loaded. It checks a process without a file is given one, written by the service, with the project
+  then having unsaved changes, that a file with the same process is used, and that one with another is kept, the process
+  being given another file (`STORE-10`).
+- `planning/planner_cli/tests/planner.rs` checks "`planner_app: Load project. path: `", then
+  "`planner_app: Loading PCB. path: `" and "`panel_a.pcb.json`", are logged, in order, as a project with a PCB is
+  loaded, and its other tests check the processes are given files as before (`STORE-10`).
+- `tests/ui/open_project.rs`, in the GUI, opens a project, and checks "`planner_app: Received event. event: Load {`",
+  "`stores_service: Performing stores operation. operation: ReadDocument { path: `" and
+  "`planner_app: Received event. event: ProjectLoaded {`" are logged, in order, with no "`Event failed.`"
+  (`STORE-10`).
 - `planning/planner_cli/tests/planner.rs` creates a project, and checks
   "`planner_app: Received event. event: CreateProject {`", "`Creating project. path: `",
   "`stores_service: Performing stores operation. operation: WriteDocument { path: `",

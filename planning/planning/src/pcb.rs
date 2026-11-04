@@ -335,15 +335,22 @@ pub fn create_pcb(
 
 pub fn load_pcb(path: &PathBuf) -> Result<Pcb, std::io::Error> {
     info!("Loading PCB from {}", path.display());
-    file::load::<Pcb>(path).map(|mut pcb| {
-        // TODO can we somehow integrate this block into the deserialization so we don't have to do it explicitly?
-        pcb.panel_sizing
-            .ensure_design_sizings(pcb.design_names.len());
-        pcb.panel_sizing
-            .ensure_unit_positionings(pcb.units);
+    file::load::<Pcb>(path).map(ensure_panel_sizing)
+}
 
-        pcb
-    })
+/// A PCB, from its document's contents, as read for a core.
+pub fn from_contents(contents: &str) -> Result<Pcb, serde_json::Error> {
+    file::from_str::<Pcb>(contents).map(ensure_panel_sizing)
+}
+
+fn ensure_panel_sizing(mut pcb: Pcb) -> Pcb {
+    // TODO can we somehow integrate this block into the deserialization so we don't have to do it explicitly?
+    pcb.panel_sizing
+        .ensure_design_sizings(pcb.design_names.len());
+    pcb.panel_sizing
+        .ensure_unit_positionings(pcb.units);
+
+    pcb
 }
 
 pub fn build_unit_to_design_index_mappping(

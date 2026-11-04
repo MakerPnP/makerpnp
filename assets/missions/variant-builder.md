@@ -106,8 +106,8 @@ what they show is as it was.
 | Events | What | Status |
 |---|---|---|
 | `CreateProject`, `Save` | The project's file is written by the service, and a project is only created once it is. | Done |
-| `Load` | The project, its PCBs, and moving its processes to their own files. | Next |
-| `CreatePcb`, `CreateProjectPcb`, `LoadPcb`, `SavePcb`, `SaveAllPcbs`, `AddPcb`, `RefreshPcbs` | PCB documents. | |
+| `Load` | The project, its PCBs, and moving its processes to their own files, read and written by the service, in one command. | Done |
+| `CreatePcb`, `CreateProjectPcb`, `LoadPcb`, `SavePcb`, `SaveAllPcbs`, `AddPcb`, `RefreshPcbs` | PCB documents. | Next |
 | `CreateProcess`, `LoadProcess`, `SaveProcess`, `SaveAllProcesses`, `AddProcess`, `RefreshProcesses` | Process documents. | |
 | Load-outs, packages, package mappings, placements | The project's data sources, used by many events. | |
 | `GenerateArtifacts` | The files made for a phase. | |

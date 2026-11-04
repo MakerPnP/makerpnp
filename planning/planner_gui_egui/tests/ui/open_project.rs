@@ -22,6 +22,7 @@ fn the_toolbar_is_shown_on_startup() {
     }
 }
 
+/// `STORE-10`, the project is read by the stores service.
 #[test]
 fn opening_a_project_shows_its_tab_and_its_toolbar() {
     let mut app = App::start();
@@ -32,6 +33,12 @@ fn opening_a_project_shows_its_tab_and_its_toolbar() {
 
     app.wait_for_tab(PROJECT_FILE);
     app.wait_for_button(PROJECT_TOOLBAR_BUTTON);
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: Load {",
+        "stores_service: Performing stores operation. operation: ReadDocument { path: ",
+        "planner_app: Received event. event: ProjectLoaded {",
+    ]);
+    app.assert_not_logged("Event failed.");
 }
 
 #[test]

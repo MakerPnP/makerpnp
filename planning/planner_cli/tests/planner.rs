@@ -776,6 +776,10 @@ mod operation_sequence_1 {
 
         // and
         assert_contains_inorder!(trace_content, [
+            // `STORE-10`, the project, then its PCB, read by the stores service.
+            "planner_app: Load project. path: ",
+            "planner_app: Loading PCB. path: ",
+            "panel_a.pcb.json",
             "Unit assignment added. unit: 'pcb=1::unit=1', variant_name: variant_a\n",
             "New part. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }\n",
             "New part. part: Part { manufacturer: \"CAP_MFR1\", mpn: \"CAP1\" }\n",

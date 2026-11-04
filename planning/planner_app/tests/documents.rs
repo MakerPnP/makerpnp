@@ -5,17 +5,22 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crux_core::{Core, Request};
-use planner_app::{Effect, Event, Planner, StoresOperation, StoresOutput};
-use stores_protocol::Revision;
+use indexmap::IndexSet;
+use planner_app::{Document, Effect, Event, Planner, Revision, StoresOperation, StoresOutput};
+use planning::file::{self, FileReference};
+use planning::pcb::Pcb;
+use planning::process::{ProcessDefinition, ProcessPresetFactory};
+use planning::project::{Project, ProjectPcb, ProjectProcess};
 use util::source::Source;
 
-/// A shell, which answers each write of a document by keeping it, unless told to refuse, and keeps the other effects.
+/// A shell, which answers each read of a document from those it keeps, and each write by keeping it, unless told to
+/// refuse, and keeps the other effects.
 #[derive(Default)]
 struct Shell {
     core: Core<Planner>,
     /// The documents written, by path.
     documents: BTreeMap<PathBuf, String>,
-    /// Refuses to write these, saying why.
+    /// Refuses to read or write these, saying why.
     refused: BTreeMap<PathBuf, String>,
     /// The store operations done, in order.
     operations: Vec<StoresOperation>,
@@ -75,8 +80,51 @@ impl Shell {
                     Ok(Revision(contents.clone()))
                 }
             }),
+            StoresOperation::ReadDocument {
+                path,
+            } => StoresOutput::DocumentRead(match self.refused.get(path) {
+                Some(cause) => Err(cause.clone()),
+                None => Ok(self
+                    .documents
+                    .get(path)
+                    .map(|contents| Document {
+                        revision: Revision(contents.clone()),
+                        contents: contents.clone(),
+                    })),
+            }),
             operation => panic!("unexpected operation: {:?}", operation),
         }
+    }
+
+    /// The paths read, in order.
+    fn reads(&self) -> Vec<PathBuf> {
+        self.operations
+            .iter()
+            .filter_map(|operation| match operation {
+                StoresOperation::ReadDocument {
+                    path,
+                } => Some(path.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The paths written, in order.
+    fn writes(&self) -> Vec<PathBuf> {
+        self.operations
+            .iter()
+            .filter_map(|operation| match operation {
+                StoresOperation::WriteDocument {
+                    path, ..
+                } => Some(path.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn given_a_document<T: serde::Serialize>(&mut self, path: &PathBuf, document: &T) {
+        self.documents
+            .insert(path.clone(), file::to_string(document).unwrap());
     }
 
     fn project_modified(&self) -> bool {
@@ -254,4 +302,205 @@ fn refuses_the_result_of_a_different_operation() {
         .error()
         .expect("an error")
         .contains("UnexpectedOutput"));
+}
+
+fn pcb_path(name: &str) -> PathBuf {
+    PathBuf::from("projects").join(format!("{}.pcb.json", name))
+}
+
+fn a_pcb(name: &str) -> Pcb {
+    Pcb::new(name.to_string(), 1, IndexSet::new(), BTreeMap::new())
+}
+
+/// A project using the PCBs, in the project's folder.
+fn a_project_using(name: &str, pcbs: &[&str]) -> Project {
+    let mut project = Project::new(name.to_string(), None, None);
+    project.pcbs = pcbs
+        .iter()
+        .map(|pcb| ProjectPcb::new(FileReference::Relative(PathBuf::from(format!("{}.pcb.json", pcb)))))
+        .collect();
+    project
+}
+
+/// A project from before processes had files, with a copy of the process, and no file for it.
+fn a_project_with_a_process_without_a_file(name: &str, process: &ProcessDefinition) -> Project {
+    let mut project = Project::new(name.to_string(), None, None);
+    project.processes = vec![ProjectProcess {
+        process_file: None,
+        definition: process.clone(),
+    }];
+    project
+}
+
+fn load(name: &str) -> Event {
+    Event::Load {
+        path: project_path(name),
+    }
+}
+
+/// `STORE-10`, loading has the stores service read the project, and then each PCB it uses, and the project has no
+/// unsaved changes.
+#[test]
+fn loading_reads_the_project_and_its_pcbs() {
+    let mut shell = Shell::default();
+    shell.given_a_document(&project_path("job1"), &a_project_using("job1", &["panel_a", "panel_b"]));
+    shell.given_a_document(&pcb_path("panel_a"), &a_pcb("panel_a"));
+    shell.given_a_document(&pcb_path("panel_b"), &a_pcb("panel_b"));
+
+    shell.process(load("job1"));
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads(), vec![
+        project_path("job1"),
+        pcb_path("panel_a"),
+        pcb_path("panel_b")
+    ]);
+    assert!(shell.writes().is_empty());
+    assert!(!shell.project_modified());
+    assert!(!shell.core.view().pcbs_modified);
+
+    // the project is loaded, so it can be saved.
+    shell.process(Event::Save);
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.writes(), vec![project_path("job1")]);
+}
+
+/// `STORE-10`, the PCBs already loaded aren't read again.
+#[test]
+fn loading_again_does_not_read_the_pcbs_again() {
+    let mut shell = Shell::default();
+    shell.given_a_document(&project_path("job1"), &a_project_using("job1", &["panel_a"]));
+    shell.given_a_document(&pcb_path("panel_a"), &a_pcb("panel_a"));
+    shell.process(load("job1"));
+
+    shell.process(load("job1"));
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads(), vec![
+        project_path("job1"),
+        pcb_path("panel_a"),
+        project_path("job1")
+    ]);
+}
+
+/// `STORE-10`, a project that doesn't exist says so, and isn't loaded.
+#[test]
+fn a_project_that_does_not_exist_is_not_loaded() {
+    let mut shell = Shell::default();
+
+    shell.process(load("job1"));
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Project not found."), "{error}");
+    shell.process(Event::Save);
+    assert!(shell
+        .error()
+        .expect("an error")
+        .contains("OperationRequiresProject"));
+}
+
+/// `STORE-10`, a project that can't be read, or isn't a project, says why, and isn't loaded.
+#[test]
+fn a_project_that_can_not_be_read_is_not_loaded() {
+    let mut shell = Shell::default();
+    shell
+        .refused
+        .insert(project_path("job1"), "Unable to read the document.".to_string());
+    shell
+        .documents
+        .insert(project_path("job2"), "not a project".to_string());
+
+    shell.process(load("job1"));
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to read the document."), "{error}");
+
+    shell.process(load("job2"));
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to read the project."), "{error}");
+
+    shell.process(Event::Save);
+    assert!(shell
+        .error()
+        .expect("an error")
+        .contains("OperationRequiresProject"));
+}
+
+/// `STORE-10`, a PCB that can't be read says why, and the project is still loaded, with the PCBs read before it, as it
+/// was when the core read its files itself.
+#[test]
+fn a_pcb_that_can_not_be_read_says_why() {
+    let mut shell = Shell::default();
+    shell.given_a_document(&project_path("job1"), &a_project_using("job1", &["panel_a", "panel_b"]));
+    shell.given_a_document(&pcb_path("panel_b"), &a_pcb("panel_b"));
+
+    shell.process(load("job1"));
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("PCB not found."), "{error}");
+    // it stops at the first.
+    assert_eq!(shell.reads(), vec![project_path("job1"), pcb_path("panel_a")]);
+    shell.process(Event::Save);
+    assert_eq!(shell.error(), None);
+}
+
+/// `STORE-10`, a process without a file is given one in the project's folder, written by the stores service, and the
+/// project then has unsaved changes.
+#[test]
+fn loading_gives_a_process_without_a_file_a_file() {
+    let mut shell = Shell::default();
+    let process = ProcessPresetFactory::by_preset_name("pnp").unwrap();
+    shell.given_a_document(
+        &project_path("job1"),
+        &a_project_with_a_process_without_a_file("job1", &process),
+    );
+
+    shell.process(load("job1"));
+
+    assert_eq!(shell.error(), None);
+    let process_path = PathBuf::from("projects").join("pnp.process.json");
+    assert_eq!(shell.writes(), vec![process_path.clone()]);
+    assert_eq!(shell.documents[&process_path], file::to_string(&process).unwrap());
+    assert!(shell.project_modified());
+
+    shell.process(Event::Save);
+    assert_eq!(
+        shell.document(&project_path("job1"))["processes"][0]["process_file"],
+        serde_json::json!({ "Relative": "pnp.process.json" })
+    );
+}
+
+/// `STORE-10`, a file with the same process is used as it is, and one with another is kept, the process being given
+/// another file.
+#[test]
+fn loading_uses_a_file_with_the_same_process_and_keeps_one_with_another() {
+    let process = ProcessPresetFactory::by_preset_name("pnp").unwrap();
+    let other_process = ProcessPresetFactory::by_preset_name("manual").unwrap();
+
+    // the same.
+    let mut shell = Shell::default();
+    shell.given_a_document(
+        &project_path("job1"),
+        &a_project_with_a_process_without_a_file("job1", &process),
+    );
+    shell.given_a_document(&PathBuf::from("projects").join("pnp.process.json"), &process);
+    shell.process(load("job1"));
+    assert_eq!(shell.error(), None);
+    assert!(shell.writes().is_empty());
+
+    // another.
+    let mut shell = Shell::default();
+    shell.given_a_document(
+        &project_path("job1"),
+        &a_project_with_a_process_without_a_file("job1", &process),
+    );
+    shell.given_a_document(&PathBuf::from("projects").join("pnp.process.json"), &other_process);
+    shell.process(load("job1"));
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.writes(), vec![
+        PathBuf::from("projects").join("pnp_2.process.json")
+    ]);
+    assert_eq!(
+        shell.documents[&PathBuf::from("projects").join("pnp.process.json")],
+        file::to_string(&other_process).unwrap()
+    );
 }
