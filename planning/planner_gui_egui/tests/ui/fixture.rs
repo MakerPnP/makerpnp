@@ -449,6 +449,28 @@ impl App {
         self.harness.step();
     }
 
+    /// Clicks the tab whose label contains `text`, the `index`th of those, counting from 0 in the order they're shown,
+    /// for tabs whose labels are the same, such as two tabs showing one file.
+    pub fn click_nth_tab_containing(&mut self, text: &str, index: usize) {
+        self.wait_until(&format!("{} tabs containing '{text}' were shown", index + 1), |app| {
+            app.count_tabs_containing(text) > index
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .query_all(By::new().role(Role::Tab))
+            .filter(|tab| {
+                let node = tab.accesskit_node();
+
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|label| label.contains(text))
+            })
+            .nth(index)
+            .unwrap()
+            .click();
+        self.harness.step();
+    }
+
     pub fn count_tabs_containing(&self, text: &str) -> usize {
         self.harness
             .query_all(By::new().role(Role::Tab))

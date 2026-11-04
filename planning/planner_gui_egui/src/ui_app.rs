@@ -15,12 +15,14 @@ use crate::pcb::{Pcb, PcbKey, PcbUiCommand};
 use crate::process::{Process, ProcessKey, ProcessUiCommand};
 use crate::project::tabs::ProjectTabs;
 use crate::project::{Project, ProjectKey, ProjectUiCommand};
+use crate::stores_core::StoresCoreService;
 use crate::sync::{Enqueue, Queue, Value, ValueGuard};
 use crate::tabs::TabKey;
 use crate::toolbar::{Toolbar, ToolbarContext, ToolbarUiCommand};
 use crate::ui_app::app_tabs::new_pcb::NewPcbArgs;
 use crate::ui_app::app_tabs::new_process::NewProcessArgs;
 use crate::ui_app::app_tabs::new_project::NewProjectArgs;
+use crate::ui_app::app_tabs::parts::PartsTabUiCommand;
 use crate::ui_app::app_tabs::pcb::{PcbTab, PcbTabUiCommand};
 use crate::ui_app::app_tabs::process::{ProcessTab, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabUiCommand};
@@ -82,6 +84,9 @@ pub struct AppState {
     pub toolbar: Toolbar,
     pub pcbs: Value<SlotMap<PcbKey, Pcb>>,
     pub processes: Value<SlotMap<ProcessKey, Process>>,
+
+    /// The one stores core, shared by every tab that uses a data source.
+    pub stores: Value<StoresCoreService>,
 }
 
 impl AppState {
@@ -102,6 +107,7 @@ impl AppState {
             projects: Value::new(SlotMap::default()),
             pcbs: Value::new(SlotMap::default()),
             processes: Value::new(SlotMap::default()),
+            stores: Value::new(StoresCoreService::new()),
             toolbar,
         }
     }
@@ -759,6 +765,36 @@ impl UiApp {
     }
 }
 
+impl UiApp {
+    /// Wires up the parts tabs restored from the saved state, and loads the parts of those whose data source had been
+    /// chosen (`PARTSRC-4`).
+    ///
+    /// Safety: call only once on startup, before the tabs are shown.
+    fn restore_parts_tabs_on_startup(&mut self) {
+        let (file_dialogs, sender) = {
+            let app_state = self.app_state();
+            (app_state.file_dialogs(), app_state.command_sender.clone())
+        };
+
+        let tab_keys = self
+            .app_tabs
+            .lock()
+            .unwrap()
+            .restore_parts_tabs_on_startup(file_dialogs);
+
+        for tab_key in tab_keys {
+            sender
+                .send(UiCommand::TabCommand {
+                    tab_key,
+                    command: TabUiCommand::TabKindCommand(TabKindUiCommand::PartsTabCommand {
+                        command: PartsTabUiCommand::Open,
+                    }),
+                })
+                .expect("sent");
+        }
+    }
+}
+
 impl eframe::App for UiApp {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         eframe::set_value(storage, eframe::APP_KEY, self);
@@ -896,19 +932,21 @@ impl eframe::App for UiApp {
                 self.remove_new_pcb_tabs_on_startup();
             }
             self.restore_documents_on_startup();
+            self.restore_parts_tabs_on_startup();
         }
 
         // in a block to limit the scope of the `app_tabs` borrow/guard
         {
             profiling::scope!("ui::central_panel");
             // block required limit the scope of the `app_state` guard
-            let (projects, pcbs, processes) = {
+            let (projects, pcbs, processes, stores) = {
                 let app_state = self.app_state();
                 let projects = app_state.projects.clone();
                 let pcbs = app_state.pcbs.clone();
                 let processes = app_state.processes.clone();
+                let stores = app_state.stores.clone();
                 drop(app_state);
-                (projects, pcbs, processes)
+                (projects, pcbs, processes, stores)
             };
 
             let config = self.config.clone();
@@ -918,6 +956,7 @@ impl eframe::App for UiApp {
                 projects,
                 pcbs,
                 processes,
+                stores,
             };
 
             let mut app_tabs = self.app_tabs.lock().unwrap();
@@ -1140,6 +1179,8 @@ pub fn build_toolbar_context(app_tabs: &Value<AppTabs>) -> ToolbarContext {
             TabKind::Pcb(pcb_tab, _) => pcb_tab.modified,
             TabKind::NewProcess(_, _) => false,
             TabKind::Process(process_tab, _) => process_tab.modified,
+            // a data source's changes aren't saved by "Save", see `PARTSRC-1`.
+            TabKind::Parts(_, _) => false,
         })
     });
 

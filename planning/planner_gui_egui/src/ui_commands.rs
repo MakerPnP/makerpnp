@@ -16,6 +16,7 @@ use crate::ui_app::app_tabs::home::HomeTabAction;
 use crate::ui_app::app_tabs::new_pcb::NewPcbTabAction;
 use crate::ui_app::app_tabs::new_process::NewProcessTabAction;
 use crate::ui_app::app_tabs::new_project::NewProjectTabAction;
+use crate::ui_app::app_tabs::parts::PartsTabAction;
 use crate::ui_app::app_tabs::pcb::{PcbTabAction, PcbTabUiCommand};
 use crate::ui_app::app_tabs::process::{ProcessTabAction, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTabAction, ProjectTabUiCommand};
@@ -158,13 +159,14 @@ pub fn handle_command(
             command,
         } => {
             // block required limit the scope of the `app_state` guard
-            let (projects, pcbs, processes) = {
+            let (projects, pcbs, processes, stores) = {
                 let app_state = app_state.lock().unwrap();
                 let projects = app_state.projects.clone();
                 let pcbs = app_state.pcbs.clone();
                 let processes = app_state.processes.clone();
+                let stores = app_state.stores.clone();
                 drop(app_state);
-                (projects, pcbs, processes)
+                (projects, pcbs, processes, stores)
             };
 
             let mut tab_context = TabKindContext {
@@ -172,6 +174,7 @@ pub fn handle_command(
                 projects,
                 pcbs,
                 processes,
+                stores,
             };
 
             let action = {
@@ -280,6 +283,16 @@ pub fn handle_command(
                             Task::none()
                         }
                     },
+                    TabKindAction::PartsTabAction {
+                        action,
+                    } => match action {
+                        PartsTabAction::Task(task) => task.map(move |command| UiCommand::TabCommand {
+                            tab_key,
+                            command: TabUiCommand::TabKindCommand(TabKindUiCommand::PartsTabCommand {
+                                command,
+                            }),
+                        }),
+                    },
                     TabKindAction::ProjectTabAction {
                         action,
                     } => match action {
@@ -376,6 +389,12 @@ fn handle_toolbar_action(
             let file_dialogs = app_state.lock().unwrap().file_dialogs();
             let mut app_tabs = app_tabs.lock().unwrap();
             app_tabs.add_new_process_tab(file_dialogs);
+            Task::none()
+        }
+        ToolbarAction::AddPartsTab => {
+            let file_dialogs = app_state.lock().unwrap().file_dialogs();
+            let mut app_tabs = app_tabs.lock().unwrap();
+            app_tabs.add_parts_tab(file_dialogs);
             Task::none()
         }
         ToolbarAction::CloseAllTabs => {

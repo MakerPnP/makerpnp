@@ -43,14 +43,32 @@ pub enum Effect {
     PartsView(PartsViewRendererOperation),
 }
 
+/// Each event's data source is matched by its canonical path, so one file is one data source however its path is
+/// written (`STORE-6`).
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum Event {
-    /// Loads the parts from the data source, replacing any loaded from it before, so that loading again shows the data
-    /// source's current parts.
+    /// Opens the data source: loads its parts, unless they're loaded already, then sends its parts view (`STORE-5`).
+    OpenParts { source: PartsSource },
+
+    /// Loads the parts from the data source again, replacing any loaded from it before, so that loading again shows the
+    /// data source's current parts, then sends its parts view, so that every view of it can be updated.
     LoadParts { source: PartsSource },
 
     /// Requests the parts loaded from the data source.
     RequestPartsView { source: PartsSource },
+}
+
+/// The data source, with its file's canonical path, if it has a file that exists, otherwise as it is (`STORE-6`).
+///
+/// For example `d:\parts\Parts.csv` and `D:\parts\..\parts\parts.csv` are the same file on Windows, so the same data
+/// source.
+pub fn canonical_parts_source(source: &PartsSource) -> PartsSource {
+    match source {
+        PartsSource::File(path) => dunce::canonicalize(path)
+            .map(PartsSource::File)
+            .unwrap_or_else(|_| source.clone()),
+        _ => source.clone(),
+    }
 }
 
 /// A part, and the data source's other values for it, for example a supplier's part code.
@@ -63,6 +81,7 @@ pub struct PartsViewItem {
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct PartsView {
+    /// The canonical data source (`STORE-6`), which may be written differently from the event's.
     pub source: PartsSource,
     /// The names of the parts' other values, in order, for example `["LCSC"]`.
     pub field_names: Vec<String>,
@@ -132,53 +151,81 @@ impl App for Stores {
 impl Stores {
     fn update_inner(event: Event, model: &mut Model) -> Result<Command<Effect, Event>, StoresError> {
         match event {
+            Event::OpenParts {
+                source,
+            } => {
+                let source = canonical_parts_source(&source);
+                if model.parts.contains_key(&source) {
+                    info!("Parts already loaded. source: '{}'", source);
+                } else {
+                    Self::load_parts(model, &source)?;
+                }
+
+                Ok(render::render().and(Self::parts_view(model, source)?))
+            }
             Event::LoadParts {
                 source,
             } => {
-                let parts = stores::parts::load_parts(&source).map_err(|error| StoresError::UnableToLoadParts {
-                    parts_source: source.clone(),
-                    // `{:#}` includes each cause, for example which header is missing.
-                    cause: format!("{:#}", error),
-                })?;
+                let source = canonical_parts_source(&source);
+                Self::load_parts(model, &source)?;
 
-                let parts: Vec<PartsViewItem> = parts
-                    .into_iter()
-                    .map(|(part, fields)| PartsViewItem {
-                        part,
-                        fields: fields.into_iter().collect(),
-                    })
-                    .collect();
-
-                info!("Loaded parts. source: '{}', part_count: {}", source, parts.len());
-                model.parts.insert(source, parts);
-
-                Ok(render::render())
+                Ok(render::render().and(Self::parts_view(model, source)?))
             }
             Event::RequestPartsView {
                 source,
             } => {
-                let parts = model
-                    .parts
-                    .get(&source)
-                    .ok_or_else(|| StoresError::PartsNotLoaded {
-                        parts_source: source.clone(),
-                    })?;
+                let source = canonical_parts_source(&source);
 
-                let mut field_names: Vec<String> = parts
-                    .iter()
-                    .flat_map(|item| item.fields.keys().cloned())
-                    .collect();
-                field_names.sort();
-                field_names.dedup();
-
-                let view = PartsView {
-                    source,
-                    field_names,
-                    parts: parts.clone(),
-                };
-
-                Ok(parts_view_builder(view).into())
+                Self::parts_view(model, source)
             }
         }
+    }
+
+    /// Loads the parts, replacing those loaded before only if they load.
+    fn load_parts(model: &mut Model, source: &PartsSource) -> Result<(), StoresError> {
+        let parts = stores::parts::load_parts(source).map_err(|error| StoresError::UnableToLoadParts {
+            parts_source: source.clone(),
+            // `{:#}` includes each cause, for example which header is missing.
+            cause: format!("{:#}", error),
+        })?;
+
+        let parts: Vec<PartsViewItem> = parts
+            .into_iter()
+            .map(|(part, fields)| PartsViewItem {
+                part,
+                fields: fields.into_iter().collect(),
+            })
+            .collect();
+
+        info!("Loaded parts. source: '{}', part_count: {}", source, parts.len());
+        model
+            .parts
+            .insert(source.clone(), parts);
+
+        Ok(())
+    }
+
+    fn parts_view(model: &Model, source: PartsSource) -> Result<Command<Effect, Event>, StoresError> {
+        let parts = model
+            .parts
+            .get(&source)
+            .ok_or_else(|| StoresError::PartsNotLoaded {
+                parts_source: source.clone(),
+            })?;
+
+        let mut field_names: Vec<String> = parts
+            .iter()
+            .flat_map(|item| item.fields.keys().cloned())
+            .collect();
+        field_names.sort();
+        field_names.dedup();
+
+        let view = PartsView {
+            source,
+            field_names,
+            parts: parts.clone(),
+        };
+
+        Ok(parts_view_builder(view).into())
     }
 }

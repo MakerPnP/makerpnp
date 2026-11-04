@@ -14,6 +14,7 @@ layout_debugging = []
 
 [dependencies]
 planner_app = { path = "../planner_app", features = ["markdown"] }
+stores_app = { path = "../stores_app" }
 
 args = { path = "../../common/args" }
 util = { path = "../../common/util" }

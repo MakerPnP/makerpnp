@@ -23,6 +23,7 @@ toolbar-button-new-pcb = New PCB
 toolbar-button-open-pcb = Open PCB
 toolbar-button-new-process = New process
 toolbar-button-open-process = Open process
+toolbar-button-open-parts = Open parts
 toolbar-button-save = Save
 toolbar-button-close-all = Close all
 
@@ -43,6 +44,7 @@ tab-label-home = Home
 tab-label-new-project = New project
 tab-label-new-pcb = New PCB
 tab-label-new-process = New process
+tab-label-open-parts = Open parts
 
 home-banner = MakerPnP - Planner
 home-checkbox-label-show-on-startup = Show on startup
@@ -132,6 +134,18 @@ form-new-process-input-directory = Directory
 form-new-process-input-preset = Preset
 
 process-detail-path = Path: { $path }
+
+form-open-parts-input-source = Data source
+form-open-parts-source-none = --choose source--
+form-open-parts-source-csv-file = CSV file
+form-open-parts-group-csv-file = CSV file
+form-open-parts-input-csv-file = File
+
+parts-source-csv-file = CSV file: { $path }
+parts-source-button-reload = Reload
+parts-source-no-parts = There are no parts.
+table-parts-source-column-manufacturer = Manufacturer
+table-parts-source-column-mpn = MPN
 process-editor-operation = Operation
 process-editor-task = task
 process-editor-button-move-up = Move up

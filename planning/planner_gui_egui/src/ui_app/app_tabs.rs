@@ -13,6 +13,7 @@ use crate::file_picker::FileDialogs;
 use crate::pcb::{Pcb, PcbKey};
 use crate::process::{Process, ProcessKey};
 use crate::project::{Project, ProjectKey};
+use crate::stores_core::StoresCoreService;
 use crate::sync::{Enqueue, Value, ValueGuard};
 use crate::tabs::{AppTabViewer, Tab, TabKey, Tabs};
 use crate::ui_app::app_tabs::home::{HomeTab, HomeTabAction, HomeTabContext, HomeTabUiCommand};
@@ -23,6 +24,7 @@ use crate::ui_app::app_tabs::new_process::{
 use crate::ui_app::app_tabs::new_project::{
     NewProjectTab, NewProjectTabAction, NewProjectTabContext, NewProjectTabUiCommand,
 };
+use crate::ui_app::app_tabs::parts::{PartsTab, PartsTabAction, PartsTabContext, PartsTabUiCommand};
 use crate::ui_app::app_tabs::pcb::{PcbTab, PcbTabAction, PcbTabUiCommand};
 use crate::ui_app::app_tabs::process::{ProcessTab, ProcessTabAction, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabAction, ProjectTabUiCommand};
@@ -32,6 +34,7 @@ pub mod home;
 pub mod new_pcb;
 pub mod new_process;
 pub mod new_project;
+pub mod parts;
 pub mod pcb;
 pub mod process;
 pub mod project;
@@ -42,6 +45,8 @@ pub struct TabKindContext {
     pub projects: Value<SlotMap<ProjectKey, Project>>,
     pub pcbs: Value<SlotMap<PcbKey, Pcb>>,
     pub processes: Value<SlotMap<ProcessKey, Process>>,
+    /// The application's one stores core, shared by every tab.
+    pub stores: Value<StoresCoreService>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -53,6 +58,7 @@ pub enum TabKind {
     Pcb(PcbTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
     NewProcess(NewProcessTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
     Process(ProcessTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
+    Parts(PartsTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
 }
 
 #[derive(Debug, Clone)]
@@ -64,6 +70,7 @@ pub enum TabKindUiCommand {
     PcbTabCommand { command: PcbTabUiCommand },
     NewProcessTabCommand { command: NewProcessTabUiCommand },
     ProcessTabCommand { command: ProcessTabUiCommand },
+    PartsTabCommand { command: PartsTabUiCommand },
 }
 
 #[derive(Debug)]
@@ -76,6 +83,7 @@ pub enum TabKindAction {
     PcbTabAction { action: PcbTabAction },
     NewProcessTabAction { action: NewProcessTabAction },
     ProcessTabAction { action: ProcessTabAction },
+    PartsTabAction { action: PartsTabAction },
 }
 
 impl Tab for TabKind {
@@ -90,6 +98,7 @@ impl Tab for TabKind {
             TabKind::Pcb(tab, _) => tab.label(),
             TabKind::NewProcess(tab, _) => tab.label(),
             TabKind::Process(tab, _) => tab.label(),
+            TabKind::Parts(tab, _) => tab.label(),
         }
     }
 
@@ -144,6 +153,13 @@ impl Tab for TabKind {
                     processes: context.processes.clone(),
                 };
                 tab.on_close(tab_key, &mut process_tab_context)
+            }
+            TabKind::Parts(tab, _) => {
+                let mut parts_tab_context = PartsTabContext {
+                    tab_key: tab_key.clone(),
+                    stores: context.stores.clone(),
+                };
+                tab.on_close(tab_key, &mut parts_tab_context)
             }
         }
     }
@@ -205,6 +221,13 @@ impl UiComponent for TabKind {
                     processes: context.processes.clone(),
                 };
                 tab.ui(ui, &mut process_tab_context)
+            }
+            TabKind::Parts(tab, _) => {
+                let mut parts_tab_context = PartsTabContext {
+                    tab_key,
+                    stores: context.stores.clone(),
+                };
+                tab.ui(ui, &mut parts_tab_context)
             }
         }
     }
@@ -318,6 +341,21 @@ impl UiComponent for TabKind {
                 };
                 tab.update(command, &mut process_tab_context)
                     .map(|action| TabKindAction::ProcessTabAction {
+                        action,
+                    })
+            }
+            (
+                TabKind::Parts(tab, _),
+                TabKindUiCommand::PartsTabCommand {
+                    command,
+                },
+            ) => {
+                let mut parts_tab_context = PartsTabContext {
+                    tab_key,
+                    stores: context.stores.clone(),
+                };
+                tab.update(command, &mut parts_tab_context)
+                    .map(|action| TabKindAction::PartsTabAction {
                         action,
                     })
             }
@@ -598,6 +636,74 @@ impl AppTabs {
 
         let mut tree = self.tree.lock().unwrap();
         tree.push_to_focused_leaf(tab_key);
+    }
+
+    pub fn add_parts_tab(&mut self, file_dialogs: Arc<dyn FileDialogs>) {
+        let tab_kind_component = ComponentState::default();
+
+        let mut tabs = self.tabs.lock().unwrap();
+        let parts_tab = PartsTab::new(file_dialogs);
+        let tab_kind = TabKind::Parts(parts_tab, tab_kind_component);
+        let tab_key = tabs.add(tab_kind);
+
+        let tab_kind_sender = self.component.sender.clone();
+        Self::configure_parts_tab_mappers(tab_kind_sender, &mut tabs, tab_key);
+
+        let mut tree = self.tree.lock().unwrap();
+        tree.push_to_focused_leaf(tab_key);
+    }
+
+    /// The parts tabs restored when the application starts aren't wired up, nor have file dialogs, as they were
+    /// restored with `Default`.  Returns the tabs whose data source had been chosen, so their parts can be loaded.
+    ///
+    /// Safety: call only once on startup, before the tabs are shown.
+    pub fn restore_parts_tabs_on_startup(&mut self, file_dialogs: Arc<dyn FileDialogs>) -> Vec<TabKey> {
+        let mut tabs = self.tabs.lock().unwrap();
+
+        let tab_keys = tabs
+            .iter()
+            .filter_map(|(tab_key, tab_kind)| matches!(tab_kind, TabKind::Parts(..)).then_some(*tab_key))
+            .collect::<Vec<_>>();
+
+        let tab_kind_sender = self.component.sender.clone();
+        let mut tab_keys_with_sources = vec![];
+        for tab_key in tab_keys {
+            Self::configure_parts_tab_mappers(tab_kind_sender.clone(), &mut tabs, tab_key);
+
+            if let Some(TabKind::Parts(parts_tab, _)) = tabs.get_mut(&tab_key) {
+                parts_tab.set_file_dialogs(file_dialogs.clone());
+                if parts_tab.source.is_some() {
+                    tab_keys_with_sources.push(tab_key);
+                }
+            }
+        }
+
+        tab_keys_with_sources
+    }
+
+    fn configure_parts_tab_mappers(
+        tab_kind_sender: Enqueue<(TabKey, TabUiCommand)>,
+        tabs: &mut ValueGuard<Tabs<TabKind, TabKindContext>>,
+        tab_key: TabKey,
+    ) {
+        match tabs.tabs.get_mut(&tab_key).unwrap() {
+            TabKind::Parts(parts_tab, tab_kind_component) => {
+                tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
+                    (tab_key, TabUiCommand::TabKindCommand(command))
+                });
+
+                let tab_kind_component_sender = tab_kind_component.sender.clone();
+
+                parts_tab
+                    .component
+                    .configure_mapper(tab_kind_component_sender, move |command| {
+                        TabKindUiCommand::PartsTabCommand {
+                            command,
+                        }
+                    });
+            }
+            _ => unreachable!(),
+        }
     }
 
     fn configure_new_process_tab_mappers(

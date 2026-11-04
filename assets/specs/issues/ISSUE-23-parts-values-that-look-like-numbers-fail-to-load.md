@@ -28,11 +28,10 @@ From the CLI, in an empty folder:
 2. `planner_cli --trace planner.log -v parts --source parts.csv list`
 
    Logs, in order:
-   - `stores_app: Received event. event: LoadParts {`
+   - `stores_app: Received event. event: OpenParts {`
 
 **Expected:** the part is listed, with `1234` and `0402` as they are in the file. Logs, in order:
-- `stores_app: Loaded parts. source: 'parts.csv', part_count: 1`
-- `stores_app: Received event. event: RequestPartsView {`
+- `stores_app: Loaded parts. source: '<folder>\parts.csv', part_count: 1`, the file's canonical path (`STORE-6`)
 - no `Event failed.`
 
 **Actual, before the fix:** the parts weren't loaded. Logs, in order:
@@ -41,7 +40,11 @@ From the CLI, in an empty folder:
 
 ## Last repeated
 
-2026-11-04, CLI, Windows 11, after `11fe63f1`, with the `parts` mode: not reproduced, the part was listed with `1234`
+2026-11-04, CLI, Windows 11, after the `parts` mode began opening the data source (`OpenParts`, `STORE-5`): not
+reproduced, the part was listed with `1234` and `0402`, and the expected log lines were logged, in order, with the
+file's canonical path.
+
+Before that, 2026-11-04, CLI, Windows 11, after `11fe63f1`, with the `parts` mode: not reproduced, the part was listed with `1234`
 and `0402`, and the expected log lines were logged, in order. Before the fix, the CLI had no `parts` mode, and the issue
 was reproduced by `keeps_values_that_look_like_numbers` and a first version of
 `loads_the_parts_from_a_csv_file_in_order_with_their_other_values`, through the stores core, with

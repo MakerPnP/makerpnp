@@ -1,4 +1,5 @@
 pub mod config;
+pub mod data_sources;
 
 pub mod dialogs;
 pub mod file_picker;
@@ -11,6 +12,7 @@ pub mod planner_app_core;
 pub mod process;
 pub mod profiling;
 pub mod project;
+pub mod stores_core;
 pub mod sync;
 pub mod tabs;
 pub mod task;

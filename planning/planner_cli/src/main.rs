@@ -92,10 +92,8 @@ fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
     let source = parts_args.source.clone();
     match parts_args.command {
         PartsCommand::List => {
-            process(stores_app::Event::LoadParts {
-                source: source.clone(),
-            })?;
-            for view in process(stores_app::Event::RequestPartsView {
+            // opening sends the parts view.
+            for view in process(stores_app::Event::OpenParts {
                 source,
             })? {
                 write_parts_csv(&view, std::io::stdout())?;

@@ -6,6 +6,7 @@ mod fixture;
 mod load_outs;
 mod open_project;
 mod operations;
+mod parts_sources;
 mod phase_states;
 mod processes;
 mod tables;
