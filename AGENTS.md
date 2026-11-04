@@ -38,6 +38,12 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
 
 - [`Hacks.md`](Hacks.md): what each `HACK:` comment in the code means, before changing code near one.
 - [`.rustfmt.toml`](.rustfmt.toml): formatting, run with `cargo +nightly fmt`.
+- Line endings: keep each file's own, CRLF or LF, as a file whose endings change shows every line as changed in review.
+  Leave `.gitattributes` and `newline_style` as they are. Change files with a tool that can be made to keep a file's
+  endings, such as a script that reads them and writes them back, and avoid one that can't, such as `sed`, a `perl`
+  one-liner, a heredoc, or writing a whole file over an existing one. Even an edit tool can change them, so note a
+  file's endings with `git ls-files --eol <file>` before changing it, and check them again after; put back any that
+  changed before finishing.
 
 ## Checks
 
