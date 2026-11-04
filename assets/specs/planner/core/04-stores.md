@@ -193,6 +193,32 @@ source is read, then "`Output written to '<path>'`" and "`BOM written to '<path>
 logs "`Loading <records>. source: '<source>'`" as it reads each, before them, as the core's reading of each no longer
 comes between them.
 
+**STORE-15 — Changing parts.** *Confirmed.* The core MUST change a data source's parts when asked (`ChangeParts`): add a
+part, after the others, with its other values, set a part's other values, keeping those not named, or remove a part. A
+change MUST say the revision of the parts it was based on, the revision of the view the user changed (`STORE-8`), and
+MUST be refused if the data source has changed since, so that a change made by anyone else isn't lost: by the core, if
+it has read a later revision, and by the stores service, if the data source's revision isn't the one the change was
+based on, as when another process changed it, in which case the core MUST read it again, so every view shows the parts
+as they are now, which the change can be made to again. The refusal MUST say "`The parts have changed since the change
+was made.`", with the data source, the revision the change was based on and the data source's revision now, or none if
+it no longer exists. Once the parts are written, the core MUST keep them, with the revision written, and send the data
+source's parts view, so every view of it shows the change. A change MUST be refused, and nothing written, if the parts
+aren't loaded, if another change to the data source is being written, as it would be based on the parts before it, if
+the part added is there already, saying "`The part already exists.`", or if the part changed or removed isn't, saying
+"`The part doesn't exist.`". A change that can't be written MUST say why, and keep the parts as they were. The data
+source's status MUST say whether a change is being written, and why its last change was refused, until one succeeds,
+even once the parts are read again, so every front end and view using it can show it. *Observed*: the operation is
+`WriteParts`, logged as the service's others are (`STORE-7`), saying how many parts there are, not what they are. As a
+data source keeps every value of every part, as a file's columns do, the core gives each part an empty value of each
+name it has no value of, so the parts it keeps are as they'd be read back. The `csv_file` back end reads the file, and
+compares its revision with the change's, then writes the parts, every value quoted, with the file's columns in the
+order they were, and any new ones after them, in the order of their names, and logs
+"`Storing parts. source: '<source>'`" at info level. A file that no longer exists isn't written again. The core logs
+"`stores_app: Changed parts. source: '<source>', part_count: <count>, revision: '<revision>'`" at info level once the
+parts are written. Once written, the service's watch says the data source changed (`STORE-9`), and the core reads it
+again, finding its revision unchanged (`STORE-8`). *Target*: the service's check and its write MUST be one operation, so
+a change made by another process between them isn't lost. The gap: they're two, though the time between them is short.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -216,6 +242,17 @@ comes between them.
   again, sending only the parts read after the change (`STORE-3`, `STORE-8`, `STORE-9`).
 - `planning/stores_service/tests/watch.rs` checks a watch says when the file is written, and when it's replaced by
   another renamed over it, and says nothing when it's read, or when another file in its folder is written (`STORE-9`).
+- `planning/stores_app/tests/parts.rs` checks a change has the service write the parts, changed, based on the same
+  revision, and sends the view with the revision written, that a part added with other values than the others' has
+  empty ones, as every part has, that setting a part's values keeps those not named, and removing a part keeps the
+  others in order, that adding a part twice, or changing or removing one that isn't there, is refused, writing nothing,
+  that a change based on an older revision than the core's is refused, writing nothing, that one the service refuses,
+  as the parts changed, reads them again, sends their view, and keeps the change's error until a change succeeds, that
+  one that can't be written says why and keeps the parts, and that a change while another is written is refused
+  (`STORE-15`).
+- `planning/stores_service/tests/csv_file.rs` checks parts are written with the file's columns in the order they were,
+  new ones after them, every value quoted, with the revision of the file as it's read back, and that a file changed, or
+  removed, since the change's revision isn't written, the refusal saying its revision now, or none (`STORE-15`).
 - `planning/stores_service/tests/document_file.rs` writes a document and reads it as it was written, with the revision
   written, checks writing again replaces it, with a revision that changes only if its contents do, that a document that
   doesn't exist is none, and that one that can't be written says why, naming its path (`STORE-8`, `STORE-10`).

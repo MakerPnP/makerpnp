@@ -113,3 +113,13 @@ what they show is as it was.
 | `GenerateArtifacts` | The files made for a phase, and the report, made by the core and written by the service, in order (`STORE-12`). | Done |
 | `RecordPhaseOperation` | Each phase's operation history, read and written by the service as a document (`STORE-13`). | Done |
 | The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules and load-outs read by the service as records, and the placements and BOM written as documents (`STORE-14`). | Done |
+
+### Step 8, changing parts
+
+Each is a commit, the core first.
+
+| What | Status |
+|---|---|
+| The stores core: add a part, set its other values, or remove it, based on a revision, and refused if the data source changed since, by the core or the stores service (`STORE-15`). | Done |
+| The CLI: `planner_cli parts --source <file> add`, `set` and `remove`, based on the revision read, or one given. | Next |
+| The GUI: add and remove parts from a parts tab, seen by every tab showing the data source. | |

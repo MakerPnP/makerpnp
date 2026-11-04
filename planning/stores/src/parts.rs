@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use anyhow::{anyhow, Context, Error};
 use pnp::part::Part;
@@ -78,4 +78,60 @@ pub fn read_parts(reader: impl std::io::Read) -> Result<Vec<(Part, HashMap<Strin
         parts.push((part, meta_data));
     }
     Ok(parts)
+}
+
+/// The headers of the parts' CSV text, in order, so that the parts can be written with them in the same order.
+pub fn read_headers(reader: impl std::io::Read) -> Result<Vec<String>, Error> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
+    let headers = csv_reader
+        .headers()
+        .with_context(|| "Error reading the headers of the parts.".to_string())?;
+    Ok(headers
+        .iter()
+        .map(str::to_string)
+        .collect())
+}
+
+/// Writes the parts as CSV, every value quoted, as [`read_parts`] reads them: the headers `Manufacturer` and `Mpn`,
+/// then the parts' other values' names. Those in `headers`, for example a file's headers before the change, keep their
+/// order, so a file changed has its columns as they were, and any others follow, in the order of their names. A part
+/// with no value of a name has an empty one.
+pub fn write_parts(
+    writer: impl std::io::Write,
+    headers: &[String],
+    parts: &[(Part, BTreeMap<String, String>)],
+) -> Result<(), Error> {
+    let mut field_names: Vec<String> = headers
+        .iter()
+        .filter(|header| *header != MANUFACTURER_HEADER && *header != MPN_HEADER)
+        .cloned()
+        .collect();
+    let others: BTreeSet<&String> = parts
+        .iter()
+        .flat_map(|(_part, fields)| fields.keys())
+        .filter(|name| !field_names.contains(name))
+        .collect();
+    field_names.extend(others.into_iter().cloned());
+
+    let mut writer = csv::WriterBuilder::new()
+        .quote_style(csv::QuoteStyle::Always)
+        .from_writer(writer);
+
+    let mut record = vec![MANUFACTURER_HEADER.to_string(), MPN_HEADER.to_string()];
+    record.extend(field_names.iter().cloned());
+    writer.write_record(&record)?;
+
+    for (part, fields) in parts.iter() {
+        let mut record = vec![part.manufacturer.clone(), part.mpn.clone()];
+        record.extend(field_names.iter().map(|name| {
+            fields
+                .get(name)
+                .cloned()
+                .unwrap_or_default()
+        }));
+        writer.write_record(&record)?;
+    }
+    writer.flush()?;
+
+    Ok(())
 }

@@ -115,6 +115,24 @@ pub enum StoresOperation {
 
     /// Writes the records, replacing the data source's (`STORE-11`). Answered with [`StoresOutput::RecordsWritten`].
     WriteRecords { source: Source, records: RecordsOf },
+
+    /// Writes the parts, replacing the data source's, only if it's still at the revision the change was based on, so
+    /// that a change made since, by anyone, isn't lost (`STORE-15`). Answered with [`StoresOutput::PartsWritten`].
+    WriteParts {
+        source: PartsSource,
+        revision: Revision,
+        parts: Vec<PartsViewItem>,
+    },
+}
+
+/// Why parts weren't written (`STORE-15`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum PartsWriteError {
+    /// The data source has changed since the revision the change was based on, to this revision, or `None` if it no
+    /// longer exists, so the change would lose another's.
+    Changed { revision: Option<Revision> },
+    /// The parts couldn't be written, for example as the file is read-only.
+    Failed { cause: String },
 }
 
 /// The kinds of data source whose records a core reads, each with a format the service knows (`STORE-11`).
@@ -281,6 +299,17 @@ impl Debug for StoresOperation {
                 .field("source", source)
                 .field("records", &RecordsSummary(records))
                 .finish(),
+            StoresOperation::WriteParts {
+                source,
+                revision,
+                parts,
+            } => write!(
+                f,
+                "WriteParts {{ source: {:?}, revision: {:?}, parts: <{} parts> }}",
+                source,
+                revision.0,
+                parts.len()
+            ),
         }
     }
 }
@@ -316,6 +345,9 @@ pub enum StoresOutput {
 
     /// The revision of the records written, or why they couldn't be written.
     RecordsWritten(Result<Revision, String>),
+
+    /// The revision of the parts written, or why they weren't.
+    PartsWritten(Result<Revision, PartsWriteError>),
 }
 
 impl Operation for StoresOperation {
@@ -342,6 +374,7 @@ impl Debug for StoresOutput {
             StoresOutput::DocumentWritten(result) => write!(f, "DocumentWritten({:?})", result),
             StoresOutput::RecordsRead(result) => write!(f, "RecordsRead({:?})", result),
             StoresOutput::RecordsWritten(result) => write!(f, "RecordsWritten({:?})", result),
+            StoresOutput::PartsWritten(result) => write!(f, "PartsWritten({:?})", result),
         }
     }
 }

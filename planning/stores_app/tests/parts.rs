@@ -1,4 +1,4 @@
-//! The stores core's parts data sources (`STORE-1` to `STORE-8`).
+//! The stores core's parts data sources (`STORE-1` to `STORE-9`), and changing their parts (`STORE-15`).
 //!
 //! The core is pure, so these tests answer the store operations it asks for themselves, with no files (`STORE-7`). The
 //! stores service's tests check the operations are done (`planning/stores_service/tests/`).
@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    Effect, Event, Part, Parts, PartsSource, PartsSourceStatus, PartsView, PartsViewItem, PartsViewRendererOperation,
-    Revision, Stores, StoresOperation, StoresOutput,
+    Effect, Event, Part, Parts, PartsChange, PartsSource, PartsSourceStatus, PartsView, PartsViewItem,
+    PartsViewRendererOperation, PartsWriteError, Revision, Stores, StoresOperation, StoresOutput,
 };
 
 fn source(path: &str) -> PartsSource {
@@ -190,6 +190,9 @@ fn service(
         }
         | StoresOperation::WriteRecords {
             ..
+        }
+        | StoresOperation::WriteParts {
+            ..
         }) => panic!("unexpected operation: {:?}", operation),
     }
 }
@@ -251,7 +254,9 @@ fn opening_reads_the_parts_and_sends_the_view() {
         loaded: true,
         revision: Some(revision_of(&parts)),
         reading: false,
+        changing: false,
         error: None,
+        change_error: None,
     };
     assert_eq!(shell.status(&as_asked), Some(expected_status.clone()));
     assert_eq!(shell.status(&resolved), Some(expected_status));
@@ -810,4 +815,393 @@ fn a_change_while_the_parts_are_read_reads_them_again() {
     );
     assert_eq!(views.len(), 1);
     assert_eq!(views[0].parts, vec![item("NEWCO", "NEW1", &[])]);
+}
+
+/// A shell with `parts.csv`, identified as `/folder/parts.csv`, opened, with `parts`. Returns the data source as asked
+/// for, and as identified.
+fn opened(shell: &mut Shell, parts: Vec<PartsViewItem>) -> (PartsSource, PartsSource) {
+    let as_asked = source("parts.csv");
+    let resolved = source("/folder/parts.csv");
+    let (_views, error) = shell.process(
+        Event::OpenParts {
+            source: as_asked.clone(),
+        },
+        service(&[as_asked.clone()], &resolved, Ok(parts)),
+    );
+    assert_eq!(error, None);
+    shell.take_operations();
+    (as_asked, resolved)
+}
+
+/// A stores service that answers a write of parts with `output`.
+fn writes(output: StoresOutput) -> impl FnMut(&StoresOperation) -> StoresOutput {
+    move |operation| match operation {
+        StoresOperation::WriteParts {
+            ..
+        } => output.clone(),
+        operation => panic!("unexpected operation: {:?}", operation),
+    }
+}
+
+fn add(manufacturer: &str, mpn: &str, fields: &[(&str, &str)]) -> PartsChange {
+    let item = item(manufacturer, mpn, fields);
+    PartsChange::Add {
+        part: item.part,
+        fields: item.fields,
+    }
+}
+
+/// `STORE-15`, a change, based on the revision of the parts shown, has the service write the parts, changed, based on
+/// the same revision, then sends the view, with the revision written.
+#[test]
+fn changing_the_parts_writes_them_and_sends_the_view() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[("LCSC", "C1")])];
+    let (as_asked, resolved) = opened(&mut shell, parts.clone());
+
+    let (views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked.clone(),
+            revision: revision_of(&parts),
+            change: add("CAPCO", "CAP1", &[("LCSC", "C2")]),
+        },
+        writes(StoresOutput::PartsWritten(Ok(Revision("2".to_string())))),
+    );
+
+    assert_eq!(error, None);
+    let changed = vec![
+        item("RESCO", "RES1", &[("LCSC", "C1")]),
+        item("CAPCO", "CAP1", &[("LCSC", "C2")]),
+    ];
+    assert_eq!(shell.take_operations(), vec![StoresOperation::WriteParts {
+        source: resolved.clone(),
+        revision: revision_of(&parts),
+        parts: changed.clone(),
+    }]);
+    assert_eq!(views, vec![PartsView {
+        source: resolved.clone(),
+        revision: Revision("2".to_string()),
+        field_names: vec!["LCSC".to_string()],
+        parts: changed,
+    }]);
+    let status = shell.status(&as_asked).unwrap();
+    assert_eq!(status.revision, Some(Revision("2".to_string())));
+    assert!(!status.changing);
+}
+
+/// `STORE-15`, every part has a value of every name, as a file's columns give them, so the parts are as they'd be read.
+#[test]
+fn a_part_added_with_other_values_than_the_others_has_empty_ones() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[("LCSC", "C1")])];
+    let (as_asked, resolved) = opened(&mut shell, parts.clone());
+
+    let (_views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked,
+            revision: revision_of(&parts),
+            change: add("CAPCO", "CAP1", &[("Notes", "0402")]),
+        },
+        writes(StoresOutput::PartsWritten(Ok(Revision("2".to_string())))),
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![StoresOperation::WriteParts {
+        source: resolved,
+        revision: revision_of(&parts),
+        parts: vec![
+            item("RESCO", "RES1", &[("LCSC", "C1"), ("Notes", "")]),
+            item("CAPCO", "CAP1", &[("LCSC", ""), ("Notes", "0402")]),
+        ],
+    }]);
+}
+
+/// `STORE-15`, setting a part's values keeps those not named, and removing a part keeps the others in order.
+#[test]
+fn setting_a_parts_values_and_removing_a_part() {
+    let mut shell = Shell::new();
+    let parts = vec![
+        item("RESCO", "RES1", &[("LCSC", "C1"), ("Notes", "")]),
+        item("CAPCO", "CAP1", &[("LCSC", "C2"), ("Notes", "")]),
+        item("LEDCO", "LED1", &[("LCSC", "C3"), ("Notes", "")]),
+    ];
+    let (as_asked, resolved) = opened(&mut shell, parts.clone());
+
+    let set = item("CAPCO", "CAP1", &[("Notes", "X7R")]);
+    let (_views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked.clone(),
+            revision: revision_of(&parts),
+            change: PartsChange::SetFields {
+                part: set.part,
+                fields: set.fields,
+            },
+        },
+        writes(StoresOutput::PartsWritten(Ok(Revision("2".to_string())))),
+    );
+    assert_eq!(error, None);
+
+    let (views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked,
+            revision: Revision("2".to_string()),
+            change: PartsChange::Remove {
+                part: Part::new("RESCO".to_string(), "RES1".to_string()),
+            },
+        },
+        writes(StoresOutput::PartsWritten(Ok(Revision("3".to_string())))),
+    );
+    assert_eq!(error, None);
+
+    let written: Vec<Vec<PartsViewItem>> = shell
+        .take_operations()
+        .into_iter()
+        .map(|operation| match operation {
+            StoresOperation::WriteParts {
+                source,
+                parts,
+                ..
+            } if source == resolved => parts,
+            operation => panic!("unexpected operation: {:?}", operation),
+        })
+        .collect();
+    assert_eq!(written, vec![
+        vec![
+            item("RESCO", "RES1", &[("LCSC", "C1"), ("Notes", "")]),
+            item("CAPCO", "CAP1", &[("LCSC", "C2"), ("Notes", "X7R")]),
+            item("LEDCO", "LED1", &[("LCSC", "C3"), ("Notes", "")]),
+        ],
+        vec![
+            item("CAPCO", "CAP1", &[("LCSC", "C2"), ("Notes", "X7R")]),
+            item("LEDCO", "LED1", &[("LCSC", "C3"), ("Notes", "")]),
+        ],
+    ]);
+    assert_eq!(views[0].parts, written[1]);
+}
+
+/// `STORE-15`, a part that's there already can't be added, and one that isn't can't be changed or removed, and
+/// nothing is written.
+#[test]
+fn refuses_to_add_a_part_twice_or_change_one_that_is_not_there() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[])];
+    let (as_asked, _resolved) = opened(&mut shell, parts.clone());
+
+    let missing = Part::new("NOCO".to_string(), "NONE1".to_string());
+    for (change, expected) in [
+        (
+            add("RESCO", "RES1", &[]),
+            "The part already exists. source: '/folder/parts.csv', manufacturer: 'RESCO', mpn: 'RES1'",
+        ),
+        (
+            PartsChange::Remove {
+                part: missing.clone(),
+            },
+            "The part doesn't exist. source: '/folder/parts.csv', manufacturer: 'NOCO', mpn: 'NONE1'",
+        ),
+        (
+            PartsChange::SetFields {
+                part: missing,
+                fields: Default::default(),
+            },
+            "The part doesn't exist. source: '/folder/parts.csv', manufacturer: 'NOCO', mpn: 'NONE1'",
+        ),
+    ] {
+        let (views, error) = shell.process(
+            Event::ChangeParts {
+                source: as_asked.clone(),
+                revision: revision_of(&parts),
+                change,
+            },
+            no_operations,
+        );
+        assert_eq!(error.as_deref(), Some(expected));
+        assert!(views.is_empty());
+    }
+    assert!(
+        !shell
+            .status(&as_asked)
+            .unwrap()
+            .changing
+    );
+}
+
+/// `STORE-15`, a change based on a revision older than the core's, as the parts were read again since the view it
+/// was based on, is refused, and nothing is written.
+#[test]
+fn a_change_based_on_an_older_revision_is_refused() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[])];
+    let (as_asked, _resolved) = opened(&mut shell, parts.clone());
+
+    let (views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked,
+            revision: Revision("old".to_string()),
+            change: add("CAPCO", "CAP1", &[]),
+        },
+        no_operations,
+    );
+
+    assert_eq!(
+        error.as_deref(),
+        Some(
+            format!(
+                "The parts have changed since the change was made. source: '/folder/parts.csv', revision: 'old', current_revision: '{}'",
+                revision_of(&parts)
+            )
+            .as_str()
+        )
+    );
+    assert!(views.is_empty());
+}
+
+/// `STORE-15`, the service refuses a change to a data source changed since, by anyone, and the core reads it again, so
+/// every view shows the parts as they are now. The read succeeds, so the core's error is the read's, none, but the data
+/// source keeps the change's, until a change succeeds.
+#[test]
+fn a_change_the_service_refuses_as_the_parts_changed_reads_them_again() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[])];
+    let (as_asked, resolved) = opened(&mut shell, parts.clone());
+    let now = vec![item("RESCO", "RES1", &[]), item("OTHERCO", "OTHER1", &[])];
+
+    let (views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked.clone(),
+            revision: revision_of(&parts),
+            change: add("CAPCO", "CAP1", &[]),
+        },
+        {
+            let now = now.clone();
+            move |operation| match operation {
+                StoresOperation::WriteParts {
+                    ..
+                } => StoresOutput::PartsWritten(Err(PartsWriteError::Changed {
+                    revision: Some(revision_of(&now)),
+                })),
+                StoresOperation::ReadParts {
+                    ..
+                } => StoresOutput::PartsRead(Ok(read(now.clone()))),
+                operation => panic!("unexpected operation: {:?}", operation),
+            }
+        },
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(
+        shell
+            .status(&as_asked)
+            .unwrap()
+            .change_error,
+        Some(format!(
+            "The parts have changed since the change was made. source: '/folder/parts.csv', revision: '{}', current_revision: '{}'",
+            revision_of(&parts),
+            revision_of(&now)
+        ))
+    );
+    assert!(matches!(shell.take_operations().as_slice(), [
+        StoresOperation::WriteParts { .. },
+        StoresOperation::ReadParts { source },
+    ] if *source == resolved));
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].parts, now);
+    assert_eq!(views[0].revision, revision_of(&now));
+
+    // made again, to the parts as they are now, it succeeds, and the data source's error is cleared.
+    let (_views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked.clone(),
+            revision: revision_of(&now),
+            change: add("CAPCO", "CAP1", &[]),
+        },
+        writes(StoresOutput::PartsWritten(Ok(Revision("3".to_string())))),
+    );
+    assert_eq!(error, None);
+    assert_eq!(
+        shell
+            .status(&as_asked)
+            .unwrap()
+            .change_error,
+        None
+    );
+}
+
+/// `STORE-15`, a change that can't be written says why, and keeps the parts as they were.
+#[test]
+fn a_change_that_can_not_be_written_keeps_the_parts() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[])];
+    let (as_asked, _resolved) = opened(&mut shell, parts.clone());
+
+    let (views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked.clone(),
+            revision: revision_of(&parts),
+            change: add("CAPCO", "CAP1", &[]),
+        },
+        writes(StoresOutput::PartsWritten(Err(PartsWriteError::Failed {
+            cause: "Access denied.".to_string(),
+        }))),
+    );
+
+    assert_eq!(
+        error.as_deref(),
+        Some("Unable to change the parts. source: '/folder/parts.csv', cause: Access denied.")
+    );
+    assert!(views.is_empty());
+    let status = shell.status(&as_asked).unwrap();
+    assert_eq!(status.revision, Some(revision_of(&parts)));
+    assert!(!status.changing);
+    assert_eq!(status.change_error, error);
+
+    let (views, _error) = shell.process(
+        Event::RequestPartsView {
+            source: as_asked,
+        },
+        no_operations,
+    );
+    assert_eq!(views[0].parts, parts);
+}
+
+/// `STORE-15`, a change while another is being written is refused, as it would be based on the parts before it.
+#[test]
+fn a_change_while_another_is_written_is_refused() {
+    let mut shell = Shell::new();
+    let parts = vec![item("RESCO", "RES1", &[])];
+    let (as_asked, _resolved) = opened(&mut shell, parts.clone());
+
+    // the first change's write isn't answered yet.
+    let effects = shell
+        .core
+        .process_event(Event::ChangeParts {
+            source: as_asked.clone(),
+            revision: revision_of(&parts),
+            change: add("CAPCO", "CAP1", &[]),
+        });
+    assert!(
+        effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::Stores(request) if matches!(request.operation, StoresOperation::WriteParts { .. })))
+    );
+    assert!(
+        shell
+            .status(&as_asked)
+            .unwrap()
+            .changing
+    );
+
+    let (_views, error) = shell.process(
+        Event::ChangeParts {
+            source: as_asked,
+            revision: revision_of(&parts),
+            change: add("LEDCO", "LED1", &[]),
+        },
+        no_operations,
+    );
+
+    assert_eq!(
+        error.as_deref(),
+        Some("The parts are being changed. source: '/folder/parts.csv'")
+    );
 }

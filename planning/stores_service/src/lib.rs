@@ -79,6 +79,14 @@ impl StoresService {
                 async move { StoresOutput::RecordsWritten(csv_file::write_records(&source, &records).await) },
             )
             .boxed(),
+            StoresOperation::WriteParts {
+                source,
+                revision,
+                parts,
+            } => stream::once(async move {
+                StoresOutput::PartsWritten(csv_file::write_parts(&source, &revision, &parts).await)
+            })
+            .boxed(),
         }
     }
 

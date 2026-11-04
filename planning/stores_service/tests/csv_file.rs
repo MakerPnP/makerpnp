@@ -1,11 +1,13 @@
-//! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6` to `STORE-8`).
+//! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6` to `STORE-8`, `STORE-15`).
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use futures::executor::block_on;
-use stores_protocol::{Part, Parts, PartsSource, PartsViewItem, Revision, StoresOperation, StoresOutput};
+use stores_protocol::{
+    Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, StoresOperation, StoresOutput,
+};
 use stores_service::StoresService;
 
 fn csv_file(folder: &Path, name: &str, content: &str) -> PartsSource {
@@ -205,4 +207,107 @@ fn a_files_revision_changes_only_when_its_contents_do() {
     // the same contents in another file have the same revision.
     let copy = csv_file(folder.path(), "copy.csv", content);
     assert_eq!(revision(&copy), first);
+}
+
+fn write(source: &PartsSource, revision: &Revision, parts: Vec<PartsViewItem>) -> Result<Revision, PartsWriteError> {
+    match block_on(StoresService::new().perform_once(StoresOperation::WriteParts {
+        source: source.clone(),
+        revision: revision.clone(),
+        parts,
+    })) {
+        Some(StoresOutput::PartsWritten(result)) => result,
+        output => panic!("unexpected output: {:?}", output),
+    }
+}
+
+/// `STORE-15`, the parts are written with the file's columns in the order they were, new ones after them, every value
+/// quoted, and the revision written is the file's, as it's read back.
+#[test]
+fn writes_the_parts_keeping_the_order_of_the_columns() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "parts.csv",
+        "\"Mpn\",\"Notes\",\"Manufacturer\",\"LCSC\"\n\"RES1\",\"\",\"RESCO\",\"C1\"\n",
+    );
+    let based_on = revision(&source);
+
+    let written = write(&source, &based_on, vec![
+        item("RESCO", "RES1", &[("LCSC", "C1"), ("Notes", ""), ("Package", "")]),
+        item("CAPCO", "1234", &[
+            ("LCSC", "C2"),
+            ("Notes", "X7R"),
+            ("Package", "0402"),
+        ]),
+    ])
+    .unwrap();
+
+    let PartsSource::File(path) = &source else {
+        unreachable!()
+    };
+    assert_eq!(
+        fs::read_to_string(path).unwrap(),
+        "\"Manufacturer\",\"Mpn\",\"Notes\",\"LCSC\",\"Package\"\n\
+         \"RESCO\",\"RES1\",\"\",\"C1\",\"\"\n\
+         \"CAPCO\",\"1234\",\"X7R\",\"C2\",\"0402\"\n"
+    );
+    assert_eq!(written, revision(&source));
+    assert_eq!(read_parts(&source).unwrap(), vec![
+        item("RESCO", "RES1", &[("LCSC", "C1"), ("Notes", ""), ("Package", "")]),
+        item("CAPCO", "1234", &[
+            ("LCSC", "C2"),
+            ("Notes", "X7R"),
+            ("Package", "0402")
+        ]),
+    ]);
+}
+
+/// `STORE-15`, a file changed since the revision the change was based on isn't written, and the refusal says the
+/// file's revision now.
+#[test]
+fn refuses_to_write_a_file_changed_since() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "parts.csv",
+        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n",
+    );
+    let based_on = revision(&source);
+    let changed = "\"Manufacturer\",\"Mpn\"\n\"OTHERCO\",\"OTHER1\"\n";
+    csv_file(folder.path(), "parts.csv", changed);
+
+    let result = write(&source, &based_on, vec![item("CAPCO", "CAP1", &[])]);
+
+    assert_eq!(
+        result,
+        Err(PartsWriteError::Changed {
+            revision: Some(revision(&source)),
+        })
+    );
+    let PartsSource::File(path) = &source else {
+        unreachable!()
+    };
+    assert_eq!(fs::read_to_string(path).unwrap(), changed);
+}
+
+/// `STORE-15`, a file removed since isn't written again.
+#[test]
+fn refuses_to_write_a_file_removed_since() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "parts.csv", "\"Manufacturer\",\"Mpn\"\n");
+    let based_on = revision(&source);
+    let PartsSource::File(path) = &source else {
+        unreachable!()
+    };
+    fs::remove_file(path).unwrap();
+
+    let result = write(&source, &based_on, vec![item("CAPCO", "CAP1", &[])]);
+
+    assert_eq!(
+        result,
+        Err(PartsWriteError::Changed {
+            revision: None,
+        })
+    );
+    assert!(!path.exists());
 }

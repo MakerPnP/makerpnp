@@ -19,7 +19,9 @@ use crux_core::macros::effect;
 use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
-pub use stores_protocol::{Part, Parts, PartsSource, PartsViewItem, Revision, StoresOperation, StoresOutput};
+pub use stores_protocol::{
+    Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, StoresOperation, StoresOutput,
+};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -49,6 +51,10 @@ struct PartsSourceState {
     changed_while_reading: bool,
     /// Whether the core asked for the data source to be watched (`STORE-9`).
     watching: bool,
+    /// Whether a change to the parts is being written (`STORE-15`).
+    changing: bool,
+    /// Why the last change was refused, until one succeeds.
+    change_error: Option<String>,
     /// Why the last load was refused, until one succeeds.
     error: Option<String>,
 }
@@ -72,8 +78,12 @@ pub struct PartsSourceStatus {
     /// The revision of the parts loaded, if any (`STORE-8`).
     pub revision: Option<Revision>,
     pub reading: bool,
+    /// Whether a change to the parts is being written, until which another is refused (`STORE-15`).
+    pub changing: bool,
     /// Why the last load was refused, until one succeeds. The parts loaded before, if any, are kept.
     pub error: Option<String>,
+    /// Why the last change was refused, until one succeeds, even once the parts are read again (`STORE-15`).
+    pub change_error: Option<String>,
 }
 
 #[effect]
@@ -96,6 +106,14 @@ pub enum Event {
     /// Requests the parts loaded from the data source.
     RequestPartsView { source: PartsSource },
 
+    /// Changes the data source's parts, if they're still at `revision`, the revision of the view the change was based
+    /// on, then sends its parts view (`STORE-15`).
+    ChangeParts {
+        source: PartsSource,
+        revision: Revision,
+        change: PartsChange,
+    },
+
     // internal, the results of the store operations the core asked for.
     /// The data source, as the stores service identified it.
     SourceResolved {
@@ -107,6 +125,31 @@ pub enum Event {
     PartsRead { source: PartsSource, output: StoresOutput },
     /// The data source, as the stores service identified it, may have changed (`STORE-9`).
     SourceChanged { source: PartsSource, output: StoresOutput },
+    /// The changed parts of the data source, as the stores service identified it, were written, or why not.
+    PartsWritten {
+        source: PartsSource,
+        /// The revision the change was based on.
+        revision: Revision,
+        parts: Vec<PartsViewItem>,
+        output: StoresOutput,
+    },
+}
+
+/// A change to a data source's parts (`STORE-15`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum PartsChange {
+    /// Adds the part, after the others, with its other values.
+    Add {
+        part: Part,
+        fields: BTreeMap<String, String>,
+    },
+    /// Sets the part's other values that are named, keeping the others.
+    SetFields {
+        part: Part,
+        fields: BTreeMap<String, String>,
+    },
+    /// Removes the part.
+    Remove { part: Part },
 }
 
 /// What the data source was resolved for.
@@ -156,6 +199,29 @@ pub enum StoresError {
     #[error("The parts are not loaded. source: '{parts_source}'")]
     PartsNotLoaded { parts_source: PartsSource },
 
+    /// The data source changed after the revision the change was based on, so the change would lose another's.
+    #[error(
+        "The parts have changed since the change was made. source: '{parts_source}', revision: '{revision}', current_revision: {}",
+        current_revision.as_ref().map_or("none".to_string(), |revision| format!("'{}'", revision))
+    )]
+    PartsChanged {
+        parts_source: PartsSource,
+        revision: Revision,
+        current_revision: Option<Revision>,
+    },
+
+    #[error("The parts are being changed. source: '{parts_source}'")]
+    PartsBeingChanged { parts_source: PartsSource },
+
+    #[error("The part already exists. source: '{parts_source}', manufacturer: '{}', mpn: '{}'", part.manufacturer, part.mpn)]
+    PartAlreadyExists { parts_source: PartsSource, part: Part },
+
+    #[error("The part doesn't exist. source: '{parts_source}', manufacturer: '{}', mpn: '{}'", part.manufacturer, part.mpn)]
+    PartNotFound { parts_source: PartsSource, part: Part },
+
+    #[error("Unable to change the parts. source: '{parts_source}', cause: {cause}")]
+    UnableToChangeParts { parts_source: PartsSource, cause: String },
+
     /// The shell gave the result of a different operation, which is a fault in the shell.
     #[error("Unexpected stores output. output: {output}")]
     UnexpectedOutput { output: String },
@@ -176,11 +242,14 @@ impl App for Stores {
                 model.error = None;
                 command
             }
-            Err(error) => {
+            Err(Refused {
+                error,
+                then,
+            }) => {
                 // `LOG-2`
                 warn!("Event failed. error: {:?}", error);
                 model.error = Some(error.to_string());
-                render::render()
+                render::render().and(then)
             }
         }
     }
@@ -195,7 +264,9 @@ impl App for Stores {
                     loaded: state.parts.is_some(),
                     revision: state.revision.clone(),
                     reading: state.reading,
+                    changing: state.changing,
                     error: state.error.clone(),
+                    change_error: state.change_error.clone(),
                 })
         };
 
@@ -217,8 +288,23 @@ impl App for Stores {
     }
 }
 
+/// Why an event was refused, and what to do even so, for example read a data source again.
+struct Refused {
+    error: StoresError,
+    then: Command<Effect, Event>,
+}
+
+impl From<StoresError> for Refused {
+    fn from(error: StoresError) -> Self {
+        Self {
+            error,
+            then: Command::done(),
+        }
+    }
+}
+
 impl Stores {
-    fn update_inner(event: Event, model: &mut Model) -> Result<Command<Effect, Event>, StoresError> {
+    fn update_inner(event: Event, model: &mut Model) -> Result<Command<Effect, Event>, Refused> {
         match event {
             Event::OpenParts {
                 source,
@@ -245,7 +331,31 @@ impl Stores {
                     .cloned()
                     .unwrap_or(source);
 
-                Self::parts_view(model, resolved)
+                Ok(Self::parts_view(model, resolved)?)
+            }
+            Event::ChangeParts {
+                source,
+                revision,
+                change,
+            } => {
+                let resolved = model
+                    .aliases
+                    .get(&source)
+                    .cloned()
+                    .unwrap_or(source);
+                let result = Self::change_parts(model, &resolved, revision, change);
+                Self::keep_change_error(model, &resolved, &result);
+                result
+            }
+            Event::PartsWritten {
+                source,
+                revision,
+                parts,
+                output,
+            } => {
+                let result = Self::parts_written(model, &source, revision, parts, output);
+                Self::keep_change_error(model, &source, &result);
+                result
             }
             Event::SourceResolved {
                 source,
@@ -258,7 +368,8 @@ impl Stores {
                 else {
                     return Err(StoresError::UnexpectedOutput {
                         output: format!("{:?}", output),
-                    });
+                    }
+                    .into());
                 };
                 model
                     .aliases
@@ -299,7 +410,8 @@ impl Stores {
                 let StoresOutput::Changed = output else {
                     return Err(StoresError::UnexpectedOutput {
                         output: format!("{:?}", output),
-                    });
+                    }
+                    .into());
                 };
                 info!("Data source changed. source: '{}'", source);
                 let state = model
@@ -345,12 +457,13 @@ impl Stores {
                         };
                         // `STORE-3`, the parts loaded before, if any, are kept.
                         state.error = Some(error.to_string());
-                        return Err(error);
+                        return Err(error.into());
                     }
                     output => {
                         return Err(StoresError::UnexpectedOutput {
                             output: format!("{:?}", output),
-                        });
+                        }
+                        .into());
                     }
                 };
 
@@ -405,6 +518,211 @@ impl Stores {
         })
         .then_send(move |output| Event::SourceChanged {
             source: source.clone(),
+            output,
+        })
+    }
+
+    /// Has the service write the parts, changed, if the change is based on the revision the core has, the parts are
+    /// loaded, and no other change is being written (`STORE-15`).
+    fn change_parts(
+        model: &mut Model,
+        source: &PartsSource,
+        revision: Revision,
+        change: PartsChange,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .sources
+            .get_mut(source)
+            .filter(|state| state.parts.is_some())
+            .ok_or_else(|| StoresError::PartsNotLoaded {
+                parts_source: source.clone(),
+            })?;
+
+        if state.changing {
+            return Err(StoresError::PartsBeingChanged {
+                parts_source: source.clone(),
+            }
+            .into());
+        }
+        // the core has read the parts since the view the change was based on, so they've changed.
+        if state.revision.as_ref() != Some(&revision) {
+            return Err(StoresError::PartsChanged {
+                parts_source: source.clone(),
+                revision,
+                current_revision: state.revision.clone(),
+            }
+            .into());
+        }
+
+        let parts = Self::changed_parts(
+            source,
+            state
+                .parts
+                .as_deref()
+                .unwrap_or_default(),
+            change,
+        )?;
+
+        state.changing = true;
+        Ok(render::render().and(Self::write(source.clone(), revision, parts)))
+    }
+
+    /// Keeps the parts written, or, if the data source changed since the revision the change was based on, reads it
+    /// again, so every view shows the parts as they are now, which the change can be made to again (`STORE-15`).
+    fn parts_written(
+        model: &mut Model,
+        source: &PartsSource,
+        based_on: Revision,
+        parts: Vec<PartsViewItem>,
+        output: StoresOutput,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .sources
+            .entry(source.clone())
+            .or_default();
+        state.changing = false;
+
+        let revision = match output {
+            StoresOutput::PartsWritten(Ok(revision)) => revision,
+            StoresOutput::PartsWritten(Err(PartsWriteError::Changed {
+                revision: current_revision,
+            })) => {
+                let error = StoresError::PartsChanged {
+                    parts_source: source.clone(),
+                    revision: based_on,
+                    current_revision,
+                };
+                let then = match state.reading {
+                    // `STORE-9`, the read under way may be from before the change, so it's read again once it's done.
+                    true => {
+                        state.changed_while_reading = true;
+                        Command::done()
+                    }
+                    false => {
+                        state.reading = true;
+                        Self::read(source.clone())
+                    }
+                };
+                return Err(Refused {
+                    error,
+                    then,
+                });
+            }
+            // the parts are kept as they were, as they weren't changed.
+            StoresOutput::PartsWritten(Err(PartsWriteError::Failed {
+                cause,
+            })) => {
+                return Err(StoresError::UnableToChangeParts {
+                    parts_source: source.clone(),
+                    cause,
+                }
+                .into());
+            }
+            output => {
+                return Err(StoresError::UnexpectedOutput {
+                    output: format!("{:?}", output),
+                }
+                .into());
+            }
+        };
+
+        info!(
+            "Changed parts. source: '{}', part_count: {}, revision: '{}'",
+            source,
+            parts.len(),
+            revision
+        );
+        state.parts = Some(parts);
+        state.revision = Some(revision);
+
+        Ok(render::render().and(Self::parts_view(model, source.clone())?))
+    }
+
+    /// Keeps why the data source's last change was refused, until one succeeds, so that every view of it can show it,
+    /// even once the event after it, for example a read, succeeds.
+    fn keep_change_error(model: &mut Model, source: &PartsSource, result: &Result<Command<Effect, Event>, Refused>) {
+        if let Some(state) = model.sources.get_mut(source) {
+            state.change_error = result
+                .as_ref()
+                .err()
+                .map(|refused| refused.error.to_string());
+        }
+    }
+
+    /// The parts, with the change made. As the data source keeps every value of every part, as a file's columns do, a
+    /// part is given an empty value of each name it has no value of, so the parts are as they would be read back.
+    fn changed_parts(
+        source: &PartsSource,
+        parts: &[PartsViewItem],
+        change: PartsChange,
+    ) -> Result<Vec<PartsViewItem>, StoresError> {
+        let mut parts = parts.to_vec();
+        let index_of = |parts: &[PartsViewItem], part: &Part| {
+            parts
+                .iter()
+                .position(|item| item.part == *part)
+        };
+        let not_found = |part: Part| StoresError::PartNotFound {
+            parts_source: source.clone(),
+            part,
+        };
+
+        match change {
+            PartsChange::Add {
+                part,
+                fields,
+            } => {
+                if index_of(&parts, &part).is_some() {
+                    return Err(StoresError::PartAlreadyExists {
+                        parts_source: source.clone(),
+                        part,
+                    });
+                }
+                parts.push(PartsViewItem {
+                    part,
+                    fields,
+                });
+            }
+            PartsChange::SetFields {
+                part,
+                fields,
+            } => {
+                let index = index_of(&parts, &part).ok_or_else(|| not_found(part))?;
+                parts[index].fields.extend(fields);
+            }
+            PartsChange::Remove {
+                part,
+            } => {
+                let index = index_of(&parts, &part).ok_or_else(|| not_found(part))?;
+                parts.remove(index);
+            }
+        }
+
+        let names: Vec<String> = parts
+            .iter()
+            .flat_map(|item| item.fields.keys().cloned())
+            .collect();
+        for item in parts.iter_mut() {
+            for name in names.iter() {
+                item.fields
+                    .entry(name.clone())
+                    .or_default();
+            }
+        }
+
+        Ok(parts)
+    }
+
+    fn write(source: PartsSource, revision: Revision, parts: Vec<PartsViewItem>) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::WriteParts {
+            source: source.clone(),
+            revision: revision.clone(),
+            parts: parts.clone(),
+        })
+        .then_send(move |output| Event::PartsWritten {
+            source: source.clone(),
+            revision: revision.clone(),
+            parts: parts.clone(),
             output,
         })
     }

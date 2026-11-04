@@ -10,7 +10,7 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use stores_protocol::{
-    Parts, PartsSource, PartsViewItem, Records, RecordsKind, RecordsOf, Revision, Source, StoresOutput,
+    Parts, PartsSource, PartsViewItem, PartsWriteError, Records, RecordsKind, RecordsOf, Revision, Source, StoresOutput,
 };
 use tracing::{info, warn};
 
@@ -196,6 +196,55 @@ pub async fn write_records(source: &Source, records: &RecordsOf) -> Result<Revis
         .map_err(|error| format!("Unable to write the records. source: '{}', cause: '{}'", source, error))?;
 
     Ok(revision(&contents))
+}
+
+/// Writes the parts, replacing the file, only if its contents are still those of `revision`, the revision the change
+/// was based on, and returns the revision written (`STORE-15`).
+///
+/// The file's headers keep their order. The check and the write aren't one operation, so a change made by another
+/// process between them is lost, though the time between them is short.
+pub async fn write_parts(
+    source: &PartsSource,
+    revision: &Revision,
+    parts: &[PartsViewItem],
+) -> Result<Revision, PartsWriteError> {
+    let Source::File(path) = source else {
+        return Err(PartsWriteError::Failed {
+            cause: format!("Unsupported source. source: {:?}", source),
+        });
+    };
+    let failed = |cause: String| PartsWriteError::Failed {
+        cause: format!("Unable to write the parts. source: '{}', cause: '{}'", source, cause),
+    };
+
+    info!("Storing parts. source: '{}'", source);
+    let current = match std::fs::read(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(PartsWriteError::Changed {
+                revision: None,
+            });
+        }
+        Err(error) => return Err(failed(error.to_string())),
+    };
+    let current_revision = self::revision(&current);
+    if current_revision != *revision {
+        return Err(PartsWriteError::Changed {
+            revision: Some(current_revision),
+        });
+    }
+
+    let headers = stores::parts::read_headers(current.as_slice()).map_err(|error| failed(format!("{:#}", error)))?;
+    let parts: Vec<_> = parts
+        .iter()
+        .map(|item| (item.part.clone(), item.fields.clone()))
+        .collect();
+    let mut contents = vec![];
+    stores::parts::write_parts(&mut contents, &headers, &parts).map_err(|error| failed(format!("{:#}", error)))?;
+
+    std::fs::write(path, &contents).map_err(|error| failed(error.to_string()))?;
+
+    Ok(self::revision(&contents))
 }
 
 /// What the records are called in the logs, as they were when the core read them itself.
