@@ -104,6 +104,8 @@ impl ModelProject {
 pub struct ModelPcb {
     pcb: Pcb,
     modified: bool,
+    /// The contents being written, until they are, so the PCB is only said to be saved if it's still as written.
+    writing: Option<String>,
 }
 
 type ModelPcbs = BTreeMap<PathBuf, ModelPcb>;
@@ -126,6 +128,8 @@ pub struct Model {
     ///
     /// Important: Can contain instances of [`ModelPcb`] that have been created or loaded, but not assigned to a project yet.
     model_pcbs: ModelPcbs,
+    /// PCBs being created, until their files are written (`DOC-1`).
+    creating_pcbs: ModelPcbs,
 
     /// Process documents that have been created/loaded.
     ///
@@ -154,35 +158,21 @@ impl Model {
             .flat_map(|model_project| model_project.pcbs(model_pcbs))
     }
 
-    // FUTURE consider adding a 'refresh_project_pcbs' that re-loads them.
-
-    fn load_project_pcbs_inner(
-        project: &mut Project,
-        model_pcbs: &mut ModelPcbs,
-        root: &PathBuf,
-    ) -> Result<(), AppError> {
-        let pcbs_to_load = project
+    /// Requires each of the project's PCBs to be loaded, as they're read when the project is loaded, or added to it
+    /// (`STORE-10`).
+    fn require_project_pcbs_loaded(project: &Project, model_pcbs: &ModelPcbs, root: &PathBuf) -> Result<(), AppError> {
+        match project
             .pcbs
-            .iter_mut()
-            .filter(|pcb| {
-                let pcb_path = pcb.pcb_file.build_path(root);
-                !model_pcbs.contains_key(&pcb_path)
-            })
-            .collect::<Vec<_>>();
-
-        // Then, process one-by-one: load and insert
-        for pcb in pcbs_to_load {
-            let (_pcb_file, pcb_data, pcb_path) = pcb
-                .load_pcb(root)
-                .map_err(AppError::IoError)?;
-
-            model_pcbs.insert(pcb_path.clone(), ModelPcb {
-                pcb: pcb_data,
-                modified: false,
-            });
+            .iter()
+            .map(|pcb| pcb.pcb_file.build_path(root))
+            .find(|pcb_path| !model_pcbs.contains_key(pcb_path))
+        {
+            Some(pcb_path) => Err(AppError::OperationError(anyhow!(
+                "PCB not loaded. path: {:?}",
+                pcb_path
+            ))),
+            None => Ok(()),
         }
-
-        Ok(())
     }
 
     #[allow(dead_code)]
@@ -204,17 +194,82 @@ impl Model {
         .collect::<Vec<_>>()
     }
 
-    /// Load a PCB, no project required.
-    fn load_pcb(&mut self, path: &PathBuf) -> Result<(), AppError> {
-        let pcb = pcb::load_pcb(path).map_err(AppError::IoError)?;
+    /// A PCB, read for [`Event::LoadPcb`] or [`Event::RefreshPcbs`], no project required.
+    fn pcb_read(&mut self, path: PathBuf, output: StoresOutput) -> Result<Command<Effect, Event>, AppError> {
+        let pcb = Self::pcb_from_output(&path, output)?;
 
-        self.model_pcbs
-            .insert(path.clone(), ModelPcb {
-                pcb,
-                modified: false,
+        self.model_pcbs.insert(path, ModelPcb {
+            pcb,
+            modified: false,
+            writing: None,
+        });
+
+        Ok(render::render())
+    }
+
+    /// The PCB read, or why it couldn't be.
+    fn pcb_from_output(path: &PathBuf, output: StoresOutput) -> Result<Pcb, AppError> {
+        let StoresOutput::DocumentRead(result) = output else {
+            return Err(AppError::UnexpectedOutput {
+                output,
             });
+        };
+        let document = result
+            .map_err(AppError::StoresError)?
+            .ok_or_else(|| AppError::StoresError(format!("PCB not found. path: {:?}", path)))?;
 
-        Ok(())
+        pcb::from_contents(&document.contents).map_err(|cause| {
+            AppError::StoresError(format!("Unable to read the PCB. path: {:?}, cause: '{}'", path, cause))
+        })
+    }
+
+    /// Has the PCB's file written (`STORE-10`), see [`Event::PcbWritten`].
+    fn save_pcb(&mut self, path: &PathBuf) -> Result<Command<Effect, Event>, AppError> {
+        info!("Saving PCB. path: {:?}", path);
+        let model_pcb = self
+            .model_pcbs
+            .get_mut(path)
+            .ok_or(AppError::OperationError(anyhow!("PCB not loaded. path: {:?}", path)))?;
+
+        let contents = file::to_string(&model_pcb.pcb).map_err(|cause| AppError::IoError(cause.into()))?;
+        model_pcb.writing = Some(contents.clone());
+
+        Ok(Planner::write_pcb(path.clone(), contents))
+    }
+
+    /// The PCB's file was written, or wasn't, for [`Event::CreatePcb`], [`Event::CreateProjectPcb`],
+    /// [`Event::SavePcb`] or [`Event::SaveAllPcbs`].
+    fn pcb_written(&mut self, path: PathBuf, output: StoresOutput) -> Result<Command<Effect, Event>, AppError> {
+        let StoresOutput::DocumentWritten(result) = output else {
+            return Err(AppError::UnexpectedOutput {
+                output,
+            });
+        };
+
+        // `DOC-1`, a PCB being created is only created once its file is written.
+        if let Some(mut model_pcb) = self.creating_pcbs.remove(&path) {
+            result.map_err(AppError::StoresError)?;
+            info!("Saved PCB. path: {:?}", path);
+            model_pcb.modified = false;
+            self.model_pcbs.insert(path, model_pcb);
+            return Ok(render::render());
+        }
+
+        let model_pcb = self
+            .model_pcbs
+            .get_mut(&path)
+            .ok_or(AppError::OperationError(anyhow!("PCB not loaded. path: {:?}", path)))?;
+        let written = model_pcb.writing.take();
+        // a refused write leaves the PCB's changes unsaved.
+        result.map_err(AppError::StoresError)?;
+
+        info!("Saved PCB. path: {:?}", path);
+        // the PCB may have been changed while it was written, in which case those changes aren't saved.
+        if written.is_some() && written == file::to_string(&model_pcb.pcb).ok() {
+            model_pcb.modified = false;
+        }
+
+        Ok(render::render())
     }
 
     /// Has the project's file written (`STORE-10`), see [`Event::ProjectWritten`].
@@ -270,20 +325,6 @@ impl Model {
         }
 
         Ok(render::render())
-    }
-
-    fn save_pcb(&mut self, path: &PathBuf) -> Result<(), AppError> {
-        info!("Saving PCB. path: {:?}", path);
-        let model_pcb = self
-            .model_pcbs
-            .get_mut(path)
-            .ok_or(AppError::OperationError(anyhow!("PCB not loaded. path: {:?}", path)))?;
-
-        file::save::<Pcb>(&model_pcb.pcb, path).map_err(AppError::IoError)?;
-
-        model_pcb.modified = false;
-
-        Ok(())
     }
 
     /// Load a process document, no project required.
@@ -776,6 +817,12 @@ pub enum Event {
     AddPcb {
         pcb_file: FileReference,
     },
+    /// Internal: the PCB's file, read for [`Event::AddPcb`], or why it couldn't be (`STORE-10`).
+    ProjectPcbRead {
+        pcb_file: FileReference,
+        path: PathBuf,
+        output: StoresOutput,
+    },
     RemovePcb {
         index: PcbUnitIndex,
     },
@@ -917,8 +964,20 @@ pub enum Event {
     LoadPcb {
         path: PathBuf,
     },
+    /// Internal: the PCB's file, read for [`Event::LoadPcb`] or [`Event::RefreshPcbs`], or why it couldn't be
+    /// (`STORE-10`).
+    PcbRead {
+        path: PathBuf,
+        output: StoresOutput,
+    },
     SavePcb {
         path: PathBuf,
+    },
+    /// Internal: the PCB's file was written, or wasn't, for [`Event::CreatePcb`], [`Event::CreateProjectPcb`],
+    /// [`Event::SavePcb`] or [`Event::SaveAllPcbs`] (`STORE-10`).
+    PcbWritten {
+        path: PathBuf,
+        output: StoresOutput,
     },
     ApplyPcbUnitConfiguration {
         path: PathBuf,
@@ -1098,6 +1157,7 @@ impl Planner {
                         .or_insert(ModelPcb {
                             pcb,
                             modified: false,
+                            writing: None,
                         });
                 }
                 if let Some(error) = pcb_error {
@@ -1128,9 +1188,7 @@ impl Planner {
                 let mut pcb_path = project_directory.to_path_buf();
                 pcb_path.push(pcb_file_name.clone());
 
-                Self::create_and_add_pcb(name, units, unit_map, model, &pcb_path)?;
-
-                Ok(render::render())
+                Self::create_and_add_pcb(name, units, unit_map, model, &pcb_path)
             }),
             Event::CreatePcb {
                 path: pcb_path,
@@ -1138,9 +1196,7 @@ impl Planner {
                 units,
                 unit_map,
             } => Box::new(move |model: &mut Model| {
-                Self::create_and_add_pcb(name, units, unit_map.unwrap_or_default(), model, &pcb_path)?;
-
-                Ok(render::render())
+                Self::create_and_add_pcb(name, units, unit_map.unwrap_or_default(), model, &pcb_path)
             }),
             Event::ApplyPcbUnitConfiguration {
                 path: pcb_path,
@@ -1399,40 +1455,40 @@ impl Planner {
             }),
             Event::LoadPcb {
                 path,
-            } => Box::new(move |model: &mut Model| {
+            } => Box::new(move |_model: &mut Model| {
                 // Note: doesn't require a project.
                 info!("Load PCB. path: {:?}", &path);
 
-                model.load_pcb(&path)?;
-
-                Ok(render::render())
+                Ok(Self::read_pcb(path))
             }),
+            Event::PcbRead {
+                path,
+                output,
+            } => Box::new(move |model: &mut Model| model.pcb_read(path, output)),
             Event::SavePcb {
                 path,
             } => Box::new(move |model: &mut Model| {
                 // Note: doesn't require a project.
                 info!("Save PCB. path: {:?}", &path);
 
-                model.save_pcb(&path)?;
-
-                info!("Saved PCB. path: {:?}", path);
-
-                Ok(render::render())
+                model.save_pcb(&path)
             }),
+            Event::PcbWritten {
+                path,
+                output,
+            } => Box::new(move |model: &mut Model| model.pcb_written(path, output)),
             Event::RefreshPcbs => Box::new(move |model: &mut Model| {
                 info!("Refreshing PCBs");
 
-                let paths = model
-                    .model_pcbs
-                    .keys()
-                    .cloned()
-                    .collect::<Vec<_>>();
-
-                for path in paths.into_iter() {
-                    model.load_pcb(&path)?;
-                }
-
-                Ok(render::render())
+                // `STORE-10`, each is read again, replacing the PCB loaded.
+                Ok(Command::all(
+                    model
+                        .model_pcbs
+                        .keys()
+                        .cloned()
+                        .map(Self::read_pcb)
+                        .collect::<Vec<_>>(),
+                ))
             }),
             Event::CreateProcess {
                 path,
@@ -1556,39 +1612,57 @@ impl Planner {
                 }))
             }),
             Event::SaveAllPcbs => Box::new(|model: &mut Model| {
-                for (path, model_pcb) in model.model_pcbs.iter_mut() {
-                    let ModelPcb {
-                        pcb,
-                        modified,
-                    } = model_pcb;
+                let paths = model
+                    .model_pcbs
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
 
+                let mut commands = vec![];
+                for path in paths {
                     info!("Save PCB. path: {:?}", path);
-
-                    file::save(pcb, &path).map_err(AppError::IoError)?;
-
-                    info!("Saved PCB. path: {:?}", path);
-                    *modified = false;
+                    commands.push(model.save_pcb(&path)?);
                 }
 
-                Ok(render::render())
+                Ok(Command::all(commands))
             }),
             Event::AddPcb {
                 pcb_file,
             } => Box::new(move |model: &mut Model| {
                 let ModelProject {
+                    project_directory, ..
+                } = model
+                    .model_project
+                    .as_ref()
+                    .ok_or(AppError::OperationRequiresProject)?;
+
+                let pcb_path = pcb_file.build_path(project_directory);
+
+                // `STORE-10`, added once it's read, see `Event::ProjectPcbRead`.
+                Ok(Command::request_from_shell(StoresOperation::ReadDocument {
+                    path: pcb_path.clone(),
+                })
+                .then_send(move |output| Event::ProjectPcbRead {
+                    pcb_file: pcb_file.clone(),
+                    path: pcb_path.clone(),
+                    output,
+                }))
+            }),
+            Event::ProjectPcbRead {
+                pcb_file,
+                path: pcb_path,
+                output,
+            } => Box::new(move |model: &mut Model| {
+                let pcb = Model::pcb_from_output(&pcb_path, output)?;
+
+                let ModelProject {
                     project,
                     modified,
-                    path,
                     ..
                 } = model
                     .model_project
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
-
-                let project_directory = path.parent().unwrap();
-                let pcb_path = pcb_file.build_path(&project_directory.to_path_buf());
-
-                let pcb = pcb::load_pcb(&pcb_path).map_err(AppError::IoError)?;
 
                 project::add_pcb(project, &pcb_file).map_err(AppError::PcbOperationError)?;
 
@@ -1597,6 +1671,7 @@ impl Planner {
                     .insert(pcb_path, ModelPcb {
                         pcb,
                         modified: false,
+                        writing: None,
                     });
 
                 *modified |= true;
@@ -3032,19 +3107,46 @@ impl Planner {
         unit_map: BTreeMap<PcbUnitNumber, DesignName>,
         model: &mut Model,
         pcb_path: &PathBuf,
-    ) -> Result<(), AppError> {
+    ) -> Result<Command<Effect, Event>, AppError> {
         let pcb = planning::pcb::create_pcb(name, units, unit_map).map_err(AppError::PcbOperationError)?;
 
+        info!("Saving PCB. path: {:?}", pcb_path);
+        let contents = file::to_string(&pcb).map_err(|cause| AppError::IoError(cause.into()))?;
+        // `DOC-1`, created once its file is written, see `Event::PcbWritten`.
         model
-            .model_pcbs
+            .creating_pcbs
             .insert(pcb_path.clone(), ModelPcb {
-                pcb: pcb.clone(),
+                pcb,
                 // not saved, yet
                 modified: true,
+                writing: None,
             });
 
-        model.save_pcb(pcb_path)?;
-        Ok(())
+        Ok(Self::write_pcb(pcb_path.clone(), contents))
+    }
+
+    /// Has the stores service read the PCB's file, then gives the core [`Event::PcbRead`].
+    fn read_pcb(path: PathBuf) -> Command<Effect, Event> {
+        info!("Loading PCB. path: {:?}", path);
+        Command::request_from_shell(StoresOperation::ReadDocument {
+            path: path.clone(),
+        })
+        .then_send(move |output| Event::PcbRead {
+            path: path.clone(),
+            output,
+        })
+    }
+
+    /// Has the stores service write the PCB's file, then gives the core [`Event::PcbWritten`].
+    fn write_pcb(path: PathBuf, contents: String) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::WriteDocument {
+            path: path.clone(),
+            contents,
+        })
+        .then_send(move |output| Event::PcbWritten {
+            path: path.clone(),
+            output,
+        })
     }
 
     fn gerber_file_to_pcb_gerber_item(gerber_file: &GerberFile) -> PcbGerberItem {
@@ -3066,8 +3168,7 @@ impl Planner {
             .unwrap()
             .to_path_buf();
 
-        let model_pcbs = &mut model.model_pcbs;
-        Model::load_project_pcbs_inner(&mut model_project.project, model_pcbs, &project_directory)?;
+        Model::require_project_pcbs_loaded(&model_project.project, &model.model_pcbs, &project_directory)?;
 
         let iter = model_project.pcbs(&model.model_pcbs);
         let pcbs = Model::project_pcbs_inner(iter);

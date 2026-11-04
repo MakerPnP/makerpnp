@@ -116,6 +116,12 @@ read each PCB it uses that isn't loaded already, and only then load it, so a pro
 A PCB that can't be read says why, and the project is still loaded, with the PCBs read before it. The core logs
 "`planner_app: Load project. path: <path>`", then "`planner_app: Loading PCB. path: <path>`" for each PCB, at info
 level, and "`planner_app: Received event. event: ProjectLoaded {`", which says which PCBs were read, not what's in them.
+A PCB MUST be read and written by the service too: when it's created, loaded, saved, refreshed or added to a project.
+A PCB is only created, or added to a project, once it's written, or read. A project's PCBs are read when it's loaded,
+or when they're added, so an event that needs one that couldn't be read MUST say "`PCB not loaded.`", and not read it
+itself. The core logs "`planner_app: Saving PCB. path: <path>`" as it asks for a PCB to be written, and
+"`planner_app: Saved PCB. path: <path>`" once it is, and "`planner_app: Received event. event: PcbWritten {`",
+"`PcbRead {`" or "`ProjectPcbRead {`" when it's given the result.
 
 ## Acceptance criteria
 
@@ -154,6 +160,11 @@ level, and "`planner_app: Received event. event: ProjectLoaded {`", which says w
   leaves the project loaded. It checks a process without a file is given one, written by the service, with the project
   then having unsaved changes, that a file with the same process is used, and that one with another is kept, the process
   being given another file (`STORE-10`).
+- `planning/planner_app/tests/documents.rs` checks creating a PCB writes its file, with no unsaved changes, that one
+  whose file can't be written isn't created, that saving one writes it, and that a refused save keeps its changes
+  unsaved, that saving every PCB writes each, that loading one reads it, and that one that doesn't exist says so, that
+  refreshing reads each again, that adding one to a project reads it, and that one that can't be read isn't added, and
+  that an event needing a project's PCB that couldn't be read says so, without reading it (`DOC-1`, `STORE-10`).
 - `planning/planner_cli/tests/planner.rs` checks "`planner_app: Load project. path: `", then
   "`planner_app: Loading PCB. path: `" and "`panel_a.pcb.json`", are logged, in order, as a project with a PCB is
   loaded, and its other tests check the processes are given files as before (`STORE-10`).

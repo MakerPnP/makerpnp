@@ -6,7 +6,9 @@ use std::path::PathBuf;
 
 use crux_core::{Core, Request};
 use indexmap::IndexSet;
-use planner_app::{Document, Effect, Event, Planner, Revision, StoresOperation, StoresOutput};
+use planner_app::{
+    Document, Effect, Event, PcbAssemblyFlip, PcbAssemblyOrientation, Planner, Revision, StoresOperation, StoresOutput,
+};
 use planning::file::{self, FileReference};
 use planning::pcb::Pcb;
 use planning::process::{ProcessDefinition, ProcessPresetFactory};
@@ -503,4 +505,191 @@ fn loading_uses_a_file_with_the_same_process_and_keeps_one_with_another() {
         shell.documents[&PathBuf::from("projects").join("pnp.process.json")],
         file::to_string(&other_process).unwrap()
     );
+}
+
+fn create_pcb(name: &str) -> Event {
+    Event::CreatePcb {
+        name: name.to_string(),
+        units: 1,
+        path: pcb_path(name),
+        unit_map: None,
+    }
+}
+
+/// Changes the PCB, with no store operations.
+fn change_the_pcb(name: &str) -> Event {
+    let mut assembly_orientation = PcbAssemblyOrientation::default();
+    assembly_orientation.top.flip = PcbAssemblyFlip::Roll;
+    Event::ApplyAssemblyOrientation {
+        path: pcb_path(name),
+        assembly_orientation,
+    }
+}
+
+fn pcbs_modified(shell: &Shell) -> bool {
+    shell.core.view().pcbs_modified
+}
+
+/// `DOC-1`, `STORE-10`, creating a PCB has the stores service write its file, and it then has no unsaved changes.
+#[test]
+fn creating_a_pcb_writes_its_file() {
+    let mut shell = Shell::default();
+
+    shell.process(create_pcb("panel_a"));
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.writes(), vec![pcb_path("panel_a")]);
+    assert_eq!(shell.document(&pcb_path("panel_a"))["name"], "panel_a");
+    assert!(!pcbs_modified(&shell));
+}
+
+/// `DOC-1`, `STORE-10`, a PCB whose file can't be written isn't created, and says why.
+#[test]
+fn a_pcb_whose_file_can_not_be_written_is_not_created() {
+    let mut shell = Shell::default();
+    shell
+        .refused
+        .insert(pcb_path("panel_a"), "Unable to write the document.".to_string());
+
+    shell.process(create_pcb("panel_a"));
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to write the document."), "{error}");
+    shell.process(Event::SavePcb {
+        path: pcb_path("panel_a"),
+    });
+    let error = shell.error().expect("an error");
+    assert!(error.contains("PCB not loaded."), "{error}");
+}
+
+/// `STORE-10`, saving a PCB has the stores service write its changes, and a refused save keeps them unsaved.
+#[test]
+fn saving_a_pcb_writes_it() {
+    let mut shell = Shell::default();
+    shell.process(create_pcb("panel_a"));
+    shell.process(change_the_pcb("panel_a"));
+    assert!(pcbs_modified(&shell));
+
+    shell
+        .refused
+        .insert(pcb_path("panel_a"), "Unable to write the document.".to_string());
+    shell.process(Event::SavePcb {
+        path: pcb_path("panel_a"),
+    });
+    assert!(shell.error().is_some());
+    assert!(pcbs_modified(&shell));
+
+    shell.refused.clear();
+    shell.process(Event::SavePcb {
+        path: pcb_path("panel_a"),
+    });
+    assert_eq!(shell.error(), None);
+    assert!(!pcbs_modified(&shell));
+    assert_eq!(
+        shell.document(&pcb_path("panel_a"))["orientation"]["top"]["flip"],
+        "Roll"
+    );
+}
+
+/// `STORE-10`, saving every PCB writes each of them.
+#[test]
+fn saving_every_pcb_writes_each() {
+    let mut shell = Shell::default();
+    shell.process(create_pcb("panel_a"));
+    shell.process(create_pcb("panel_b"));
+    shell.process(change_the_pcb("panel_a"));
+    shell.process(change_the_pcb("panel_b"));
+
+    shell.process(Event::SaveAllPcbs);
+
+    assert_eq!(shell.error(), None);
+    assert!(!pcbs_modified(&shell));
+    assert_eq!(shell.writes(), vec![
+        pcb_path("panel_a"),
+        pcb_path("panel_b"),
+        pcb_path("panel_a"),
+        pcb_path("panel_b")
+    ]);
+}
+
+/// `STORE-10`, loading a PCB has the stores service read it, and one that doesn't exist says so.
+#[test]
+fn loading_a_pcb_reads_it() {
+    let mut shell = Shell::default();
+    shell.given_a_document(&pcb_path("panel_a"), &a_pcb("panel_a"));
+
+    shell.process(Event::LoadPcb {
+        path: pcb_path("panel_a"),
+    });
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads(), vec![pcb_path("panel_a")]);
+
+    shell.process(Event::LoadPcb {
+        path: pcb_path("panel_b"),
+    });
+    let error = shell.error().expect("an error");
+    assert!(error.contains("PCB not found."), "{error}");
+}
+
+/// `STORE-10`, refreshing reads each PCB loaded again, replacing it.
+#[test]
+fn refreshing_reads_each_pcb_again() {
+    let mut shell = Shell::default();
+    shell.process(create_pcb("panel_a"));
+    shell.process(change_the_pcb("panel_a"));
+
+    shell.process(Event::RefreshPcbs);
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads(), vec![pcb_path("panel_a")]);
+    // the PCB read replaces the one changed.
+    assert!(!pcbs_modified(&shell));
+}
+
+/// `STORE-10`, adding a PCB to a project has the stores service read it, and the project then has unsaved changes.
+#[test]
+fn adding_a_pcb_to_a_project_reads_it() {
+    let mut shell = Shell::default();
+    shell.process(create_project("job1"));
+    shell.given_a_document(&pcb_path("panel_a"), &a_pcb("panel_a"));
+
+    shell.process(Event::AddPcb {
+        pcb_file: FileReference::Relative(PathBuf::from("panel_a.pcb.json")),
+    });
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads(), vec![pcb_path("panel_a")]);
+    assert!(shell.project_modified());
+}
+
+/// `STORE-10`, a PCB that can't be read isn't added to the project.
+#[test]
+fn a_pcb_that_can_not_be_read_is_not_added_to_the_project() {
+    let mut shell = Shell::default();
+    shell.process(create_project("job1"));
+
+    shell.process(Event::AddPcb {
+        pcb_file: FileReference::Relative(PathBuf::from("panel_a.pcb.json")),
+    });
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("PCB not found."), "{error}");
+    assert!(!shell.project_modified());
+}
+
+/// `STORE-10`, a project's PCBs are read when it's loaded, or when they're added, so an event that needs one that
+/// couldn't be read says so, and doesn't read it itself.
+#[test]
+fn an_event_needing_a_pcb_that_is_not_loaded_says_so() {
+    let mut shell = Shell::default();
+    shell.given_a_document(&project_path("job1"), &a_project_using("job1", &["panel_a"]));
+    shell.process(load("job1"));
+    assert!(shell.error().is_some());
+    let reads = shell.reads().len();
+
+    shell.process(Event::RequestProjectTreeView {});
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("PCB not loaded."), "{error}");
+    assert_eq!(shell.reads().len(), reads);
 }

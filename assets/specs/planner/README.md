@@ -25,7 +25,7 @@ supposed to do, and so that every requirement can be traced to the tests that ch
   by its tests. The operations are done by the stores service (`planning/stores_service`), a library every shell uses,
   so that the shells don't each do them, and each process has one, shared by all of its cores (`STORE-7`). It's async,
   so that a shell without threads, such as a web shell, can use it, with back ends of its own. Since 2026-11-04, the
-  stores core is pure; the planner's core reads and writes a project's file through the service (`STORE-10`), but it
+  stores core is pure; the planner's core reads and writes projects and PCBs through the service (`STORE-10`), but it
   and the Variant Builder's core still read and write their other files themselves, until they're moved to the service
   an event at a time (`../../missions/variant-builder.md`).
 - **The core is the most important thing to test.** A requirement's behaviour is checked through the core, and the
@@ -151,3 +151,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | Each data source is watched once it's identified, so a change made by anyone, such as an editor or the CLI, reads it again, and is shown by every tab showing it, without "`Reload`" (`STORE-9`, `PARTSRC-5`). A change while it's read reads it again, and the service's own reads aren't changes. The CLI doesn't watch. |
 | 2026-11-04 | The planner's core has the stores service write a project's file, when it's created and when it's saved, making its contents itself (`STORE-10`). A project whose file can't be written isn't created, and the project before it is kept (`DOC-1`). A refused save keeps the changes unsaved, and a change made while the project is written is still unsaved once it is. The logs now show "`WriteDocument`" and "`ProjectWritten`" before "`Created project successfully.`" and "`Saved project.`". |
 | 2026-11-04 | Loading a project has the stores service read it, write a file for each of its processes that has none, and read its PCBs, in one command, and the project is only loaded once they're read (`STORE-10`). "`Loading PCB from <path>`" is now "`Loading PCB. path: <path>`" when a project is loaded. |
+| 2026-11-04 | A PCB is read and written by the stores service: when it's created, loaded, saved, refreshed or added to a project (`STORE-10`). A PCB whose file can't be written isn't created (`DOC-1`), and one that can't be read isn't added. An event that needs a project's PCB that couldn't be read now says "`PCB not loaded.`", rather than reading it itself. Saving a PCB now logs "`Saving PCB.`" and "`Saved PCB.`" whichever event saves it. |

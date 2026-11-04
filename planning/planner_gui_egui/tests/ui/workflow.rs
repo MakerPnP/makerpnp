@@ -124,7 +124,7 @@ fn the_clear_button_of_a_field_clears_its_value() {
     app.wait_until_button_is_disabled("Ok");
 }
 
-/// `DOC-1`, `FORM-1`, `FORM-2`
+/// `DOC-1`, `FORM-1`, `FORM-2`, `STORE-10`
 #[test]
 fn a_new_pcb_saves_the_same_file_as_the_core() {
     let mut app = App::start();
@@ -142,6 +142,15 @@ fn a_new_pcb_saves_the_same_file_as_the_core() {
 
     // only shown after the core has created the PCB.
     app.wait_for_tab("Configuration");
+    // once the stores service has written its file.
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: CreatePcb {",
+        "planner_app: Saving PCB. path: ",
+        "stores_service: Performing stores operation. operation: WriteDocument { path: ",
+        "planner_app: Received event. event: PcbWritten {",
+        "planner_app: Saved PCB. path: ",
+    ]);
+    app.assert_not_logged("Event failed.");
 
     let saved = fs::read_to_string(&pcb).unwrap();
 
