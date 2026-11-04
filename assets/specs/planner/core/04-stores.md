@@ -26,7 +26,7 @@ can update every view of the data source. A parts CSV file MUST have the headers
 other headers are the parts' other values, for example a supplier's part code. Every value MUST be kept as it is in the
 file, including values that look like numbers, such as an MPN of "`1234`" or a package of "`0402`" (`ISSUE-23`). A file
 with only the headers has no parts. When the parts are loaded, the core MUST log
-"`stores_app: Loaded parts. source: '<source>', part_count: <count>`" at info level.
+"`stores_app: Loaded parts. source: '<source>', part_count: <count>, revision: '<revision>'`" at info level.
 
 **STORE-2 — Viewing parts.** *Confirmed.* The core MUST return the parts loaded from a data source when asked
 (`RequestPartsView`), in the order the data source has them, with each part's other values. *Observed*: the view MUST
@@ -74,6 +74,15 @@ different operation MUST refuse it, as a fault in the shell. *Target*: the plann
 MUST use the stores service too. The gap: they read and write their files themselves, so they share nothing with the
 stores core, and nothing tells them when a file changes.
 
+**STORE-8 — Revisions.** *Confirmed.* Each view of a data source MUST say which revision of the data source it shows, so
+that a view that's out of date can be known, and a change can say which revision it was based on. Two reads of a data
+source MUST have the same revision only if its contents were the same, in any process. *Observed*: the revision is made
+by the back end, and only compared; a file's is the SHA-256 hash of its contents, read once, with the parts. The core's
+view model MUST say each data source's revision. Loading a data source whose revision hasn't changed MUST NOT send a
+view, as every view of it shows that revision already, and the core MUST log
+"`stores_app: Parts unchanged. source: '<source>', revision: '<revision>'`" at info level. It still clears the error of
+a load refused before.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -88,6 +97,12 @@ stores core, and nothing tells them when a file changes.
   differently is identified, and not read again, and that two opens before the parts are read read them once
   (`STORE-5`, `STORE-6`).
 - `planning/stores_app/tests/parts.rs` checks the result of a different operation is refused (`STORE-7`).
+- `planning/stores_app/tests/parts.rs` checks the view and the view model say the revision read, that loading again an
+  unchanged data source sends no view, and that a changed one sends its new revision, and that an unchanged load after
+  a refused one clears the error (`STORE-3`, `STORE-8`).
+- `planning/stores_service/tests/csv_file.rs` checks a file's revision is the same while its contents are, however its
+  path is written, and when it's written again unchanged, that it changes when they do, and that another file with the
+  same contents has the same revision (`STORE-8`).
 - `planning/stores_service/tests/csv_file.rs` reads a CSV file with other values, a file with only headers, and keeps
   values that look like numbers, says which header is missing, and that a file that doesn't exist can't be read
   (`STORE-1`, `STORE-3`, `ISSUE-23`). It checks a file is identified by its canonical path, without the "`\\?\`"

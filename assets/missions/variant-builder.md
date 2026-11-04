@@ -86,8 +86,8 @@ a data source, with nothing to keep them in step, which matters once data source
 | 2 | The CLI uses the stores core: `planner_cli parts --source <file> list`. | Done |
 | 3 | "Open parts" in the GUI: choose a parts data source, and show its parts in a table, through the stores core. A data source shown by many tabs is loaded once, and kept once, and reloading it in one tab updates them all. | Done |
 | 4 | The stores service (`planning/stores_service`), async, with a CSV file back end. The stores core is pure, and the CLI and the GUI have the service do its operations. | Done |
-| 5 | Revisions: each view of a data source says which revision of it it shows. | Next |
-| 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | |
+| 5 | Revisions: each view of a data source says which revision of it it shows. | Done |
+| 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | Next |
 | 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | |
 | 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | |
 | 9 | A variant builder: define the variant and choose its data sources. | |

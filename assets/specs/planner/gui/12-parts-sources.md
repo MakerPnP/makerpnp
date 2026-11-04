@@ -48,7 +48,10 @@ again.
   "`ResolveSource`" and its "`StoresReply`", "`stores_app: Received event. event: SourceResolved {`", the service's
   "`ReadParts`" and its "`StoresReply`", "`stores_app: Received event. event: PartsRead {`" and
   "`stores_app: Loaded parts. source: '`", are logged, in order, with no "`Event failed.`" (`PARTSRC-1` to `PARTSRC-3`,
-  `PARTSRC-5`, `ISSUE-23`).
+  `PARTSRC-5`, `ISSUE-23`). It then clicks "`Reload`", with the file unchanged, and checks
+  "`PartsTab command. command: ReloadClicked`", "`stores_app: Received event. event: LoadParts {`",
+  "`stores_app: Received event. event: PartsRead {`" and "`stores_app: Parts unchanged. source: '`" are logged, in
+  order, with no "`Loaded parts.`", and that the parts are still shown (`STORE-8`).
 - `tests/ui/parts_sources.rs` checks "`Data source`" starts at "`--choose source--`", that "`Ok`" is disabled until a CSV
   file is chosen, that cancelling the file dialog chooses nothing, that choosing "`--choose source--`" hides "`File`" and
   disables "`Ok`", that choosing "`CSV file`" again shows the file chosen before, and that "`File: Clear`" disables

@@ -5,7 +5,7 @@
 //! up by the tests, and every core in a process shares the one stores service.
 
 use std::collections::BTreeMap;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 use crux_core::capability::Operation;
 pub use pnp::part::Part;
@@ -19,6 +19,37 @@ pub struct PartsViewItem {
     pub part: Part,
     /// The data source's other values for the part, by name, for example `"LCSC"`.
     pub fields: BTreeMap<String, String>,
+}
+
+/// Which version of a data source's contents something was read from, or based on (`STORE-8`).
+///
+/// Made by the back end, and only compared: two reads of a data source have the same revision only if its contents
+/// were the same, in any process. For a file, it's a hash of the file's contents.
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord
+)]
+pub struct Revision(pub String);
+
+impl Display for Revision {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The parts of a parts data source, and the revision they were read from.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct Parts {
+    pub revision: Revision,
+    /// In the order the data source has them.
+    pub parts: Vec<PartsViewItem>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
@@ -36,8 +67,9 @@ pub enum StoresOutput {
     /// For a file, its canonical path, or the source as it is if the file doesn't exist.
     SourceResolved { source: Source },
 
-    /// The parts, or why they couldn't be read, for example which header is missing.
-    PartsRead(Result<Vec<PartsViewItem>, String>),
+    /// The parts, and the revision they were read from, or why they couldn't be read, for example which header is
+    /// missing.
+    PartsRead(Result<Parts, String>),
 }
 
 impl Operation for StoresOperation {
@@ -54,7 +86,10 @@ impl Debug for StoresOutput {
                 .debug_struct("SourceResolved")
                 .field("source", source)
                 .finish(),
-            StoresOutput::PartsRead(Ok(parts)) => write!(f, "PartsRead(Ok(<{} parts>))", parts.len()),
+            StoresOutput::PartsRead(Ok(Parts {
+                revision,
+                parts,
+            })) => write!(f, "PartsRead(Ok(<{} parts>, revision: {:?}))", parts.len(), revision.0),
             StoresOutput::PartsRead(Err(error)) => write!(f, "PartsRead(Err({:?}))", error),
         }
     }

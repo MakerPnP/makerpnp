@@ -1,4 +1,4 @@
-//! The stores core's parts data sources (`STORE-1` to `STORE-7`).
+//! The stores core's parts data sources (`STORE-1` to `STORE-8`).
 //!
 //! The core is pure, so these tests answer the store operations it asks for themselves, with no files (`STORE-7`). The
 //! stores service's tests check the operations are done (`planning/stores_service/tests/`).
@@ -8,12 +8,25 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    Effect, Event, Part, PartsSource, PartsSourceStatus, PartsView, PartsViewItem, PartsViewRendererOperation, Stores,
-    StoresOperation, StoresOutput,
+    Effect, Event, Part, Parts, PartsSource, PartsSourceStatus, PartsView, PartsViewItem, PartsViewRendererOperation,
+    Revision, Stores, StoresOperation, StoresOutput,
 };
 
 fn source(path: &str) -> PartsSource {
     PartsSource::File(PathBuf::from(path))
+}
+
+/// The revision of a data source with `items`, which, as a file's, is the same only if its contents are (`STORE-8`).
+fn revision_of(items: &[PartsViewItem]) -> Revision {
+    Revision(format!("{:?}", items))
+}
+
+/// A read of a data source with `items`.
+fn read(items: Vec<PartsViewItem>) -> Parts {
+    Parts {
+        revision: revision_of(&items),
+        parts: items,
+    }
 }
 
 fn item(manufacturer: &str, mpn: &str, fields: &[(&str, &str)]) -> PartsViewItem {
@@ -108,7 +121,7 @@ fn service(
         },
         StoresOperation::ReadParts {
             source,
-        } if *source == resolved => StoresOutput::PartsRead(parts.clone()),
+        } if *source == resolved => StoresOutput::PartsRead(parts.clone().map(read)),
         StoresOperation::ReadParts {
             ..
         } => StoresOutput::PartsRead(Err("No such file.".to_string())),
@@ -149,8 +162,9 @@ fn opening_reads_the_parts_and_sends_the_view() {
     ]);
     let expected_view = PartsView {
         source: resolved.clone(),
+        revision: revision_of(&parts),
         field_names: vec!["LCSC".to_string(), "Notes".to_string()],
-        parts,
+        parts: parts.clone(),
     };
     assert_eq!(views, vec![expected_view.clone()]);
 
@@ -169,6 +183,7 @@ fn opening_reads_the_parts_and_sends_the_view() {
     let expected_status = PartsSourceStatus {
         source: resolved.clone(),
         loaded: true,
+        revision: Some(revision_of(&parts)),
         reading: false,
         error: None,
     };
@@ -192,6 +207,7 @@ fn a_data_source_with_no_parts() {
     assert_eq!(error, None);
     assert_eq!(views, vec![PartsView {
         source: parts,
+        revision: revision_of(&[]),
         field_names: vec![],
         parts: vec![],
     }]);
@@ -423,15 +439,18 @@ fn two_opens_before_the_parts_are_read_read_them_once() {
     }))
     .unwrap();
 
-    let mut read = stores_request(resolved(&mut first)).expect("a read");
-    assert_eq!(read.operation, StoresOperation::ReadParts {
+    let mut read_request = stores_request(resolved(&mut first)).expect("a read");
+    assert_eq!(read_request.operation, StoresOperation::ReadParts {
         source: parts.clone(),
     });
     // being read already, so not read again.
     assert!(stores_request(resolved(&mut second)).is_none());
 
     let effects = core
-        .resolve(&mut read, StoresOutput::PartsRead(Ok(vec![item("RESCO", "RES1", &[])])))
+        .resolve(
+            &mut read_request,
+            StoresOutput::PartsRead(Ok(read(vec![item("RESCO", "RES1", &[])]))),
+        )
         .unwrap();
     let views: Vec<PartsView> = effects
         .into_iter()
@@ -459,7 +478,7 @@ fn refuses_the_result_of_a_different_operation() {
         Event::OpenParts {
             source: parts.clone(),
         },
-        |_operation| StoresOutput::PartsRead(Ok(vec![])),
+        |_operation| StoresOutput::PartsRead(Ok(read(vec![]))),
     );
 
     assert_eq!(views, vec![]);
@@ -468,5 +487,88 @@ fn refuses_the_result_of_a_different_operation() {
             .as_deref()
             .is_some_and(|error| error.starts_with("Unexpected stores output.")),
         "{error:?}"
+    );
+}
+
+/// `STORE-8`, loading again a data source whose revision hasn't changed sends no view, as every view of it shows that
+/// revision already, and a changed revision is sent.
+#[test]
+fn loading_again_an_unchanged_data_source_sends_no_view() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    let items = vec![item("RESCO", "RES1", &[])];
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(items.clone())),
+    );
+
+    let (views, error) = shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(items.clone())),
+    );
+    assert_eq!(error, None);
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        shell
+            .status(&parts)
+            .and_then(|status| status.revision),
+        Some(revision_of(&items))
+    );
+
+    let changed = vec![item("CAPCO", "CAP1", &[])];
+    let (views, error) = shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(changed.clone())),
+    );
+    assert_eq!(error, None);
+    assert_eq!(views[0].revision, revision_of(&changed));
+    assert_eq!(
+        shell
+            .status(&parts)
+            .and_then(|status| status.revision),
+        Some(revision_of(&changed))
+    );
+}
+
+/// `STORE-3`, `STORE-8`, an unchanged data source, loaded again after a refused load, clears the error, though it sends
+/// no view.
+#[test]
+fn an_unchanged_load_after_a_refused_one_clears_the_error() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    let items = vec![item("RESCO", "RES1", &[])];
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(items.clone())),
+    );
+    shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Err("Missing header. header: 'Manufacturer'".to_string())),
+    );
+
+    let (views, error) = shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(items)),
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        shell
+            .status(&parts)
+            .and_then(|status| status.error),
+        None
     );
 }

@@ -66,6 +66,17 @@ fn open_parts_shows_the_parts_of_a_csv_file() {
         "stores_app: Loaded parts. source: '",
     ]);
     app.assert_not_logged("Event failed.");
+
+    // `STORE-8`, the file hasn't changed, so its revision hasn't, and the parts shown are kept.
+    app.click_button("Reload");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
+        "stores_app: Received event. event: LoadParts {",
+        "stores_app: Received event. event: PartsRead {",
+        "stores_app: Parts unchanged. source: '",
+    ]);
+    app.wait_for_text("RESCO");
+    app.assert_not_logged("Loaded parts.");
 }
 
 /// `PARTSRC-1`, `FORM-5`, "Ok" needs a data source, and choosing none keeps the file for when a CSV file is chosen

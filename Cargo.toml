@@ -38,6 +38,8 @@ thiserror = { version = "2.0.17" }
 anyhow = { version = "1.0.100" }
 # canonical paths, without the `\\?\` prefix Windows adds where it isn't needed
 dunce = { version = "1.0.5" }
+# a data source's revision, from its contents, the same in every process
+sha2 = { version = "0.10.9" }
 regex = { version = "1.12.2" }
 time = { version = "0.3.44" }
 indexmap = { version = "2.12.1" }

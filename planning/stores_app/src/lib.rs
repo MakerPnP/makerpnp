@@ -16,7 +16,7 @@ use crux_core::macros::effect;
 use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
-pub use stores_protocol::{Part, PartsSource, PartsViewItem, StoresOperation, StoresOutput};
+pub use stores_protocol::{Part, Parts, PartsSource, PartsViewItem, Revision, StoresOperation, StoresOutput};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -38,6 +38,8 @@ pub struct Model {
 struct PartsSourceState {
     /// The parts loaded, in the order the data source has them, kept when a later load is refused.
     parts: Option<Vec<PartsViewItem>>,
+    /// The revision the parts were read from (`STORE-8`).
+    revision: Option<Revision>,
     /// Whether the parts are being read.
     reading: bool,
     /// Why the last load was refused, until one succeeds.
@@ -60,6 +62,8 @@ pub struct PartsSourceStatus {
     /// The data source as the stores service identified it, the one its views have (`STORE-6`).
     pub source: PartsSource,
     pub loaded: bool,
+    /// The revision of the parts loaded, if any (`STORE-8`).
+    pub revision: Option<Revision>,
     pub reading: bool,
     /// Why the last load was refused, until one succeeds. The parts loaded before, if any, are kept.
     pub error: Option<String>,
@@ -108,6 +112,8 @@ pub struct PartsView {
     /// The data source as the stores service identified it (`STORE-6`), which may be written differently from the
     /// event's.
     pub source: PartsSource,
+    /// The revision of the data source the parts were read from (`STORE-8`).
+    pub revision: Revision,
     /// The names of the parts' other values, in order, for example `["LCSC"]`.
     pub field_names: Vec<String>,
     /// The parts, in the order the data source has them.
@@ -178,6 +184,7 @@ impl App for Stores {
                 .map(|state| PartsSourceStatus {
                     source: source.clone(),
                     loaded: state.parts.is_some(),
+                    revision: state.revision.clone(),
                     reading: state.reading,
                     error: state.error.clone(),
                 })
@@ -293,9 +300,26 @@ impl Stores {
                     }
                 };
 
-                info!("Loaded parts. source: '{}', part_count: {}", source, parts.len());
-                state.parts = Some(parts);
+                let Parts {
+                    revision,
+                    parts,
+                } = parts;
                 state.error = None;
+
+                // `STORE-8`, every view of the data source shows this revision already.
+                if state.parts.is_some() && state.revision.as_ref() == Some(&revision) {
+                    info!("Parts unchanged. source: '{}', revision: '{}'", source, revision);
+                    return Ok(render::render());
+                }
+
+                info!(
+                    "Loaded parts. source: '{}', part_count: {}, revision: '{}'",
+                    source,
+                    parts.len(),
+                    revision
+                );
+                state.parts = Some(parts);
+                state.revision = Some(revision);
 
                 Ok(render::render().and(Self::parts_view(model, source)?))
             }
@@ -331,10 +355,15 @@ impl Stores {
     }
 
     fn parts_view(model: &Model, source: PartsSource) -> Result<Command<Effect, Event>, StoresError> {
-        let parts = model
+        let (parts, revision) = model
             .sources
             .get(&source)
-            .and_then(|state| state.parts.as_ref())
+            .and_then(|state| {
+                state
+                    .parts
+                    .as_ref()
+                    .zip(state.revision.as_ref())
+            })
             .ok_or_else(|| StoresError::PartsNotLoaded {
                 parts_source: source.clone(),
             })?;
@@ -348,6 +377,7 @@ impl Stores {
 
         let view = PartsView {
             source,
+            revision: revision.clone(),
             field_names,
             parts: parts.clone(),
         };

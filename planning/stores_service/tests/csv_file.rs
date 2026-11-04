@@ -1,11 +1,11 @@
-//! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6`, `STORE-7`).
+//! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6` to `STORE-8`).
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
 use futures::executor::block_on;
-use stores_protocol::{Part, PartsSource, PartsViewItem, StoresOperation, StoresOutput};
+use stores_protocol::{Part, Parts, PartsSource, PartsViewItem, Revision, StoresOperation, StoresOutput};
 use stores_service::StoresService;
 
 fn csv_file(folder: &Path, name: &str, content: &str) -> PartsSource {
@@ -24,7 +24,12 @@ fn item(manufacturer: &str, mpn: &str, fields: &[(&str, &str)]) -> PartsViewItem
     }
 }
 
+/// The parts read, without their revision.
 fn read_parts(source: &PartsSource) -> Result<Vec<PartsViewItem>, String> {
+    read(source).map(|parts| parts.parts)
+}
+
+fn read(source: &PartsSource) -> Result<Parts, String> {
     match block_on(StoresService::new().perform(StoresOperation::ReadParts {
         source: source.clone(),
     })) {
@@ -160,4 +165,44 @@ fn keeps_a_data_source_whose_file_does_not_exist_as_it_is() {
     let source = PartsSource::File(folder.path().join("missing.csv"));
 
     assert_eq!(resolve(&source), source);
+}
+
+fn revision(source: &PartsSource) -> Revision {
+    read(source).expect("parts").revision
+}
+
+/// `STORE-8`, a file's revision is the same while its contents are, however its path is written, and changes when they
+/// do.
+#[test]
+fn a_files_revision_changes_only_when_its_contents_do() {
+    let folder = tempfile::tempdir().unwrap();
+    fs::create_dir(folder.path().join("other")).unwrap();
+    let content = "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n";
+    let source = csv_file(folder.path(), "parts.csv", content);
+    let other_spelling = PartsSource::File(
+        folder
+            .path()
+            .join("other")
+            .join("..")
+            .join("parts.csv"),
+    );
+
+    let first = revision(&source);
+    assert_eq!(revision(&source), first);
+    assert_eq!(revision(&other_spelling), first);
+
+    // written again, unchanged.
+    csv_file(folder.path(), "parts.csv", content);
+    assert_eq!(revision(&source), first);
+
+    csv_file(
+        folder.path(),
+        "parts.csv",
+        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES2\"\n",
+    );
+    assert_ne!(revision(&source), first);
+
+    // the same contents in another file have the same revision.
+    let copy = csv_file(folder.path(), "copy.csv", content);
+    assert_eq!(revision(&copy), first);
 }
