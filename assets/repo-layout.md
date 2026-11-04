@@ -8,6 +8,9 @@ The parts of the layout that Cargo's conventions don't explain. The workspace's 
 - Crates are grouped by area in top-level folders: `common/`, `eda/`, `gerber/`, `pnp/` and `planning/`.
 - In `planning/`, a tool's `*_app` crate is its headless Crux core, for example `planner_app`, and its front ends are
   separate crates using that core, for example `planner_cli` and `planner_gui_egui`.
+- The stores, the user's data sources, are in four crates in `planning/`: `stores_app`, the stores core;
+  `stores_protocol`, the store operations a core asks its shell for, types only; `stores_service`, which does them, for
+  every shell; and `stores`, the data sources' formats, such as reading a parts CSV file.
 
 ## Files that aren't code
 

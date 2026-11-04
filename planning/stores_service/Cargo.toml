@@ -1,0 +1,20 @@
+[package]
+name = "stores_service"
+version = "0.1.0"
+edition = "2021"
+
+# Does the store operations the cores ask for, for every shell, so that the shells don't each do them. Async, so that
+# it isn't tied to a thread, for example for a web shell. Each back end is a module, chosen by the data source.
+
+[dependencies]
+stores = { path = "../stores" }
+stores_protocol = { path = "../stores_protocol" }
+
+anyhow = { workspace = true }
+tracing = { workspace = true }
+
+dunce = { workspace = true }
+
+[dev-dependencies]
+futures = { workspace = true }
+tempfile = { workspace = true }

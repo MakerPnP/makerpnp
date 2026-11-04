@@ -23,13 +23,19 @@ pub fn load_parts(source: &PartsSource) -> Result<Vec<(Part, HashMap<String, Str
         .path()
         .map_err(|error| anyhow!("Unsupported source type. cause: {:?}", error))?;
 
-    let mut csv_reader = csv::ReaderBuilder::new()
-        .from_path(path.clone())
-        .with_context(|| format!("Error reading parts. file: {}", path.display()))?;
+    let file = std::fs::File::open(&path).with_context(|| format!("Error reading parts. file: {}", path.display()))?;
+
+    read_parts(file).with_context(|| format!("Error reading parts. file: {}", path.display()))
+}
+
+/// Reads parts, as [`load_parts`] does, from CSV text, wherever it came from, so that it does no IO of its own, and can
+/// be used by any back end, for example one that has the text from a browser's storage.
+pub fn read_parts(reader: impl std::io::Read) -> Result<Vec<(Part, HashMap<String, String>)>, Error> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
 
     let headers = csv_reader
         .headers()
-        .with_context(|| format!("Error reading the headers of the parts. file: {}", path.display()))?
+        .with_context(|| "Error reading the headers of the parts.".to_string())?
         .clone();
 
     let index_of = |name: &str| {

@@ -8,6 +8,7 @@ use crate::config::Config;
 use crate::pcb::{PcbAction, PcbUiCommand};
 use crate::process::{ProcessAction, ProcessUiCommand};
 use crate::project::{ProjectAction, ProjectUiCommand};
+use crate::stores_core::StoresReply;
 use crate::sync::Value;
 use crate::tabs::TabKey;
 use crate::task::Task;
@@ -49,6 +50,8 @@ pub enum UiCommand {
         design_position: PlacementPositionUnit,
         unit_position: PlacementPositionUnit,
     },
+    /// The result of a store operation the stores core asked for, done by the stores service (`STORE-7`).
+    StoresReply(StoresReply),
 }
 
 // TODO perhaps the return type of this method be `Task<Result<UiCommand, UiAppError>>`
@@ -74,6 +77,11 @@ pub fn handle_command(
         }
         UiCommand::ThemeChanged(theme) => {
             ui_context.set_theme(theme);
+            Task::none()
+        }
+        UiCommand::StoresReply(reply) => {
+            let stores = app_state.lock().unwrap().stores.clone();
+            stores.lock().unwrap().resolve(reply);
             Task::none()
         }
         UiCommand::ToolbarCommand(command) => {

@@ -3,6 +3,9 @@
 //! A data source is used through this core, not by reading its files, so that it can later be kept somewhere other
 //! than a CSV file, for example in a database, and so that one core can serve every front end, and every window of a
 //! front end, that uses the same data source.
+//!
+//! The core is pure: it asks its shell for each store operation, as a [`StoresOperation`] effect, which the shell has
+//! the stores service do, and is given the result as an event (`STORE-7`).
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -13,8 +16,7 @@ use crux_core::macros::effect;
 use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
-pub use pnp::part::Part;
-pub use stores::parts::PartsSource;
+pub use stores_protocol::{Part, PartsSource, PartsViewItem, StoresOperation, StoresOutput};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -23,9 +25,22 @@ pub struct Stores;
 
 #[derive(Default)]
 pub struct Model {
-    /// The parts of each parts data source loaded, in the order the data source has them.
-    parts: BTreeMap<PartsSource, Vec<PartsViewItem>>,
+    /// Each data source as it was asked for, and the data source the stores service identified it as (`STORE-6`).
+    aliases: BTreeMap<PartsSource, PartsSource>,
 
+    /// Each data source, as the stores service identified it.
+    sources: BTreeMap<PartsSource, PartsSourceState>,
+
+    error: Option<String>,
+}
+
+#[derive(Default)]
+struct PartsSourceState {
+    /// The parts loaded, in the order the data source has them, kept when a later load is refused.
+    parts: Option<Vec<PartsViewItem>>,
+    /// Whether the parts are being read.
+    reading: bool,
+    /// Why the last load was refused, until one succeeds.
     error: Option<String>,
 }
 
@@ -34,6 +49,20 @@ pub struct Model {
 pub struct StoresViewModel {
     /// Why the last event was refused, if it was.
     pub error: Option<String>,
+
+    /// Each data source the core was asked for, by the source as it was asked for, and as the stores service
+    /// identified it, once it has.
+    pub parts_sources: BTreeMap<PartsSource, PartsSourceStatus>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
+pub struct PartsSourceStatus {
+    /// The data source as the stores service identified it, the one its views have (`STORE-6`).
+    pub source: PartsSource,
+    pub loaded: bool,
+    pub reading: bool,
+    /// Why the last load was refused, until one succeeds. The parts loaded before, if any, are kept.
+    pub error: Option<String>,
 }
 
 #[effect]
@@ -41,10 +70,9 @@ pub struct StoresViewModel {
 pub enum Effect {
     Render(RenderOperation),
     PartsView(PartsViewRendererOperation),
+    Stores(StoresOperation),
 }
 
-/// Each event's data source is matched by its canonical path, so one file is one data source however its path is
-/// written (`STORE-6`).
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum Event {
     /// Opens the data source: loads its parts, unless they're loaded already, then sends its parts view (`STORE-5`).
@@ -56,32 +84,29 @@ pub enum Event {
 
     /// Requests the parts loaded from the data source.
     RequestPartsView { source: PartsSource },
+
+    // internal, the results of the store operations the core asked for.
+    /// The data source, as the stores service identified it.
+    SourceResolved {
+        source: PartsSource,
+        intent: Intent,
+        output: StoresOutput,
+    },
+    /// The parts of the data source, as the stores service identified it.
+    PartsRead { source: PartsSource, output: StoresOutput },
 }
 
-/// The data source, with its file's canonical path, if it has a file that exists, otherwise as it is (`STORE-6`).
-///
-/// For example `d:\parts\Parts.csv` and `D:\parts\..\parts\parts.csv` are the same file on Windows, so the same data
-/// source.
-pub fn canonical_parts_source(source: &PartsSource) -> PartsSource {
-    match source {
-        PartsSource::File(path) => dunce::canonicalize(path)
-            .map(PartsSource::File)
-            .unwrap_or_else(|_| source.clone()),
-        _ => source.clone(),
-    }
-}
-
-/// A part, and the data source's other values for it, for example a supplier's part code.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
-pub struct PartsViewItem {
-    pub part: Part,
-    /// The data source's other values for the part, by name, for example `"LCSC"`.
-    pub fields: BTreeMap<String, String>,
+/// What the data source was resolved for.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
+pub enum Intent {
+    Open,
+    Load,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct PartsView {
-    /// The canonical data source (`STORE-6`), which may be written differently from the event's.
+    /// The data source as the stores service identified it (`STORE-6`), which may be written differently from the
+    /// event's.
     pub source: PartsSource,
     /// The names of the parts' other values, in order, for example `["LCSC"]`.
     pub field_names: Vec<String>,
@@ -115,6 +140,10 @@ pub enum StoresError {
 
     #[error("The parts are not loaded. source: '{parts_source}'")]
     PartsNotLoaded { parts_source: PartsSource },
+
+    /// The shell gave the result of a different operation, which is a fault in the shell.
+    #[error("Unexpected stores output. output: {output}")]
+    UnexpectedOutput { output: String },
 }
 
 impl App for Stores {
@@ -142,8 +171,32 @@ impl App for Stores {
     }
 
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
+        let status = |source: &PartsSource| {
+            model
+                .sources
+                .get(source)
+                .map(|state| PartsSourceStatus {
+                    source: source.clone(),
+                    loaded: state.parts.is_some(),
+                    reading: state.reading,
+                    error: state.error.clone(),
+                })
+        };
+
+        let mut parts_sources: BTreeMap<PartsSource, PartsSourceStatus> = model
+            .sources
+            .keys()
+            .filter_map(|source| status(source).map(|status| (source.clone(), status)))
+            .collect();
+        for (alias, source) in model.aliases.iter() {
+            if let Some(status) = status(source) {
+                parts_sources.insert(alias.clone(), status);
+            }
+        }
+
         StoresViewModel {
             error: model.error.clone(),
+            parts_sources,
         }
     }
 }
@@ -154,61 +207,134 @@ impl Stores {
             Event::OpenParts {
                 source,
             } => {
-                let source = canonical_parts_source(&source);
-                if model.parts.contains_key(&source) {
-                    info!("Parts already loaded. source: '{}'", source);
-                } else {
-                    Self::load_parts(model, &source)?;
+                // already identified and loaded, so there's nothing to ask the stores service.
+                if let Some(resolved) = model.aliases.get(&source).cloned() {
+                    if Self::is_loaded(model, &resolved) {
+                        info!("Parts already loaded. source: '{}'", resolved);
+                        return Ok(render::render().and(Self::parts_view(model, resolved)?));
+                    }
                 }
 
-                Ok(render::render().and(Self::parts_view(model, source)?))
+                Ok(Self::resolve(source, Intent::Open))
             }
             Event::LoadParts {
                 source,
-            } => {
-                let source = canonical_parts_source(&source);
-                Self::load_parts(model, &source)?;
-
-                Ok(render::render().and(Self::parts_view(model, source)?))
-            }
+            } => Ok(Self::resolve(source, Intent::Load)),
             Event::RequestPartsView {
                 source,
             } => {
-                let source = canonical_parts_source(&source);
+                let resolved = model
+                    .aliases
+                    .get(&source)
+                    .cloned()
+                    .unwrap_or(source);
 
-                Self::parts_view(model, source)
+                Self::parts_view(model, resolved)
+            }
+            Event::SourceResolved {
+                source,
+                intent,
+                output,
+            } => {
+                let StoresOutput::SourceResolved {
+                    source: resolved,
+                } = output
+                else {
+                    return Err(StoresError::UnexpectedOutput {
+                        output: format!("{:?}", output),
+                    });
+                };
+                model
+                    .aliases
+                    .insert(source, resolved.clone());
+                let state = model
+                    .sources
+                    .entry(resolved.clone())
+                    .or_default();
+
+                match intent {
+                    Intent::Open if state.parts.is_some() => {
+                        info!("Parts already loaded. source: '{}'", resolved);
+                        Ok(render::render().and(Self::parts_view(model, resolved)?))
+                    }
+                    // another open is reading them, and its view will be sent to every view of the data source.
+                    Intent::Open if state.reading => Ok(render::render()),
+                    Intent::Open | Intent::Load => {
+                        state.reading = true;
+                        Ok(render::render().and(Self::read(resolved)))
+                    }
+                }
+            }
+            Event::PartsRead {
+                source,
+                output,
+            } => {
+                let state = model
+                    .sources
+                    .entry(source.clone())
+                    .or_default();
+                state.reading = false;
+
+                let parts = match output {
+                    StoresOutput::PartsRead(Ok(parts)) => parts,
+                    StoresOutput::PartsRead(Err(cause)) => {
+                        let error = StoresError::UnableToLoadParts {
+                            parts_source: source,
+                            cause,
+                        };
+                        // `STORE-3`, the parts loaded before, if any, are kept.
+                        state.error = Some(error.to_string());
+                        return Err(error);
+                    }
+                    output => {
+                        return Err(StoresError::UnexpectedOutput {
+                            output: format!("{:?}", output),
+                        });
+                    }
+                };
+
+                info!("Loaded parts. source: '{}', part_count: {}", source, parts.len());
+                state.parts = Some(parts);
+                state.error = None;
+
+                Ok(render::render().and(Self::parts_view(model, source)?))
             }
         }
     }
 
-    /// Loads the parts, replacing those loaded before only if they load.
-    fn load_parts(model: &mut Model, source: &PartsSource) -> Result<(), StoresError> {
-        let parts = stores::parts::load_parts(source).map_err(|error| StoresError::UnableToLoadParts {
-            parts_source: source.clone(),
-            // `{:#}` includes each cause, for example which header is missing.
-            cause: format!("{:#}", error),
-        })?;
-
-        let parts: Vec<PartsViewItem> = parts
-            .into_iter()
-            .map(|(part, fields)| PartsViewItem {
-                part,
-                fields: fields.into_iter().collect(),
-            })
-            .collect();
-
-        info!("Loaded parts. source: '{}', part_count: {}", source, parts.len());
+    fn is_loaded(model: &Model, source: &PartsSource) -> bool {
         model
-            .parts
-            .insert(source.clone(), parts);
+            .sources
+            .get(source)
+            .is_some_and(|state| state.parts.is_some())
+    }
 
-        Ok(())
+    fn resolve(source: PartsSource, intent: Intent) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::ResolveSource {
+            source: source.clone(),
+        })
+        .then_send(move |output| Event::SourceResolved {
+            source: source.clone(),
+            intent,
+            output,
+        })
+    }
+
+    fn read(source: PartsSource) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::ReadParts {
+            source: source.clone(),
+        })
+        .then_send(move |output| Event::PartsRead {
+            source: source.clone(),
+            output,
+        })
     }
 
     fn parts_view(model: &Model, source: PartsSource) -> Result<Command<Effect, Event>, StoresError> {
         let parts = model
-            .parts
+            .sources
             .get(&source)
+            .and_then(|state| state.parts.as_ref())
             .ok_or_else(|| StoresError::PartsNotLoaded {
                 parts_source: source.clone(),
             })?;

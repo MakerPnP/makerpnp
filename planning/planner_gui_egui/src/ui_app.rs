@@ -90,13 +90,15 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn init(sender: Enqueue<UiCommand>, file_dialogs: Arc<dyn FileDialogs>) -> Self {
+    pub fn init(sender: Enqueue<UiCommand>, file_dialogs: Arc<dyn FileDialogs>, ui_context: egui::Context) -> Self {
         let mut toolbar = Toolbar::new();
         toolbar
             .component
             .configure_mapper(sender.clone(), |command: ToolbarUiCommand| {
                 UiCommand::ToolbarCommand(command)
             });
+
+        let stores = Value::new(StoresCoreService::new(sender.clone(), ui_context));
 
         Self {
             startup_done: false,
@@ -107,7 +109,7 @@ impl AppState {
             projects: Value::new(SlotMap::default()),
             pcbs: Value::new(SlotMap::default()),
             processes: Value::new(SlotMap::default()),
-            stores: Value::new(StoresCoreService::new()),
+            stores,
             toolbar,
         }
     }
@@ -486,7 +488,11 @@ impl UiApp {
         let (app_message_sender, commands) = crate::sync::queue::<UiCommand>();
         instance.commands = Some(commands);
 
-        let state = Value::new(AppState::init(app_message_sender.clone(), file_dialogs));
+        let state = Value::new(AppState::init(
+            app_message_sender.clone(),
+            file_dialogs,
+            cc.egui_ctx.clone(),
+        ));
 
         instance.state.write(state.clone());
         // Safety: `Self::state()` is now safe to call.

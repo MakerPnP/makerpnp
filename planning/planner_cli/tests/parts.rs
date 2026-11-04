@@ -45,6 +45,10 @@ fn lists_the_parts_with_their_other_values() -> Result<(), anyhow::Error> {
     let trace = read_to_string(&trace_path)?;
     assert_contains_inorder!(trace, [
         "stores_app: Received event. event: OpenParts {",
+        "stores_service: Performing stores operation. operation: ResolveSource {",
+        "stores_app: Received event. event: SourceResolved {",
+        "stores_service: Performing stores operation. operation: ReadParts {",
+        "stores_app: Received event. event: PartsRead {",
         "stores_app: Loaded parts. source: '",
         "part_count: 2",
     ]);
@@ -82,6 +86,8 @@ fn says_which_header_is_missing() -> Result<(), anyhow::Error> {
     let trace = read_to_string(&trace_path)?;
     assert_contains_inorder!(trace, [
         "stores_app: Received event. event: OpenParts {",
+        "stores_service: Performing stores operation. operation: ReadParts {",
+        "stores_app: Received event. event: PartsRead {",
         "stores_app: Event failed. error: UnableToLoadParts {",
     ]);
 

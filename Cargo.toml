@@ -27,6 +27,8 @@ members = [
     "planning/planning",
     "planning/stores",
     "planning/stores_app",
+    "planning/stores_protocol",
+    "planning/stores_service",
     "planning/variantbuilder_app",
     "planning/variantbuilder_cli",
 ]

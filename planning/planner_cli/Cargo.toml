@@ -17,6 +17,7 @@ planner_app = { path = "../planner_app" }
 pnp = { path = "../../pnp/pnp" }
 stores = { path = "../stores"}
 stores_app = { path = "../stores_app"}
+stores_service = { path = "../stores_service"}
 csv = { workspace = true }
 util = { path = "../../common/util" }
 
@@ -33,6 +34,7 @@ serde = { workspace = true }
 
 crux_core = { workspace = true }
 crossbeam-channel = { workspace = true }
+futures = { workspace = true }
 
 [dev-dependencies]
 planner_cli = { path = ".", features = ["testing"] }

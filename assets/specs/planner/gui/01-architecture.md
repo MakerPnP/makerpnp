@@ -85,7 +85,9 @@ is drawn is handled at the start of the next frame. At most 1000 commands are ha
 next, so a command that always leads to another can't stop frames being drawn.
 
 Gaps: most state is still in a `Value`, which is a mutex, though only one thread uses them now, and file dialogs answer
-on a thread of their own, which each frame checks (`file_picker.rs`). Until 2026-11-03, commands were handled on other
+on a thread of their own, which each frame checks (`file_picker.rs`). The stores service's operations are done on a
+runtime of their own, and their results come back as commands, so they're handled in order with the others
+(`stores_core.rs`, `STORE-7`). Until 2026-11-03, commands were handled on other
 threads: each `configure_mapper` started one, so commands from different components had no defined order, and follow-up
 commands went through a tokio runtime. The results of two core updates could arrive in the opposite order to the updates,
 and after "`Refresh`", which makes two updates, "`Save`" was sometimes left disabled while the project had unsaved

@@ -10,14 +10,14 @@ use egui_taffy::taffy::prelude::{auto, length, percent};
 use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
 use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use serde::{Deserialize, Serialize};
-use stores_app::{Event, PartsSource, PartsView, canonical_parts_source};
+use stores_app::{Event, PartsSource, PartsSourceStatus, PartsView};
 use tracing::debug;
 use validator::{Validate, ValidationError};
 
 use crate::data_sources::parts_table::show_parts_table;
 use crate::file_picker::{FileDialogs, Picker};
 use crate::forms::{Form, PickerFieldAction, picker_field};
-use crate::stores_core::{StoresCoreService, StoresError};
+use crate::stores_core::StoresCoreService;
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
@@ -38,12 +38,9 @@ pub enum PartsSourceKind {
 pub struct PartsTab {
     fields: Value<PartsSourceFields>,
 
-    /// The data source chosen with "Ok", made canonical when it's opened (`STORE-6`). Until then the form is shown.
+    /// The data source chosen with "Ok", as it was chosen. Until then the form is shown. The stores service identifies
+    /// it, for example by its file's canonical path (`STORE-6`), and the tab shows it as identified.
     pub source: Option<PartsSource>,
-
-    /// Why the stores core refused this tab's last event, shown until the next one succeeds.
-    #[serde(skip)]
-    error: Option<String>,
 
     #[serde(skip)]
     pub component: ComponentState<PartsTabUiCommand>,
@@ -90,25 +87,17 @@ impl PartsTab {
         self.file_picker = Value::new(Picker::new(file_dialogs));
     }
 
-    /// Makes the tab's data source canonical, then processes the event for it. The parts the core sends are kept by the
-    /// stores core service, for every tab showing them, so there is nothing more to do.
+    /// Processes the event for the tab's data source. The parts the core sends, and whether they could be loaded, are
+    /// kept by the stores core service, for every tab showing them, so there is nothing more to do.
     fn process(&mut self, stores: &Value<StoresCoreService>, event: impl FnOnce(PartsSource) -> Event) {
         let Some(source) = &self.source else {
             return;
         };
-        // `STORE-6`, so the tab finds the view the core sends, whose source is the canonical one, also for a tab
-        // restored from before the data sources were made canonical.
-        let source = canonical_parts_source(source);
-        self.source = Some(source.clone());
 
-        let result = stores
+        stores
             .lock()
             .unwrap()
-            .process(event(source));
-        self.error = match result {
-            Ok(()) => None,
-            Err(StoresError(error)) => Some(error),
-        };
+            .process(event(source.clone()));
     }
 }
 
@@ -162,12 +151,15 @@ impl UiComponent for PartsTab {
             }
             Some(source) => {
                 // the latest parts, whichever tab loaded them, shared, not copied (`PARTSRC-5`).
-                let view = context
-                    .stores
-                    .lock()
-                    .unwrap()
-                    .parts_view(source);
-                self.show_parts(ui, source, view);
+                let (status, view) = {
+                    let stores = context.stores.lock().unwrap();
+                    let status = stores.parts_source_status(source);
+                    let view = status
+                        .as_ref()
+                        .and_then(|status| stores.parts_view(&status.source));
+                    (status, view)
+                };
+                self.show_parts(ui, source, status, view);
             }
         }
     }
@@ -320,12 +312,25 @@ impl PartsTab {
             });
     }
 
-    fn show_parts(&self, ui: &mut Ui, source: &PartsSource, view: Option<Arc<PartsView>>) {
+    /// `status` is what the core knows of the data source, if it's been asked for it, and `view` its parts, if they're
+    /// loaded.
+    fn show_parts(
+        &self,
+        ui: &mut Ui,
+        source: &PartsSource,
+        status: Option<PartsSourceStatus>,
+        view: Option<Arc<PartsView>>,
+    ) {
+        // as the stores service identified it, once it has (`STORE-6`).
+        let shown_source = status
+            .as_ref()
+            .map_or(source, |status| &status.source);
+
         egui::Frame::new()
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(tr!("parts-source-csv-file", { path: source.to_string() }));
+                    ui.label(tr!("parts-source-csv-file", { path: shown_source.to_string() }));
                     if ui
                         .button(tr!("parts-source-button-reload"))
                         .clicked()
@@ -335,13 +340,24 @@ impl PartsTab {
                     }
                 });
 
-                if let Some(error) = &self.error {
+                // the data source's, so shown by every tab showing it, each with the parts loaded before, if any.
+                if let Some(error) = status
+                    .as_ref()
+                    .and_then(|status| status.error.as_ref())
+                {
                     ui.colored_label(ui.visuals().error_fg_color, error);
                 }
 
                 ui.separator();
 
+                // the store operations are done without the GUI waiting for them, so the parts may not be read yet.
+                let reading = status
+                    .as_ref()
+                    .is_none_or(|status| status.reading);
                 let Some(view) = view else {
+                    if reading {
+                        ui.label(tr!("parts-source-loading"));
+                    }
                     return;
                 };
 

@@ -3,10 +3,10 @@
 | | |
 |---|---|
 | Status | Fixed on 2026-11-04, in `11fe63f1` (the stores core) and the commit adding the CLI's `parts` mode (its test) |
-| Tool | Variant Builder: core and CLI, and the stores core (`stores::parts`, used by both) |
+| Tool | Variant Builder: core and CLI, and the stores service (`stores::parts`, used by both) |
 | Requirements | `STORE-1` |
 | Found | 2026-11-04 |
-| Checked by | `planning/planner_cli/tests/parts.rs`, `lists_the_parts_with_their_other_values`, and `planning/stores_app/tests/parts.rs`, `keeps_values_that_look_like_numbers` |
+| Checked by | `planning/planner_cli/tests/parts.rs`, `lists_the_parts_with_their_other_values`, and `planning/stores_service/tests/csv_file.rs`, `keeps_values_that_look_like_numbers` |
 
 ## Description
 
@@ -40,7 +40,11 @@ From the CLI, in an empty folder:
 
 ## Last repeated
 
-2026-11-04, CLI, Windows 11, after the `parts` mode began opening the data source (`OpenParts`, `STORE-5`): not
+2026-11-04, CLI, Windows 11, after the stores core was made pure, reading the file through the stores service
+(`STORE-7`): not reproduced, the part was listed with `1234` and `0402`, and the expected log lines were logged, in
+order, with the service's operations between them.
+
+Before that, 2026-11-04, CLI, Windows 11, after the `parts` mode began opening the data source (`OpenParts`, `STORE-5`): not
 reproduced, the part was listed with `1234` and `0402`, and the expected log lines were logged, in order, with the
 file's canonical path.
 

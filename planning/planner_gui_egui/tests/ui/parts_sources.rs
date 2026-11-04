@@ -56,6 +56,13 @@ fn open_parts_shows_the_parts_of_a_csv_file() {
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Submit",
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Open",
         "stores_app: Received event. event: OpenParts {",
+        // `STORE-7`, the stores service does the operations, and its results come back as commands.
+        "stores_service: Performing stores operation. operation: ResolveSource {",
+        "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: ResolveSource {",
+        "stores_app: Received event. event: SourceResolved {",
+        "stores_service: Performing stores operation. operation: ReadParts {",
+        "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: ReadParts {",
+        "stores_app: Received event. event: PartsRead {",
         "stores_app: Loaded parts. source: '",
     ]);
     app.assert_not_logged("Event failed.");
@@ -213,4 +220,45 @@ fn a_data_source_can_be_shown_in_two_tabs() {
     assert_eq!(app.count_text("RESCO"), 0);
     app.assert_not_logged("Event failed.");
     app.assert_not_logged("event: LoadParts");
+}
+
+/// `PARTSRC-3`, `PARTSRC-5`, `STORE-3`, a refused reload is the data source's, so every tab showing it says why, and
+/// keeps showing the parts loaded before.
+#[test]
+fn a_refused_reload_is_shown_by_every_tab_showing_the_data_source() {
+    let mut app = App::start();
+    let parts = given_a_parts_file(&app.folder(), "parts.csv", PARTS);
+    let other_parts = given_a_parts_file(
+        &app.folder(),
+        "other_parts.csv",
+        "\"Manufacturer\",\"Mpn\"\n\"DIODECO\",\"D1\"\n",
+    );
+
+    choose_csv_file(&mut app, &parts);
+    app.click_button("Ok");
+    app.wait_for_text("RESCO");
+    choose_csv_file(&mut app, &other_parts);
+    app.click_button("Ok");
+    app.wait_for_text("DIODECO");
+    choose_csv_file(&mut app, &parts);
+    app.click_button("Ok");
+    app.wait_for_text("RESCO");
+
+    fs::write(&parts, "\"Maker\",\"Mpn\"\n").unwrap();
+    app.click_button("Reload");
+    app.wait_for_text_containing("Missing header. header: 'Manufacturer'");
+    app.wait_for_text("RESCO");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
+        "stores_app: Received event. event: LoadParts {",
+        "stores_app: Event failed. error: UnableToLoadParts {",
+    ]);
+
+    // the other data source's tab has no error, the first tab showing this one has.
+    app.click_tab_containing("other_parts.csv");
+    app.wait_for_text("DIODECO");
+    app.wait_until_no_text_contains("Missing header.");
+    app.click_nth_tab_containing("parts.csv", 0);
+    app.wait_for_text_containing("Missing header. header: 'Manufacturer'");
+    app.wait_for_text("RESCO");
 }

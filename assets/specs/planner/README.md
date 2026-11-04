@@ -20,6 +20,13 @@ supposed to do, and so that every requirement can be traced to the tests that ch
   would use it: the GUI, the CLI, and later APIs and MCP servers. An event says what the user wants done, not how one
   front end shows it. Events that only one front end uses are kept to a minimum, and the requirement that needs one
   says why.
+- **The cores are pure.** A core never reads or writes a file or a database itself. It asks its shell for each store
+  operation, as a Crux effect, and is given the result as an event, so that it's tested quickly, with results made up
+  by its tests. The operations are done by the stores service (`planning/stores_service`), a library every shell uses,
+  so that the shells don't each do them, and each process has one, shared by all of its cores (`STORE-7`). It's async,
+  so that a shell without threads, such as a web shell, can use it, with back ends of its own. Since 2026-11-04, the
+  stores core is pure; the planner's and the Variant Builder's cores still read and write their files themselves
+  (`../../missions/variant-builder.md`).
 - **The core is the most important thing to test.** A requirement's behaviour is checked through the core, and the
   CLI's tests, first. A front end's tests check that it sends the core the right events and shows what the core
   returns, for example by comparing the files saved through the GUI with those the core saves for the CLI's events.
@@ -138,3 +145,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | Started the mission to bring the Variant Builder into the GUI (`../../missions/variant-builder.md`), with the stores core, which has the user's data sources, starting with parts (`STORE`). A parts file's values that look like numbers are now kept as they are (`ISSUE-23`). |
 | 2026-11-04 | Added the CLI's `parts` mode, which uses the stores core: `planner_cli parts --source <file> list` lists a parts file's parts as CSV (`STORE-4`). Its tests check the stores core's log lines in order, so `ISSUE-23` is now fixed. |
 | 2026-11-04 | Added "`Open parts`" to the GUI's toolbar: the user chooses a parts data source, a CSV file for now, and its tab shows its parts in a table, through the GUI's one stores core, shared by every tab, with "`Reload`" to load the file again (`PARTSRC`). A data source shown by more than one tab is loaded once, opened with the stores core's new `OpenParts` (`STORE-5`), and a file is one data source however its path is written (`STORE-6`). Loading parts now sends their view, and the GUI keeps one view of each data source, shown by every tab using it, so "`Reload`" in one tab updates them all (`PARTSRC-5`). The CLI's `parts` mode now opens the data source, so it logs `OpenParts` and no longer `LoadParts` and `RequestPartsView` (`STORE-4`). |
+| 2026-11-04 | The cores are pure (Principles): the stores core no longer reads its data sources, but asks its shell to, and the shell has the new stores service (`planning/stores_service`), shared by every shell, do it (`STORE-7`). The service is async, so a web shell could use it. The service identifies a file by its canonical path (`STORE-6`). A refused load is the data source's, so every tab showing it shows the error (`PARTSRC-3`), and a tab says "`Loading the parts...`" until its parts are read. The planner's and the Variant Builder's cores are still to be made pure (`../../missions/variant-builder.md`). |

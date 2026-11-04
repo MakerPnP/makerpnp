@@ -1,10 +1,13 @@
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use anyhow::bail;
 use clap::Parser;
 use crossbeam_channel::unbounded;
+use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{PartsView, PartsViewRendererOperation, Stores};
+use stores_service::StoresService;
 
 use crate::core::Core;
 use crate::opts::{
@@ -68,10 +71,14 @@ fn main() -> anyhow::Result<()> {
 /// The parts mode uses the stores core, which has the data sources, not the planner's core.
 fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
     let core: crux_core::Core<Stores> = crux_core::Core::new();
+    // `STORE-7`, does the store operations the core asks for.
+    let service = StoresService::new();
 
+    // the CLI does one thing at a time, so it waits for each operation.
     let process = |event: stores_app::Event| -> anyhow::Result<Vec<PartsView>> {
         let mut views = vec![];
-        for effect in core.process_event(event) {
+        let mut effects: VecDeque<stores_app::Effect> = core.process_event(event).into();
+        while let Some(effect) = effects.pop_front() {
             match effect {
                 stores_app::Effect::Render(_) => {
                     if let Some(error) = core.view().error {
@@ -83,6 +90,10 @@ fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
                         view,
                     } = request.operation;
                     views.push(view);
+                }
+                stores_app::Effect::Stores(mut request) => {
+                    let output = block_on(service.perform(request.operation.clone()));
+                    effects.extend(core.resolve(&mut request, output)?);
                 }
             }
         }

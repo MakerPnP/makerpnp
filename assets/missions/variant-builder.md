@@ -54,6 +54,30 @@ shopping list and BOM, a step at a time, and mark BOM items as confirmed.
 - **Tested.** Every step has its core's and CLI's tests, and every step that changes the GUI has GUI tests, driven as a
   user would drive the GUI.
 
+## Architecture
+
+Decided on 2026-11-04, when it was found that the planner's core and the stores core would each keep their own copy of
+a data source, with nothing to keep them in step, which matters once data sources can be changed.
+
+- **The cores are pure.** If Crux is used, it's used throughout: a core never reads or writes a file or a database. It
+  asks its shell for each store operation as a Crux effect, and is given the result as an event, so it's tested quickly,
+  with results made up by its tests.
+- **One stores service, for every shell.** The store operations are done by `planning/stores_service`, a library both
+  Rust shells, the CLI and the GUI, use, so they aren't done twice. Each process has one, which every core in it uses,
+  so a project and a parts tab use the same data source. The operations' types are in `planning/stores_protocol`.
+- **Async.** The service isn't tied to a thread, so a web shell, built for WebAssembly, can use it too, with back ends of
+  its own. Each back end is a module, chosen by the data source: a CSV file on a native file system today, later a
+  database, a stores server over HTTP, or the browser's storage.
+- **Views may go out of date, changes are checked.** A view of a data source carries the data source's revision. A
+  change says which revision it was based on, and is refused if the data source has changed since, as happens when
+  another process, or another connection to a database, changed it. A refusal, or a notice that a data source changed,
+  makes every core and view using it ask again.
+- **Changes from other processes are noticed.** The service watches the files it has read, and tells the shell when
+  one changes, whoever changed it, for example the CLI, or an editor. The shell tells every core, which reloads it.
+- **No shared process for now.** Each process has its own service; the file or database is the record of what's
+  stored, and the revision checks keep changes safe across processes. A stores server, shared by many processes, may
+  come later, using the same service.
+
 ## Steps
 
 | Step | What | Status |
@@ -61,8 +85,13 @@ shopping list and BOM, a step at a time, and mark BOM items as confirmed.
 | 1 | The stores core (`planning/stores_app`): load a parts data source, a CSV file for now, and view its parts. | Done |
 | 2 | The CLI uses the stores core: `planner_cli parts --source <file> list`. | Done |
 | 3 | "Open parts" in the GUI: choose a parts data source, and show its parts in a table, through the stores core. A data source shown by many tabs is loaded once, and kept once, and reloading it in one tab updates them all. | Done |
-| 4 | A variant builder: define the variant and choose its data sources. | Next |
-| 5 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |
-| 6 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
-| 7 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
-| 8 | Confirming BOM items. | |
+| 4 | The stores service (`planning/stores_service`), async, with a CSV file back end. The stores core is pure, and the CLI and the GUI have the service do its operations. | Done |
+| 5 | Revisions: each view of a data source says which revision of it it shows. | Next |
+| 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | |
+| 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | |
+| 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | |
+| 9 | A variant builder: define the variant and choose its data sources. | |
+| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |
+| 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
+| 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
+| 13 | Confirming BOM items. | |

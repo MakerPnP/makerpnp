@@ -146,7 +146,8 @@ Here's a recent screenshot:
 The PlannerCLI has the same functionality as the PlannerGUI, but with a command line interface.
 
 Its `parts` mode uses the stores core (`planning/stores_app`), which has the user's data sources, for example
-`planner_cli parts --source parts.csv list` lists a parts file's parts as CSV.
+`planner_cli parts --source parts.csv list` lists a parts file's parts as CSV. The stores core is pure: the CLI has the
+stores service (`planning/stores_service`) read the file for it, as the GUI does.
 
 Here's the current help output:
 

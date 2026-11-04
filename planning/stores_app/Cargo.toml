@@ -6,16 +6,13 @@ edition = "2021"
 # The stores core: the data sources, such as parts, that the front ends use, whatever stores them.
 
 [dependencies]
-pnp = { path = "../../pnp/pnp" }
-stores = { path = "../stores" }
+stores_protocol = { path = "../stores_protocol" }
 
 thiserror = { workspace = true }
 tracing = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 
 crux_core = { workspace = true }
-dunce = { workspace = true }
 
 [dev-dependencies]
 crux_core = { workspace = true, features = ["testing"] }
-tempfile = { workspace = true }

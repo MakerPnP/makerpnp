@@ -144,6 +144,7 @@ form-open-parts-input-csv-file = Archivo
 parts-source-csv-file = Archivo CSV: { $path }
 parts-source-button-reload = Recargar
 parts-source-no-parts = No hay piezas.
+parts-source-loading = Cargando las piezas...
 table-parts-source-column-manufacturer = Fabricante
 table-parts-source-column-mpn = MPN
 process-editor-operation = Operación

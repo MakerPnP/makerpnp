@@ -1,38 +1,19 @@
-//! The stores core's parts data sources (`STORE-1` to `STORE-6`).
+//! The stores core's parts data sources (`STORE-1` to `STORE-7`).
 //!
-//! A view's data source is the canonical one (`STORE-6`), so the views are compared with `canonical_parts_source`.
+//! The core is pure, so these tests answer the store operations it asks for themselves, with no files (`STORE-7`). The
+//! stores service's tests check the operations are done (`planning/stores_service/tests/`).
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::Path;
+use std::collections::{BTreeMap, VecDeque};
+use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    canonical_parts_source, Effect, Event, Part, PartsSource, PartsView, PartsViewItem, PartsViewRendererOperation,
-    Stores,
+    Effect, Event, Part, PartsSource, PartsSourceStatus, PartsView, PartsViewItem, PartsViewRendererOperation, Stores,
+    StoresOperation, StoresOutput,
 };
 
-fn csv_file(folder: &Path, name: &str, content: &str) -> PartsSource {
-    let path = folder.join(name);
-    fs::write(&path, content).unwrap();
-    PartsSource::File(path)
-}
-
-/// The views the event's effects carry, and the core's error after the event, if any.
-fn process(core: &Core<Stores>, event: Event) -> (Vec<PartsView>, Option<String>) {
-    let mut views = vec![];
-    for effect in core.process_event(event) {
-        match effect {
-            Effect::Render(_) => {}
-            Effect::PartsView(request) => {
-                let PartsViewRendererOperation::View {
-                    view,
-                } = request.operation;
-                views.push(view);
-            }
-        }
-    }
-    (views, core.view().error)
+fn source(path: &str) -> PartsSource {
+    PartsSource::File(PathBuf::from(path))
 }
 
 fn item(manufacturer: &str, mpn: &str, fields: &[(&str, &str)]) -> PartsViewItem {
@@ -45,318 +26,447 @@ fn item(manufacturer: &str, mpn: &str, fields: &[(&str, &str)]) -> PartsViewItem
     }
 }
 
-/// `STORE-1`, `STORE-2`
-#[test]
-fn loads_the_parts_from_a_csv_file_in_order_with_their_other_values() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\",\"LCSC\",\"Notes\"\n\
-         \"RESCO\",\"RES1\",\"C1234\",\"\"\n\
-         \"CAPCO\",\"CAP1\",\"C5678\",\"0402\"\n",
-    );
-    let core: Core<Stores> = Core::new();
-
-    let expected_view = PartsView {
-        source: canonical_parts_source(&source),
-        field_names: vec!["LCSC".to_string(), "Notes".to_string()],
-        parts: vec![
-            item("RESCO", "RES1", &[("LCSC", "C1234"), ("Notes", "")]),
-            item("CAPCO", "CAP1", &[("LCSC", "C5678"), ("Notes", "0402")]),
-        ],
-    };
-
-    // `STORE-5`, loading sends the view, so that every view of the data source can be updated.
-    let (views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    assert_eq!(views, vec![expected_view.clone()]);
-
-    let (views, error) = process(&core, Event::RequestPartsView {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    assert_eq!(views, vec![expected_view]);
+/// A shell, which answers each store operation the core asks for with `answer`, and keeps the views the core sends.
+struct Shell {
+    core: Core<Stores>,
+    /// The operations the core asked for, in order, since they were last taken.
+    operations: Vec<StoresOperation>,
 }
 
-/// `STORE-1`
-#[test]
-fn a_file_with_only_the_headers_has_no_parts() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(folder.path(), "parts.csv", "\"Manufacturer\",\"Mpn\"\n");
-    let core: Core<Stores> = Core::new();
+impl Shell {
+    fn new() -> Self {
+        Self {
+            core: Core::new(),
+            operations: vec![],
+        }
+    }
 
-    process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-    let (views, error) = process(&core, Event::RequestPartsView {
-        source: source.clone(),
-    });
+    /// Processes the event, and answers every operation it leads to, until the core asks for nothing more. Returns
+    /// the views sent, and the core's error after the last of them.
+    fn process(
+        &mut self,
+        event: Event,
+        mut answer: impl FnMut(&StoresOperation) -> StoresOutput,
+    ) -> (Vec<PartsView>, Option<String>) {
+        let mut views = vec![];
+        let mut effects: VecDeque<Effect> = self.core.process_event(event).into();
+        while let Some(effect) = effects.pop_front() {
+            match effect {
+                Effect::Render(_) => {}
+                Effect::PartsView(request) => {
+                    let PartsViewRendererOperation::View {
+                        view,
+                    } = request.operation;
+                    views.push(view);
+                }
+                Effect::Stores(mut request) => {
+                    self.operations
+                        .push(request.operation.clone());
+                    let output = answer(&request.operation);
+                    effects.extend(
+                        self.core
+                            .resolve(&mut request, output)
+                            .unwrap(),
+                    );
+                }
+            }
+        }
+        (views, self.core.view().error)
+    }
+
+    fn take_operations(&mut self) -> Vec<StoresOperation> {
+        std::mem::take(&mut self.operations)
+    }
+
+    fn status(&self, source: &PartsSource) -> Option<PartsSourceStatus> {
+        self.core
+            .view()
+            .parts_sources
+            .get(source)
+            .cloned()
+    }
+}
+
+/// A stores service with one data source, which `as_asked` is resolved to, as `resolved`, and has `parts`.
+fn service(
+    as_asked: &[PartsSource],
+    resolved: &PartsSource,
+    parts: Result<Vec<PartsViewItem>, String>,
+) -> impl FnMut(&StoresOperation) -> StoresOutput {
+    let as_asked = as_asked.to_vec();
+    let resolved = resolved.clone();
+    move |operation| match operation {
+        StoresOperation::ResolveSource {
+            source,
+        } if as_asked.contains(source) || *source == resolved => StoresOutput::SourceResolved {
+            source: resolved.clone(),
+        },
+        StoresOperation::ResolveSource {
+            source,
+        } => StoresOutput::SourceResolved {
+            source: source.clone(),
+        },
+        StoresOperation::ReadParts {
+            source,
+        } if *source == resolved => StoresOutput::PartsRead(parts.clone()),
+        StoresOperation::ReadParts {
+            ..
+        } => StoresOutput::PartsRead(Err("No such file.".to_string())),
+    }
+}
+
+fn no_operations(operation: &StoresOperation) -> StoresOutput {
+    panic!("unexpected operation: {:?}", operation)
+}
+
+/// `STORE-1`, `STORE-2`, `STORE-5`, `STORE-7`, opening asks the service to identify the data source and read it, then
+/// sends the view, with the other values' names in order, and the data source as the service identified it.
+#[test]
+fn opening_reads_the_parts_and_sends_the_view() {
+    let mut shell = Shell::new();
+    let as_asked = source("parts.csv");
+    let resolved = source("/folder/parts.csv");
+    let parts = vec![
+        item("RESCO", "RES1", &[("Notes", ""), ("LCSC", "C1234")]),
+        item("CAPCO", "CAP1", &[("Notes", "0402"), ("LCSC", "C5678")]),
+    ];
+
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: as_asked.clone(),
+        },
+        service(&[as_asked.clone()], &resolved, Ok(parts.clone())),
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![
+        StoresOperation::ResolveSource {
+            source: as_asked.clone(),
+        },
+        StoresOperation::ReadParts {
+            source: resolved.clone(),
+        },
+    ]);
+    let expected_view = PartsView {
+        source: resolved.clone(),
+        field_names: vec!["LCSC".to_string(), "Notes".to_string()],
+        parts,
+    };
+    assert_eq!(views, vec![expected_view.clone()]);
+
+    // the view can be asked for again, by the data source as it was asked for, or as identified.
+    for source in [as_asked.clone(), resolved.clone()] {
+        let (views, error) = shell.process(
+            Event::RequestPartsView {
+                source,
+            },
+            no_operations,
+        );
+        assert_eq!(error, None);
+        assert_eq!(views, vec![expected_view.clone()]);
+    }
+
+    let expected_status = PartsSourceStatus {
+        source: resolved.clone(),
+        loaded: true,
+        reading: false,
+        error: None,
+    };
+    assert_eq!(shell.status(&as_asked), Some(expected_status.clone()));
+    assert_eq!(shell.status(&resolved), Some(expected_status));
+}
+
+/// `STORE-1`, a data source with no parts.
+#[test]
+fn a_data_source_with_no_parts() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![])),
+    );
 
     assert_eq!(error, None);
     assert_eq!(views, vec![PartsView {
-        source: canonical_parts_source(&source),
+        source: parts,
         field_names: vec![],
         parts: vec![],
     }]);
 }
 
-/// `STORE-1`, loading again shows the data source's current parts.
+/// `STORE-5`, opening a data source that's loaded already uses the parts loaded, asking the service for nothing.
+#[test]
+fn opening_again_uses_the_parts_loaded_before() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
+    );
+    shell.take_operations();
+
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        no_operations,
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
+}
+
+/// `STORE-5`, `STORE-6`, a data source written differently is identified by the service, and, being the same data
+/// source, isn't read again.
+#[test]
+fn a_data_source_written_differently_is_not_read_again() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    let other_spelling = source("/folder/other/../parts.csv");
+    let mut service = service(&[other_spelling.clone()], &parts, Ok(vec![item("RESCO", "RES1", &[])]));
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        &mut service,
+    );
+    shell.take_operations();
+
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: other_spelling.clone(),
+        },
+        &mut service,
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![StoresOperation::ResolveSource {
+        source: other_spelling.clone(),
+    }]);
+    assert_eq!(views[0].source, parts);
+    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
+    assert_eq!(
+        shell
+            .status(&other_spelling)
+            .map(|status| status.source),
+        Some(parts)
+    );
+}
+
+/// `STORE-1`, loading again reads the data source again, and sends the changed parts.
 #[test]
 fn loading_again_replaces_the_parts() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n",
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
     );
-    let core: Core<Stores> = Core::new();
-    process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
+    shell.take_operations();
 
-    csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"CAPCO\",\"CAP1\"\n",
+    let (views, error) = shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("CAPCO", "CAP1", &[])])),
     );
-    process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-    let (views, _error) = process(&core, Event::RequestPartsView {
-        source: source.clone(),
-    });
 
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![
+        StoresOperation::ResolveSource {
+            source: parts.clone(),
+        },
+        StoresOperation::ReadParts {
+            source: parts.clone(),
+        },
+    ]);
     assert_eq!(views[0].parts, vec![item("CAPCO", "CAP1", &[])]);
 }
 
-/// `STORE-3`, the error names the missing header, so the user can fix the file.
+/// `STORE-3`, a refused read says why, sends no view, and keeps the parts loaded before, and opening again reads the
+/// data source again.
 #[test]
-fn refuses_a_file_without_the_headers() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(folder.path(), "parts.csv", "\"Maker\",\"Mpn\"\n\"RESCO\",\"RES1\"\n");
-    let core: Core<Stores> = Core::new();
-
-    let (_views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-
-    let error = error.expect("an error");
-    assert!(
-        error.starts_with(&format!(
-            "Unable to load the parts. source: '{}', cause: ",
-            canonical_parts_source(&source)
-        )),
-        "{error}"
+fn a_refused_read_keeps_the_parts_loaded_before() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+    shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
     );
-    assert!(error.contains("Missing header. header: 'Manufacturer'"), "{error}");
+
+    let (views, error) = shell.process(
+        Event::LoadParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Err("Missing header. header: 'Manufacturer'".to_string())),
+    );
+
+    let expected_error =
+        "Unable to load the parts. source: '/folder/parts.csv', cause: Missing header. header: 'Manufacturer'"
+            .to_string();
+    assert_eq!(error, Some(expected_error.clone()));
+    assert_eq!(views, vec![]);
+    let status = shell.status(&parts).unwrap();
+    assert!(status.loaded);
+    assert_eq!(status.error, Some(expected_error));
+
+    let (views, error) = shell.process(
+        Event::RequestPartsView {
+            source: parts.clone(),
+        },
+        no_operations,
+    );
+    assert_eq!(error, None);
+    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
 }
 
-/// `STORE-3`
+/// `STORE-3`, `STORE-5`, a refused open sends no view, and opening again, once the data source is fixed, reads it.
 #[test]
-fn refuses_a_file_that_does_not_exist() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = PartsSource::File(folder.path().join("missing.csv"));
-    let core: Core<Stores> = Core::new();
+fn a_refused_open_sends_no_view() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
 
-    let (_views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Err("Missing header. header: 'Manufacturer'".to_string())),
+    );
     assert!(error.is_some());
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        shell
+            .status(&parts)
+            .map(|status| status.loaded),
+        Some(false)
+    );
+
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![item("RESCO", "RES1", &[])])),
+    );
+    assert_eq!(error, None);
+    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
+    assert_eq!(
+        shell
+            .status(&parts)
+            .and_then(|status| status.error),
+        None
+    );
 }
 
-/// `STORE-2`, parts can only be shown once they're loaded, and an event that succeeds clears the error.
+/// `STORE-2`, parts can only be viewed once they're loaded, and an event that succeeds clears the error.
 #[test]
 fn refuses_to_show_parts_that_are_not_loaded() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(folder.path(), "parts.csv", "\"Manufacturer\",\"Mpn\"\n");
-    let core: Core<Stores> = Core::new();
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
 
-    let (views, error) = process(&core, Event::RequestPartsView {
-        source: source.clone(),
-    });
+    let (views, error) = shell.process(
+        Event::RequestPartsView {
+            source: parts.clone(),
+        },
+        no_operations,
+    );
     assert_eq!(views, vec![]);
     assert_eq!(
         error,
-        Some(format!(
-            "The parts are not loaded. source: '{}'",
-            canonical_parts_source(&source)
-        ))
+        Some("The parts are not loaded. source: '/folder/parts.csv'".to_string())
     );
 
-    let (_views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
+    let (_views, error) = shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        service(&[], &parts, Ok(vec![])),
+    );
     assert_eq!(error, None);
 }
 
-/// `STORE-1`, `ISSUE-23`, values that look like numbers are kept as they are in the file.
+/// `STORE-5`, two opens of a data source that isn't loaded, before it's read, read it once, and both are sent its view,
+/// as it's sent to every view of the data source.
 #[test]
-fn keeps_values_that_look_like_numbers() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\",\"Package\"\n\"RESCO\",\"1234\",\"0402\"\n",
-    );
+fn two_opens_before_the_parts_are_read_read_them_once() {
     let core: Core<Stores> = Core::new();
+    let parts = source("/folder/parts.csv");
+    let resolved = |request: &mut crux_core::Request<StoresOperation>| {
+        core.resolve(request, StoresOutput::SourceResolved {
+            source: parts.clone(),
+        })
+        .unwrap()
+    };
+    let stores_request = |effects: Vec<Effect>| {
+        effects
+            .into_iter()
+            .find_map(|effect| match effect {
+                Effect::Stores(request) => Some(request),
+                _ => None,
+            })
+    };
 
-    let (_views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    let (views, _error) = process(&core, Event::RequestPartsView {
-        source: source.clone(),
-    });
+    let mut first = stores_request(core.process_event(Event::OpenParts {
+        source: parts.clone(),
+    }))
+    .unwrap();
+    let mut second = stores_request(core.process_event(Event::OpenParts {
+        source: parts.clone(),
+    }))
+    .unwrap();
 
-    assert_eq!(views[0].parts, vec![item("RESCO", "1234", &[("Package", "0402")])]);
-}
-
-/// `STORE-3`, a refused load keeps the parts loaded before.
-#[test]
-fn a_refused_load_keeps_the_parts_loaded_before() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n",
-    );
-    let core: Core<Stores> = Core::new();
-    process(&core, Event::LoadParts {
-        source: source.clone(),
+    let mut read = stores_request(resolved(&mut first)).expect("a read");
+    assert_eq!(read.operation, StoresOperation::ReadParts {
+        source: parts.clone(),
     });
+    // being read already, so not read again.
+    assert!(stores_request(resolved(&mut second)).is_none());
 
-    csv_file(folder.path(), "parts.csv", "\"Maker\",\"Mpn\"\n");
-    let (_views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-    assert!(error.is_some());
-
-    let (views, error) = process(&core, Event::RequestPartsView {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
+    let effects = core
+        .resolve(&mut read, StoresOutput::PartsRead(Ok(vec![item("RESCO", "RES1", &[])])))
+        .unwrap();
+    let views: Vec<PartsView> = effects
+        .into_iter()
+        .filter_map(|effect| match effect {
+            Effect::PartsView(request) => {
+                let PartsViewRendererOperation::View {
+                    view,
+                } = request.operation;
+                Some(view)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(views.len(), 1);
     assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
 }
 
-/// `STORE-5`, opening a data source that's open already uses the parts loaded, without loading them again.
+/// `STORE-7`, the result of a different operation is a fault in the shell, and is refused.
 #[test]
-fn opening_again_uses_the_parts_loaded_before() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n",
+fn refuses_the_result_of_a_different_operation() {
+    let mut shell = Shell::new();
+    let parts = source("/folder/parts.csv");
+
+    let (views, error) = shell.process(
+        Event::OpenParts {
+            source: parts.clone(),
+        },
+        |_operation| StoresOutput::PartsRead(Ok(vec![])),
     );
-    let core: Core<Stores> = Core::new();
 
-    let (views, error) = process(&core, Event::OpenParts {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
-
-    // a change to the file isn't seen by opening it again, only by loading it again.
-    csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"CAPCO\",\"CAP1\"\n",
-    );
-    let (views, error) = process(&core, Event::OpenParts {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
-
-    let (views, error) = process(&core, Event::LoadParts {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    assert_eq!(views[0].parts, vec![item("CAPCO", "CAP1", &[])]);
-}
-
-/// `STORE-3`, `STORE-5`, a refused open sends no view, and opening again tries to load the parts again.
-#[test]
-fn a_refused_open_sends_no_view() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(folder.path(), "parts.csv", "\"Maker\",\"Mpn\"\n");
-    let core: Core<Stores> = Core::new();
-
-    let (views, error) = process(&core, Event::OpenParts {
-        source: source.clone(),
-    });
-    assert!(error.is_some());
     assert_eq!(views, vec![]);
-
-    csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n",
+    assert!(
+        error
+            .as_deref()
+            .is_some_and(|error| error.starts_with("Unexpected stores output.")),
+        "{error:?}"
     );
-    let (views, error) = process(&core, Event::OpenParts {
-        source: source.clone(),
-    });
-    assert_eq!(error, None);
-    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
-}
-
-/// `STORE-6`, one file is one data source, however its path is written.
-#[test]
-fn a_file_is_one_data_source_however_its_path_is_written() {
-    let folder = tempfile::tempdir().unwrap();
-    fs::create_dir(folder.path().join("other")).unwrap();
-    let source = csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"RESCO\",\"RES1\"\n",
-    );
-    let other_spelling = PartsSource::File(
-        folder
-            .path()
-            .join("other")
-            .join("..")
-            .join("parts.csv"),
-    );
-    assert_ne!(source, other_spelling);
-    let core: Core<Stores> = Core::new();
-
-    process(&core, Event::OpenParts {
-        source: source.clone(),
-    });
-    csv_file(
-        folder.path(),
-        "parts.csv",
-        "\"Manufacturer\",\"Mpn\"\n\"CAPCO\",\"CAP1\"\n",
-    );
-
-    // the same data source, already loaded, so not loaded again.
-    let (views, error) = process(&core, Event::OpenParts {
-        source: other_spelling,
-    });
-    assert_eq!(error, None);
-    assert_eq!(views[0].source, canonical_parts_source(&source));
-    assert_eq!(views[0].parts, vec![item("RESCO", "RES1", &[])]);
-}
-
-/// `STORE-6`, on Windows, file names that differ only in case are the same file.
-#[cfg(windows)]
-#[test]
-fn a_file_is_one_data_source_whatever_the_case_of_its_path() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = csv_file(folder.path(), "parts.csv", "\"Manufacturer\",\"Mpn\"\n");
-    let other_case = PartsSource::File(folder.path().join("PARTS.CSV"));
-
-    assert_eq!(canonical_parts_source(&other_case), canonical_parts_source(&source));
-}
-
-/// `STORE-6`, a data source whose file doesn't exist is kept as it is, so an error names it as the user did.
-#[test]
-fn a_data_source_whose_file_does_not_exist_is_kept_as_it_is() {
-    let folder = tempfile::tempdir().unwrap();
-    let source = PartsSource::File(folder.path().join("missing.csv"));
-
-    assert_eq!(canonical_parts_source(&source), source);
 }

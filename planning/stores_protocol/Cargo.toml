@@ -1,0 +1,15 @@
+[package]
+name = "stores_protocol"
+version = "0.1.0"
+edition = "2021"
+
+# The store operations the cores ask their shell for, and their results. Types only, no IO, so that a core using them
+# stays pure, and so that they can be sent to a stores server, for example by a web shell.
+
+[dependencies]
+pnp = { path = "../../pnp/pnp" }
+util = { path = "../../common/util" }
+
+serde = { workspace = true, features = ["derive"] }
+
+crux_core = { workspace = true }
