@@ -142,6 +142,7 @@ From the CLI, in an empty folder:
 | [`ISSUE-20`](ISSUE-20-renamed-process-tab-shows-a-spinner.md) | Open | Planner: GUI | A process's tab shows a spinner after a refresh renames the process |
 | [`ISSUE-21`](ISSUE-21-cli-help-gives-the-wrong-file-reference-format.md) | Open | Planner: CLI | The CLI's help gives the wrong format for a file reference |
 | [`ISSUE-22`](ISSUE-22-cli-absolute-paths-keep-their-prefix.md) | Open | Planner: CLI | A file given to the CLI as `absolute=` keeps the prefix in its path |
+| [`ISSUE-23`](ISSUE-23-parts-values-that-look-like-numbers-fail-to-load.md) | Open | Variant Builder: core and CLI | A parts file's values that look like numbers failed to load |
 
 ## Contributing
 

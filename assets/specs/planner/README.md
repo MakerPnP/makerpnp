@@ -1,7 +1,8 @@
 # Planner — Requirement Specifications
 
 The planner takes a set of PCB designs and plans how they are assembled: which parts are placed in which phase, by
-which process, with which feeders. It has one core and two front ends.
+which process, with which feeders. It has one core and two front ends, and uses the stores core (`STORE`) for the
+user's data sources, such as their parts.
 
 These specifications describe what the planner must do, so that it can be changed without guessing what it was
 supposed to do, and so that every requirement can be traced to the tests that check it.
@@ -48,6 +49,7 @@ ID prefix `ISSUE`.
 | [core/01-documents.md](core/01-documents.md) | Creating documents | `DOC` |
 | [core/02-processes.md](core/02-processes.md) | Defining processes, and a project's copies of them | `PROCDEF` |
 | [core/03-logging.md](core/03-logging.md) | What is logged, and how the logs are captured and checked | `LOG` |
+| [core/04-stores.md](core/04-stores.md) | Data sources, such as parts, and the stores core the front ends use them through | `STORE` |
 | [gui/01-architecture.md](gui/01-architecture.md) | How the GUI is structured, and how it uses the core | `GARCH` |
 | [gui/02-forms.md](gui/02-forms.md) | Controls shared by the GUI's forms | `FORM` |
 | [gui/03-pcb-configuration.md](gui/03-pcb-configuration.md) | A PCB's designs and which units use them | `PCBCFG` |
@@ -88,6 +90,8 @@ Every requirement has a status, because much of the planner was written before t
 | Term | Meaning |
 |---|---|
 | **Core** | `planner_app`: all the planning logic, with no user interface. |
+| **Stores core** | `stores_app`: the user's data sources, shared by every front end, and every tab, that uses them. See `STORE`. |
+| **Data source** | Where some of the user's data is kept, for example their parts, in a CSV file today. Used through the stores core. |
 | **Front end** | A program that uses the core: the GUI or the CLI, and later APIs and MCP servers. |
 | **Process** | A way of attaching components to a PCB, as operations done in order, each with tasks done in order. See `PROCDEF`. |
 | **Document** | An open project, PCB or process. Each is a file. |
@@ -130,3 +134,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | Added logging (`LOG`): the core logs each event it receives, and why it refused one, and each of the GUI's components logs each command it receives. The GUI accepts `--trace` and `-v`, as the CLI does. The GUI's tests capture each test's logs, and check them in order, as the CLI's do. Issues' steps to repeat now name the log lines that show each step and tell Expected from Actual, and an issue is fixed when a test checks the expected log lines in order. Recorded the log lines of `ISSUE-1`, `ISSUE-7`, `ISSUE-8`, `ISSUE-21` and `ISSUE-22`. |
 | 2026-11-04 | Log messages must now be in the form "`<message>.[ <context>[, ...]]`", with values only in the context, as "`<key>: <value>`", and strings in single quotes (`LOG-4`). The same information is logged once only (`LOG-8`): removed 84 log lines that repeated a command, event or error already logged, including each mapper's trace, each front end's trace of the events it sent, the GUI's "`core error:`", and the GUI's document load and save messages. "`pcb::navigate.`" and "`project::navigate.`" are now "`Navigating.`", at debug level. In the GUI's tests, each logged message is now found on a line of its own (`LOG-7`). |
 | 2026-11-04 | Added the goal of supporting straddle-mount components, soldered on both sides of the PCB, with a process of their own (`PROCDEF-9`, Target). Added `../../pcb-assembly.md`, on the ways components are attached and the MakerPnP tools. |
+| 2026-11-04 | Started the mission to bring the Variant Builder into the GUI (`../../missions/variant-builder.md`), with the stores core, which has the user's data sources, starting with parts (`STORE`). A parts file's values that look like numbers are now kept as they are (`ISSUE-23`). |

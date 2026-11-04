@@ -5818,6 +5818,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "stores_app"
+version = "0.1.0"
+dependencies = [
+ "crux_core",
+ "pnp",
+ "serde",
+ "stores",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tracing",
+]
+
+[[package]]
 name = "strict-num"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

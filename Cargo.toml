@@ -26,6 +26,7 @@ members = [
     "planning/planner_gui_egui",
     "planning/planning",
     "planning/stores",
+    "planning/stores_app",
     "planning/variantbuilder_app",
     "planning/variantbuilder_cli",
 ]

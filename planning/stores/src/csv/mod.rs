@@ -226,28 +226,6 @@ pub fn build_value_kind(value: &str) -> Result<ValueKind, Error> {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(rename_all(deserialize = "PascalCase"))]
-pub struct PartRecord {
-    manufacturer: String,
-    mpn: String,
-
-    #[serde(flatten)]
-    extra: HashMap<String, String>,
-}
-
-impl PartRecord {
-    pub fn build_part(&self) -> Result<(Part, HashMap<String, String>), anyhow::Error> {
-        Ok((
-            Part {
-                manufacturer: self.manufacturer.clone(),
-                mpn: self.mpn.clone(),
-            },
-            self.extra.clone(),
-        ))
-    }
-}
-
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct LoadOutItemRecord {
