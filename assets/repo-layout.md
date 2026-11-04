@@ -33,5 +33,6 @@ The parts of the layout that Cargo's conventions don't explain. The workspace's 
 ## Tooling
 
 - `support/git/hooks/`: git hooks for the repository, to be installed in each clone. `pre-push` checks formatting.
+- `support/scripts/`: Rust cargo scripts, for humans and agents, each documented by its `--help`.
 - `.rustfmt.toml`: formatting, which needs the nightly toolchain, `cargo +nightly fmt`.
 - `.claude/settings.json`: Claude Code's settings for the repository.

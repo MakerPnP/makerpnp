@@ -45,3 +45,10 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
 - [`.github/workflows/rust.yml`](.github/workflows/rust.yml): what CI checks, builds and tests.
 - `clippy.toml` in each core's crate: the cores do no IO. IO not yet moved to the stores service is marked
   `HACK: core-io-hack`.
+
+## Scripts
+
+- [`support/scripts/`](support/scripts/): Rust is the only language to expect installed. Write scripted work, bulk
+  edits included, as a Rust cargo script here, rather than with bash, sed, perl, python or one-off edits, using `clap`
+  so `--help` documents it for humans and agents to reuse. Run one with
+  `cargo +nightly -Zscript support/scripts/<name>.rs --help`; check for one before writing your own.
