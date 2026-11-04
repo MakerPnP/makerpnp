@@ -3817,6 +3817,7 @@ mod help {
               project  Project mode
               pcb      PCB mode
               process  Process mode, to define a process's operations and tasks
+              parts    Parts mode, to use a parts data source
               help     Print this message or the help of the given subcommand(s)
 
             Options:

@@ -59,8 +59,8 @@ shopping list and BOM, a step at a time, and mark BOM items as confirmed.
 | Step | What | Status |
 |---|---|---|
 | 1 | The stores core (`planning/stores_app`): load a parts data source, a CSV file for now, and view its parts. | Done |
-| 2 | The CLI uses the stores core: `planner_cli parts --source <file> list`. | Next |
-| 3 | "Open parts" in the GUI: choose a parts data source, and show its parts in a table, through the stores core. | |
+| 2 | The CLI uses the stores core: `planner_cli parts --source <file> list`. | Done |
+| 3 | "Open parts" in the GUI: choose a parts data source, and show its parts in a table, through the stores core. | Next |
 | 4 | A variant builder: define the variant and choose its data sources. | |
 | 5 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |
 | 6 | Changing a data source's contents from the UI, seen by every variant builder using it. | |

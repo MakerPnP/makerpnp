@@ -16,6 +16,8 @@ planning = { path = "../planning" }
 planner_app = { path = "../planner_app" }
 pnp = { path = "../../pnp/pnp" }
 stores = { path = "../stores"}
+stores_app = { path = "../stores_app"}
+csv = { workspace = true }
 util = { path = "../../common/util" }
 
 clap = { workspace = true, features = ["derive"] }

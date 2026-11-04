@@ -31,6 +31,11 @@ isn't loaded.
 file that doesn't exist, or that lacks a header, and MUST say why, naming the header that's missing, for example
 "`Missing header. header: 'Manufacturer'`". The parts loaded from it before, if any, MUST be kept.
 
+**STORE-4 — Listing parts from the CLI.** *Observed.* `planner_cli parts --source <file> list` MUST load the parts
+(`STORE-1`) and write them to standard output as CSV, every value quoted, with the headers "`Manufacturer`", "`Mpn`", and
+then the other values' names, in the order of the view (`STORE-2`). If the core refuses, the CLI MUST fail with the core's
+error.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs` loads a CSV file with other values and checks the view's parts, their order and the
@@ -38,7 +43,10 @@ file that doesn't exist, or that lacks a header, and MUST say why, naming the he
   numbers (`STORE-1`, `STORE-2`, `ISSUE-23`).
 - `planning/stores_app/tests/parts.rs` checks a file without the "`Manufacturer`" header, and a file that doesn't exist,
   are refused, saying why, and that parts that aren't loaded can't be viewed (`STORE-2`, `STORE-3`).
+- `planning/planner_cli/tests/parts.rs` lists a file's parts, checks the output, and checks
+  "`stores_app: Received event. event: LoadParts {`", "`stores_app: Loaded parts. source: '`" and
+  "`stores_app: Received event. event: RequestPartsView {`" are logged, in order, with no "`Event failed.`" (`STORE-4`).
+- `planning/planner_cli/tests/parts.rs` lists a file without the "`Manufacturer`" header, checks the CLI fails saying
+  which header is missing, and that "`stores_app: Received event. event: LoadParts {`" and
+  "`stores_app: Event failed. error: UnableToLoadParts {`" are logged, in order (`STORE-3`, `STORE-4`).
 - `planning/stores_app/tests/parts.rs` checks a refused load keeps the parts loaded before (`STORE-3`).
-- Not covered yet: the log lines, "`stores_app: Received event.`", "`stores_app: Event failed.`" and
-  "`stores_app: Loaded parts.`", which the CLI's tests will check in order once the CLI uses the stores core (`LOG-1`,
-  `LOG-2`, `STORE-1`).

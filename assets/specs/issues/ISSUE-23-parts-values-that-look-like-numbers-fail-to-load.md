@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Status | Open: the stores core is fixed, but no test checks the log lines yet, see "What fixed means" |
+| Status | Fixed on 2026-11-04, in `11fe63f1` (the stores core) and the commit adding the CLI's `parts` mode (its test) |
 | Tool | Variant Builder: core and CLI, and the stores core (`stores::parts`, used by both) |
 | Requirements | `STORE-1` |
 | Found | 2026-11-04 |
-| Checked by | `planning/stores_app/tests/parts.rs`, `keeps_values_that_look_like_numbers` |
+| Checked by | `planning/planner_cli/tests/parts.rs`, `lists_the_parts_with_their_other_values`, and `planning/stores_app/tests/parts.rs`, `keeps_values_that_look_like_numbers` |
 
 ## Description
 
@@ -16,7 +16,7 @@ that didn't say which value or why.
 
 ## Steps to repeat
 
-Through the stores core, as `keeps_values_that_look_like_numbers` does:
+From the CLI, in an empty folder:
 
 1. Make `parts.csv`:
 
@@ -25,13 +25,15 @@ Through the stores core, as `keeps_values_that_look_like_numbers` does:
    "RESCO","1234","0402"
    ```
 
-2. Send the stores core `LoadParts` with `parts.csv`, then `RequestPartsView`.
+2. `planner_cli --trace planner.log -v parts --source parts.csv list`
 
    Logs, in order:
    - `stores_app: Received event. event: LoadParts {`
 
-**Expected:** the view has the part, with `1234` and `0402` as they are in the file. Logs, in order:
+**Expected:** the part is listed, with `1234` and `0402` as they are in the file. Logs, in order:
 - `stores_app: Loaded parts. source: 'parts.csv', part_count: 1`
+- `stores_app: Received event. event: RequestPartsView {`
+- no `Event failed.`
 
 **Actual, before the fix:** the parts weren't loaded. Logs, in order:
 - `stores_app: Event failed. error: UnableToLoadParts {`, with a cause of the form
@@ -39,11 +41,12 @@ Through the stores core, as `keeps_values_that_look_like_numbers` does:
 
 ## Last repeated
 
-2026-11-04, by `keeps_values_that_look_like_numbers` and a first version of
-`loads_the_parts_from_a_csv_file_in_order_with_their_other_values`, Windows 11, before the fix: reproduced, with
-"`invalid type: integer `402`, expected a string`" for a value of `0402`, and after it: fixed. The test checks the
-view, not the log lines. The steps through `variantbuilder_cli build` come from reading the code, and haven't been
-followed.
+2026-11-04, CLI, Windows 11, after `11fe63f1`, with the `parts` mode: not reproduced, the part was listed with `1234`
+and `0402`, and the expected log lines were logged, in order. Before the fix, the CLI had no `parts` mode, and the issue
+was reproduced by `keeps_values_that_look_like_numbers` and a first version of
+`loads_the_parts_from_a_csv_file_in_order_with_their_other_values`, through the stores core, with
+"`invalid type: integer `402`, expected a string`" for a value of `0402`. The steps through `variantbuilder_cli build`
+come from reading the code, and haven't been followed.
 
 ## Notes
 

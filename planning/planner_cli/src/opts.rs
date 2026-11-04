@@ -26,6 +26,7 @@ use rust_decimal::Decimal;
 use stores::load_out::LoadOutSource;
 use stores::package_mappings::PackageMappingsSource;
 use stores::packages::PackagesSource;
+use stores::parts::PartsSource;
 use thiserror::Error;
 
 #[derive(Parser, Debug)]
@@ -54,6 +55,25 @@ pub(crate) enum ModeCommand {
 
     /// Process mode, to define a process's operations and tasks
     Process(ProcessCommandArgs),
+
+    /// Parts mode, to use a parts data source
+    Parts(PartsCommandArgs),
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct PartsCommandArgs {
+    /// Parts data source, a CSV file with 'Manufacturer' and 'Mpn' headers, e.g. 'parts.csv'
+    #[arg(long, value_name = "SOURCE")]
+    pub(crate) source: PartsSource,
+
+    #[command(subcommand)]
+    pub(crate) command: PartsCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum PartsCommand {
+    /// List the parts, as CSV, with each part's other values
+    List,
 }
 
 #[derive(Debug, Parser)]
@@ -596,6 +616,8 @@ pub enum EventError {
     MissingProjectName,
     #[error("Missing command")]
     MissingCommand,
+    #[error("Not a planner command, it uses the stores core")]
+    NotAPlannerCommand,
 }
 
 impl TryFrom<Opts> for Event {
@@ -856,6 +878,7 @@ impl TryFrom<Opts> for Event {
                 }),
                 ProjectCommand::ResetOperations {} => Ok(Event::ResetOperations {}),
             },
+            ModeCommand::Parts(_) => Err(EventError::NotAPlannerCommand),
         }
     }
 }
