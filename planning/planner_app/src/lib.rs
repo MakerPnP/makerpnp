@@ -24,6 +24,7 @@ pub use planning::actions::{AddOrRemoveAction, SetOrClearAction};
 pub use planning::design::{DesignIndex, DesignName, DesignNumber, DesignVariant};
 pub use planning::file::{FileReference, FileReferenceError};
 pub use planning::library::LibraryConfig;
+use planning::operation_history::OperationHistoryAppend;
 use planning::pcb::{Pcb, PcbError};
 pub use planning::pcb::{PcbAssemblyFlip, PcbAssemblyOrientation};
 pub use planning::phase::PhaseReference;
@@ -46,7 +47,7 @@ pub use planning::project::ProjectProcess;
 use planning::project::{Artifact, ArtifactKind, PartStateError, PcbOperationError, Project, ProjectError, ProjectPcb};
 pub use planning::report::{IssueKind, IssueSeverity, ProjectReport};
 pub use planning::variant::VariantName;
-use planning::{file, pcb, project, report};
+use planning::{file, operation_history, pcb, project, report};
 pub use pnp::load_out::LoadOutItem;
 pub use pnp::object_path::ObjectPath;
 use pnp::package::Package;
@@ -1031,6 +1032,10 @@ pub enum Event {
     GenerateArtifacts,
     /// Internal: the artifacts were written, or one wasn't, and the rest weren't (`STORE-12`).
     ArtifactsWritten {
+        result: Result<(), String>,
+    },
+    /// Internal: the phases' operation histories were written, or one wasn't, and the rest weren't (`STORE-13`).
+    OperationHistoryWritten {
         result: Result<(), String>,
     },
     RecordPhaseOperation {
@@ -2475,10 +2480,13 @@ impl Planner {
                     .ok_or(AppError::OperationRequiresProject)?;
 
                 let directory = path.parent().unwrap();
-                *modified |=
+                let (changed, appends) =
                     project::apply_phase_operation_task_action(project, directory, &reference, operation, task, action)
                         .map_err(AppError::OperationError)?;
-                Ok(render::render())
+                *modified |= changed;
+
+                // `STORE-13`
+                Ok(render::render().and(Self::append_operation_history(appends)))
             }),
             Event::RecordPlacementsOperation {
                 object_path_patterns,
@@ -2494,8 +2502,19 @@ impl Planner {
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
                 let directory = path.parent().unwrap();
-                *modified |= project::update_placements_operation(project, directory, object_path_patterns, operation)
-                    .map_err(AppError::OperationError)?;
+                let (changed, appends) =
+                    project::update_placements_operation(project, directory, object_path_patterns, operation)
+                        .map_err(AppError::OperationError)?;
+                *modified |= changed;
+
+                // `STORE-13`
+                Ok(render::render().and(Self::append_operation_history(appends)))
+            }),
+            Event::OperationHistoryWritten {
+                result,
+            } => Box::new(move |_model: &mut Model| {
+                result.map_err(AppError::StoresError)?;
+
                 Ok(render::render())
             }),
             Event::ResetOperations {} => Box::new(|model: &mut Model| {
@@ -3508,6 +3527,58 @@ impl Planner {
                 }
             }
             ctx.send_event(Event::ArtifactsWritten {
+                result,
+            });
+        })
+    }
+
+    /// Has the stores service read each phase's operation history, then write it with the items added, in order,
+    /// stopping at the first that can't be read or written, then gives the core [`Event::OperationHistoryWritten`]
+    /// (`STORE-13`). With nothing to add, it asks for nothing.
+    fn append_operation_history(appends: Vec<OperationHistoryAppend>) -> Command<Effect, Event> {
+        if appends.is_empty() {
+            return Command::done();
+        }
+        Command::new(|ctx| async move {
+            let mut result = Ok(());
+            for OperationHistoryAppend {
+                path,
+                items,
+            } in appends
+            {
+                let existing = match read_document(&ctx, &path).await {
+                    Ok(existing) => existing,
+                    Err(cause) => {
+                        result = Err(cause);
+                        break;
+                    }
+                };
+                let is_new = existing.is_none();
+                let contents = match operation_history::append(
+                    existing
+                        .as_ref()
+                        .map(|document| document.contents.as_str()),
+                    &items,
+                ) {
+                    Ok(contents) => contents,
+                    Err(cause) => {
+                        result = Err(format!(
+                            "Unable to read the operation history. path: {:?}, cause: '{}'",
+                            path, cause
+                        ));
+                        break;
+                    }
+                };
+                if let Err(cause) = write_document(&ctx, &path, contents).await {
+                    result = Err(cause);
+                    break;
+                }
+                match is_new {
+                    true => info!("Created operation history file. path: {:?}", path),
+                    false => info!("Updated operation history file. path: {:?}", path),
+                }
+            }
+            ctx.send_event(Event::OperationHistoryWritten {
                 result,
             });
         })

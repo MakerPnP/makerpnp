@@ -76,7 +76,7 @@ the `allow`, once the stores service reads or writes the file.
 example:
 
 ```rust
-// HACK: core-io-hack - the operation history is written by the core, until the stores service writes it.
+// HACK: core-io-hack - the BOM is written by the core, until the stores service writes it.
 #[allow(clippy::disallowed_methods, clippy::disallowed_types)]
-pub fn write(phase_log_path: PathBuf, operation_history: &Vec<OperationHistoryItem>) -> Result<(), Error> {
+fn write_bom(path: &Path, records: &[BOMRecord]) -> Result<(), Error> {
 ```

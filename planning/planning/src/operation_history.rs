@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Error;
 use as_any::AsAny;
@@ -12,7 +12,6 @@ use serde_with::serde_as;
 use serde_with::DisplayFromStr;
 use time::serde::rfc3339;
 use time::OffsetDateTime;
-use tracing::info;
 
 use crate::placement::PlacementOperation;
 use crate::process::{OperationReference, TaskKind, TaskReference, TaskStatus};
@@ -90,38 +89,48 @@ pub struct OperationHistoryItem {
     pub extra: HashMap<String, Value>,
 }
 
-// HACK: core-io-hack - the operation history is written by the core, until the stores service writes it.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
-pub fn write(phase_log_path: PathBuf, operation_history: &Vec<OperationHistoryItem>) -> Result<(), Error> {
-    // TODO use a context for better error messages
-    let is_new = !phase_log_path.exists();
-
-    let file = std::fs::File::create(phase_log_path.clone())?;
-
-    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
-    let mut ser = serde_json::Serializer::with_formatter(file, formatter);
-    operation_history.serialize(&mut ser)?;
-
-    match is_new {
-        true => info!("Created operation history file. path: {:?}\n", phase_log_path),
-        false => info!("Updated operation history file. path: {:?}\n", phase_log_path),
-    }
-
-    Ok(())
+/// Items to add to a phase's operation history, each as its JSON, so they can be kept by a command, as a history item
+/// can't be sent between threads (`STORE-13`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OperationHistoryAppend {
+    /// The phase's operation history file, see [`phase_log_path`].
+    pub path: PathBuf,
+    pub items: Vec<String>,
 }
 
-// HACK: core-io-hack - the operation history is read by the core, until the stores service reads it.
-#[allow(clippy::disallowed_methods, clippy::disallowed_types)]
-pub fn read_or_default(phase_log_path: &PathBuf) -> Result<Vec<OperationHistoryItem>, Error> {
-    let is_new = !phase_log_path.exists();
-    if is_new {
-        return Ok(Default::default());
+impl OperationHistoryAppend {
+    pub fn new(path: PathBuf, items: &[OperationHistoryItem]) -> Result<Self, Error> {
+        let items = items
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Self {
+            path,
+            items,
+        })
+    }
+}
+
+/// The phase's operation history file, `<directory>/<phase>_log.json`.
+pub fn phase_log_path(directory: &Path, phase: &Reference) -> PathBuf {
+    directory.join(format!("{}_log.json", phase))
+}
+
+/// The operation history's contents, with the items added: the history's, or a new one's, if there's none.
+///
+/// Nothing is read or written, so a core can have the stores service read and write the history (`STORE-13`).
+pub fn append(contents: Option<&str>, items: &[String]) -> Result<String, Error> {
+    let mut operation_history: Vec<OperationHistoryItem> = match contents {
+        Some(contents) => serde_json::from_str(contents)?,
+        None => vec![],
+    };
+    for item in items {
+        operation_history.push(serde_json::from_str(item)?);
     }
 
-    // TODO use a context for better error messages
-    let file = std::fs::File::open(phase_log_path.clone())?;
+    let formatter = serde_json::ser::PrettyFormatter::with_indent(b"    ");
+    let mut ser = serde_json::Serializer::with_formatter(vec![], formatter);
+    operation_history.serialize(&mut ser)?;
 
-    let operation_history = serde_json::from_reader(file)?;
-
-    Ok(operation_history)
+    Ok(String::from_utf8(ser.into_inner())?)
 }

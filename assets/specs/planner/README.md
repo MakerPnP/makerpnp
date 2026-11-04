@@ -26,9 +26,9 @@ supposed to do, and so that every requirement can be traced to the tests that ch
   so that the shells don't each do them, and each process has one, shared by all of its cores (`STORE-7`). It's async,
   so that a shell without threads, such as a web shell, can use it, with back ends of its own. Since 2026-11-04, the
   stores core is pure; the planner's core reads and writes its documents (`STORE-10`), its data sources' records
-  (`STORE-11`), and its artifacts (`STORE-12`), through the service, but it still reads and writes its operation
-  histories, and the Variant Builder's core its files, themselves, until they're moved to the service an event at a
-  time (`../../missions/variant-builder.md`).
+  (`STORE-11`), its artifacts (`STORE-12`), and its operation histories (`STORE-13`), through the service, so it does
+  no file IO itself, but the Variant Builder's core still reads and writes its files itself, until they're moved to
+  the service an event at a time (`../../missions/variant-builder.md`).
 - **The core is the most important thing to test.** A requirement's behaviour is checked through the core, and the
   CLI's tests, first. A front end's tests check that it sends the core the right events and shows what the core
   returns, for example by comparing the files saved through the GUI with those the core saves for the CLI's events.
@@ -156,3 +156,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | A process document is read and written by the stores service: when it's created, loaded, saved, added to a project, or when the project's processes are refreshed (`STORE-10`). A process whose file can't be written isn't created (`DOC-1`), and one that can't be read isn't added. Saving a process now logs "`Saved process.`" whichever event saves it. |
 | 2026-11-04 | The records of a project's data sources, its load-outs, packages, package mappings and placements, are read and written by the stores service (`STORE-11`). An event is given them as they are when it's processed, asking for every record it can name before it changes anything, and changes nothing, and writes nothing, unless it succeeds. The load-out is now read before placements are assigned to a phase, so "`Loading load-out.`" is logged before "`Assigning placement to phase.`". A phase's load-out source is no longer checked for on disk by the core, so one that doesn't exist says "`Data source not found.`" when it's used. A relative load-out is now relative to the project's folder in every event, and created there, so the CLI run from another folder creates it in the right one, and "`Created load-out.`" names the file created (`ISSUE-7`, the CLI's part). |
 | 2026-11-05 | The artifacts are made by the planner's core, as their contents, and written by the stores service, in order, the first that can't be written stopping the rest (`STORE-12`). The "`Generated`" lines are now logged once each file is written, and "`Generated artifacts.`" once they all are. The markdown report is made from the JSON report's contents, rather than by reading its file. |
+| 2026-11-05 | Each phase's operation history is read and written by the stores service, as a document, so that the planner's core does no file IO (`STORE-13`). "`Created operation history file.`" or "`Updated operation history file.`" is now logged once the history is written. |

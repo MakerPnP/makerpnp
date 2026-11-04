@@ -1179,3 +1179,63 @@ fn an_artifact_that_can_not_be_written_stops_the_rest() {
         .writes()
         .contains(&artifact_path("job1_report.json")));
 }
+
+fn record_task(action: planning::process::TaskAction) -> Event {
+    Event::RecordPhaseOperation {
+        phase: Reference::from_raw_str("top_1"),
+        operation: Reference::from_raw_str("load_pcbs"),
+        task: planning::process::TaskReference::from_raw_str("load_pcbs"),
+        action,
+    }
+}
+
+fn operation_history_path() -> PathBuf {
+    PathBuf::from("projects").join("top_1_log.json")
+}
+
+/// `STORE-13`, recording a phase's operation has the stores service read its operation history, then write it with the
+/// operation added, creating it if there's none.
+#[test]
+fn recording_an_operation_adds_it_to_the_phases_operation_history() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.process(create_phase("top_1", "top_1"));
+
+    shell.process(record_task(planning::process::TaskAction::Start));
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.reads().last(), Some(&operation_history_path()));
+    assert_eq!(shell.writes().last(), Some(&operation_history_path()));
+    assert_eq!(
+        shell
+            .document(&operation_history_path())
+            .as_array()
+            .map(Vec::len),
+        Some(1)
+    );
+
+    shell.process(record_task(planning::process::TaskAction::Complete));
+    assert_eq!(shell.error(), None);
+    let history = shell.document(&operation_history_path());
+    let history = history.as_array().expect("an array");
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[1]["task_history"]["status"], "Complete");
+}
+
+/// `STORE-13`, an operation history that can't be read says why, and isn't written.
+#[test]
+fn an_operation_history_that_can_not_be_read_says_why() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.process(create_phase("top_1", "top_1"));
+    shell
+        .refused
+        .insert(operation_history_path(), "Unable to read the document.".to_string());
+
+    shell.process(record_task(planning::process::TaskAction::Start));
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to read the document."), "{error}");
+    assert!(!shell
+        .writes()
+        .contains(&operation_history_path()));
+}

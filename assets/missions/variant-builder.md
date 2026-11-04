@@ -111,5 +111,5 @@ what they show is as it was.
 | `CreateProcess`, `LoadProcess`, `SaveProcess`, `SaveAllProcesses`, `AddProcess`, `RefreshProcesses` | Process documents. A process is only created, or added, once it's written, or read. | Done |
 | Load-outs, packages, package mappings, placements | The project's data sources, used by many events, read before the event, which is processed again with them, and changes nothing unless it succeeds (`STORE-11`). | Done |
 | `GenerateArtifacts` | The files made for a phase, and the report, made by the core and written by the service, in order (`STORE-12`). | Done |
-| `RecordPhaseOperation` | Each phase's operation history. | Next |
-| The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules, load-outs and the BOM. | |
+| `RecordPhaseOperation` | Each phase's operation history, read and written by the service as a document (`STORE-13`). | Done |
+| The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules, load-outs and the BOM. | Next |

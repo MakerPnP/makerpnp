@@ -33,7 +33,8 @@ use crate::design::{DesignIndex, DesignName, DesignVariant};
 use crate::file::FileReference;
 use crate::library::LibraryConfig;
 use crate::operation_history::{
-    OperationHistoryItem, OperationHistoryKind, PlacementOperationHistoryKind, TaskOperationHistoryKind,
+    OperationHistoryAppend, OperationHistoryItem, OperationHistoryKind, PlacementOperationHistoryKind,
+    TaskOperationHistoryKind,
 };
 use crate::part::PartState;
 use crate::pcb::{Pcb, PcbError, PcbUnitTransform, UnitPlacementPosition};
@@ -1782,8 +1783,9 @@ pub fn update_placements_operation(
     directory: &Path,
     object_path_patterns: Vec<Regex>,
     placement_operation: PlacementOperation,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, Vec<OperationHistoryAppend>)> {
     let mut modified = false;
+    let mut appends = vec![];
 
     let phase_operation_task_map = build_phase_operation_task_map(&placement_operation, &project.phase_states);
 
@@ -1910,18 +1912,12 @@ pub fn update_placements_operation(
                 })
                 .collect::<Vec<_>>();
 
-            let mut phase_log_path = PathBuf::from(directory);
-            phase_log_path.push(format!("{}_log.json", phase_reference));
-
-            let mut operation_history: Vec<OperationHistoryItem> = operation_history::read_or_default(&phase_log_path)?;
-
-            operation_history.extend(history_items);
-
-            operation_history::write(phase_log_path, &operation_history)?;
+            let phase_log_path = operation_history::phase_log_path(directory, &phase_reference);
+            appends.push(OperationHistoryAppend::new(phase_log_path, &history_items)?);
         }
     }
 
-    Ok(modified)
+    Ok((modified, appends))
 }
 
 /// find the only tasks for each phase that allow placement changes.
@@ -2601,8 +2597,9 @@ pub fn apply_phase_operation_task_action(
     operation_reference: OperationReference,
     task_reference: TaskReference,
     action: TaskAction,
-) -> anyhow::Result<bool> {
+) -> anyhow::Result<(bool, Vec<OperationHistoryAppend>)> {
     let mut modified = false;
+    let mut appends = vec![];
 
     let phase_state = project
         .phase_states
@@ -2714,18 +2711,12 @@ pub fn apply_phase_operation_task_action(
                 extra: Default::default(),
             };
 
-            let mut phase_log_path = PathBuf::from(directory);
-            phase_log_path.push(format!("{}_log.json", phase_reference));
-
-            let mut operation_history: Vec<OperationHistoryItem> = operation_history::read_or_default(&phase_log_path)?;
-
-            operation_history.push(history_item);
-
-            operation_history::write(phase_log_path, &operation_history)?;
+            let phase_log_path = operation_history::phase_log_path(directory, phase_reference);
+            appends.push(OperationHistoryAppend::new(phase_log_path, &[history_item])?);
         }
     }
 
-    Ok(modified)
+    Ok((modified, appends))
 }
 
 pub fn update_placement_orderings(
@@ -2920,8 +2911,6 @@ mod project_process_tests {
 
     /// `PROCDEF-6`
     #[test]
-    // HACK: core-io-hack - starting a task writes the phase's operation history, which the test removes.
-    #[allow(clippy::disallowed_methods)]
     fn a_process_cannot_be_changed_once_a_phase_using_it_has_started() {
         let mut project = project_with_manual_process();
         let manual = project.processes[0].definition.clone();
@@ -2934,17 +2923,15 @@ mod project_process_tests {
                 PcbSide::Top,
             )
             .unwrap();
-        let directory = std::env::temp_dir();
         apply_phase_operation_task_action(
             &mut project,
-            &directory,
+            std::path::Path::new("project"),
             &phase,
             Reference::from_raw_str("load_pcbs"),
             TaskReference::from_raw_str("load_pcbs"),
             TaskAction::Start,
         )
         .unwrap();
-        let _ = std::fs::remove_file(directory.join("top_1_log.json"));
 
         let result = project.replace_process(&manual.reference, renamed(&manual, "hand"));
 

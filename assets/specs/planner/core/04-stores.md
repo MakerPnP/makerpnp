@@ -71,10 +71,10 @@ back end is a module of the service, chosen by the data source: `csv_file` for f
 operation it's asked to do, as "`stores_service: Performing stores operation. operation: <operation>`" at debug level.
 An operation's result says how many parts were read, not what they are, as it's logged. A core given the result of a
 different operation MUST refuse it, as a fault in the shell. The planner's core uses the stores service to write a
-project's documents (`STORE-10`), the records of its data sources (`STORE-11`), and the artifacts it generates
-(`STORE-12`). *Target*: the planner's core and the Variant Builder's core MUST use the stores service for every file
-they read and write. The gap: the planner's core still reads and writes each phase's operation history itself, and
-nothing tells it when a file changes. They're being moved to the stores service an event at a time (`../../missions/variant-builder.md`).
+project's documents (`STORE-10`), the records of its data sources (`STORE-11`), the artifacts it generates
+(`STORE-12`), and each phase's operation history (`STORE-13`), so it reads and writes no file itself. *Target*: the
+Variant Builder's core MUST use the stores service for every file it reads and writes too. The gap: it reads and
+writes them itself, and nothing tells the planner's core when a file changes. They're being moved to the stores service an event at a time (`../../missions/variant-builder.md`).
 
 **STORE-8 — Revisions.** *Confirmed.* Each view of a data source MUST say which revision of the data source it shows, so
 that a view that's out of date can be known, and a change can say which revision it was based on. Two reads of a data
@@ -167,6 +167,17 @@ artifacts.`". The markdown report is made from the JSON report's contents, not b
 project's change made by generating the artifacts, its phases' operation states, is kept if an artifact can't be
 written, as the writes' results come after the event.
 
+**STORE-13 — Operation histories.** *Confirmed.* Each phase's operation history, `<phase>_log.json` in the project's
+folder, MUST be read and written by the stores service, as a document (`STORE-10`): recording a phase's operation, or
+a placements' operation, MUST have the service read the history, then write it with the new items added, so that the
+core makes and reads its contents, and is tested with no files. A history that doesn't exist MUST be created. The
+histories MUST be written in order, and the first that can't be read or written MUST say why, and stop the rest.
+*Observed*: the history's format is as it was, the items as JSON, indented by 4 spaces. Once each history is written
+the core logs "`planner_app: Created operation history file. path: <path>`" or
+"`planner_app: Updated operation history file. path: <path>`" at info level, then is given
+"`planner_app: Received event. event: OperationHistoryWritten {`". *Target*: the project's change made by recording
+the operation is kept if its history can't be written, as the write's result comes after the event.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -233,6 +244,16 @@ written, as the writes' results come after the event.
   "`planner_app: Generated artifacts.`" are logged, in order, with no "`Event failed.`", and that the files are as the
   CLI's. The CLI's `sequence_16_generate_artifacts` checks the "`Generated`" lines in order, and the files, as before
   (`STORE-12`).
+- `planning/planner_app/tests/documents.rs`, with no files, checks recording a task's operation reads the phase's
+  operation history, then writes it with the task added, creating it if there's none, and that a history that can't be
+  read says why, and writes nothing (`STORE-13`).
+- `tests/ui/operations.rs`, in the GUI, abandons a task, and checks
+  "`planner_app: Received event. event: RecordPhaseOperation {`",
+  "`stores_service: Performing stores operation. operation: ReadDocument { path: `",
+  "`stores_service: Performing stores operation. operation: WriteDocument { path: `",
+  "`planner_app: Updated operation history file. path: `" and
+  "`planner_app: Received event. event: OperationHistoryWritten { result: Ok(()) }`" are logged, in order, with no
+  "`Event failed.`" (`STORE-13`).
 - `planning/planner_cli/tests/planner.rs` checks "`Created load-out. source: '`" is logged before the phase is created,
   that "`Loading load-out. source: '`" is logged before the placements are assigned to the phase, and
   "`Storing load-out. source: '`" after, and that the load-out is as before (`STORE-11`). It creates a phase with a

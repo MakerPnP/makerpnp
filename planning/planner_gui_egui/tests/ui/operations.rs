@@ -9,7 +9,7 @@ use regex::Regex;
 use crate::fixture::App;
 use crate::workflow::*;
 
-/// `OPERATIONS-1`, `OPERATIONS-2`
+/// `OPERATIONS-1`, `OPERATIONS-2`, `STORE-13`
 #[test]
 fn abandoning_a_task_saves_the_same_file_as_the_core() {
     let mut app = App::start();
@@ -20,6 +20,16 @@ fn abandoning_a_task_saves_the_same_file_as_the_core() {
 
     app.choose_action_from_combo_box("automated_pnp: place_components", "Abandon");
     app.wait_for_enabled_button("Save");
+    // the stores service reads the phase's operation history, then writes it with the task added.
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: RecordPhaseOperation {",
+        "Marking task as abandoned. phase: top_1, operation: automated_pnp, task: place_components",
+        "stores_service: Performing stores operation. operation: ReadDocument { path: ",
+        "stores_service: Performing stores operation. operation: WriteDocument { path: ",
+        "planner_app: Updated operation history file. path: ",
+        "planner_app: Received event. event: OperationHistoryWritten { result: Ok(()) }",
+    ]);
+    app.assert_not_logged("Event failed.");
 
     // it no longer offers any actions, and its placements can't be recorded.
     app.wait_until("the task offered no actions", |app| {
