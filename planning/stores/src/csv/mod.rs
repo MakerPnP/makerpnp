@@ -27,6 +27,11 @@ pub mod packages;
 pub struct PackageMappingRecord(HashMap<String, String>);
 
 impl PackageMappingRecord {
+    /// A record from its fields, by name, as read from a CSV row.
+    pub fn from_fields(fields: HashMap<String, String>) -> Self {
+        Self(fields)
+    }
+
     pub fn build_package_mapping<'package>(
         &self,
         packages: &'package [Package],

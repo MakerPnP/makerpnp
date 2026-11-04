@@ -1,6 +1,5 @@
 use std::collections::BTreeSet;
 use std::fs::File;
-use std::path::PathBuf;
 
 use anyhow::{anyhow, Context, Error};
 use csv::QuoteStyle;
@@ -26,9 +25,13 @@ pub fn load_items(source: &LoadOutSource) -> Result<Vec<LoadOutItem>, Error> {
         .path()
         .map_err(|error| anyhow!("Unsupported source type. cause: {:?}", error))?;
 
-    let mut csv_reader = csv::ReaderBuilder::new()
-        .from_path(path.clone())
-        .with_context(|| format!("Error reading load-out. file: {}", path.display()))?;
+    let file = File::open(&path).with_context(|| format!("Error reading load-out. file: {}", path.display()))?;
+    read_items(file).with_context(|| format!("Error reading load-out. file: {}", path.display()))
+}
+
+/// A load-out's items, from its CSV.
+pub fn read_items(reader: impl std::io::Read) -> Result<Vec<LoadOutItem>, Error> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
 
     let mut items: Vec<LoadOutItem> = vec![];
 
@@ -46,14 +49,11 @@ pub fn load_items(source: &LoadOutSource) -> Result<Vec<LoadOutItem>, Error> {
     Ok(items)
 }
 
-pub fn store_items(load_out_source: &LoadOutSource, items: &[LoadOutItem]) -> Result<(), Error> {
-    info!("Storing load-out. source: '{}'", load_out_source);
-
-    let output_path = PathBuf::from(load_out_source.to_string());
-
+/// A load-out's items, as its CSV.
+pub fn write_items(writer: impl std::io::Write, items: &[LoadOutItem]) -> Result<(), Error> {
     let mut writer = csv::WriterBuilder::new()
         .quote_style(QuoteStyle::Always)
-        .from_path(output_path)?;
+        .from_writer(writer);
 
     for item in items {
         writer.serialize(LoadOutItemRecord {
@@ -68,87 +68,26 @@ pub fn store_items(load_out_source: &LoadOutSource, items: &[LoadOutItem]) -> Re
     Ok(())
 }
 
-pub fn ensure_load_out(load_out_source: &LoadOutSource) -> anyhow::Result<()> {
-    let load_out_path_buf = PathBuf::from(load_out_source.to_string());
-    let load_out_path = load_out_path_buf.as_path();
-    if !load_out_path.exists() {
-        File::create(&load_out_path)?;
-        info!("Created load-out. source: '{}'", load_out_source);
-    }
+/// Adds each part that isn't in the load-out, with no feeder.
+pub fn add_parts(load_out_items: &mut Vec<LoadOutItem>, parts: &BTreeSet<Part>) {
+    for part in parts.iter() {
+        trace!("Checking for part in load_out. part: {:?}", part);
 
-    Ok(())
-}
+        let matched = pnp::load_out::find_load_out_item_by_part(load_out_items, part);
 
-#[derive(Error, Debug)]
-pub enum LoadOutOperationError {
-    #[error("Unable to load items. source: {load_out_source}, error: {reason}")]
-    UnableToLoadItems {
-        load_out_source: LoadOutSource,
-        reason: anyhow::Error,
-    },
-
-    #[error("Unable to store items. source: {load_out_source}, error: {reason}")]
-    UnableToStoreItems {
-        load_out_source: LoadOutSource,
-        reason: anyhow::Error,
-    },
-
-    #[error("Load-out operation error. source: {load_out_source}, error: {reason}")]
-    OperationError {
-        load_out_source: LoadOutSource,
-        reason: anyhow::Error,
-    },
-}
-
-pub fn perform_load_out_operation<F, R, E>(source: &LoadOutSource, mut f: F) -> Result<R, LoadOutOperationError>
-where
-    F: FnMut(&mut Vec<LoadOutItem>) -> Result<R, E>,
-    E: std::error::Error + Send + Sync + 'static,
-{
-    let mut load_out_items = load_items(source).map_err(|err| LoadOutOperationError::UnableToLoadItems {
-        load_out_source: source.clone(),
-        reason: err,
-    })?;
-
-    let result = f(&mut load_out_items).map_err(|err| LoadOutOperationError::OperationError {
-        load_out_source: source.clone(),
-        reason: err.into(),
-    })?;
-
-    store_items(source, &load_out_items).map_err(|err| LoadOutOperationError::UnableToStoreItems {
-        load_out_source: source.clone(),
-        reason: err,
-    })?;
-
-    Ok(result)
-}
-
-pub fn add_parts_to_load_out(
-    load_out_source: &LoadOutSource,
-    parts: BTreeSet<Part>,
-) -> Result<(), LoadOutOperationError> {
-    perform_load_out_operation(load_out_source, |load_out_items| {
-        for part in parts.iter() {
-            trace!("Checking for part in load_out. part: {:?}", part);
-
-            let matched = pnp::load_out::find_load_out_item_by_part(load_out_items, part);
-
-            if matched.is_some() {
-                continue;
-            }
-
-            let load_out_item = LoadOutItem {
-                reference: None,
-                manufacturer: part.manufacturer.clone(),
-                mpn: part.mpn.clone(),
-            };
-
-            info!("Adding part to load_out. part: {:?}", part);
-            load_out_items.push(load_out_item)
+        if matched.is_some() {
+            continue;
         }
 
-        Ok::<(), std::io::Error>(())
-    })
+        let load_out_item = LoadOutItem {
+            reference: None,
+            manufacturer: part.manufacturer.clone(),
+            mpn: part.mpn.clone(),
+        };
+
+        info!("Adding part to load_out. part: {:?}", part);
+        load_out_items.push(load_out_item)
+    }
 }
 
 #[derive(Error, Debug)]
@@ -164,49 +103,46 @@ pub enum FeederAssignmentError {
     },
 }
 
-pub fn assign_feeder_to_load_out_item(
-    load_out_source: &LoadOutSource,
+/// Assigns the feeder to the items whose parts match the patterns, or removes theirs, and returns their parts.
+pub fn assign_feeder(
+    load_out_items: &mut [LoadOutItem],
     process: &ProcessDefinition,
-    feeder_reference: Option<Reference>,
-    manufacturer: Regex,
-    mpn: Regex,
-) -> anyhow::Result<Vec<Part>> {
+    feeder_reference: &Option<Reference>,
+    manufacturer: &Regex,
+    mpn: &Regex,
+) -> Result<Vec<Part>, FeederAssignmentError> {
     let mut parts: Vec<Part> = vec![];
 
-    perform_load_out_operation(load_out_source, |load_out_items| {
-        let mut items: Vec<_> = load_out_items
-            .iter_mut()
-            .filter(|item| manufacturer.is_match(&item.manufacturer) && mpn.is_match(&item.mpn))
-            .collect();
+    let mut items: Vec<_> = load_out_items
+        .iter_mut()
+        .filter(|item| manufacturer.is_match(&item.manufacturer) && mpn.is_match(&item.mpn))
+        .collect();
 
-        if items.is_empty() {
-            return Err(FeederAssignmentError::NoMatchingPart {
-                manufacturer: manufacturer.clone(),
-                mpn: mpn.clone(),
-            });
-        }
+    if items.is_empty() {
+        return Err(FeederAssignmentError::NoMatchingPart {
+            manufacturer: manufacturer.clone(),
+            mpn: mpn.clone(),
+        });
+    }
 
-        if process.has_rule(&ProcessRuleReference::from_raw_str("core::unique_feeder_references")) && items.len() > 1 {
-            return Err(FeederAssignmentError::MultipleMatchingParts {
-                process: process.reference.clone(),
-                manufacturer: manufacturer.clone(),
-                mpn: mpn.clone(),
-            });
-        }
+    if process.has_rule(&ProcessRuleReference::from_raw_str("core::unique_feeder_references")) && items.len() > 1 {
+        return Err(FeederAssignmentError::MultipleMatchingParts {
+            process: process.reference.clone(),
+            manufacturer: manufacturer.clone(),
+            mpn: mpn.clone(),
+        });
+    }
 
-        for item in items.iter_mut() {
-            let part = Part {
-                manufacturer: item.manufacturer.clone(),
-                mpn: item.mpn.clone(),
-            };
+    for item in items.iter_mut() {
+        let part = Part {
+            manufacturer: item.manufacturer.clone(),
+            mpn: item.mpn.clone(),
+        };
 
-            item.reference = feeder_reference.clone();
+        item.reference = feeder_reference.clone();
 
-            parts.push(part);
-        }
-
-        Ok(())
-    })?;
+        parts.push(part);
+    }
 
     for part in parts.iter() {
         match &feeder_reference {

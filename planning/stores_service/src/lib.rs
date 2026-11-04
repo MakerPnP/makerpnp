@@ -67,6 +67,18 @@ impl StoresService {
                 stream::once(async move { StoresOutput::DocumentWritten(document_file::write(&path, &contents).await) })
                     .boxed()
             }
+            StoresOperation::ReadRecords {
+                kind,
+                source,
+            } => stream::once(async move { StoresOutput::RecordsRead(csv_file::read_records(kind, &source).await) })
+                .boxed(),
+            StoresOperation::WriteRecords {
+                source,
+                records,
+            } => stream::once(
+                async move { StoresOutput::RecordsWritten(csv_file::write_records(&source, &records).await) },
+            )
+            .boxed(),
         }
     }
 

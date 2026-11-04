@@ -1,13 +1,8 @@
-use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
-
-use anyhow::{anyhow, Context};
-use planning::design::DesignVariant;
 use pnp::part::Part;
 use pnp::pcb::PcbSide;
 use pnp::placement::Placement;
 use rust_decimal::Decimal;
-use tracing::{info, trace};
+use tracing::trace;
 use util::source::Source;
 
 /// See `EdaPlacement` for details of co-ordinate system
@@ -68,16 +63,9 @@ impl PlacementRecord {
 
 pub type PlacementsSource = Source;
 
-pub fn load_placements(source: &PlacementsSource) -> Result<Vec<Placement>, anyhow::Error> {
-    info!("Loading placements. source: {}", source);
-
-    let path = source
-        .path()
-        .map_err(|error| anyhow!("Unsupported source type. cause: {:?}", error))?;
-
-    let mut csv_reader = csv::ReaderBuilder::new()
-        .from_path(path.clone())
-        .with_context(|| format!("Error placements. file: {}", path.display()))?;
+/// The placements, from their CSV. A record that can't be read is skipped.
+pub fn read_placements(reader: impl std::io::Read) -> Result<Vec<Placement>, anyhow::Error> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
 
     let records = csv_reader
         .deserialize()
@@ -94,26 +82,4 @@ pub fn load_placements(source: &PlacementsSource) -> Result<Vec<Placement>, anyh
         .collect();
 
     Ok(records)
-}
-
-pub fn load_all_placements(
-    unique_design_variants: HashSet<DesignVariant>,
-    directory: &Path,
-) -> anyhow::Result<BTreeMap<DesignVariant, Vec<Placement>>> {
-    let mut all_placements: BTreeMap<DesignVariant, Vec<Placement>> = Default::default();
-
-    for design_variant in unique_design_variants {
-        let DesignVariant {
-            design_name: design,
-            variant_name: variant,
-        } = &design_variant;
-
-        let mut placements_path = PathBuf::from(directory);
-        placements_path.push(format!("{}_{}_placements.csv", design, variant));
-        let source = PlacementsSource::File(placements_path);
-
-        let placements = load_placements(&source)?;
-        let _ = all_placements.insert(design_variant, placements);
-    }
-    Ok(all_placements)
 }

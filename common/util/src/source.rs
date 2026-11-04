@@ -1,5 +1,5 @@
 use std::fmt::{Display, Formatter};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use thiserror::Error;
@@ -62,6 +62,12 @@ impl Source {
                 Self::try_from_path_inner(full_path)
             }
         }
+    }
+
+    /// The file at the path, relative to the directory unless it's absolute, without checking that it exists, so it can
+    /// be used by a core, which does no IO.
+    pub fn from_path(directory: &Path, path: &Path) -> Source {
+        Source::File(directory.join(path))
     }
 
     pub fn from_absolute_path(path: PathBuf) -> Result<Source, SourceError> {

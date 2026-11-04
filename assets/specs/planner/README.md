@@ -25,9 +25,9 @@ supposed to do, and so that every requirement can be traced to the tests that ch
   by its tests. The operations are done by the stores service (`planning/stores_service`), a library every shell uses,
   so that the shells don't each do them, and each process has one, shared by all of its cores (`STORE-7`). It's async,
   so that a shell without threads, such as a web shell, can use it, with back ends of its own. Since 2026-11-04, the
-  stores core is pure; the planner's core reads and writes its documents through the service (`STORE-10`), but it
-  and the Variant Builder's core still read and write their other files themselves, until they're moved to the service
-  an event at a time (`../../missions/variant-builder.md`).
+  stores core is pure; the planner's core reads and writes its documents (`STORE-10`), and its data sources' records (`STORE-11`),
+  through the service, but it still writes its artifacts and operation histories, and the Variant Builder's core its
+  files, themselves, until they're moved to the service an event at a time (`../../missions/variant-builder.md`).
 - **The core is the most important thing to test.** A requirement's behaviour is checked through the core, and the
   CLI's tests, first. A front end's tests check that it sends the core the right events and shows what the core
   returns, for example by comparing the files saved through the GUI with those the core saves for the CLI's events.
@@ -153,3 +153,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-04 | Loading a project has the stores service read it, write a file for each of its processes that has none, and read its PCBs, in one command, and the project is only loaded once they're read (`STORE-10`). "`Loading PCB from <path>`" is now "`Loading PCB. path: <path>`" when a project is loaded. |
 | 2026-11-04 | A PCB is read and written by the stores service: when it's created, loaded, saved, refreshed or added to a project (`STORE-10`). A PCB whose file can't be written isn't created (`DOC-1`), and one that can't be read isn't added. An event that needs a project's PCB that couldn't be read now says "`PCB not loaded.`", rather than reading it itself. Saving a PCB now logs "`Saving PCB.`" and "`Saved PCB.`" whichever event saves it. |
 | 2026-11-04 | A process document is read and written by the stores service: when it's created, loaded, saved, added to a project, or when the project's processes are refreshed (`STORE-10`). A process whose file can't be written isn't created (`DOC-1`), and one that can't be read isn't added. Saving a process now logs "`Saved process.`" whichever event saves it. |
+| 2026-11-04 | The records of a project's data sources, its load-outs, packages, package mappings and placements, are read and written by the stores service (`STORE-11`). An event is given them as they are when it's processed, asking for every record it can name before it changes anything, and changes nothing, and writes nothing, unless it succeeds. The load-out is now read before placements are assigned to a phase, so "`Loading load-out.`" is logged before "`Assigning placement to phase.`". A phase's load-out source is no longer checked for on disk by the core, so one that doesn't exist says "`Data source not found.`" when it's used. A relative load-out is now relative to the project's folder in every event, and created there, so the CLI run from another folder creates it in the right one, and "`Created load-out.`" names the file created (`ISSUE-7`, the CLI's part). |

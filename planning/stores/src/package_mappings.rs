@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use anyhow::{anyhow, Context, Error};
 use package_mapper::package_mapping::PackageMapping;
 use pnp::package::Package;
@@ -38,6 +40,35 @@ pub fn load_package_mappings<'packages>(
         package_mappings.push(part_mapping);
     }
     Ok(package_mappings)
+}
+
+/// Each package mapping's fields, by name, from their CSV, see [`build_package_mappings`].
+pub fn read_package_mapping_rows(reader: impl std::io::Read) -> Result<Vec<BTreeMap<String, String>>, Error> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
+
+    let mut rows = vec![];
+    for result in csv_reader.deserialize() {
+        let row: BTreeMap<String, String> =
+            result.with_context(|| "Deserializing package mapping record".to_string())?;
+        rows.push(row);
+    }
+    Ok(rows)
+}
+
+/// The package mappings, made from each one's fields and the packages they map to.
+pub fn build_package_mappings<'packages>(
+    packages: &'packages [Package],
+    rows: &[BTreeMap<String, String>],
+) -> Result<Vec<PackageMapping<'packages>>, Error> {
+    rows.iter()
+        .map(|row| {
+            let record = PackageMappingRecord::from_fields(row.clone().into_iter().collect());
+            trace!("{:?}", record);
+            record
+                .build_package_mapping(packages)
+                .with_context(|| format!("Building package mapping from record. record: {:?}", record))
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -2186,6 +2186,8 @@ mod operation_sequence_1 {
         );
 
         assert_contains_inorder!(trace_content, [
+            // the load-out should be read first, before the project is changed (`STORE-11`)
+            &loading_load_out_message,
             // assignments should be made
             "Assigning placement to phase. phase: top_1, placement_path: pcb=1::unit=1::ref_des=R1",
             "Assigning placement to phase. phase: top_1, placement_path: pcb=1::unit=1::ref_des=R2",
@@ -2197,7 +2199,6 @@ mod operation_sequence_1 {
             "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: [\"pnp\"]",
             "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: [\"pnp\"]",
             // load-out should be checked
-            &loading_load_out_message,
             r#"Checking for part in load_out. part: Part { manufacturer: "RES_MFR1", mpn: "RES1" }"#,
             r#"Checking for part in load_out. part: Part { manufacturer: "RES_MFR2", mpn: "RES2" }"#,
             &storing_load_out_message,
@@ -4889,6 +4890,90 @@ mod legacy_processes {
                 "kind": "place_components"
             })
         );
+
+        Ok(())
+    }
+}
+
+mod relative_load_outs {
+    use std::fs;
+
+    use assert_cmd::Command;
+    use indoc::indoc;
+    use tempfile::tempdir;
+    use util::test::{prepare_args, print};
+
+    const PROJECT: &str = indoc! {r#"
+        {
+            "name": "job1",
+            "processes": [
+                {
+                    "reference": "manual",
+                    "operations": [
+                        { "reference": "load_pcbs", "tasks": ["core::load_pcbs"] }
+                    ],
+                    "rules": []
+                }
+            ]
+        }
+    "#};
+
+    /// `ISSUE-7`, `STORE-11`, a phase's relative load-out is created in the project's folder, not the CLI's working
+    /// directory, and the log names the file created.
+    #[test]
+    fn a_relative_load_out_is_created_in_the_projects_folder() -> Result<(), anyhow::Error> {
+        // given the CLI is run from a folder above the project's
+        let temp_dir = tempdir()?;
+        let job = temp_dir.path().join("job");
+        fs::create_dir(&job)?;
+        fs::write(job.join("project-job1.mpnp.json"), PROJECT)?;
+        let trace_path = temp_dir.path().join("trace.log");
+
+        // and
+        let trace_arg = format!("--trace {}", trace_path.to_str().unwrap());
+        let args = prepare_args(vec![
+            trace_arg.as_str(),
+            "-v",
+            "project",
+            "--path job",
+            "--project job1",
+            "create-phase",
+            "--process manual",
+            "--reference top_1",
+            "--load-out load_out_1",
+            "--pcb-side top",
+        ]);
+
+        // when
+        Command::new(env!("CARGO_BIN_EXE_planner_cli"))
+            .current_dir(temp_dir.path())
+            .args(args)
+            // then
+            .assert()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"))
+            .success();
+
+        // and
+        let trace_content = fs::read_to_string(&trace_path)?;
+        let load_out = job.join("load_out_1");
+        let relative_load_out = std::path::Path::new("job").join("load_out_1");
+        let created = format!("Created load-out. source: '{}'", relative_load_out.display());
+        let storing = format!("Storing load-out. source: '{}'", relative_load_out.display());
+        assert_contains_inorder!(trace_content, [
+            "Received event. event: CreatePhase {",
+            "load_out: File(\"load_out_1\")",
+            &created,
+            "Created phase. reference: 'top_1', process: manual, load_out: \"load_out_1\"",
+            &storing,
+        ]);
+
+        // and
+        assert!(load_out.exists());
+        assert!(!temp_dir
+            .path()
+            .join("load_out_1")
+            .exists());
 
         Ok(())
     }

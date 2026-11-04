@@ -1087,7 +1087,7 @@ pub fn project_with_a_feeder_assigned_using_the_core(core: &mut PlannerCoreServi
     });
 }
 
-/// `LOADOUT-1`, `LOADOUT-2`
+/// `LOADOUT-1`, `LOADOUT-2`, `STORE-11`
 #[test]
 fn assigning_a_feeder_saves_the_same_load_out_as_the_cli() {
     let mut app = App::start();
@@ -1097,6 +1097,17 @@ fn assigning_a_feeder_saves_the_same_load_out_as_the_cli() {
     create_project_with_a_feeder_assigned(&mut app, &folder);
 
     app.wait_until_button_is_disabled("Save");
+    // the stores service reads the load-out before the core assigns the feeder, then writes it.
+    app.wait_for_logs_in_order(&[
+        "planner_app: Received event. event: AssignFeederToLoadOutItem {",
+        "planner_app: Reading records for the event. records: ",
+        "stores_service: Performing stores operation. operation: ReadRecords { kind: LoadOut, source: ",
+        "planner_app: Received event. event: WithRecords {",
+        "Assigned feeder to load-out item. feeder: FEEDER_1",
+        "stores_service: Performing stores operation. operation: WriteRecords { source: ",
+        "planner_app: Stored records. source: ",
+    ]);
+    app.assert_not_logged("Event failed.");
     let saved_load_out = fs::read_to_string(&load_out).unwrap();
     assert!(saved_load_out.contains("FEEDER_1"));
 

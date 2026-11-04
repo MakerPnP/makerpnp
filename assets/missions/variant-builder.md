@@ -109,6 +109,7 @@ what they show is as it was.
 | `Load` | The project, its PCBs, and moving its processes to their own files, read and written by the service, in one command. | Done |
 | `CreatePcb`, `CreateProjectPcb`, `LoadPcb`, `SavePcb`, `SaveAllPcbs`, `AddPcb`, `RefreshPcbs` | PCB documents. A PCB is only created, or added, once it's written, or read, and an event needing a PCB that couldn't be read says so. | Done |
 | `CreateProcess`, `LoadProcess`, `SaveProcess`, `SaveAllProcesses`, `AddProcess`, `RefreshProcesses` | Process documents. A process is only created, or added, once it's written, or read. | Done |
-| Load-outs, packages, package mappings, placements | The project's data sources, used by many events. | Next |
-| `GenerateArtifacts` | The files made for a phase. | |
+| Load-outs, packages, package mappings, placements | The project's data sources, used by many events, read before the event, which is processed again with them, and changes nothing unless it succeeds (`STORE-11`). | Done |
+| `GenerateArtifacts` | The files made for a phase. | Next |
+| `RecordPhaseOperation` | Each phase's operation history. | |
 | The Variant Builder's core | EDA placements, parts, part mappings, substitutions, assembly rules, load-outs and the BOM. | |

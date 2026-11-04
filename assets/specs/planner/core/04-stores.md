@@ -71,10 +71,10 @@ back end is a module of the service, chosen by the data source: `csv_file` for f
 operation it's asked to do, as "`stores_service: Performing stores operation. operation: <operation>`" at debug level.
 An operation's result says how many parts were read, not what they are, as it's logged. A core given the result of a
 different operation MUST refuse it, as a fault in the shell. The planner's core uses the stores service to write a
-project's file, when it's created and when it's saved (`STORE-10`). *Target*: the planner's core and the Variant
-Builder's core MUST use the stores service for every file they read and write. The gap: they read and write the others
-themselves, so they share nothing with the stores core, and nothing tells them when a file changes. They're being moved
-to the stores service an event at a time (`../../missions/variant-builder.md`).
+project's documents (`STORE-10`), and the records of its data sources (`STORE-11`). *Target*: the planner's core and
+the Variant Builder's core MUST use the stores service for every file they read and write. The gap: the planner's core
+still writes the artifacts it generates, and each phase's operation history, itself, and nothing tells it when a file
+changes. They're being moved to the stores service an event at a time (`../../missions/variant-builder.md`).
 
 **STORE-8 — Revisions.** *Confirmed.* Each view of a data source MUST say which revision of the data source it shows, so
 that a view that's out of date can be known, and a change can say which revision it was based on. Two reads of a data
@@ -127,6 +127,34 @@ which every file is read before any process is changed, so nothing changes if on
 created, or added, once it's written, or read. The core logs "`planner_app: Saving process. path: <path>`" and
 "`planner_app: Saved process. path: <path>`", and "`planner_app: Loading process. path: <path>`", at info level.
 
+**STORE-11 — A project's data sources.** *Confirmed.* The records of a project's data sources, its phases' load-outs,
+its packages, its package mappings and its design variants' placements, MUST be read and written by the stores service,
+as records the core uses, not as files, so that the core is tested with records kept in memory by its tests. An event
+MUST be given the records it uses as they are when it's processed, read again for each event, so that a change made by
+anyone is used. An event MUST change nothing, and write nothing, unless it succeeds: if it needs records that haven't
+been read, what it changed MUST be undone, the records read, and the event processed again, with them, and if it fails,
+what it changed MUST be undone, and the records it would have written MUST NOT be written. So that the event's work is
+logged once, an event MUST ask for every record it can name before it changes anything, such as the placements of a
+variant it's about to assign to a unit, and the records of a data source that doesn't exist are none, not an error, so
+a phase can be created with a load-out that isn't there yet. An event that needs the records of a data source that
+doesn't exist MUST say "`Data source not found. source: '<source>'`". The records an event changes MUST be written once
+it succeeds, and a refused write MUST say why. A phase's load-out source MUST be resolved without checking that the
+file exists, as the core does no IO. *Observed*: the operations are `ReadRecords` and `WriteRecords`, logged as the
+service's others are (`STORE-7`), saying how many records there are, not what they are; the back end is `csv_file`,
+which reads the CSV files as the core did, and writes load-outs, the only records the core changes. The service logs
+"`Loading load-out. source: '<source>'`", "`Loading packages.`", "`Loading package mappings.`" or
+"`Loading placements.`", and "`Storing load-out. source: '<source>'`", at info level. The core logs
+"`planner_app: Reading records for the event. records: <records>`" at debug level when it asks for records, and is
+given them as "`planner_app: Received event. event: WithRecords {`", the event to process again, then
+"`planner_app: Stored records. source: '<source>'`" at info level once records are written. Creating a phase whose
+load-out doesn't exist logs "`Created load-out. source: '<source>'`" and writes an empty one. The events that use them
+are creating a phase, assigning placements to a phase, adding parts to a load-out, assigning a feeder, assigning a
+variant to a unit, refreshing from the design variants, setting the placement ordering, generating the artifacts, and
+viewing a phase's placements, its load-out, and the project's report. A relative load-out path MUST be relative to the
+project's folder, in every event, as the phase keeps it as it was given (`ISSUE-7`). *Target*: an event that changes
+the project and writes a load-out, such as assigning placements to a phase, keeps the project's change if the
+load-out's write is refused, as the write's result comes after the event.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
@@ -174,6 +202,26 @@ created, or added, once it's written, or read. The core logs "`planner_app: Savi
   unsaved, and that saving every process writes each, that loading one reads it, and that one that doesn't exist says
   so, that adding one to a project reads it, and that one that can't be read isn't added, and that refreshing reads
   each of the project's processes, changing nothing if one can't be read (`DOC-1`, `STORE-10`).
+- `planning/planner_app/tests/documents.rs`, with no files, answers the planner's core's reads and writes of records
+  itself, and checks creating a phase reads its load-out and writes an empty one if there's none, that one whose
+  load-out exists keeps it, and that each event reads the records again. It checks a phase whose load-out can't be read
+  isn't created, and changes nothing, that assigning a feeder writes the load-out with the feeder assigned, that a
+  feeder that can't be assigned writes nothing, that a load-out that can't be written says why, that a load-out that
+  doesn't exist says so when it's viewed, and that assigning a variant to a unit reads the variant's placements first,
+  once (`STORE-11`).
+- `planning/planner_cli/tests/planner.rs` checks "`Created load-out. source: '`" is logged before the phase is created,
+  that "`Loading load-out. source: '`" is logged before the placements are assigned to the phase, and
+  "`Storing load-out. source: '`" after, and that the load-out is as before (`STORE-11`). It creates a phase with a
+  relative load-out from a folder above the project's, and checks the load-out is created in the project's folder,
+  with "`Created load-out. source: '`" naming it (`ISSUE-7`, `STORE-11`).
+- `tests/ui/workflow.rs`, in the GUI, assigns a feeder, and checks
+  "`planner_app: Received event. event: AssignFeederToLoadOutItem {`",
+  "`planner_app: Reading records for the event. records: `",
+  "`stores_service: Performing stores operation. operation: ReadRecords { kind: LoadOut, source: `",
+  "`planner_app: Received event. event: WithRecords {`", "`Assigned feeder to load-out item. feeder: FEEDER_1`",
+  "`stores_service: Performing stores operation. operation: WriteRecords { source: `" and
+  "`planner_app: Stored records. source: `" are logged, in order, with no "`Event failed.`", and that the load-out is
+  as the CLI's (`STORE-11`).
 - `planning/planner_cli/tests/planner.rs` checks "`planner_app: Load project. path: `", then
   "`planner_app: Loading PCB. path: `" and "`panel_a.pcb.json`", are logged, in order, as a project with a PCB is
   loaded, and its other tests check the processes are given files as before (`STORE-10`).

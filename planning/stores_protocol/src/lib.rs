@@ -13,7 +13,10 @@ use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
 
 use crux_core::capability::Operation;
+pub use pnp::load_out::LoadOutItem;
+pub use pnp::package::Package;
 pub use pnp::part::Part;
+pub use pnp::placement::Placement;
 pub use util::source::Source;
 
 pub type PartsSource = Source;
@@ -100,6 +103,93 @@ pub enum StoresOperation {
     /// Writes the document's contents to the path, replacing any document there (`STORE-10`). Answered with
     /// [`StoresOutput::DocumentWritten`].
     WriteDocument { path: PathBuf, contents: String },
+
+    /// The records of a data source of the kind, such as a load-out, if there is one (`STORE-11`). Answered with
+    /// [`StoresOutput::RecordsRead`].
+    ReadRecords { kind: RecordsKind, source: Source },
+
+    /// Writes the records, replacing the data source's (`STORE-11`). Answered with [`StoresOutput::RecordsWritten`].
+    WriteRecords { source: Source, records: RecordsOf },
+}
+
+/// The kinds of data source whose records a core reads, each with a format the service knows (`STORE-11`).
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord
+)]
+pub enum RecordsKind {
+    LoadOut,
+    Packages,
+    /// Each record's fields by name, as each mapping is made with the packages, by the core.
+    PackageMappings,
+    Placements,
+}
+
+/// A data source's records, of its kind.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum RecordsOf {
+    LoadOut(Vec<LoadOutItem>),
+    Packages(Vec<Package>),
+    PackageMappings(Vec<BTreeMap<String, String>>),
+    Placements(Vec<Placement>),
+}
+
+impl RecordsOf {
+    pub fn kind(&self) -> RecordsKind {
+        match self {
+            RecordsOf::LoadOut(_) => RecordsKind::LoadOut,
+            RecordsOf::Packages(_) => RecordsKind::Packages,
+            RecordsOf::PackageMappings(_) => RecordsKind::PackageMappings,
+            RecordsOf::Placements(_) => RecordsKind::Placements,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            RecordsOf::LoadOut(records) => records.len(),
+            RecordsOf::Packages(records) => records.len(),
+            RecordsOf::PackageMappings(records) => records.len(),
+            RecordsOf::Placements(records) => records.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Says how many records there are, of what kind, not what they are, as they're logged.
+struct RecordsSummary<'a>(&'a RecordsOf);
+
+impl Debug for RecordsSummary<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{} {:?} records>", self.0.len(), self.0.kind())
+    }
+}
+
+/// A data source's records, and the revision they were read from (`STORE-8`).
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct Records {
+    pub revision: Revision,
+    pub records: RecordsOf,
+}
+
+impl Debug for Records {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Records({:?}, revision: {:?})",
+            RecordsSummary(&self.records),
+            self.revision.0
+        )
+    }
 }
 
 /// Says how long a document written is, not what it is, as an operation is logged.
@@ -139,6 +229,22 @@ impl Debug for StoresOperation {
                 path,
                 contents.len()
             ),
+            StoresOperation::ReadRecords {
+                kind,
+                source,
+            } => f
+                .debug_struct("ReadRecords")
+                .field("kind", kind)
+                .field("source", source)
+                .finish(),
+            StoresOperation::WriteRecords {
+                source,
+                records,
+            } => f
+                .debug_struct("WriteRecords")
+                .field("source", source)
+                .field("records", &RecordsSummary(records))
+                .finish(),
         }
     }
 }
@@ -168,6 +274,12 @@ pub enum StoresOutput {
 
     /// The revision of the document written, or why it couldn't be written.
     DocumentWritten(Result<Revision, String>),
+
+    /// The records, or `None` if there's no data source, for example no file, or why they couldn't be read.
+    RecordsRead(Result<Option<Records>, String>),
+
+    /// The revision of the records written, or why they couldn't be written.
+    RecordsWritten(Result<Revision, String>),
 }
 
 impl Operation for StoresOperation {
@@ -192,6 +304,8 @@ impl Debug for StoresOutput {
             StoresOutput::Changed => f.write_str("Changed"),
             StoresOutput::DocumentRead(result) => write!(f, "DocumentRead({:?})", result),
             StoresOutput::DocumentWritten(result) => write!(f, "DocumentWritten({:?})", result),
+            StoresOutput::RecordsRead(result) => write!(f, "RecordsRead({:?})", result),
+            StoresOutput::RecordsWritten(result) => write!(f, "RecordsWritten({:?})", result),
         }
     }
 }

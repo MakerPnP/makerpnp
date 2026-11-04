@@ -178,11 +178,17 @@ fn service(
         StoresOperation::WatchSource {
             ..
         } => unreachable!(),
-        // the stores core has no documents.
+        // the stores core has no documents, and reads no records other than parts.
         operation @ (StoresOperation::ReadDocument {
             ..
         }
         | StoresOperation::WriteDocument {
+            ..
+        }
+        | StoresOperation::ReadRecords {
+            ..
+        }
+        | StoresOperation::WriteRecords {
             ..
         }) => panic!("unexpected operation: {:?}", operation),
     }

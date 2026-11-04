@@ -1,5 +1,5 @@
 //! The planner's core, with no files: its tests answer the store operations it asks for themselves, from documents kept
-//! in memory (`STORE-7`, `STORE-10`).
+//! in memory, and from the records of data sources kept in memory (`STORE-7`, `STORE-10`, `STORE-11`).
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -7,12 +7,14 @@ use std::path::PathBuf;
 use crux_core::{Core, Request};
 use indexmap::IndexSet;
 use planner_app::{
-    Document, Effect, Event, PcbAssemblyFlip, PcbAssemblyOrientation, Planner, Revision, StoresOperation, StoresOutput,
+    Document, Effect, Event, LoadOutItem, PcbAssemblyFlip, PcbAssemblyOrientation, PcbSide, Planner, Records,
+    RecordsKind, RecordsOf, Reference, Revision, StoresOperation, StoresOutput,
 };
 use planning::file::{self, FileReference};
 use planning::pcb::Pcb;
 use planning::process::{ProcessDefinition, ProcessPresetFactory, ProcessReference};
 use planning::project::{Project, ProjectPcb, ProjectProcess};
+use regex::Regex;
 use util::source::Source;
 
 /// A shell, which answers each read of a document from those it keeps, and each write by keeping it, unless told to
@@ -24,6 +26,12 @@ struct Shell {
     documents: BTreeMap<PathBuf, String>,
     /// Refuses to read or write these, saying why.
     refused: BTreeMap<PathBuf, String>,
+    /// The records of each data source, as written.
+    records: BTreeMap<Source, RecordsOf>,
+    /// Refuses to read or write the records of these, saying why.
+    refused_records: BTreeMap<Source, String>,
+    /// Refuses to write the records of these, saying why.
+    refused_records_writes: BTreeMap<Source, String>,
     /// The store operations done, in order.
     operations: Vec<StoresOperation>,
 }
@@ -94,8 +102,67 @@ impl Shell {
                         contents: contents.clone(),
                     })),
             }),
+            StoresOperation::ReadRecords {
+                kind,
+                source,
+            } => StoresOutput::RecordsRead(match self.refused_records.get(source) {
+                Some(cause) => Err(cause.clone()),
+                None => Ok(self
+                    .records
+                    .get(source)
+                    .filter(|records| records.kind() == *kind)
+                    .map(|records| Records {
+                        revision: Revision(format!("{:?}", records)),
+                        records: records.clone(),
+                    })),
+            }),
+            StoresOperation::WriteRecords {
+                source,
+                records,
+            } => StoresOutput::RecordsWritten(
+                match self
+                    .refused_records
+                    .get(source)
+                    .or(self.refused_records_writes.get(source))
+                {
+                    Some(cause) => Err(cause.clone()),
+                    None => {
+                        self.records
+                            .insert(source.clone(), records.clone());
+                        Ok(Revision(format!("{:?}", records)))
+                    }
+                },
+            ),
             operation => panic!("unexpected operation: {:?}", operation),
         }
+    }
+
+    /// The records read, in order.
+    fn records_reads(&self) -> Vec<(RecordsKind, Source)> {
+        self.operations
+            .iter()
+            .filter_map(|operation| match operation {
+                StoresOperation::ReadRecords {
+                    kind,
+                    source,
+                } => Some((*kind, source.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The records written, in order.
+    fn records_writes(&self) -> Vec<(Source, RecordsOf)> {
+        self.operations
+            .iter()
+            .filter_map(|operation| match operation {
+                StoresOperation::WriteRecords {
+                    source,
+                    records,
+                } => Some((source.clone(), records.clone())),
+                _ => None,
+            })
+            .collect()
     }
 
     /// The paths read, in order.
@@ -854,4 +921,212 @@ fn refreshing_processes_reads_each() {
     assert_eq!(shell.error(), None);
     assert!(shell.project_modified());
     assert_eq!(shell.reads().last(), Some(&process_path("pnp")));
+}
+
+/// The load-out, in the project's folder, as a phase given its name uses it.
+fn load_out_source(name: &str) -> Source {
+    Source::File(PathBuf::from("projects").join(load_out_name(name)))
+}
+
+fn load_out_name(name: &str) -> String {
+    format!("{}_load_out.csv", name)
+}
+
+/// A project with a process, `pnp`, loaded.
+fn a_loaded_project_with_a_process(shell: &mut Shell) {
+    let process = ProcessPresetFactory::by_preset_name("pnp").unwrap();
+    shell.given_a_document(
+        &project_path("job1"),
+        &a_project_with_a_process_without_a_file("job1", &process),
+    );
+    shell.process(load("job1"));
+    assert_eq!(shell.error(), None);
+}
+
+/// A phase whose load-out is given relative to the project's folder.
+fn create_phase(reference: &str, load_out: &str) -> Event {
+    Event::CreatePhase {
+        process: ProcessReference::from_raw_str("pnp"),
+        reference: Reference::from_raw_str(reference),
+        load_out: Source::File(PathBuf::from(load_out_name(load_out))),
+        pcb_side: PcbSide::Top,
+    }
+}
+
+fn an_item(manufacturer: &str, mpn: &str) -> LoadOutItem {
+    LoadOutItem {
+        reference: None,
+        manufacturer: manufacturer.to_string(),
+        mpn: mpn.to_string(),
+    }
+}
+
+/// `STORE-11`, creating a phase has the stores service read its load-out first, and write an empty one if there isn't
+/// one, in the project's folder, as the load-out is given relative to it (`ISSUE-7`).
+#[test]
+fn creating_a_phase_reads_its_load_out_and_writes_one_if_there_is_none() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+
+    shell.process(create_phase("top_1", "top_1"));
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.records_reads(), vec![(
+        RecordsKind::LoadOut,
+        load_out_source("top_1")
+    )]);
+    assert_eq!(shell.records_writes(), vec![(
+        load_out_source("top_1"),
+        RecordsOf::LoadOut(vec![])
+    )]);
+    assert!(shell.project_modified());
+}
+
+/// `STORE-11`, a phase whose load-out exists keeps it, and each event reads the records it uses again.
+#[test]
+fn creating_a_phase_keeps_its_load_out_if_there_is_one() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.records.insert(
+        load_out_source("shared"),
+        RecordsOf::LoadOut(vec![an_item("MFR1", "MPN1")]),
+    );
+
+    shell.process(create_phase("top_1", "shared"));
+    shell.process(create_phase("top_2", "shared"));
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.records_reads(), vec![
+        (RecordsKind::LoadOut, load_out_source("shared")),
+        (RecordsKind::LoadOut, load_out_source("shared")),
+    ]);
+    assert_eq!(shell.records_writes(), vec![]);
+}
+
+/// `STORE-11`, an event whose records can't be read fails, and changes nothing.
+#[test]
+fn a_phase_whose_load_out_can_not_be_read_is_not_created() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    let modified_before = shell.project_modified();
+    shell
+        .refused_records
+        .insert(load_out_source("top_1"), "Unable to read the records.".to_string());
+
+    shell.process(create_phase("top_1", "top_1"));
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to read the records."), "{error}");
+    assert_eq!(shell.records_writes(), vec![]);
+    assert_eq!(shell.project_modified(), modified_before);
+}
+
+/// `STORE-11`, assigning a feeder has the stores service write the load-out, with the feeder assigned to the item.
+#[test]
+fn assigning_a_feeder_writes_the_load_out() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.records.insert(
+        load_out_source("top_1"),
+        RecordsOf::LoadOut(vec![an_item("MFR1", "MPN1"), an_item("MFR2", "MPN2")]),
+    );
+    shell.process(create_phase("top_1", "top_1"));
+
+    shell.process(Event::AssignFeederToLoadOutItem {
+        phase: Reference::from_raw_str("top_1"),
+        feeder_reference: Some(Reference::from_raw_str("FEEDER_1")),
+        manufacturer: Regex::new("^MFR1$").unwrap(),
+        mpn: Regex::new("^MPN1$").unwrap(),
+    });
+
+    assert_eq!(shell.error(), None);
+    let mut assigned = an_item("MFR1", "MPN1");
+    assigned.reference = Some(Reference::from_raw_str("FEEDER_1"));
+    assert_eq!(shell.records_writes(), vec![(
+        load_out_source("top_1"),
+        RecordsOf::LoadOut(vec![assigned, an_item("MFR2", "MPN2")])
+    )]);
+}
+
+/// `STORE-11`, an event that fails after reading its records changes nothing, and writes nothing.
+#[test]
+fn a_feeder_that_can_not_be_assigned_writes_nothing() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.records.insert(
+        load_out_source("top_1"),
+        RecordsOf::LoadOut(vec![an_item("MFR1", "MPN1")]),
+    );
+    shell.process(create_phase("top_1", "top_1"));
+
+    shell.process(Event::AssignFeederToLoadOutItem {
+        phase: Reference::from_raw_str("top_1"),
+        feeder_reference: Some(Reference::from_raw_str("FEEDER_1")),
+        manufacturer: Regex::new("^OTHER$").unwrap(),
+        mpn: Regex::new(".*").unwrap(),
+    });
+
+    assert!(shell.error().is_some());
+    assert_eq!(shell.records_writes(), vec![]);
+}
+
+/// `STORE-11`, a load-out that can't be written says why.
+#[test]
+fn a_load_out_that_can_not_be_written_says_why() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell
+        .refused_records_writes
+        .insert(load_out_source("top_1"), "Unable to write the records.".to_string());
+
+    shell.process(create_phase("top_1", "top_1"));
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Unable to write the records."), "{error}");
+}
+
+/// `STORE-11`, a load-out that doesn't exist, used by an event that needs it, says so.
+#[test]
+fn a_load_out_that_does_not_exist_says_so() {
+    let mut shell = Shell::default();
+    a_loaded_project_with_a_process(&mut shell);
+    shell.process(create_phase("top_1", "top_1"));
+    shell.records.clear();
+
+    shell.process(Event::RequestPhaseLoadOutView {
+        phase_reference: Reference::from_raw_str("top_1"),
+    });
+
+    let error = shell.error().expect("an error");
+    assert!(error.contains("Data source not found."), "{error}");
+}
+
+/// `STORE-11`, assigning a variant to a unit has the stores service read the variant's placements before the project is
+/// changed, once.
+#[test]
+fn assigning_a_variant_reads_its_placements_first() {
+    let mut shell = Shell::default();
+    let pcb = Pcb::new(
+        "panel_a".to_string(),
+        1,
+        IndexSet::from(["design_a".into()]),
+        BTreeMap::from([(0, 0)]),
+    );
+    shell.given_a_document(&pcb_path("panel_a"), &pcb);
+    shell.given_a_document(&project_path("job1"), &a_project_using("job1", &["panel_a"]));
+    shell.process(load("job1"));
+    assert_eq!(shell.error(), None);
+    let placements = Source::File(PathBuf::from("projects").join("design_a_variant_a_placements.csv"));
+    shell
+        .records
+        .insert(placements.clone(), RecordsOf::Placements(vec![]));
+
+    shell.process(Event::AssignVariantToUnit {
+        unit: "pcb=1::unit=1".parse().unwrap(),
+        variant: Some("variant_a".into()),
+    });
+
+    assert_eq!(shell.error(), None);
+    assert_eq!(shell.records_reads(), vec![(RecordsKind::Placements, placements)]);
+    assert!(shell.project_modified());
 }

@@ -126,7 +126,7 @@ From the CLI, in an empty folder:
 | [`ISSUE-4`](ISSUE-4-dragging-a-table-row-moved-the-columns.md) | Fixed | Planner: GUI | Dragging a table's row moved the columns |
 | [`ISSUE-5`](ISSUE-5-pcb-tabs-number-pcbs-from-0.md) | Open | Planner: GUI | A project's PCB tabs number PCBs from 0 |
 | [`ISSUE-6`](ISSUE-6-add-phase-cannot-create-a-load-out.md) | Open | Planner: GUI | The Add phase dialog can't create a new load-out |
-| [`ISSUE-7`](ISSUE-7-load-outs-are-not-stored-relative-to-the-project.md) | Open | Planner: core | Load-outs aren't stored relative to the project's folder |
+| [`ISSUE-7`](ISSUE-7-load-outs-are-not-stored-relative-to-the-project.md) | Open, the CLI's part fixed | Planner: core | Load-outs aren't stored relative to the project's folder |
 | [`ISSUE-8`](ISSUE-8-adding-a-phase-with-a-used-reference-replaces-it.md) | Open | Planner: core | Adding a phase with a reference that's already used replaces that phase |
 | [`ISSUE-9`](ISSUE-9-placed-cell-edit-does-not-finish-on-the-next-row.md) | Open | Planner: GUI | Clicking the next row's "Placed?" cell doesn't finish an edit |
 | [`ISSUE-10`](ISSUE-10-remove-ignored-the-chosen-phase.md) | Fixed | Planner: GUI | "Remove" on the Placements tab ignored the chosen phase |

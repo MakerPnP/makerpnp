@@ -19,10 +19,15 @@ pub fn load_packages(source: &PackagesSource) -> Result<Vec<Package>, Error> {
         .path()
         .map_err(|error| anyhow!("Unsupported source type. cause: {:?}", error))?;
 
+    let file =
+        std::fs::File::open(&path).with_context(|| format!("Error reading packages. file: {}", path.display()))?;
+    read_packages(file).with_context(|| format!("Error reading packages. file: {}", path.display()))
+}
+
+/// The packages, from their CSV.
+pub fn read_packages(reader: impl std::io::Read) -> Result<Vec<Package>, Error> {
     // Use the CSV reader directly without serialization
-    let mut reader = csv::ReaderBuilder::new()
-        .from_path(path.clone())
-        .with_context(|| format!("Error reading packages. file: {}", path.display()))?;
+    let mut reader = csv::ReaderBuilder::new().from_reader(reader);
 
     let mut packages = Vec::new();
 

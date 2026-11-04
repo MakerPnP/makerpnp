@@ -9,7 +9,9 @@ use futures::StreamExt;
 use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
-use stores_protocol::{Parts, PartsSource, PartsViewItem, Revision, Source, StoresOutput};
+use stores_protocol::{
+    Parts, PartsSource, PartsViewItem, Records, RecordsKind, RecordsOf, Revision, Source, StoresOutput,
+};
 use tracing::{info, warn};
 
 /// For a file that exists, its canonical path, without the `\\?\` prefix Windows adds where it isn't needed, otherwise
@@ -122,4 +124,75 @@ fn could_change_contents(kind: &EventKind) -> bool {
 /// The revision of a file's contents: their SHA-256 hash, so it's the same in every process, and changes if they do.
 pub fn revision(contents: &[u8]) -> Revision {
     Revision(format!("{:x}", Sha256::digest(contents)))
+}
+
+/// The data source's records, of the kind, and their revision, or `None` if there's no file (`STORE-11`).
+pub async fn read_records(kind: RecordsKind, source: &Source) -> Result<Option<Records>, String> {
+    let Source::File(path) = source else {
+        return Err(format!("Unsupported source. source: {:?}", source));
+    };
+
+    info!("Loading {}. source: '{}'", name(kind), source);
+    // read once, so the revision is of the contents the records were read from.
+    let contents = match std::fs::read(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Unable to read the records. source: '{}', cause: '{}'",
+                source, error
+            ))
+        }
+    };
+    let revision = revision(&contents);
+
+    let records = match kind {
+        RecordsKind::LoadOut => stores::load_out::read_items(contents.as_slice()).map(RecordsOf::LoadOut),
+        RecordsKind::Packages => stores::packages::read_packages(contents.as_slice()).map(RecordsOf::Packages),
+        RecordsKind::PackageMappings => {
+            stores::package_mappings::read_package_mapping_rows(contents.as_slice()).map(RecordsOf::PackageMappings)
+        }
+        RecordsKind::Placements => stores::placements::read_placements(contents.as_slice()).map(RecordsOf::Placements),
+    }
+    .map_err(|error| format!("Unable to read the records. source: '{}', cause: '{:#}'", source, error))?;
+
+    Ok(Some(Records {
+        revision,
+        records,
+    }))
+}
+
+/// Writes the records, replacing the file if there is one, and returns the revision written (`STORE-11`).
+pub async fn write_records(source: &Source, records: &RecordsOf) -> Result<Revision, String> {
+    let Source::File(path) = source else {
+        return Err(format!("Unsupported source. source: {:?}", source));
+    };
+
+    info!("Storing {}. source: '{}'", name(records.kind()), source);
+    let mut contents = vec![];
+    match records {
+        RecordsOf::LoadOut(items) => stores::load_out::write_items(&mut contents, items),
+        records => Err(anyhow!("Unsupported records. kind: {:?}", records.kind())),
+    }
+    .map_err(|error| {
+        format!(
+            "Unable to write the records. source: '{}', cause: '{:#}'",
+            source, error
+        )
+    })?;
+
+    std::fs::write(path, &contents)
+        .map_err(|error| format!("Unable to write the records. source: '{}', cause: '{}'", source, error))?;
+
+    Ok(revision(&contents))
+}
+
+/// What the records are called in the logs, as they were when the core read them itself.
+fn name(kind: RecordsKind) -> &'static str {
+    match kind {
+        RecordsKind::LoadOut => "load-out",
+        RecordsKind::Packages => "packages",
+        RecordsKind::PackageMappings => "package mappings",
+        RecordsKind::Placements => "placements",
+    }
 }

@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt::Debug;
-use std::path::PathBuf;
-use std::str::FromStr;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::SystemTime;
 
-use anyhow::{anyhow, Error};
+use anyhow::anyhow;
 pub use args::Arg;
 use crux_core::command::CommandContext;
 use crux_core::macros::effect;
@@ -56,28 +56,29 @@ pub use pnp::placement::{Placement, PlacementPosition, PlacementPositionUnit};
 pub use pnp::reference::Reference;
 use regex::Regex;
 use serde_with::serde_as;
-use stores::load_out::LoadOutOperationError;
 pub use stores::load_out::LoadOutSource;
 pub use stores::package_mappings::PackageMappingsSource;
 pub use stores::packages::PackagesSource;
-pub use stores_protocol::{Document, Revision, StoresOperation, StoresOutput};
+pub use stores_protocol::{Document, Records, RecordsKind, RecordsOf, Revision, StoresOperation, StoresOutput};
 use thiserror::Error;
 use tracing::{debug, error, info, trace, warn};
-use util::source::SourceError;
+use util::source::{Source, SourceError};
 
 use crate::effects::pcb_view_renderer::PcbViewRendererOperation;
 use crate::effects::process_view_renderer::ProcessViewRendererOperation;
 use crate::effects::project_view_renderer::ProjectViewRendererOperation;
 use crate::effects::{pcb_view_renderer, process_view_renderer, project_view_renderer};
+use crate::stored::StoredRecords;
 
 pub mod effects;
+pub mod stored;
 
 extern crate serde_regex;
 
 #[derive(Default)]
 pub struct Planner;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ModelProject {
     path: PathBuf,
     project_directory: PathBuf,
@@ -101,6 +102,7 @@ impl ModelProject {
     }
 }
 
+#[derive(Clone)]
 pub struct ModelPcb {
     pcb: Pcb,
     modified: bool,
@@ -111,6 +113,7 @@ pub struct ModelPcb {
 type ModelPcbs = BTreeMap<PathBuf, ModelPcb>;
 
 /// A process document, a process's definition in its own file.
+#[derive(Clone)]
 pub struct ModelProcess {
     definition: ProcessDefinition,
     modified: bool,
@@ -120,7 +123,7 @@ pub struct ModelProcess {
 
 type ModelProcesses = BTreeMap<PathBuf, ModelProcess>;
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct Model {
     model_project: Option<ModelProject>,
     /// A project being created, until its file is written (`DOC-1`), so a project whose file can't be written isn't
@@ -139,6 +142,11 @@ pub struct Model {
     model_processes: ModelProcesses,
     /// Process documents being created, until their files are written (`DOC-1`).
     creating_processes: ModelProcesses,
+
+    /// The records read for the event being processed (`STORE-11`), see [`stored`].
+    stored: Arc<StoredRecords>,
+    /// The records the event being processed has changed, written once it's done.
+    pending_writes: Vec<(Source, RecordsOf)>,
 
     error: Option<(chrono::DateTime<chrono::Utc>, String)>,
 }
@@ -516,6 +524,20 @@ async fn write_document(ctx: &Context, path: &PathBuf, contents: String) -> Resu
     }
 }
 
+/// The records of the data source, read by the stores service (`STORE-11`).
+async fn read_records(ctx: &Context, kind: RecordsKind, source: &Source) -> Result<Option<Records>, String> {
+    match ctx
+        .request_from_shell(StoresOperation::ReadRecords {
+            kind,
+            source: source.clone(),
+        })
+        .await
+    {
+        StoresOutput::RecordsRead(result) => result,
+        output => Err(format!("Unexpected output. output: {:?}", output)),
+    }
+}
+
 /// A process, from its document's contents.
 fn process_from_contents(path: &PathBuf, contents: &str) -> Result<ProcessDefinition, String> {
     file::from_str::<ProcessDefinition>(contents)
@@ -523,7 +545,7 @@ fn process_from_contents(path: &PathBuf, contents: &str) -> Result<ProcessDefini
 }
 
 /// The processes read for [`Event::RefreshProcesses`], by the reference of the process each replaces.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct ProcessDefinitions(Vec<(ProcessReference, ProcessDefinition)>);
 
 /// Says which processes were read, not what's in them, as the event is logged.
@@ -540,7 +562,7 @@ impl Debug for ProcessDefinitions {
 }
 
 /// A project read for [`Event::Load`], with the PCBs it uses that weren't loaded already.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
 pub struct LoadedProject {
     project: Project,
     /// Whether its processes were moved to their own files, so it has unsaved changes.
@@ -867,9 +889,19 @@ pub struct PlannerOperationViewModel {
 }
 
 #[serde_as]
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub enum Event {
     None,
+    /// Internal: the event, given the records it needs, read by the stores service (`STORE-11`), see [`stored`].
+    WithRecords {
+        event: Box<Event>,
+        records: StoredRecords,
+    },
+    /// Internal: the records an event changed were written, or weren't (`STORE-11`).
+    RecordsWritten {
+        source: Source,
+        output: StoresOutput,
+    },
     CreateProject {
         name: String,
         /// The name of the project file
@@ -1182,6 +1214,24 @@ impl Planner {
     > {
         match event {
             Event::None => Box::new(|_model: &mut Model| Ok(render::render())),
+            // given its records, and processed, by `update`.
+            Event::WithRecords {
+                ..
+            } => unreachable!(),
+            Event::RecordsWritten {
+                source,
+                output,
+            } => Box::new(move |_model: &mut Model| {
+                let StoresOutput::RecordsWritten(result) = output else {
+                    return Err(AppError::UnexpectedOutput {
+                        output,
+                    });
+                };
+                result.map_err(AppError::StoresError)?;
+                info!("Stored records. source: '{}'", source);
+
+                Ok(render::render())
+            }),
             Event::CreateProject {
                 name,
                 path,
@@ -1262,7 +1312,7 @@ impl Planner {
                         });
                 }
                 if let Some(error) = pcb_error {
-                    return Err(AppError::StoresError(error));
+                    return Err(AppError::Kept(Box::new(AppError::StoresError(error))));
                 }
 
                 Ok(render::render())
@@ -2012,6 +2062,7 @@ impl Planner {
                 variant: variant_name,
                 unit,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project,
@@ -2022,18 +2073,23 @@ impl Planner {
                     pcbs,
                     ..,
                 ) = { Self::model_project_and_pcbs(model) }?;
+
+                // `STORE-11`, the placements of the variant being assigned are read before the project is changed.
+                let assigning = assigning_design_variant(&pcbs, &unit, &variant_name);
+                stored.require(&Self::placements_needed(project, &pcbs, path, assigning))?;
 
                 project
                     .update_assignment(&pcbs, unit.clone(), variant_name)
                     .map_err(AppError::OperationError)?;
                 *modified |= true;
 
-                let refresh_result = Self::refresh_project(project, &pcbs, path).map_err(AppError::ProjectError)?;
+                let refresh_result = Self::refresh_project(project, &pcbs, path, &stored)?;
                 *modified |= refresh_result;
 
                 Ok(render::render())
             }),
             Event::RefreshFromDesignVariants => Box::new(|model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project,
@@ -2044,7 +2100,7 @@ impl Planner {
                     pcbs,
                     ..,
                 ) = { Self::model_project_and_pcbs(model) }?;
-                let refresh_result = Self::refresh_project(project, &pcbs, path).map_err(AppError::ProjectError)?;
+                let refresh_result = Self::refresh_project(project, &pcbs, path, &stored)?;
                 *modified |= refresh_result;
 
                 Ok(render::render())
@@ -2086,14 +2142,22 @@ impl Planner {
                 load_out,
                 pcb_side,
             } => Box::new(move |model: &mut Model| {
-                let ModelProject {
-                    project,
-                    modified,
-                    ..
-                } = model
-                    .model_project
-                    .as_mut()
-                    .ok_or(AppError::OperationRequiresProject)?;
+                let stored = model.stored.clone();
+                let (
+                    ModelProject {
+                        project,
+                        modified,
+                        ..
+                    },
+                    directory,
+                ) = Self::model_project_and_directory(model)?;
+
+                // the phase keeps the load-out as it was given, and it's read and written relative to the project's
+                // directory, as every event reads it (`ISSUE-7`).
+                let load_out_source = project_load_out_source(&directory, &load_out.to_string());
+
+                // `STORE-11`, read first, so the load-out is made only if there isn't one.
+                stored.require(&[(RecordsKind::LoadOut, load_out_source.clone())])?;
 
                 let process = project
                     .find_process(&process_reference)
@@ -2102,11 +2166,23 @@ impl Planner {
 
                 *modified |= true;
 
-                stores::load_out::ensure_load_out(&load_out).map_err(AppError::OperationError)?;
+                // Written only if the event succeeds.
+                let create_load_out = stored
+                    .load_out(&load_out_source)?
+                    .is_none();
+                if create_load_out {
+                    info!("Created load-out. source: '{}'", load_out_source);
+                }
 
                 project
                     .update_phase(reference, process.reference.clone(), load_out.to_string(), pcb_side)
                     .map_err(AppError::PhaseError)?;
+
+                if create_load_out {
+                    model
+                        .pending_writes
+                        .push((load_out_source, RecordsOf::LoadOut(vec![])));
+                }
 
                 Ok(render::render())
             }),
@@ -2160,6 +2236,8 @@ impl Planner {
                 operation,
                 placements: placements_pattern,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
+                let mut writes = vec![];
                 let (
                     ModelProject {
                         project,
@@ -2172,14 +2250,22 @@ impl Planner {
                     ..,
                 ) = { Self::model_project_and_pcbs(model) }?;
 
-                let refresh_result = Self::refresh_project(project, &pcbs, path).map_err(AppError::ProjectError)?;
-                *modified |= refresh_result;
-
                 let phase = project
                     .phases
-                    .get_mut(&phase_reference)
+                    .get(&phase_reference)
                     .ok_or(AppError::UnknownPhaseReference(phase_reference.clone()))?
                     .clone();
+
+                let load_out_source =
+                    try_build_phase_load_out_source(&directory, &phase).map_err(AppError::SourceError)?;
+
+                // `STORE-11`, all read before the project is changed.
+                let mut needed = Self::placements_needed(project, &pcbs, path, None);
+                needed.push((RecordsKind::LoadOut, load_out_source.clone()));
+                stored.require(&needed)?;
+
+                let refresh_result = Self::refresh_project(project, &pcbs, path, &stored)?;
+                *modified |= refresh_result;
 
                 let parts = project::assign_placements_to_phase(project, &phase, operation.clone(), placements_pattern)
                     .map_err(|cause| AppError::ProjectError(ProjectError::UnableToAssignPhaseToPlacements(cause)))?;
@@ -2187,9 +2273,6 @@ impl Planner {
                 trace!("Required load_out parts: {:?}", parts);
 
                 *modified |= project::refresh_phase_operation_states(project);
-
-                let load_out_source =
-                    try_build_phase_load_out_source(&directory, &phase).map_err(AppError::SourceError)?;
 
                 match operation {
                     SetOrClearAction::Set => {
@@ -2204,13 +2287,15 @@ impl Planner {
 
                             *modified |= project::add_process_to_part(part_state, part, phase.process.clone());
                         }
-                        stores::load_out::add_parts_to_load_out(&load_out_source, parts)
-                            .map_err(AppError::LoadoutError)?;
+                        let mut items = stored.existing_load_out(&load_out_source)?;
+                        stores::load_out::add_parts(&mut items, &parts);
+                        writes.push((load_out_source, RecordsOf::LoadOut(items)));
                     }
                     SetOrClearAction::Clear => {
                         // FUTURE not currently sure if cleanup should happen automatically or if it should be explicit.
                     }
                 }
+                model.pending_writes.extend(writes);
                 Ok(render::render())
             }),
             Event::AddPartsToLoadout {
@@ -2218,6 +2303,7 @@ impl Planner {
                 manufacturer: manufacturer_pattern,
                 mpn: mpn_pattern,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project, ..
@@ -2227,15 +2313,20 @@ impl Planner {
 
                 let phase = project
                     .phases
-                    .get_mut(&phase_reference)
+                    .get(&phase_reference)
                     .ok_or(AppError::UnknownPhaseReference(phase_reference.clone()))?;
 
                 let load_out_source =
                     try_build_phase_load_out_source(&directory, phase).map_err(AppError::SourceError)?;
+                stored.require(&[(RecordsKind::LoadOut, load_out_source.clone())])?;
 
                 let parts = project::find_phase_parts(project, &phase_reference, manufacturer_pattern, mpn_pattern);
 
-                stores::load_out::add_parts_to_load_out(&load_out_source, parts).map_err(AppError::LoadoutError)?;
+                let mut items = stored.existing_load_out(&load_out_source)?;
+                stores::load_out::add_parts(&mut items, &parts);
+                model
+                    .pending_writes
+                    .push((load_out_source, RecordsOf::LoadOut(items)));
 
                 Ok(render::render())
             }),
@@ -2261,6 +2352,7 @@ impl Planner {
                 manufacturer,
                 mpn,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project, ..
@@ -2280,21 +2372,21 @@ impl Planner {
 
                 let load_out_source =
                     try_build_phase_load_out_source(&directory, phase).map_err(AppError::SourceError)?;
+                stored.require(&[(RecordsKind::LoadOut, load_out_source.clone())])?;
 
-                stores::load_out::assign_feeder_to_load_out_item(
-                    &load_out_source,
-                    &process,
-                    feeder_reference,
-                    manufacturer,
-                    mpn,
-                )
-                .map_err(AppError::OperationError)?;
+                let mut items = stored.existing_load_out(&load_out_source)?;
+                stores::load_out::assign_feeder(&mut items, &process, &feeder_reference, &manufacturer, &mpn)
+                    .map_err(|cause| AppError::OperationError(cause.into()))?;
+                model
+                    .pending_writes
+                    .push((load_out_source, RecordsOf::LoadOut(items)));
                 Ok(render::render())
             }),
             Event::SetPlacementOrdering {
                 phase: reference,
                 placement_orderings,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project,
@@ -2306,7 +2398,7 @@ impl Planner {
                     ..,
                 ) = { Self::model_project_and_pcbs(model) }?;
 
-                let refresh_result = Self::refresh_project(project, &pcbs, path).map_err(AppError::ProjectError)?;
+                let refresh_result = Self::refresh_project(project, &pcbs, path, &stored)?;
                 *modified |= refresh_result;
 
                 *modified |= project::update_placement_orderings(project, &reference, &placement_orderings)
@@ -2315,6 +2407,7 @@ impl Planner {
                 Ok(render::render())
             }),
             Event::GenerateArtifacts => Box::new(|model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project,
@@ -2325,14 +2418,18 @@ impl Planner {
                     project_directory,
                 ) = { Self::model_project_and_pcbs(model) }?;
 
+                // `STORE-11`, all read before the project is changed.
+                let mut needed = Self::phase_load_outs_needed(project, &project_directory)?;
+                needed.extend(Self::packages_needed(project));
+                stored.require(&needed)?;
+
                 *modified |= project::refresh_phase_operation_states(project);
 
-                let phase_load_out_item_map = Self::build_phase_load_out_item_map(project, &project_directory)
-                    .map_err(AppError::OperationError)?;
+                let phase_load_out_item_map =
+                    Self::build_phase_load_out_item_map(project, &project_directory, &stored)?;
 
-                let mut packages = Vec::new();
                 let mut package_mappings = Vec::new();
-                let part_packages_map = Self::load_part_packages_map(project, &mut packages, &mut package_mappings)?;
+                let part_packages_map = Self::part_packages_map(project, &stored, &mut package_mappings)?;
 
                 project::generate_artifacts(
                     project,
@@ -3019,6 +3116,7 @@ impl Planner {
             Event::RequestPhasePlacementsView {
                 phase_reference,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project, ..
@@ -3034,7 +3132,12 @@ impl Planner {
                 let load_out_source =
                     try_build_phase_load_out_source(&project_directory, &phase).map_err(AppError::SourceError)?;
 
-                let loadout_items = stores::load_out::load_items(&load_out_source).map_err(AppError::OperationError)?;
+                // `STORE-11`
+                let mut needed = vec![(RecordsKind::LoadOut, load_out_source.clone())];
+                needed.extend(Self::packages_needed(project));
+                stored.require(&needed)?;
+
+                let loadout_items = stored.existing_load_out(&load_out_source)?;
 
                 let mut placements: Vec<(&ObjectPath, &PlacementState)> = project
                     .placements
@@ -3047,9 +3150,8 @@ impl Planner {
 
                 let pcb_unit_positioning_map = project::build_pcbs_unit_positioning_map(&pcbs);
 
-                let mut packages = Vec::new();
                 let mut package_mappings = Vec::new();
-                let part_packages_map = Self::load_part_packages_map(project, &mut packages, &mut package_mappings)?;
+                let part_packages_map = Self::part_packages_map(project, &stored, &mut package_mappings)?;
 
                 project::sort_placements(
                     &mut placements,
@@ -3134,6 +3236,7 @@ impl Planner {
             Event::RequestPhaseLoadOutView {
                 phase_reference,
             } => Box::new(move |model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project, ..
@@ -3149,7 +3252,8 @@ impl Planner {
                 let load_out_source =
                     try_build_phase_load_out_source(&directory, &phase).map_err(AppError::SourceError)?;
 
-                let items = stores::load_out::load_items(&load_out_source).map_err(AppError::OperationError)?;
+                // `STORE-11`
+                let items = stored.existing_load_out(&load_out_source)?;
 
                 let load_out_view = LoadOut {
                     phase_reference,
@@ -3160,6 +3264,7 @@ impl Planner {
                 Ok(project_view_renderer::view(ProjectView::PhaseLoadOut(load_out_view)))
             }),
             Event::RequestProjectReportView {} => Box::new(|model: &mut Model| {
+                let stored = model.stored.clone();
                 let (
                     ModelProject {
                         project, ..
@@ -3168,8 +3273,8 @@ impl Planner {
                     project_directory,
                 ) = { Self::model_project_and_pcbs(model) }?;
 
-                let phase_load_out_item_map = Self::build_phase_load_out_item_map(project, &project_directory)
-                    .map_err(AppError::OperationError)?;
+                let phase_load_out_item_map =
+                    Self::build_phase_load_out_item_map(project, &project_directory, &stored)?;
 
                 let report = report::project_generate_report(project, &pcbs, &phase_load_out_item_map);
 
@@ -3178,38 +3283,64 @@ impl Planner {
         }
     }
 
-    fn build_phase_load_out_item_map(
-        project: &mut Project,
+    /// Each phase's load-out source.
+    fn phase_load_out_sources(
+        project: &Project,
         project_directory: &PathBuf,
-    ) -> Result<BTreeMap<Reference, Vec<LoadOutItem>>, Error> {
-        project.phases.iter().try_fold(
-            BTreeMap::<Reference, Vec<LoadOutItem>>::new(),
-            |mut map, (reference, phase)| {
-                let load_out_items = stores::load_out::load_items(&LoadOutSource::try_from_path(
-                    &project_directory,
-                    PathBuf::from_str(&phase.load_out_source)?,
-                )?)?;
-                map.insert(reference.clone(), load_out_items);
-                Ok::<BTreeMap<Reference, Vec<LoadOutItem>>, anyhow::Error>(map)
-            },
-        )
+    ) -> Result<Vec<(Reference, LoadOutSource)>, AppError> {
+        project
+            .phases
+            .iter()
+            .map(|(reference, phase)| {
+                let source =
+                    try_build_phase_load_out_source(project_directory, phase).map_err(AppError::SourceError)?;
+                Ok((reference.clone(), source))
+            })
+            .collect()
     }
 
-    fn load_packages(packages_source: &PackagesSource) -> Result<Vec<Package>, AppError> {
-        let packages: Vec<Package> = stores::packages::load_packages(packages_source)
-            .map_err(|error| AppError::OperationError(anyhow!("package source error. cause: {:?}", error)))?;
-
-        Ok(packages)
+    /// The records needed for [`Self::build_phase_load_out_item_map`].
+    fn phase_load_outs_needed(
+        project: &Project,
+        project_directory: &PathBuf,
+    ) -> Result<Vec<(RecordsKind, Source)>, AppError> {
+        Ok(Self::phase_load_out_sources(project, project_directory)?
+            .into_iter()
+            .map(|(_, source)| (RecordsKind::LoadOut, source))
+            .collect())
     }
 
-    fn load_package_mappings<'a>(
-        package_mappings_source: &PackageMappingsSource,
-        packages: &'a Vec<Package>,
-    ) -> Result<Vec<PackageMapping<'a>>, AppError> {
-        let package_mappings = stores::package_mappings::load_package_mappings(packages, package_mappings_source)
-            .map_err(|error| AppError::OperationError(anyhow!("package source error. cause: {:?}", error)))?;
+    fn build_phase_load_out_item_map(
+        project: &Project,
+        project_directory: &PathBuf,
+        stored: &StoredRecords,
+    ) -> Result<BTreeMap<Reference, Vec<LoadOutItem>>, AppError> {
+        stored.require(&Self::phase_load_outs_needed(project, project_directory)?)?;
 
-        Ok(package_mappings)
+        Self::phase_load_out_sources(project, project_directory)?
+            .into_iter()
+            .map(|(reference, source)| Ok((reference, stored.existing_load_out(&source)?)))
+            .collect()
+    }
+
+    /// The records needed for [`Self::part_packages_map`], none if the project has no package sources.
+    fn packages_needed(project: &Project) -> Vec<(RecordsKind, Source)> {
+        match (
+            project
+                .library_config
+                .package_source
+                .as_ref(),
+            project
+                .library_config
+                .package_mappings_source
+                .as_ref(),
+        ) {
+            (Some(packages_source), Some(package_mappings_source)) => vec![
+                (RecordsKind::Packages, packages_source.clone()),
+                (RecordsKind::PackageMappings, package_mappings_source.clone()),
+            ],
+            _ => vec![],
+        }
     }
 
     fn project_unique_parts(project: &Project) -> BTreeSet<&Part> {
@@ -3239,12 +3370,11 @@ impl Planner {
         Ok(part_packages_map)
     }
 
-    // Due to the lifetimes of the mappings, the storage for the packages and package mappings needs to be provided
-    // up-front.
-    fn load_part_packages_map<'a, 'b>(
+    // Due to the lifetimes of the mappings, the storage for the package mappings needs to be provided up-front.
+    fn part_packages_map<'a, 'b>(
         project: &'a Project,
-        // Provide mutable references to variables that will be populated
-        packages_storage: &'b mut Vec<Package>,
+        stored: &'b StoredRecords,
+        // Provide a mutable reference to a variable that will be populated
         package_mappings_storage: &'b mut Vec<PackageMapping<'b>>,
     ) -> Result<BTreeMap<&'a Part, &'b Package>, AppError> {
         // Check if both sources are available
@@ -3260,12 +3390,15 @@ impl Planner {
         ) else {
             return Ok(BTreeMap::new());
         };
+        stored.require(&Self::packages_needed(project))?;
 
-        // Load the packages and store them in the provided output vector
-        *packages_storage = Self::load_packages(packages_source)?;
+        // `STORE-11`, read by the stores service.
+        let packages = stored.packages(packages_source)?;
+        let rows = stored.package_mappings(package_mappings_source)?;
 
-        // Load the mappings and store them in the provided output vector
-        *package_mappings_storage = Self::load_package_mappings(package_mappings_source, packages_storage)?;
+        // Make the mappings and store them in the provided output vector
+        *package_mappings_storage = stores::package_mappings::build_package_mappings(packages, rows)
+            .map_err(|error| AppError::OperationError(anyhow!("package source error. cause: {:?}", error)))?;
 
         // Build the mapping
         let unique_parts = Self::project_unique_parts(project);
@@ -3410,10 +3543,49 @@ impl App for Planner {
     fn update(&self, event: Self::Event, model: &mut Self::Model) -> Command<Self::Effect, Self::Event> {
         // `LOG-1`, every event, so the logs show what each front end asked for, in order.
         debug!("Received event. event: {:?}", event);
-        let try_fn = self.update_inner(event);
 
-        match try_fn(model) {
+        // `STORE-11`, given the records it needs, see `stored`.
+        let (event, records) = match event {
+            Event::WithRecords {
+                event,
+                records,
+            } => (*event, records),
+            event => (event, StoredRecords::default()),
+        };
+        let retry = event.clone();
+        // what the event changes is undone if it fails, so a refused event changes nothing.
+        let before = model.clone();
+
+        model.stored = Arc::new(records);
+        let try_fn = self.update_inner(event);
+        let result = try_fn(model);
+        let records = std::mem::take(&mut model.stored);
+        let writes = std::mem::take(&mut model.pending_writes);
+
+        match result {
+            Err(AppError::NeedsRecords(needed)) => {
+                *model = before;
+                debug!("Reading records for the event. records: {:?}", needed);
+                let mut records = Arc::unwrap_or_clone(records);
+                Command::new(|ctx| async move {
+                    for (kind, source) in needed {
+                        let result = read_records(&ctx, kind, &source).await;
+                        records.insert(kind, source, result);
+                    }
+                    ctx.send_event(Event::WithRecords {
+                        event: Box::new(retry),
+                        records,
+                    });
+                })
+            }
             Err(e) => {
+                let e = match e {
+                    AppError::Kept(e) => *e,
+                    e => {
+                        *model = before;
+                        e
+                    }
+                };
                 // `LOG-2`, so a refusal can be seen in the logs, whichever front end sent the event.
                 warn!("Event failed. error: {:?}", e);
                 model
@@ -3423,7 +3595,21 @@ impl App for Planner {
             }
             Ok(command) => {
                 model.error.take();
-                command
+                // `STORE-11`, the records the event changed.
+                let writes = writes
+                    .into_iter()
+                    .map(|(source, records)| {
+                        Command::request_from_shell(StoresOperation::WriteRecords {
+                            source: source.clone(),
+                            records,
+                        })
+                        .then_send(move |output| Event::RecordsWritten {
+                            source: source.clone(),
+                            output,
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                command.and(Command::all(writes))
             }
         }
     }
@@ -3473,8 +3659,6 @@ enum AppError {
     PartError(PartStateError),
     #[error("Source error. cause: {0}")]
     SourceError(SourceError),
-    #[error("Loadout error. cause: {0}")]
-    LoadoutError(LoadOutOperationError),
     #[error("PCB error. cause: {0}")]
     PcbOperationError(PcbOperationError),
     #[error("IO error. cause: {0}")]
@@ -3485,6 +3669,12 @@ enum AppError {
     /// The shell gave the result of a different operation, a fault in the shell (`STORE-7`).
     #[error("Unexpected output. output: {output:?}")]
     UnexpectedOutput { output: StoresOutput },
+    /// The event needs these records, which haven't been read, so it's processed again once they are (`STORE-11`).
+    #[error("Needs records. records: {0:?}")]
+    NeedsRecords(Vec<(RecordsKind, Source)>),
+    /// The event failed, but what it changed is kept, for example a project loaded without one of its PCBs.
+    #[error("{0}")]
+    Kept(Box<AppError>),
 
     #[error("Unknown phase reference. reference: {0}")]
     UnknownPhaseReference(Reference),
@@ -3495,20 +3685,55 @@ enum AppError {
 }
 
 impl Planner {
-    fn refresh_project(project: &mut Project, pcbs: &[&Pcb], path: &PathBuf) -> Result<bool, ProjectError> {
+    fn refresh_project(
+        project: &mut Project,
+        pcbs: &[&Pcb],
+        path: &PathBuf,
+        stored: &StoredRecords,
+    ) -> Result<bool, AppError> {
         let directory = path.parent().unwrap();
 
         let unique_design_variants = project.unique_design_variants(pcbs);
 
-        let design_variant_placement_map = stores::placements::load_all_placements(unique_design_variants, directory)
-            .map_err(ProjectError::UnableToLoadPlacements)?;
+        // `STORE-11`, read by the stores service.
+        let needed = unique_design_variants
+            .iter()
+            .map(|design_variant| (RecordsKind::Placements, placements_source(directory, design_variant)))
+            .collect::<Vec<_>>();
+        stored.require(&needed)?;
+        let design_variant_placement_map = unique_design_variants
+            .into_iter()
+            .map(|design_variant| {
+                let placements = stored
+                    .placements(&placements_source(directory, &design_variant))?
+                    .to_vec();
+                Ok((design_variant, placements))
+            })
+            .collect::<Result<BTreeMap<_, _>, AppError>>()?;
         let refresh_result = project::refresh_from_design_variants(project, pcbs, design_variant_placement_map);
 
         if let Ok(modified) = &refresh_result {
             trace!("Refreshed from design variants. modified: {}", modified);
         }
 
-        refresh_result
+        refresh_result.map_err(AppError::ProjectError)
+    }
+
+    /// The placements needed by [`Self::refresh_project`], with those of a variant about to be assigned, so they're
+    /// read before the project is changed (`STORE-11`).
+    fn placements_needed(
+        project: &Project,
+        pcbs: &[&Pcb],
+        path: &PathBuf,
+        assigning: Option<DesignVariant>,
+    ) -> Vec<(RecordsKind, Source)> {
+        let directory = path.parent().unwrap();
+        let mut design_variants = project.unique_design_variants(pcbs);
+        design_variants.extend(assigning);
+        design_variants
+            .iter()
+            .map(|design_variant| (RecordsKind::Placements, placements_source(directory, design_variant)))
+            .collect()
     }
 
     fn unique_parts<'a>(project: &'a Project) -> impl IntoIterator<Item = &'a Part> + 'a {
@@ -3541,16 +3766,49 @@ mod app_tests {
     }
 }
 
-/// Build a load-out source, where the load-out source *may* be a relative or absolute path.
-fn try_build_phase_load_out_source(project_path: &PathBuf, phase: &Phase) -> Result<LoadOutSource, SourceError> {
-    assert!(project_path.is_dir());
+/// Build a load-out source, where the load-out source *may* be a path relative to the project's directory, or an
+/// absolute one (`ISSUE-7`).
+///
+/// It isn't checked that it exists, as the core does no IO; the stores service says if it doesn't (`STORE-11`).
+fn try_build_phase_load_out_source(project_directory: &PathBuf, phase: &Phase) -> Result<LoadOutSource, SourceError> {
+    Ok(project_load_out_source(project_directory, &phase.load_out_source))
+}
 
-    let directory = project_path
-        .parent()
-        .unwrap()
-        .to_path_buf();
+/// A load-out, relative to the project's directory unless it's absolute (`ISSUE-7`).
+fn project_load_out_source(project_directory: &Path, load_out: &str) -> LoadOutSource {
+    LoadOutSource::from_path(project_directory, Path::new(load_out))
+}
 
-    LoadOutSource::try_from_path(&directory, PathBuf::from(&phase.load_out_source))
+/// The design variant a unit is about to be assigned, if it can be, so its placements can be read first (`STORE-11`).
+fn assigning_design_variant(
+    pcbs: &[&Pcb],
+    unit: &ObjectPath,
+    variant_name: &Option<VariantName>,
+) -> Option<DesignVariant> {
+    let variant_name = variant_name.clone()?;
+    // reminder: instance and pcb_unit are 1-based in the object path
+    let (pcb_instance, pcb_unit) = unit.pcb_instance_and_unit().ok()?;
+    let pcb = pcbs.get(pcb_instance.checked_sub(1)? as usize)?;
+    let design_index = pcb
+        .unit_map
+        .get(&pcb_unit.checked_sub(1)?)?;
+    let design_name = pcb
+        .design_names
+        .get_index(*design_index as usize)?
+        .clone();
+    Some(DesignVariant {
+        design_name,
+        variant_name,
+    })
+}
+
+/// A design variant's placements, `<directory>/<design>_<variant>_placements.csv`.
+fn placements_source(directory: &Path, design_variant: &DesignVariant) -> Source {
+    let DesignVariant {
+        design_name,
+        variant_name,
+    } = design_variant;
+    Source::File(directory.join(format!("{}_{}_placements.csv", design_name, variant_name)))
 }
 
 fn try_build_phase_overview(
