@@ -89,8 +89,7 @@ macro_rules! generic_test_task_overview {
 }
 
 generic_test_task_overview!(TestLoadPcbsTaskOverview, "load_pcbs_overview");
-generic_test_task_overview!(TestManualSolderingTaskOverview, "manual_soldering_overview");
-generic_test_task_overview!(TestAutomatedSolderingTaskOverview, "automated_soldering_overview");
+generic_test_task_overview!(TestGenericTaskOverview, "generic_overview");
 
 #[typetag::serialize(name = "place_components_overview")]
 impl TestTaskOverview for TestPlaceComponentsTaskOverview {}
@@ -129,11 +128,7 @@ macro_rules! generic_test_task_specification {
     };
 }
 
-generic_test_task_specification!(TestManualSolderingTaskSpecification, "manual_soldering_specification");
-generic_test_task_specification!(
-    TestAutomatedSolderingTaskSpecification,
-    "automated_soldering_specification"
-);
+generic_test_task_specification!(TestGenericTaskSpecification, "generic_specification");
 generic_test_task_specification!(TestPlaceComponentsTaskSpecification, "place_components_specification");
 
 #[typetag::serialize(name = "load_pcbs_specification")]

@@ -43,6 +43,7 @@ pub enum ProjectTabAction {
     SetModifiedState(bool),
     RequestRepaint,
     ShowPcb(PathBuf),
+    ShowProcess(PathBuf),
     LocateComponent {
         pcb_file: PathBuf,
         object_path: ObjectPath,
@@ -155,6 +156,7 @@ impl UiComponent for ProjectTab {
                         .map(|action| ProjectTabAction::ProjectTask(key, Task::done(action))),
                     Some(ProjectAction::RequestRepaint) => Some(ProjectTabAction::RequestRepaint),
                     Some(ProjectAction::ShowPcb(path)) => Some(ProjectTabAction::ShowPcb(path)),
+                    Some(ProjectAction::ShowProcess(path)) => Some(ProjectTabAction::ShowProcess(path)),
                     Some(ProjectAction::LocateComponent {
                         pcb_file,
                         object_path,

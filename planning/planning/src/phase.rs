@@ -6,12 +6,9 @@ use pnp::reference::Reference;
 use thiserror::Error;
 
 use crate::placement::{PlacementOperation, PlacementSortingItem};
-#[cfg(test)]
-use crate::process::TestTaskState;
 use crate::process::{
-    can_modify_operation, can_modify_task, AutomatedSolderingTaskState, LoadPcbsTaskState, ManualSolderingTaskState,
-    OperationReference, OperationState, OperationStatus, PlacementTaskState, ProcessDefinition, ProcessReference,
-    SerializableTaskState, TaskReference, TaskStatus,
+    can_modify_operation, can_modify_task, make_task_state, OperationReference, OperationState, OperationStatus,
+    ProcessDefinition, ProcessReference, TaskReference, TaskStatus,
 };
 
 pub type PhaseReference = Reference;
@@ -80,11 +77,7 @@ impl PhaseState {
                 let task_states = process_operation
                     .tasks
                     .iter()
-                    .map(|task_reference| {
-                        let task_state = make_task_state(task_reference);
-
-                        (task_reference.clone(), task_state)
-                    })
+                    .map(|task| (task.reference.clone(), make_task_state(task.kind)))
                     .collect::<IndexMap<_, _>>();
 
                 OperationState {
@@ -196,26 +189,6 @@ pub enum PhaseStatus {
     Incomplete,
     Complete,
     Abandoned,
-}
-
-pub(crate) fn make_task_state(task_reference: &TaskReference) -> Box<dyn SerializableTaskState> {
-    let task_state = if task_reference.eq(&TaskReference::from_raw_str("core::load_pcbs")) {
-        Box::new(LoadPcbsTaskState::default()) as Box<dyn SerializableTaskState>
-    } else if task_reference.eq(&TaskReference::from_raw_str("core::place_components")) {
-        Box::new(PlacementTaskState::default()) as Box<dyn SerializableTaskState>
-    } else if task_reference.eq(&TaskReference::from_raw_str("core::automated_soldering")) {
-        Box::new(AutomatedSolderingTaskState::default()) as Box<dyn SerializableTaskState>
-    } else if task_reference.eq(&TaskReference::from_raw_str("core::manual_soldering")) {
-        Box::new(ManualSolderingTaskState::default()) as Box<dyn SerializableTaskState>
-    } else {
-        #[cfg(test)]
-        if task_reference.eq(&TaskReference::from_raw_str("core::test_task")) {
-            return Box::new(TestTaskState::default()) as Box<dyn SerializableTaskState>;
-        }
-
-        panic!("unknown task reference {:?}", task_reference);
-    };
-    task_state
 }
 
 #[cfg(test)]

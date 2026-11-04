@@ -12,7 +12,8 @@ use nalgebra::Vector2;
 use planner_app::{
     AddOrRemoveAction, DesignName, DesignSizing, Dimensions, Event, FileReference, LoadOutSource, ObjectPath,
     PackageMappingsSource, PackagesSource, PcbSide, PcbUnitNumber, PcbUnitPositioning, PlacementOperation,
-    PlacementSortingItem, PlacementSortingMode, ProcessReference, Reference, SetOrClearAction, TaskAction, VariantName,
+    PlacementSortingItem, PlacementSortingMode, ProcessEdit, ProcessReference, Reference, SetOrClearAction, TaskAction,
+    VariantName,
 };
 use planner_gui_egui::planner_app_core::PlannerCoreService;
 use regex::Regex;
@@ -146,6 +147,204 @@ fn a_new_pcb_saves_the_same_file_as_the_core() {
     });
 
     assert_eq!(saved, fs::read_to_string(&pcb).unwrap());
+}
+
+/// What the CLI's `sequence_07_create_process_from_preset` and `sequence_08_define_process` save, the processes a
+/// project uses.
+pub fn given_the_processes(folder: &Path) {
+    let mut core = PlannerCoreService::new();
+    for process in ["pnp", "manual"] {
+        update(&mut core, Event::CreateProcess {
+            path: folder.join(format!("{process}.process.json")),
+            reference: ProcessReference::from_raw_str(process),
+            preset: Some(process.to_string()),
+        });
+    }
+}
+
+/// What the CLI's `sequence_09_add_processes` does, saved.
+pub fn add_processes(app: &mut App, folder: &Path) {
+    given_the_processes(folder);
+
+    for process in ["pnp", "manual"] {
+        app.when_a_file_dialog_opens_answer(Some(folder.join(format!("{process}.process.json"))));
+        app.click_button("Add process");
+        app.wait_for_enabled_button("Save");
+        save(app);
+    }
+}
+
+/// The same, using the core.
+fn add_processes_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
+    given_the_processes(folder);
+
+    for process in ["pnp", "manual"] {
+        update(core, Event::AddProcess {
+            process_file: FileReference::Relative(format!("{process}.process.json").into()),
+        });
+    }
+}
+
+pub fn create_process(app: &mut App, folder: &Path, reference: &str, preset: Option<&str>) {
+    app.click_button("New process");
+    app.type_into("Process reference", reference);
+    app.when_a_file_dialog_opens_answer(Some(folder.to_path_buf()));
+    app.click_button("Directory: Choose");
+    app.wait_until_field_is_not_empty("Directory");
+    if let Some(preset) = preset {
+        app.choose_from_combo_box("Preset", preset);
+    }
+    app.wait_for_enabled_button("Ok");
+    app.click_button("Ok");
+    app.wait_for_tab(&format!("{reference}.process.json"));
+}
+
+/// `DOC-1`, `PROC-1`
+#[test]
+fn a_new_process_from_a_preset_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let process = folder.join("pnp.process.json");
+
+    create_process(&mut app, &folder, "pnp", Some("pnp"));
+
+    // only shown after the core has created the process.
+    app.wait_for_button("Add operation");
+    app.wait_until_button_is_disabled("Save");
+    let saved = fs::read_to_string(&process).unwrap();
+
+    // what the CLI's `sequence_07_create_process_from_preset` does.
+    let mut core = PlannerCoreService::new();
+    update(&mut core, Event::CreateProcess {
+        path: process.clone(),
+        reference: ProcessReference::from_raw_str("pnp"),
+        preset: Some("pnp".to_string()),
+    });
+
+    assert_eq!(saved, fs::read_to_string(&process).unwrap());
+}
+
+pub fn add_task(app: &mut App, operation: &str, task: &str, kind: &str) {
+    app.type_into(&format!("{operation}: New task"), task);
+    app.choose_from_combo_box(&format!("{operation}: New task: Kind"), kind);
+    app.click_button(&format!("{operation}: Add task"));
+    app.wait_until_field_is_empty(&format!("{operation}: New task"));
+}
+
+/// `PROC-1`, `PROC-2`, `PROC-3`
+#[test]
+fn a_process_defined_in_the_editor_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let process = folder.join("hand.process.json");
+
+    create_process(&mut app, &folder, "hand", None);
+
+    // the same process as the 'manual' preset, as the CLI's `sequence_08_define_process` defines it.
+    app.type_into("Process reference", "manual");
+    app.type_into("New operation", "load_pcbs");
+    app.click_button("Add operation");
+    add_task(&mut app, "Operation 1", "load_pcbs", "Load PCBs");
+    app.type_into("New operation", "manually_solder_components");
+    app.click_button("Add operation");
+    add_task(&mut app, "Operation 2", "place_components", "Place components");
+    add_task(&mut app, "Operation 2", "manual_soldering", "Generic");
+
+    app.wait_for_enabled_button("Apply");
+    app.click_button("Apply");
+    app.wait_until_button_is_disabled("Apply");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let saved = fs::read_to_string(&process).unwrap();
+
+    let expected = folder.join("expected.process.json");
+    update(&mut PlannerCoreService::new(), Event::CreateProcess {
+        path: expected.clone(),
+        reference: ProcessReference::from_raw_str("manual"),
+        preset: Some("manual".to_string()),
+    });
+    assert_eq!(saved, fs::read_to_string(&expected).unwrap());
+
+    // a second task that places components can't be applied.
+    add_task(&mut app, "Operation 1", "place_again", "Place components");
+    app.wait_until_button_is_disabled("Apply");
+    app.wait_for_text_containing("at most one task that places components");
+
+    // and the user can go back to what was applied.
+    app.click_button("Reset");
+    app.wait_until_button_is_disabled("Reset");
+    assert_eq!(saved, fs::read_to_string(&process).unwrap());
+}
+
+/// `PROJPROC-1`
+#[test]
+fn adding_processes_to_a_project_saves_the_same_file_as_the_cli() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+    add_processes(&mut app, &folder);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    let mut core = PlannerCoreService::new();
+    update(&mut core, Event::CreateProject {
+        name: "job1".to_string(),
+        path: project.clone(),
+        packages: None,
+        package_mappings: None,
+    });
+    add_processes_using_the_core(&mut core, &folder);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
+}
+
+/// `PROJPROC-2`, `PROJPROC-3`
+#[test]
+fn refreshing_a_project_copies_the_changes_made_to_a_process() {
+    let mut app = App::start();
+    let folder = app.folder();
+    let project = folder.join("project-job1.mpnp.json");
+
+    create_project(&mut app, &folder);
+    app.wait_for_tab("Overview");
+    add_processes(&mut app, &folder);
+
+    // the process is changed in its own file, the project still has the copy it was given.
+    let mut process_core = PlannerCoreService::new();
+    let manual_process = folder.join("manual.process.json");
+    update(&mut process_core, Event::LoadProcess {
+        path: manual_process.clone(),
+    });
+    update(&mut process_core, Event::EditProcess {
+        path: manual_process.clone(),
+        edit: ProcessEdit::AddRule {
+            rule: Reference::from_raw_str("core::unique_feeder_references"),
+        },
+    });
+    update(&mut process_core, Event::SaveProcess {
+        path: manual_process.clone(),
+    });
+
+    app.double_click_text("manual");
+    app.click_button("Refresh processes");
+    app.wait_for_enabled_button("Save");
+    save(&mut app);
+
+    let saved = fs::read_to_string(&project).unwrap();
+
+    let mut core = PlannerCoreService::new();
+    update(&mut core, Event::Load {
+        path: project.clone(),
+    });
+    update(&mut core, Event::RefreshProcesses);
+    update(&mut core, Event::Save);
+
+    assert_eq!(saved, fs::read_to_string(&project).unwrap());
 }
 
 fn assign_units(app: &mut App, units: &[u32]) {
@@ -631,7 +830,7 @@ fn refreshing_from_changed_placements_saves_the_same_file_as_the_cli() {
     assert_eq!(saved, fs::read_to_string(&project).unwrap());
 }
 
-/// Up to the end of the CLI's `sequence_07_assign_process_to_parts`, saved.
+/// Up to the end of the CLI's `sequence_10_assign_process_to_parts`, saved.
 pub fn create_project_with_a_part_assigned_to_a_process(app: &mut App, folder: &Path) {
     create_project_with_an_assigned_variant(app, folder);
     fs::write(
@@ -643,6 +842,7 @@ pub fn create_project_with_a_part_assigned_to_a_process(app: &mut App, folder: &
     app.click_button("Refresh");
     app.wait_for_enabled_button("Save");
     save(app);
+    add_processes(app, folder);
 
     app.double_click_text("Parts");
     app.wait_for_tab("Parts");
@@ -662,6 +862,7 @@ pub fn project_with_a_part_assigned_to_a_process_using_the_core(core: &mut Plann
     )
     .unwrap();
     update(core, Event::RefreshFromDesignVariants);
+    add_processes_using_the_core(core, folder);
     update(core, Event::AssignProcessToParts {
         process: ProcessReference::from_raw_str("manual"),
         operation: AddOrRemoveAction::Add,
@@ -681,7 +882,7 @@ fn assigning_a_process_to_a_part_saves_the_same_file_as_the_cli() {
 
     let saved = fs::read_to_string(&project).unwrap();
 
-    // what the CLI's `sequence_07_assign_process_to_parts` does.
+    // what the CLI's `sequence_10_assign_process_to_parts` does.
     let mut core = PlannerCoreService::new();
     project_with_a_part_assigned_to_a_process_using_the_core(&mut core, &folder);
     update(&mut core, Event::Save);
@@ -696,7 +897,7 @@ pub fn given_a_load_out(folder: &Path, name: &str) -> PathBuf {
     load_out
 }
 
-fn add_phase(app: &mut App, reference: &str, process: &str, pcb_side: &str, load_out: &Path) {
+pub fn add_phase(app: &mut App, reference: &str, process: &str, pcb_side: &str, load_out: &Path) {
     // the Parts tab has a "Process" combo box of its own, which is still drawn behind the dialog.
     app.click_tab("Overview");
     app.click_button("Add phase");
@@ -1041,11 +1242,11 @@ fn generating_artifacts_saves_the_same_files_as_the_cli() {
 pub fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Path) {
     create_project_with_artifacts_generated(app, folder);
 
-    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Start");
-    app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Incomplete");
-    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Complete");
-    app.choose_action_from_combo_box("automated_pnp: core::place_components", "Start");
-    app.wait_for_combo_box_value("automated_pnp: core::place_components", "Incomplete");
+    app.choose_action_from_combo_box("load_pcbs: load_pcbs", "Start");
+    app.wait_for_combo_box_value("load_pcbs: load_pcbs", "Incomplete");
+    app.choose_action_from_combo_box("load_pcbs: load_pcbs", "Complete");
+    app.choose_action_from_combo_box("automated_pnp: place_components", "Start");
+    app.wait_for_combo_box_value("automated_pnp: place_components", "Incomplete");
     save(app);
 }
 
@@ -1053,9 +1254,9 @@ pub fn create_project_with_phase_operations_recorded(app: &mut App, folder: &Pat
 pub fn project_with_phase_operations_recorded_using_the_core(core: &mut PlannerCoreService, folder: &Path) {
     project_with_artifacts_generated_using_the_core(core, folder);
     for (operation, task, action) in [
-        ("load_pcbs", "core::load_pcbs", TaskAction::Start),
-        ("load_pcbs", "core::load_pcbs", TaskAction::Complete),
-        ("automated_pnp", "core::place_components", TaskAction::Start),
+        ("load_pcbs", "load_pcbs", TaskAction::Start),
+        ("load_pcbs", "load_pcbs", TaskAction::Complete),
+        ("automated_pnp", "place_components", TaskAction::Start),
     ] {
         update(core, Event::RecordPhaseOperation {
             phase: Reference::from_raw_str("top_1"),
@@ -1160,6 +1361,7 @@ fn the_load_out_of_the_add_phase_dialog_is_required_and_can_be_cancelled_or_clea
     let load_out = given_a_load_out(&folder, "load_out.csv");
     create_project(&mut app, &folder);
     app.wait_for_tab("Overview");
+    add_processes(&mut app, &folder);
 
     app.click_button("Add phase");
     app.type_into("Phase reference", "top_1");
@@ -1194,6 +1396,7 @@ fn cancelling_the_add_phase_dialog_does_not_change_the_project() {
     let load_out = given_a_load_out(&folder, "load_out.csv");
     create_project(&mut app, &folder);
     app.wait_for_tab("Overview");
+    add_processes(&mut app, &folder);
 
     app.click_button("Add phase");
     app.type_into("Phase reference", "top_1");

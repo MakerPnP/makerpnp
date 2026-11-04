@@ -16,10 +16,23 @@ use time::OffsetDateTime;
 use tracing::info;
 
 use crate::placement::PlacementOperation;
-use crate::process::{OperationReference, TaskReference, TaskStatus};
+use crate::process::{OperationReference, TaskKind, TaskReference, TaskStatus};
 
 #[typetag::serde(tag = "type")]
 pub trait OperationHistoryKind: AsAny + Debug {}
+
+/// A task's status changed.
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
+pub struct TaskOperationHistoryKind {
+    pub(crate) kind: TaskKind,
+    pub(crate) status: TaskStatus,
+}
+
+#[typetag::serde(name = "task_operation")]
+impl OperationHistoryKind for TaskOperationHistoryKind {}
+
+// The kinds below are those of the tasks that were built into the planner before tasks had kinds.  They're only read
+// from the histories of older projects.
 
 #[derive(Debug, serde::Deserialize, serde::Serialize)]
 pub struct LoadPcbsOperationTaskHistoryKind {

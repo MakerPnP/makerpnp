@@ -24,7 +24,7 @@ use crate::file::FileReference;
 use crate::pcb::Pcb;
 use crate::phase::{PhaseReference, PhaseStatus};
 use crate::placement::{PlacementState, ProjectPlacementStatus};
-use crate::process::{OperationReference, OperationStatus, TaskReference};
+use crate::process::{OperationReference, OperationStatus, TaskKind, TaskReference};
 use crate::project::{build_phase_placement_states, Project};
 use crate::variant::VariantName;
 
@@ -129,11 +129,16 @@ pub fn project_generate_report(
                                 .task_states
                                 .iter()
                                 .filter_map(|(task_reference, task_state)| {
-                                    let report = if task_reference.eq(&TaskReference::from_raw_str("core::load_pcbs")) {
-                                        Some(Box::new(LoadPcbsTaskOverview {}) as Box<dyn TaskOverview>)
-                                    } else if task_reference.eq(&TaskReference::from_raw_str("core::place_components"))
-                                    {
-                                        task_state
+                                    let kind =
+                                        project.find_task_kind(reference, &operation_state.reference, task_reference);
+                                    let report = match kind {
+                                        Some(TaskKind::Generic) => {
+                                            Some(Box::new(GenericTaskOverview {}) as Box<dyn TaskOverview>)
+                                        }
+                                        Some(TaskKind::LoadPcbs) => {
+                                            Some(Box::new(LoadPcbsTaskOverview {}) as Box<dyn TaskOverview>)
+                                        }
+                                        Some(TaskKind::PlaceComponents) => task_state
                                             .placements_state()
                                             .map(|state| {
                                                 let summary = state.summary();
@@ -143,16 +148,8 @@ pub fn project_generate_report(
                                                     total: summary.total,
                                                 })
                                                     as Box<dyn TaskOverview>
-                                            })
-                                    } else if task_reference
-                                        .eq(&TaskReference::from_raw_str("core::automated_soldering"))
-                                    {
-                                        Some(Box::new(AutomatedSolderingTaskOverview {}) as Box<dyn TaskOverview>)
-                                    } else if task_reference.eq(&TaskReference::from_raw_str("core::manual_soldering"))
-                                    {
-                                        Some(Box::new(ManualSolderingTaskOverview {}) as Box<dyn TaskOverview>)
-                                    } else {
-                                        None
+                                            }),
+                                        None => None,
                                     };
                                     Some((task_reference.clone(), report))
                                 })
@@ -268,19 +265,21 @@ fn build_phase_specification(
                 .task_states
                 .iter()
                 .filter_map(|(task_reference, _task_state)| {
-                    let report = if task_reference.eq(&TaskReference::from_raw_str("core::load_pcbs")) {
-                        let pcbs = build_operation_load_pcbs(project, pcbs);
-                        Some(Box::new(LoadPcbsTaskSpecification {
-                            pcbs,
-                        }) as Box<dyn TaskSpecification>)
-                    } else if task_reference.eq(&TaskReference::from_raw_str("core::place_components")) {
-                        Some(Box::new(PlaceComponentsTaskSpecification {}) as Box<dyn TaskSpecification>)
-                    } else if task_reference.eq(&TaskReference::from_raw_str("core::automated_soldering")) {
-                        Some(Box::new(AutomatedSolderingTaskSpecification {}) as Box<dyn TaskSpecification>)
-                    } else if task_reference.eq(&TaskReference::from_raw_str("core::manual_soldering")) {
-                        Some(Box::new(ManualSolderingTaskSpecification {}) as Box<dyn TaskSpecification>)
-                    } else {
-                        None
+                    let kind = project.find_task_kind(reference, &operation_state.reference, task_reference);
+                    let report = match kind {
+                        Some(TaskKind::Generic) => {
+                            Some(Box::new(GenericTaskSpecification {}) as Box<dyn TaskSpecification>)
+                        }
+                        Some(TaskKind::LoadPcbs) => {
+                            let pcbs = build_operation_load_pcbs(project, pcbs);
+                            Some(Box::new(LoadPcbsTaskSpecification {
+                                pcbs,
+                            }) as Box<dyn TaskSpecification>)
+                        }
+                        Some(TaskKind::PlaceComponents) => {
+                            Some(Box::new(PlaceComponentsTaskSpecification {}) as Box<dyn TaskSpecification>)
+                        }
+                        None => None,
                     };
                     Some((task_reference.clone(), report))
                 })
@@ -835,8 +834,7 @@ macro_rules! generic_task_specification {
     };
 }
 
-generic_task_specification!(ManualSolderingTaskSpecification, "manual_soldering_specification");
-generic_task_specification!(AutomatedSolderingTaskSpecification, "automated_soldering_specification");
+generic_task_specification!(GenericTaskSpecification, "generic_specification");
 generic_task_specification!(PlaceComponentsTaskSpecification, "place_components_specification");
 
 #[typetag::serde(name = "load_pcbs_specification")]
@@ -862,8 +860,7 @@ macro_rules! generic_task_overview {
 }
 
 generic_task_overview!(LoadPcbsTaskOverview, "load_pcbs_overview");
-generic_task_overview!(ManualSolderingTaskOverview, "manual_soldering_overview");
-generic_task_overview!(AutomatedSolderingTaskOverview, "automated_soldering_overview");
+generic_task_overview!(GenericTaskOverview, "generic_overview");
 
 #[typetag::serde(name = "place_components_overview")]
 impl TaskOverview for PlaceComponentsTaskOverview {}

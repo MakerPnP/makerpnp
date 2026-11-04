@@ -9,7 +9,7 @@ file and the project's report to the project's folder. The results MUST be the s
 
 **OPERATIONS-1 — A phase's tasks.** *Observed.* A phase's tab MUST show each of its operations and their tasks, with each task's status.
 A task with actions available MUST offer them in a combo box named after its operation and task, for example
-"`load_pcbs: core::load_pcbs`". Choosing one reaches the core immediately, and the project then has unsaved changes. The result MUST be
+"`load_pcbs: load_pcbs`". Choosing one reaches the core immediately, and the project then has unsaved changes. The result MUST be
 the same as the CLI's `project record-phase-operation`. A phase's first task MUST NOT offer any actions until every phase before it is
 complete. A task MUST NOT offer actions until the tasks and operations before it are complete. A pending task offers "`Start`", and a
 started one "`Abandon`", along with "`Complete`" if it can be completed this way: the task that places a phase's placements can't, it's
@@ -18,7 +18,7 @@ abandoned task's operation is abandoned too. The actions' names MUST be translat
 Until 2026-11-03 they were shown in English whatever the language (`ISSUE-13`).
 
 **OPERATIONS-2 — Recording placements.** *Observed.* Once the task that places a phase's placements, for example
-`core::place_components`, has been started, a placement's "`Placed?`" cell on the phase's tab MUST be editable (`FORM-11`), offering
+`place_components`, a task of the kind that places components (`PROCDEF-2`), has been started, a placement's "`Placed?`" cell on the phase's tab MUST be editable (`FORM-11`), offering
 "`Pending`", "`Placed`" and "`Skipped`". Once that task is complete, which it is when every placement has been placed or skipped, the cell
 MUST only offer "`Pending`", along with the placement's current status. The result MUST be the same as the CLI's
 `project record-placements-operation`, which selects placements using regular expressions where the GUI makes one exact match for each.
@@ -40,7 +40,7 @@ phases and placements, with no confirmation, and the project then has unsaved ch
 - `tests/ui/workflow.rs` marks three placements as placed, saves, and compares the file (`OPERATIONS-2`). It then resets the operations, saves,
   and compares the file (`OPERATIONS-3`).
 - `tests/ui/phase_states.rs` checks the second phase's tasks offer no actions while the first is pending, and that a "`Placed?`" cell
-  can't be edited before the phase has started, nor once `load_pcbs` is complete and `core::place_components` is still pending
+  can't be edited before the phase has started, nor once `load_pcbs` is complete and `place_components` is still pending
   (`OPERATIONS-1`, `OPERATIONS-2`).
 - `tests/ui/phase_states.rs` marks every placement of the top phase as placed, checks a "`Placed?`" cell then only offers "`Pending`" and
   "`Placed`", resets one, and compares the file with the one the core saves (`OPERATIONS-2`).

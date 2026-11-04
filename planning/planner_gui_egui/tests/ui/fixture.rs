@@ -167,6 +167,42 @@ impl App {
         });
     }
 
+    pub fn wait_for_field_value(&mut self, label: &str, value: &str) {
+        self.wait_until(&format!("text field '{label}' contained '{value}'"), |app| {
+            app.field_value(label)
+                .is_some_and(|candidate| candidate == value)
+        });
+    }
+
+    pub fn wait_until_field_is_gone(&mut self, label: &str) {
+        self.wait_until(&format!("text field '{label}' was gone"), |app| {
+            !app.is_shown(Role::TextInput, label)
+        });
+    }
+
+    pub fn click_checkbox(&mut self, label: &str) {
+        self.wait_until(&format!("checkbox '{label}' was shown"), |app| {
+            app.is_shown(Role::CheckBox, label)
+        });
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(Role::CheckBox, label)
+            .click();
+        self.harness.step();
+    }
+
+    pub fn wait_for_checkbox(&mut self, label: &str, checked: bool) {
+        let expected = match checked {
+            true => egui::accesskit::Toggled::True,
+            false => egui::accesskit::Toggled::False,
+        };
+        self.wait_until(&format!("checkbox '{label}' was {expected:?}"), |app| {
+            app.harness
+                .query_by_role_and_label(Role::CheckBox, label)
+                .is_some_and(|checkbox| checkbox.accesskit_node().toggled() == Some(expected))
+        });
+    }
+
     fn field_value(&self, label: &str) -> Option<String> {
         self.harness
             .query_by_role_and_label(Role::TextInput, label)

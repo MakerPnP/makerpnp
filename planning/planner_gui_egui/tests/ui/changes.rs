@@ -351,6 +351,7 @@ fn the_add_phase_dialog_needs_a_valid_reference_a_side_and_a_process() {
     let load_out = given_a_load_out(&folder, "load_out.csv");
     create_project(&mut app, &folder);
     app.wait_for_tab("Overview");
+    add_processes(&mut app, &folder);
 
     app.click_button("Add phase");
     app.when_a_file_dialog_opens_answer(Some(load_out));

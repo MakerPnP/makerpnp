@@ -21,6 +21,8 @@ toolbar-button-new-project = New project
 toolbar-button-open-project = Open project
 toolbar-button-new-pcb = New PCB
 toolbar-button-open-pcb = Open PCB
+toolbar-button-new-process = New process
+toolbar-button-open-process = Open process
 toolbar-button-save = Save
 toolbar-button-close-all = Close all
 
@@ -29,6 +31,7 @@ project-toolbar-button-generate-artifacts = Generate artifacts
 project-toolbar-button-refresh = Refresh
 project-toolbar-button-remove-unused-placements = Remove unused placements
 project-toolbar-button-add-pcb = Add PCB
+project-toolbar-button-add-process = Add process
 project-toolbar-button-add-phase = Add phase
 project-toolbar-button-package-sources = Package sources
 project-toolbar-button-reset-operations = Reset operations
@@ -39,6 +42,7 @@ project-pcb-toolbar-button-show-pcb = Show PCB
 tab-label-home = Home
 tab-label-new-project = New project
 tab-label-new-pcb = New PCB
+tab-label-new-process = New process
 
 home-banner = MakerPnP - Planner
 home-checkbox-label-show-on-startup = Show on startup
@@ -74,6 +78,12 @@ project-parts-tab-label = Parts
 project-pcb-tab-label = PCB ({ $pcb })
 
 project-process-tab-label = Process ({ $process })
+project-process-tab-button-open = Open file
+project-process-tab-button-refresh = Refresh processes
+project-process-tab-button-remove = Remove process
+project-process-tab-detail-file = File: { $file }
+project-process-tab-detail-reference = Reference: { $reference }
+project-process-tab-task = { $task } ({ $kind })
 
 project-unit-assignments-tab-label = Unit assignments ({ $pcb })
 
@@ -115,6 +125,30 @@ form-new-pcb-input-name = PCB name
 form-new-pcb-input-name-placeholder = (e.g. the PCB factory's order reference number)
 form-new-pcb-input-directory = Directory
 form-new-pcb-input-units = Units
+
+new-process-banner = New process
+form-new-process-input-reference-placeholder = (e.g. 'glue_and_wave_solder')
+form-new-process-input-directory = Directory
+form-new-process-input-preset = Preset
+
+process-detail-path = Path: { $path }
+process-editor-operation = Operation
+process-editor-task = task
+process-editor-button-move-up = Move up
+process-editor-button-move-down = Move down
+process-editor-input-task-kind = Kind
+process-editor-input-new-task = New task
+process-editor-input-new-task-placeholder = (e.g. 'apply_glue')
+process-editor-button-add-task = Add task
+process-editor-input-new-operation = New operation
+process-editor-button-add-operation = Add operation
+process-editor-rules = Rules
+process-editor-error-operation-reference-invalid = Operation { $operation }: reference invalid
+process-editor-error-task-reference-invalid = Operation { $operation }, task { $number }: reference invalid
+
+process-task-kind-generic = Generic
+process-task-kind-load-pcbs = Load PCBs
+process-task-kind-place-components = Place components
 
 pcb-configuration-tab-label = Configuration
 pcb-configuration-detail-name = Name: { $name }
@@ -199,7 +233,6 @@ form-common-choice-phase = Phase
 form-common-input-load-out-source = Loadout source
 form-common-input-phase-reference = Phase reference
 form-common-input-process-reference = Process reference
-form-common-input-operation-reference = Operation reference
 form-common-input-x = X
 form-common-input-y = Y
 form-common-input-top = Top
@@ -365,10 +398,6 @@ table-fiducials-column-mask-diameter = Mask ⌀
 table-fiducials-column-copper-diameter = Copper ⌀
 table-fiducials-column-actions = Actions
 
-table-operations-column-operation = Operation
-table-operations-column-actions = Actions
-table-operations-column-task = { $task }
-
 table-phases-column-index = #
 table-phases-column-name = Name
 table-phases-column-status = Status
@@ -395,12 +424,6 @@ ratio-error = Ratio: N/A
 filter-expression = Search...
 
 expanding-header-details = Details
-
-#
-# errors
-#
-
-process-error-name-already-in-use = Attempted to rename a process to a name already in use
 
 #
 # egui-data-tables

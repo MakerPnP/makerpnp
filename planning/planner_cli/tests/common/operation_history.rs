@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use dyn_clone::DynClone;
 use dyn_eq::DynEq;
 use planning::placement::PlacementOperation;
-use planning::process::{OperationReference, TaskReference, TaskStatus};
+use planning::process::{OperationReference, TaskKind, TaskReference, TaskStatus};
 use pnp::object_path::ObjectPath;
 use serde_json::Value;
 use serde_with::serde_as;
@@ -23,36 +23,13 @@ dyn_eq::eq_trait_object!(TestOperationHistoryKind);
 dyn_clone::clone_trait_object!(TestOperationHistoryKind);
 
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, PartialEq, Eq)]
-pub struct TestLoadPcbsOperationTaskHistoryKind {
+pub struct TestTaskOperationHistoryKind {
+    pub(crate) kind: TaskKind,
     pub(crate) status: TaskStatus,
 }
 
-#[typetag::serde(name = "load_pcbs_operation")]
-impl TestOperationHistoryKind for TestLoadPcbsOperationTaskHistoryKind {}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, PartialEq, Eq)]
-pub struct TestPlaceComponentsOperationTaskHistoryKind {
-    pub(crate) status: TaskStatus,
-}
-
-#[typetag::serde(name = "place_components_operation")]
-impl TestOperationHistoryKind for TestPlaceComponentsOperationTaskHistoryKind {}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, PartialEq, Eq)]
-pub struct TestManualSolderingOperationTaskHistoryKind {
-    pub(crate) status: TaskStatus,
-}
-
-#[typetag::serde(name = "manual_soldering_operation")]
-impl TestOperationHistoryKind for TestManualSolderingOperationTaskHistoryKind {}
-
-#[derive(Debug, serde::Deserialize, serde::Serialize, Clone, PartialEq, Eq)]
-pub struct TestAutomatedSolderingOperationTaskHistoryKind {
-    pub(crate) status: TaskStatus,
-}
-
-#[typetag::serde(name = "automated_soldering_operation")]
-impl TestOperationHistoryKind for TestAutomatedSolderingOperationTaskHistoryKind {}
+#[typetag::serde(name = "task_operation")]
+impl TestOperationHistoryKind for TestTaskOperationHistoryKind {}
 
 #[serde_as]
 #[derive(Debug, serde::Deserialize, serde::Serialize, Clone, PartialEq, Eq)]

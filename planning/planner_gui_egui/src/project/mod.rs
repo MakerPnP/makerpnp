@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use derivative::Derivative;
 use egui::Ui;
@@ -43,7 +42,7 @@ use crate::project::tabs::issues_tab::{
 use crate::project::tabs::parts_tab::PartsTabUiApplyAction;
 use crate::project::tabs::placements_tab::PlacementsTabUiApplyAction;
 use crate::project::tabs::process_tab::{
-    ProcessDefinitionArgs, ProcessTab, ProcessTabUi, ProcessTabUiAction, ProcessTabUiCommand, ProcessTabUiContext,
+    ProcessTab, ProcessTabUi, ProcessTabUiAction, ProcessTabUiCommand, ProcessTabUiContext,
 };
 use crate::project::tabs::{ProjectTabAction, ProjectTabContext, ProjectTabUiCommand, ProjectTabs};
 use crate::project::toolbar::{ProjectToolbar, ProjectToolbarAction, ProjectToolbarUiCommand};
@@ -73,6 +72,8 @@ pub enum ProjectAction {
     SetModifiedState(bool),
     UiCommand(ProjectUiCommand),
     ShowPcb(PathBuf),
+    /// Opens the process document, or shows it if it's open.
+    ShowProcess(PathBuf),
     RequestRepaint,
     LocateComponent {
         pcb_file: PathBuf,
@@ -115,6 +116,8 @@ pub struct Project {
     package_sources_modal: Option<PackageSourcesModal>,
 
     file_picker: Value<Picker>,
+    /// a separate picker, so that a picked process file can't be mistaken for a PCB file.
+    process_file_picker: Value<Picker>,
     file_dialogs: Arc<dyn FileDialogs>,
 }
 
@@ -231,6 +234,7 @@ impl Project {
             add_phase_modal: None,
             package_sources_modal: None,
             file_picker: Value::new(Picker::new(file_dialogs.clone())),
+            process_file_picker: Value::new(Picker::new(file_dialogs.clone())),
             file_dialogs,
         };
 
@@ -908,6 +912,11 @@ impl Project {
         let mut picker = self.file_picker.lock().unwrap();
         picker.pick_file();
     }
+
+    fn pick_process_file(&mut self) {
+        let mut picker = self.process_file_picker.lock().unwrap();
+        picker.pick_file();
+    }
 }
 
 /// A PCB inside the project's folder is stored relative to it, so the project keeps working if the folder is moved.
@@ -1005,6 +1014,12 @@ impl UiComponent for Project {
                 }
                 Err(_) => {}
             }
+
+            let mut picker = self.process_file_picker.lock().unwrap();
+            if let Ok(picked_file) = picker.picked() {
+                self.component
+                    .send((*key, ProjectUiCommand::ProcessFilePicked(picked_file)));
+            }
         }
     }
 
@@ -1095,6 +1110,9 @@ impl Project {
                     match action {
                         PlannerAction::ProjectView(view) => data.apply_project_view(view),
                         PlannerAction::PcbView(view) => data.apply_pcb_view(view),
+                        PlannerAction::ProcessView(_view) => {
+                            // a project doesn't use process documents, it has its own copy of each process it uses.
+                        }
                         PlannerAction::SetModifiedState {
                             ..
                         } => {
@@ -1257,6 +1275,10 @@ impl Project {
                         self.pick_pcb_file();
                         None
                     }
+                    Some(ProjectToolbarAction::PickProcessFile) => {
+                        self.pick_process_file();
+                        None
+                    }
                     Some(ProjectToolbarAction::ShowAddPhaseDialog) => {
                         self.show_add_phase_modal(key);
                         None
@@ -1286,6 +1308,16 @@ impl Project {
                 self.planner_core_service
                     .update(Event::AddPcb {
                         pcb_file,
+                    })
+                    .when_ok(key, |_| None)
+            }
+            ProjectUiCommand::ProcessFilePicked(process_path) => {
+                // as with a PCB, a process file inside the project's folder is stored relative to it.
+                let process_file = pcb_file_reference(&self.path, process_path);
+
+                self.planner_core_service
+                    .update(Event::AddProcess {
+                        process_file,
                     })
                     .when_ok(key, |_| None)
             }
@@ -1659,20 +1691,34 @@ impl Project {
                 trace!("process: {:?}, command: {:?}", process, command);
 
                 let process_ui_action = {
-                    let mut state = self.project_ui_state.lock().unwrap();
+                    let mut guard = self.project_ui_state.lock().unwrap();
+                    let state = &mut *guard;
                     state
                         .process_tab_uis
                         .get_mut(&process)?
-                        .update(command, &mut ProcessTabUiContext::default())
+                        .update(command, &mut ProcessTabUiContext {
+                            data: &state.data,
+                        })
                 };
 
                 match process_ui_action {
                     None => None,
                     Some(ProcessTabUiAction::None) => None,
-
-                    Some(ProcessTabUiAction::Delete(process_reference)) => self
+                    Some(ProcessTabUiAction::Open(process_file)) => {
+                        let project_directory = self
+                            .path
+                            .parent()
+                            .map(Path::to_path_buf)
+                            .unwrap_or_default();
+                        Some(ProjectAction::ShowProcess(process_file.build_path(&project_directory)))
+                    }
+                    Some(ProcessTabUiAction::Refresh) => self
                         .planner_core_service
-                        .update(Event::DeleteProcess {
+                        .update(Event::RefreshProcesses)
+                        .when_ok(key, |_| None),
+                    Some(ProcessTabUiAction::Remove(process_reference)) => self
+                        .planner_core_service
+                        .update(Event::RemoveProcess {
                             process_reference: process_reference.clone(),
                         })
                         .when_ok(key, |_| {
@@ -1681,20 +1727,6 @@ impl Project {
                             );
                             None
                         }),
-                    //
-                    // form
-                    //
-                    Some(ProcessTabUiAction::Reset {
-                        ..
-                    }) => {
-                        let mut guard = self.project_ui_state.lock().unwrap();
-                        let state = &mut *guard;
-                        if let Some(process_ui) = state.process_tab_uis.get_mut(&process) {
-                            process_ui.reset_form(&state.data);
-                        }
-                        None
-                    }
-                    Some(ProcessTabUiAction::Apply(args)) => self.apply_process_definition(key, args),
                 }
             }
             ProjectUiCommand::LoadOutTabUiCommand {
@@ -1872,81 +1904,6 @@ impl Project {
             }
         }
     }
-
-    fn apply_process_definition(&mut self, key: ProjectKey, args: ProcessDefinitionArgs) -> Option<ProjectAction> {
-        // the process reference may have changed, use the updated reference
-        let updated_process_reference = args
-            .process_definition
-            .reference
-            .clone();
-
-        let old_process_reference = args.process_reference.clone();
-
-        let process_reference_changed = !updated_process_reference.eq(&old_process_reference);
-
-        if process_reference_changed {
-            let state = self.project_ui_state.lock().unwrap();
-            if state
-                .process_tab_uis
-                .contains_key(&updated_process_reference)
-            {
-                let now = chrono::DateTime::from(SystemTime::now());
-                return Some(ProjectAction::UiCommand(ProjectUiCommand::Error(PlannerError::Other(
-                    (now, tr!("process-error-name-already-in-use")),
-                ))));
-            }
-        }
-
-        match self
-            .planner_core_service
-            .update(Event::ApplyProcessDefinition {
-                process_reference: args.process_reference,
-                process_definition: args.process_definition,
-            })
-            .into_actions()
-        {
-            Ok(actions) => {
-                if process_reference_changed {
-                    debug!(
-                        "process reference changed. old: {}, new: {}",
-                        old_process_reference, updated_process_reference
-                    );
-                    self.rename_process_tab(key, &old_process_reference, &updated_process_reference);
-                }
-
-                let tasks = actions
-                    .into_iter()
-                    .map(Task::done)
-                    .collect::<Vec<Task<ProjectAction>>>();
-
-                Some(ProjectAction::Task(key, Task::batch(tasks)))
-            }
-            Err(service_error) => Some(service_error),
-        }
-    }
-
-    fn rename_process_tab(&self, key: ProjectKey, old_reference: &ProcessReference, new_reference: &ProcessReference) {
-        // the ui's mapper and the process it reads from contain the reference, so it's easier just to re-create the ui
-        // instance instead of re-inserting it with an updated reference.
-        {
-            let mut state = self.project_ui_state.lock().unwrap();
-            state
-                .process_tab_uis
-                .remove(old_reference);
-            self.ensure_process_inner(key, new_reference.clone(), &mut state);
-        }
-
-        // update the tab's reference
-        let tabs = self.project_tabs.lock().unwrap();
-        let updated = tabs.filter_map_mut(|(_key, tab)| match tab {
-            ProjectTabKind::Process(tab) if tab.process.eq(old_reference) => {
-                tab.process = new_reference.clone();
-                Some(true)
-            }
-            _ => None,
-        });
-        assert!(matches!(updated.first(), Some(true)));
-    }
 }
 
 #[derive(Debug)]
@@ -1980,7 +1937,6 @@ impl ProjectUiState {
             parts_tab_ui,
             phases_tab_uis,
             placements_ui,
-            process_tab_uis,
             unit_assignment_tab_uis,
             ..
         } = self;
@@ -1991,9 +1947,6 @@ impl ProjectUiState {
             .values_mut()
             .for_each(|tab_ui| tab_ui.sync(data));
         phases_tab_uis
-            .values_mut()
-            .for_each(|tab_ui| tab_ui.sync(data));
-        process_tab_uis
             .values_mut()
             .for_each(|tab_ui| tab_ui.sync(data));
         unit_assignment_tab_uis
@@ -2173,6 +2126,7 @@ pub enum ProjectUiCommand {
     //
     PcbView(PcbView),
     PcbFilePicked(PathBuf),
+    ProcessFilePicked(PathBuf),
     PcbRemoved,
 
     //
@@ -2319,6 +2273,7 @@ mod core_helper {
                 project_modified,
                 pcbs_modified,
                 generation,
+                ..
             } => ProjectAction::UiCommand(ProjectUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
@@ -2328,6 +2283,10 @@ mod core_helper {
                 ProjectAction::UiCommand(ProjectUiCommand::ProjectView(project_view))
             }
             PlannerAction::PcbView(pcb_view) => ProjectAction::UiCommand(ProjectUiCommand::PcbView(pcb_view)),
+            PlannerAction::ProcessView(_process_view) => {
+                // a project doesn't use process documents, it has its own copy of each process it uses.
+                ProjectAction::UiCommand(ProjectUiCommand::None)
+            }
         }
     }
 
@@ -2459,12 +2418,13 @@ mod refresh_tests {
     use std::collections::VecDeque;
     use std::path::PathBuf;
 
-    use planner_app::{Event, LoadOutSource, PcbSide, PlacementSortingItem, PlacementSortingMode, Reference};
+    use planner_app::{
+        Event, FileReference, LoadOutSource, PcbSide, PlacementSortingItem, PlacementSortingMode, Reference,
+    };
     use tempfile::TempDir;
     use util::sorting::SortOrder;
 
     use super::tabs::overview_tab::OverviewTabUiCommand;
-    use super::tabs::process_tab::ProcessDefinitionArgs;
     use super::*;
     use crate::task;
 
@@ -2510,7 +2470,28 @@ mod refresh_tests {
         (project, key, directory)
     }
 
+    /// A new project has no processes, this adds one made from the `pnp` preset.
+    fn add_pnp_process(project: &mut Project, directory: &TempDir) {
+        project
+            .planner_core_service
+            .update(Event::CreateProcess {
+                path: directory
+                    .path()
+                    .join("pnp.process.json"),
+                reference: Reference::from_raw_str("pnp"),
+                preset: Some("pnp".to_string()),
+            })
+            .unwrap();
+        project
+            .planner_core_service
+            .update(Event::AddProcess {
+                process_file: FileReference::Relative("pnp.process.json".into()),
+            })
+            .unwrap();
+    }
+
     fn create_phase(project: &mut Project, directory: &TempDir, phase: &Reference) {
+        add_pnp_process(project, directory);
         std::fs::write(directory.path().join("load_out.csv"), "").unwrap();
 
         let load_out =
@@ -2637,6 +2618,7 @@ mod refresh_tests {
                     project_modified,
                     pcbs_modified,
                     generation,
+                    ..
                 } => Some(ProjectUiCommand::SetModifiedState {
                     project_modified,
                     pcbs_modified,
@@ -2782,49 +2764,34 @@ mod refresh_tests {
         assert!(!project.ready);
     }
 
+    /// `PROJPROC-3`
     #[test]
-    fn renaming_a_process_moves_its_tab_to_the_new_reference() {
-        let (mut project, key, _directory) = new_project();
-        let old_reference = Reference::from_raw_str("pnp");
-        let new_reference = Reference::from_raw_str("renamed");
+    fn removing_a_process_closes_its_tab() {
+        let (mut project, key, directory) = new_project();
+        let reference = Reference::from_raw_str("pnp");
+        add_pnp_process(&mut project, &directory);
 
-        run(&mut project, key, ProjectUiCommand::ShowProcess(old_reference.clone()));
+        run(&mut project, key, ProjectUiCommand::ShowProcess(reference.clone()));
+        assert!(
+            project
+                .project_ui_state
+                .lock()
+                .unwrap()
+                .data
+                .process_definition(&reference)
+                .is_some()
+        );
 
-        let mut process_definition = project
-            .project_ui_state
-            .lock()
-            .unwrap()
-            .data
-            .process_definition(&old_reference)
-            .unwrap()
-            .clone();
-        process_definition.reference = new_reference.clone();
-
-        let action = project.apply_process_definition(key, ProcessDefinitionArgs {
-            process_reference: old_reference.clone(),
-            process_definition,
+        run(&mut project, key, ProjectUiCommand::ProcessTabUiCommand {
+            process: reference.clone(),
+            command: ProcessTabUiCommand::RemoveClicked,
         });
-        assert!(matches!(action, Some(ProjectAction::Task(..))));
-        refresh(&mut project, key);
 
         assert!(project.errors.is_empty(), "{:?}", project.errors);
-
-        let state = project.project_ui_state.lock().unwrap();
+        let tabs = project.project_tabs.lock().unwrap();
         assert!(
-            !state
-                .process_tab_uis
-                .contains_key(&old_reference)
-        );
-        assert!(
-            state
-                .process_tab_uis
-                .contains_key(&new_reference)
-        );
-        assert!(
-            state
-                .data
-                .process_definition(&new_reference)
-                .is_some()
+            tabs.filter_map(|(_key, tab)| matches!(tab, ProjectTabKind::Process(_)).then_some(()))
+                .is_empty()
         );
     }
 }

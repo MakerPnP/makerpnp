@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use planner_app::effects::pcb_view_renderer::PcbViewRendererOperation;
+use planner_app::effects::process_view_renderer::ProcessViewRendererOperation;
 use planner_app::effects::project_view_renderer::ProjectViewRendererOperation;
-use planner_app::{Effect, Event, PcbView, Planner, ProjectView};
+use planner_app::{Effect, Event, PcbView, Planner, ProcessView, ProjectView};
 use tracing::{error, trace};
 
 type Core = Arc<planner_app::Core<Planner>>;
@@ -17,12 +18,14 @@ pub enum PlannerAction {
     SetModifiedState {
         project_modified: bool,
         pcbs_modified: bool,
+        processes_modified: bool,
         /// the core's generation when this state was taken. An older state must not replace a newer one. Until commands were
         /// handled in order (`GARCH-11`), actions could arrive out of order.
         generation: u64,
     },
     ProjectView(ProjectView),
     PcbView(PcbView),
+    ProcessView(ProcessView),
 }
 
 #[derive(Debug, Clone)]
@@ -92,6 +95,7 @@ impl PlannerCoreService {
                     None => Ok(PlannerAction::SetModifiedState {
                         project_modified: view.project_modified,
                         pcbs_modified: view.pcbs_modified,
+                        processes_modified: view.processes_modified,
                         generation,
                     }),
                 };
@@ -111,6 +115,13 @@ impl PlannerCoreService {
                 } = request.operation;
 
                 Ok(PlannerAction::PcbView(view))
+            }
+            Effect::ProcessView(request) => {
+                let ProcessViewRendererOperation::View {
+                    view,
+                } = request.operation;
+
+                Ok(PlannerAction::ProcessView(view))
             }
         }
     }

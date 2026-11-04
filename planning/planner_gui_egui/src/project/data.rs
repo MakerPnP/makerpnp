@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use planner_app::Event;
 use planner_app::{
     LoadOut, PartStates, PcbOverview, PcbUnitAssignments, PcbView, PhaseOverview, PhasePlacements, PhaseReference,
-    Phases, PlacementsList, ProcessDefinition, ProcessReference, ProjectOverview, ProjectPcbOverview, ProjectReport,
+    Phases, PlacementsList, ProcessReference, ProjectOverview, ProjectPcbOverview, ProjectProcess, ProjectReport,
     ProjectTreeView, ProjectView,
 };
 
@@ -158,7 +158,7 @@ pub struct ProjectData {
     phase_overviews: HashMap<PhaseReference, Cached<PhaseOverview>>,
     phase_placements: HashMap<PhaseReference, Cached<PhasePlacements>>,
     load_outs: HashMap<PhaseReference, Cached<LoadOut>>,
-    process_definitions: HashMap<ProcessReference, Cached<ProcessDefinition>>,
+    process_definitions: HashMap<ProcessReference, Cached<ProjectProcess>>,
     project_pcbs: HashMap<u16, Cached<ProjectPcbOverview>>,
     pcb_unit_assignments: HashMap<u16, Cached<PcbUnitAssignments>>,
     pcb_overviews: HashMap<PathBuf, Cached<PcbOverview>>,
@@ -225,7 +225,7 @@ impl ProjectData {
         revision_of(&self.load_outs, phase)
     }
 
-    pub fn process_definition(&self, process: &ProcessReference) -> Option<&ProcessDefinition> {
+    pub fn process_definition(&self, process: &ProcessReference) -> Option<&ProjectProcess> {
         value_of(&self.process_definitions, process)
     }
 
@@ -348,7 +348,7 @@ impl ProjectData {
                 .set(load_out),
             ProjectView::ProcessDefinition(definition) => self
                 .process_definitions
-                .entry(definition.reference.clone())
+                .entry(definition.definition.reference.clone())
                 .or_default()
                 .set(definition),
             ProjectView::PcbOverview(pcb) => self

@@ -13,6 +13,8 @@ pub enum ToolbarUiCommand {
     NewProjectClicked,
     NewPcbClicked,
     OpenPcbClicked,
+    NewProcessClicked,
+    OpenProcessClicked,
 }
 
 pub enum ToolbarAction {
@@ -24,6 +26,9 @@ pub enum ToolbarAction {
 
     PickPcbFile,
     AddNewPcbTab,
+
+    PickProcessFile,
+    AddNewProcessTab,
 
     SaveTab(TabKey),
 }
@@ -100,6 +105,24 @@ impl UiComponent for Toolbar {
 
                 ui.separator();
 
+                if ui
+                    .button(tr!("toolbar-button-new-process"))
+                    .clicked()
+                {
+                    self.component
+                        .send(ToolbarUiCommand::NewProcessClicked);
+                }
+
+                if ui
+                    .button(tr!("toolbar-button-open-process"))
+                    .clicked()
+                {
+                    self.component
+                        .send(ToolbarUiCommand::OpenProcessClicked);
+                }
+
+                ui.separator();
+
                 ui.add_enabled_ui(context.can_save, |ui| {
                     if ui
                         .button(tr!("toolbar-button-save"))
@@ -134,6 +157,8 @@ impl UiComponent for Toolbar {
             ToolbarUiCommand::OpenProjectClicked => Some(ToolbarAction::PickProjectFile),
             ToolbarUiCommand::NewPcbClicked => Some(ToolbarAction::AddNewPcbTab),
             ToolbarUiCommand::OpenPcbClicked => Some(ToolbarAction::PickPcbFile),
+            ToolbarUiCommand::NewProcessClicked => Some(ToolbarAction::AddNewProcessTab),
+            ToolbarUiCommand::OpenProcessClicked => Some(ToolbarAction::PickProcessFile),
             ToolbarUiCommand::SaveClicked(tab_key) => Some(ToolbarAction::SaveTab(tab_key)),
         }
     }

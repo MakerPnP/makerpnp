@@ -6,6 +6,7 @@ use tracing::{debug, trace};
 
 use crate::config::Config;
 use crate::pcb::{PcbAction, PcbUiCommand};
+use crate::process::{ProcessAction, ProcessUiCommand};
 use crate::project::{ProjectAction, ProjectUiCommand};
 use crate::sync::Value;
 use crate::tabs::TabKey;
@@ -13,8 +14,10 @@ use crate::task::Task;
 use crate::toolbar::{ToolbarAction, ToolbarUiCommand};
 use crate::ui_app::app_tabs::home::HomeTabAction;
 use crate::ui_app::app_tabs::new_pcb::NewPcbTabAction;
+use crate::ui_app::app_tabs::new_process::NewProcessTabAction;
 use crate::ui_app::app_tabs::new_project::NewProjectTabAction;
 use crate::ui_app::app_tabs::pcb::{PcbTabAction, PcbTabUiCommand};
+use crate::ui_app::app_tabs::process::{ProcessTabAction, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTabAction, ProjectTabUiCommand};
 use crate::ui_app::app_tabs::{
     AppTabs, TabAction, TabKind, TabKindAction, TabKindContext, TabKindUiCommand, TabUiCommand,
@@ -29,6 +32,7 @@ pub enum UiCommand {
     ToolbarCommand(ToolbarUiCommand),
     OpenProjectFile(PathBuf),
     OpenPcbFile(PathBuf),
+    OpenProcessFile(PathBuf),
     TabCommand {
         tab_key: TabKey,
         command: TabUiCommand,
@@ -36,6 +40,7 @@ pub enum UiCommand {
     LangageChanged(String),
     ThemeChanged(ThemePreference),
     ShowPcb(PathBuf),
+    ShowProcess(PathBuf),
     LocateComponent {
         pcb_file: PathBuf,
         object_path: ObjectPath,
@@ -91,6 +96,23 @@ pub fn handle_command(
             app_state.open_pcb_file(picked_file, app_tabs);
             Task::none()
         }
+        UiCommand::OpenProcessFile(picked_file) => {
+            let mut app_state = app_state.lock().unwrap();
+            app_state.open_process_file(picked_file, app_tabs);
+            Task::none()
+        }
+        UiCommand::ShowProcess(path) => {
+            if let Ok(tab_key) = app_tabs
+                .lock()
+                .unwrap()
+                .show_process_tab(&path)
+            {
+                debug!("showing process tab, tab_key: {:?}", tab_key);
+                Task::none()
+            } else {
+                Task::done(UiCommand::OpenProcessFile(path))
+            }
+        }
         UiCommand::ShowPcb(path) => {
             if let Ok(tab_key) = app_tabs
                 .lock()
@@ -135,18 +157,20 @@ pub fn handle_command(
             command,
         } => {
             // block required limit the scope of the `app_state` guard
-            let (projects, pcbs) = {
+            let (projects, pcbs, processes) = {
                 let app_state = app_state.lock().unwrap();
                 let projects = app_state.projects.clone();
                 let pcbs = app_state.pcbs.clone();
+                let processes = app_state.processes.clone();
                 drop(app_state);
-                (projects, pcbs)
+                (projects, pcbs, processes)
             };
 
             let mut tab_context = TabKindContext {
                 config,
                 projects,
                 pcbs,
+                processes,
             };
 
             let action = {
@@ -219,6 +243,42 @@ pub fn handle_command(
                             Task::none()
                         }
                     },
+                    TabKindAction::NewProcessTabAction {
+                        action,
+                    } => match action {
+                        NewProcessTabAction::Submit(args) => {
+                            let mut app_state = app_state.lock().unwrap();
+                            app_state.create_process(tab_key, args, app_tabs);
+                            Task::none()
+                        }
+                    },
+                    TabKindAction::ProcessTabAction {
+                        action,
+                    } => match action {
+                        ProcessTabAction::ProcessTask(key, task) => task.map(move |action| match action {
+                            // map it to the corresponding UiCommand::TabCommand
+                            ProcessAction::UiCommand(command) => UiCommand::TabCommand {
+                                tab_key,
+                                command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
+                                    command: ProcessTabUiCommand::ProcessCommand {
+                                        key,
+                                        command,
+                                    },
+                                }),
+                            },
+                            _ => panic!("unsupported"),
+                        }),
+                        ProcessTabAction::SetModifiedState(modified_state) => {
+                            let app_tabs = app_tabs.lock().unwrap();
+                            app_tabs.with_tab_mut(&tab_key, |tab| match tab {
+                                TabKind::Process(process_tab, _) => {
+                                    process_tab.modified = modified_state;
+                                }
+                                _ => unreachable!(),
+                            });
+                            Task::none()
+                        }
+                    },
                     TabKindAction::ProjectTabAction {
                         action,
                     } => match action {
@@ -263,6 +323,7 @@ pub fn handle_command(
                             Task::none()
                         }
                         ProjectTabAction::ShowPcb(path) => Task::done(UiCommand::ShowPcb(path)),
+                        ProjectTabAction::ShowProcess(path) => Task::done(UiCommand::ShowProcess(path)),
                         ProjectTabAction::LocateComponent {
                             pcb_file,
                             object_path,
@@ -310,6 +371,12 @@ fn handle_toolbar_action(
             app_tabs.add_new_pcb_tab(file_dialogs);
             Task::none()
         }
+        ToolbarAction::AddNewProcessTab => {
+            let file_dialogs = app_state.lock().unwrap().file_dialogs();
+            let mut app_tabs = app_tabs.lock().unwrap();
+            app_tabs.add_new_process_tab(file_dialogs);
+            Task::none()
+        }
         ToolbarAction::CloseAllTabs => {
             let mut app_tabs = app_tabs.lock().unwrap();
             app_tabs.close_all_tabs();
@@ -323,6 +390,11 @@ fn handle_toolbar_action(
         ToolbarAction::PickPcbFile => {
             let mut app_state = app_state.lock().unwrap();
             app_state.pick_pcb_file();
+            Task::none()
+        }
+        ToolbarAction::PickProcessFile => {
+            let mut app_state = app_state.lock().unwrap();
+            app_state.pick_process_file();
             Task::none()
         }
         ToolbarAction::SaveTab(tab_key) => {
@@ -347,6 +419,18 @@ fn handle_toolbar_action(
                             command: PcbTabUiCommand::PcbCommand {
                                 key: pcb_tab.pcb_key,
                                 command: PcbUiCommand::Save,
+                            },
+                        }),
+                    };
+                    Task::done(command)
+                }
+                TabKind::Process(process_tab, _) => {
+                    let command = UiCommand::TabCommand {
+                        tab_key,
+                        command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
+                            command: ProcessTabUiCommand::ProcessCommand {
+                                key: process_tab.process_key,
+                                command: ProcessUiCommand::Save,
                             },
                         }),
                     };

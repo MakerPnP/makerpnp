@@ -5,10 +5,12 @@ use std::path::{Path, PathBuf};
 
 use clap::{Parser, Subcommand};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
-use cli::args::{AddOrRemoveOperationArg, PcbSideArg, PlacementOperationArg, SetOrClearOperationArg, TaskActionArg};
+use cli::args::{
+    AddOrRemoveOperationArg, PcbSideArg, PlacementOperationArg, SetOrClearOperationArg, TaskActionArg, TaskKindArg,
+};
 use cli::parsers::{dimensions_decimal_parser, vector2_decimal_parser};
 use nalgebra::Vector2;
-use planner_app::Event;
+use planner_app::{Event, ProcessEdit};
 use planning::design::DesignName;
 use planning::file::FileReference;
 use planning::placement::PlacementSortingItem;
@@ -49,6 +51,87 @@ pub(crate) enum ModeCommand {
 
     /// PCB mode
     Pcb(PcbCommandArgs),
+
+    /// Process mode, to define a process's operations and tasks
+    Process(ProcessCommandArgs),
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct ProcessCommandArgs {
+    /// Specify a process context, e.g. 'glue_and_wave.process.json'
+    #[arg(long, value_name = "PROCESS_FILE")]
+    pub(crate) process_file: PathBuf,
+
+    #[command(subcommand)]
+    pub(crate) command: ProcessCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum ProcessCommand {
+    /// Create a process file
+    Create {
+        /// Process reference, e.g. 'glue_and_wave'
+        #[arg(long)]
+        reference: ProcessReference,
+
+        /// The process to start from, otherwise the process has no operations
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(["pnp", "manual"]))]
+        preset: Option<String>,
+    },
+    /// Change the process's reference
+    SetReference {
+        /// Process reference, e.g. 'glue_and_wave'
+        #[arg(long)]
+        reference: ProcessReference,
+    },
+    /// Add an operation, after the others
+    AddOperation {
+        /// Operation reference, e.g. 'apply_glue'
+        #[arg(long)]
+        operation: Reference,
+    },
+    /// Remove an operation
+    RemoveOperation {
+        /// Operation reference
+        #[arg(long)]
+        operation: Reference,
+    },
+    /// Add a task to an operation, after its other tasks
+    AddTask {
+        /// Operation reference
+        #[arg(long)]
+        operation: Reference,
+
+        /// Task reference, e.g. 'wave_solder'
+        #[arg(long)]
+        task: Reference,
+
+        /// What the task does, as far as the planner needs to know
+        #[arg(long)]
+        kind: TaskKindArg,
+    },
+    /// Remove a task from an operation
+    RemoveTask {
+        /// Operation reference
+        #[arg(long)]
+        operation: Reference,
+
+        /// Task reference
+        #[arg(long)]
+        task: Reference,
+    },
+    /// Add a rule
+    AddRule {
+        /// Rule reference
+        #[arg(long, value_parser = clap::builder::PossibleValuesParser::new(planner_app::PROCESS_RULES))]
+        rule: String,
+    },
+    /// Remove a rule
+    RemoveRule {
+        /// Rule reference
+        #[arg(long)]
+        rule: Reference,
+    },
 }
 
 #[derive(Debug, Parser)]
@@ -375,18 +458,21 @@ pub(crate) enum ProjectCommand {
     },
     /// Refresh from design variants
     RefreshFromDesignVariants,
-    /// Create a process from presets
-    CreateProcessFromPreset {
-        /// Process preset name
-        #[arg(long)]
-        preset: ProcessReference,
+    /// Add a copy of a process, from its file, to the project
+    AddProcess {
+        /// The path of the process file, e.g. 'relative=<some_relative_path>' or '<some_absolute_path>'
+        /// paths can be prefixed with `relative=` to make them relative to the project path.
+        #[arg(long, value_parser = cli::parsers::FileReferenceParser::default(), value_name = "FILE_REFERENCE")]
+        file: FileReference,
     },
-    /// Delete a process from the project
-    DeleteProcess {
-        /// Process preset name
+    /// Remove a process from the project, its file is not deleted
+    RemoveProcess {
+        /// Process reference
         #[arg(long)]
         process: ProcessReference,
     },
+    /// Update the project's copy of each process from its file
+    RefreshProcesses,
     /// Assign a process to parts
     AssignProcessToParts {
         /// Process name
@@ -593,6 +679,67 @@ impl TryFrom<Opts> for Event {
                     })
                 }
             },
+            ModeCommand::Process(process_args) => {
+                let path = process_args.process_file;
+                let edit = |edit: ProcessEdit| {
+                    Ok(Event::EditProcess {
+                        path: path.clone(),
+                        edit,
+                    })
+                };
+
+                match process_args.command {
+                    ProcessCommand::Create {
+                        reference,
+                        preset,
+                    } => Ok(Event::CreateProcess {
+                        path: path.clone(),
+                        reference,
+                        preset,
+                    }),
+                    ProcessCommand::SetReference {
+                        reference,
+                    } => edit(ProcessEdit::SetReference {
+                        reference,
+                    }),
+                    ProcessCommand::AddOperation {
+                        operation,
+                    } => edit(ProcessEdit::AddOperation {
+                        operation,
+                    }),
+                    ProcessCommand::RemoveOperation {
+                        operation,
+                    } => edit(ProcessEdit::RemoveOperation {
+                        operation,
+                    }),
+                    ProcessCommand::AddTask {
+                        operation,
+                        task,
+                        kind,
+                    } => edit(ProcessEdit::AddTask {
+                        operation,
+                        task,
+                        kind: kind.into(),
+                    }),
+                    ProcessCommand::RemoveTask {
+                        operation,
+                        task,
+                    } => edit(ProcessEdit::RemoveTask {
+                        operation,
+                        task,
+                    }),
+                    ProcessCommand::AddRule {
+                        rule,
+                    } => edit(ProcessEdit::AddRule {
+                        rule: Reference::from_raw(rule),
+                    }),
+                    ProcessCommand::RemoveRule {
+                        rule,
+                    } => edit(ProcessEdit::RemoveRule {
+                        rule,
+                    }),
+                }
+            }
             ModeCommand::Project(project_args) => match project_args.command {
                 ProjectCommand::Create {
                     packages,
@@ -628,16 +775,17 @@ impl TryFrom<Opts> for Event {
                     variant,
                 }),
                 ProjectCommand::RefreshFromDesignVariants => Ok(Event::RefreshFromDesignVariants),
-                ProjectCommand::CreateProcessFromPreset {
-                    preset,
-                } => Ok(Event::CreateProcessFromPreset {
-                    preset,
+                ProjectCommand::AddProcess {
+                    file,
+                } => Ok(Event::AddProcess {
+                    process_file: file,
                 }),
-                ProjectCommand::DeleteProcess {
+                ProjectCommand::RemoveProcess {
                     process,
-                } => Ok(Event::DeleteProcess {
+                } => Ok(Event::RemoveProcess {
                     process_reference: process,
                 }),
+                ProjectCommand::RefreshProcesses => Ok(Event::RefreshProcesses),
                 ProjectCommand::AssignProcessToParts {
                     process,
                     operation,

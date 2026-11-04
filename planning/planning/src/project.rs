@@ -33,9 +33,7 @@ use crate::design::{DesignIndex, DesignName, DesignVariant};
 use crate::file::FileReference;
 use crate::library::LibraryConfig;
 use crate::operation_history::{
-    AutomatedSolderingOperationTaskHistoryKind, LoadPcbsOperationTaskHistoryKind,
-    ManualSolderingOperationTaskHistoryKind, OperationHistoryItem, OperationHistoryKind,
-    PlaceComponentsOperationTaskHistoryKind, PlacementOperationHistoryKind,
+    OperationHistoryItem, OperationHistoryKind, PlacementOperationHistoryKind, TaskOperationHistoryKind,
 };
 use crate::part::PartState;
 use crate::pcb::{Pcb, PcbError, PcbUnitTransform, UnitPlacementPosition};
@@ -45,8 +43,8 @@ use crate::placement::{
     ProjectPlacementStatus,
 };
 use crate::process::{
-    can_modify_operation, can_modify_task, OperationDefinition, OperationReference, OperationStatus, ProcessDefinition,
-    ProcessError, ProcessReference, ProcessRuleReference, SerializableTaskState, TaskAction, TaskReference, TaskStatus,
+    can_modify_operation, can_modify_task, OperationReference, OperationStatus, ProcessDefinition, ProcessError,
+    ProcessReference, SerializableTaskState, TaskAction, TaskKind, TaskReference, TaskStatus,
 };
 #[cfg(feature = "markdown")]
 use crate::report::project_report_json_to_markdown;
@@ -54,7 +52,7 @@ use crate::variant::VariantName;
 use crate::{file, operation_history, pcb, placement, report};
 
 #[serde_as]
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub struct Project {
     pub name: String,
@@ -62,8 +60,9 @@ pub struct Project {
     #[serde(default)]
     pub library_config: LibraryConfig,
 
-    /// The *definition* of the processes used by this project.
-    pub processes: Vec<ProcessDefinition>,
+    /// The processes used by this project, each a copy of the definition in its file.
+    #[serde(default)]
+    pub processes: Vec<ProjectProcess>,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
@@ -132,12 +131,151 @@ impl Project {
             .collect::<Vec<_>>()
     }
 
-    pub fn ensure_process(&mut self, process: &ProcessDefinition) -> anyhow::Result<()> {
-        if !self.processes.contains(process) {
-            info!("Adding process to project.  process: '{}'", process.reference);
-            self.processes.push(process.clone())
+    /// Adds a copy of a process, from its file, to the project.
+    pub fn add_process(
+        &mut self,
+        process_file: FileReference,
+        definition: ProcessDefinition,
+    ) -> Result<(), ProcessError> {
+        definition
+            .validate()
+            .map_err(ProcessError::InvalidProcess)?;
+
+        if self
+            .processes
+            .iter()
+            .any(|process| matches!(&process.process_file, Some(candidate) if candidate.eq(&process_file)))
+        {
+            return Err(ProcessError::DuplicateProcessFile {
+                process_file,
+            });
         }
+
+        if self
+            .find_process(&definition.reference)
+            .is_ok()
+        {
+            return Err(ProcessError::DuplicateProcessReference {
+                process_reference: definition.reference,
+            });
+        }
+
+        info!(
+            "Added process. process: '{}', file: {}",
+            definition.reference, process_file
+        );
+        self.processes.push(ProjectProcess {
+            process_file: Some(process_file),
+            definition,
+        });
+
         Ok(())
+    }
+
+    /// Replaces the project's copy of a process with a newer definition, e.g. from its file.
+    ///
+    /// A process can't be changed while a phase that uses it is in progress.  If its reference changes, the phases and
+    /// parts that use it are changed too.  The state of each phase that uses it is rebuilt from the new definition.
+    ///
+    /// Returns whether the project changed.
+    pub fn replace_process(
+        &mut self,
+        process_reference: &ProcessReference,
+        definition: ProcessDefinition,
+    ) -> Result<bool, ProcessError> {
+        let index = self
+            .processes
+            .iter()
+            .position(|process| {
+                process
+                    .definition
+                    .reference
+                    .eq(process_reference)
+            })
+            .ok_or_else(|| self.undefined_process_error(process_reference))?;
+
+        if self.processes[index]
+            .definition
+            .eq(&definition)
+        {
+            return Ok(false);
+        }
+
+        definition
+            .validate()
+            .map_err(ProcessError::InvalidProcess)?;
+
+        let new_process_reference = definition.reference.clone();
+        let renamed = !new_process_reference.eq(process_reference);
+        if renamed
+            && self
+                .find_process(&new_process_reference)
+                .is_ok()
+        {
+            return Err(ProcessError::DuplicateProcessReference {
+                process_reference: new_process_reference,
+            });
+        }
+
+        self.ensure_process_not_in_progress(process_reference)?;
+
+        self.processes[index].definition = definition;
+
+        if renamed {
+            for (part, part_state) in self.part_states.iter_mut() {
+                if part_state
+                    .applicable_processes
+                    .remove(process_reference)
+                {
+                    part_state
+                        .applicable_processes
+                        .insert(new_process_reference.clone());
+                    info!(
+                        "Renamed part's process. part: {:?}, old: '{}', new: '{}'",
+                        part, process_reference, new_process_reference
+                    );
+                }
+            }
+        }
+
+        let phases_to_update = self
+            .phases
+            .iter()
+            .filter(|(_, phase)| phase.process.eq(process_reference))
+            .map(|(phase_reference, phase)| (phase_reference.clone(), phase.load_out_source.clone(), phase.pcb_side))
+            .collect::<Vec<_>>();
+
+        for (phase_reference, load_out_source, pcb_side) in phases_to_update {
+            self.update_phase(
+                phase_reference,
+                new_process_reference.clone(),
+                load_out_source,
+                pcb_side,
+            )
+            .map_err(|_cause| self.undefined_process_error(&new_process_reference))?;
+        }
+
+        info!(
+            "Updated process. process: '{}', new reference: '{}'",
+            process_reference, new_process_reference
+        );
+
+        Ok(true)
+    }
+
+    /// The kind of a task of a phase's process.
+    pub fn find_task_kind(
+        &self,
+        phase_reference: &PhaseReference,
+        operation_reference: &OperationReference,
+        task_reference: &TaskReference,
+    ) -> Option<TaskKind> {
+        let phase = self.phases.get(phase_reference)?;
+        let process = self.find_process(&phase.process).ok()?;
+
+        process
+            .find_task(operation_reference, task_reference)
+            .map(|task| task.kind)
     }
 
     /// makes the assignment if possible.
@@ -353,22 +491,47 @@ impl Project {
     }
 
     pub fn find_process(&self, process_reference: &ProcessReference) -> Result<&ProcessDefinition, ProcessError> {
-        self.processes
-            .iter()
-            .find(|&process| process.reference.eq(&process_reference))
-            .ok_or(ProcessError::UndefinedProcessError {
-                processes: self.processes.clone(),
-                process: process_reference.to_string(),
-            })
+        self.find_project_process(process_reference)
+            .map(|process| &process.definition)
     }
 
-    /// Delete a process
-    ///
-    /// Safety: Assumes the process exists.
-    pub fn delete_process(&mut self, process_reference: &ProcessReference) -> Result<(), ProcessError> {
-        self.ensure_process_not_in_use(process_reference)?;
+    pub fn find_project_process(&self, process_reference: &ProcessReference) -> Result<&ProjectProcess, ProcessError> {
         self.processes
-            .retain(|process| !process.reference.eq(process_reference));
+            .iter()
+            .find(|&process| {
+                process
+                    .definition
+                    .reference
+                    .eq(&process_reference)
+            })
+            .ok_or_else(|| self.undefined_process_error(process_reference))
+    }
+
+    fn undefined_process_error(&self, process_reference: &ProcessReference) -> ProcessError {
+        ProcessError::UndefinedProcessError {
+            processes: self
+                .processes
+                .iter()
+                .map(|process| process.definition.reference.clone())
+                .collect(),
+            process: process_reference.to_string(),
+        }
+    }
+
+    /// Removes a process from the project.  Its file is not deleted.
+    ///
+    /// A process used by a phase can't be removed.  Parts keep the process assigned to them, so that adding the process
+    /// again restores them.
+    pub fn remove_process(&mut self, process_reference: &ProcessReference) -> Result<(), ProcessError> {
+        self.find_process(process_reference)?;
+        self.ensure_process_not_in_use(process_reference)?;
+        self.processes.retain(|process| {
+            !process
+                .definition
+                .reference
+                .eq(process_reference)
+        });
+        info!("Removed process. process: '{}'", process_reference);
 
         Ok(())
     }
@@ -471,6 +634,35 @@ pub struct ProjectPcb {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(default)]
     pub unit_assignments: BTreeMap<PcbUnitIndex, DesignVariant>,
+}
+
+/// A process used by a project: a copy of its definition, and the file it was copied from.
+///
+/// The copy is only updated from the file when the user asks, see [`Project::replace_process`], since a phase's state is
+/// built from its process's definition.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub struct ProjectProcess {
+    /// Always present, except in projects from before processes had files, which are given files when they're loaded,
+    /// see [`Project::processes_without_files`].
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub process_file: Option<FileReference>,
+
+    #[serde(flatten)]
+    pub definition: ProcessDefinition,
+}
+
+impl Project {
+    /// The indexes of the processes that have no file, see [`ProjectProcess::process_file`].
+    pub fn processes_without_files(&self) -> Vec<usize> {
+        self.processes
+            .iter()
+            .enumerate()
+            .filter(|(_, process)| process.process_file.is_none())
+            .map(|(index, _)| index)
+            .collect()
+    }
 }
 
 impl ProjectPcb {
@@ -604,73 +796,11 @@ pub enum ProjectPcbError {
     UnitNotAssignedToAVariant { unit: u16 },
 }
 
-#[derive(Error, Debug)]
-pub enum ProcessPresetFactoryError {
-    #[error("Unknown process preset.  preset: {}", preset)]
-    UnknownPreset { preset: String },
-}
-
-pub struct ProcessPresetFactory {}
-
-impl ProcessPresetFactory {
-    pub fn available_presets() -> Vec<String> {
-        vec!["pnp".to_string(), "manual".to_string()]
-    }
-
-    pub fn by_preset_name(name: &str) -> Result<ProcessDefinition, ProcessPresetFactoryError> {
-        // FUTURE add support for more named processes
-
-        match name {
-            "pnp" => Ok(ProcessDefinition {
-                reference: ProcessReference::from_raw_str("pnp"),
-                operations: vec![
-                    OperationDefinition {
-                        reference: Reference::from_raw_str("load_pcbs"),
-                        tasks: vec![TaskReference::from_raw_str("core::load_pcbs")],
-                    },
-                    OperationDefinition {
-                        reference: Reference::from_raw_str("automated_pnp"),
-                        tasks: vec![TaskReference::from_raw_str("core::place_components")],
-                    },
-                    OperationDefinition {
-                        reference: Reference::from_raw_str("reflow_oven_soldering"),
-                        tasks: vec![TaskReference::from_raw_str("core::automated_soldering")],
-                    },
-                ],
-                rules: vec![ProcessRuleReference::from_raw_str("core::unique_feeder_references")],
-            }),
-            "manual" => Ok(ProcessDefinition {
-                reference: ProcessReference::from_raw_str("manual"),
-                operations: vec![
-                    OperationDefinition {
-                        reference: Reference::from_raw_str("load_pcbs"),
-                        tasks: vec![TaskReference::from_raw_str("core::load_pcbs")],
-                    },
-                    OperationDefinition {
-                        reference: Reference::from_raw_str("manually_solder_components"),
-                        tasks: vec![
-                            TaskReference::from_raw_str("core::place_components"),
-                            TaskReference::from_raw_str("core::manual_soldering"),
-                        ],
-                    },
-                ],
-                rules: vec![],
-            }),
-            preset @ _ => Err(ProcessPresetFactoryError::UnknownPreset {
-                preset: preset.to_string(),
-            }),
-        }
-    }
-}
-
 impl Default for Project {
     fn default() -> Self {
         Self {
             name: "Unnamed".to_string(),
-            processes: vec![
-                ProcessPresetFactory::by_preset_name("pnp").unwrap(),
-                ProcessPresetFactory::by_preset_name("manual").unwrap(),
-            ],
+            processes: vec![],
             pcbs: vec![],
             part_states: Default::default(),
             phases: Default::default(),
@@ -2098,10 +2228,10 @@ mod apply_phase_operation_task_action_tests {
     use pnp::reference::Reference;
     use rstest::rstest;
 
-    use crate::phase;
     use crate::phase::PhaseState;
+    use crate::process;
     use crate::process::TaskAction;
-    use crate::process::{OperationState, SerializableTaskState, TaskReference, TaskStatus};
+    use crate::process::{OperationState, SerializableTaskState, TaskKind, TaskReference, TaskStatus};
     use crate::project::{Project, TaskActionError};
 
     #[rstest]
@@ -2287,7 +2417,9 @@ mod apply_phase_operation_task_action_tests {
                     let task_states = task_status_map
                         .iter()
                         .map(|(task_reference, task_status)| {
-                            let mut task_state = phase::make_task_state(&TaskReference::from_raw_str(task_reference));
+                            let kind = TaskKind::for_legacy_task(&TaskReference::from_raw_str(task_reference))
+                                .unwrap_or(TaskKind::Generic);
+                            let mut task_state = process::make_task_state(kind);
                             match task_status {
                                 // Default state is pending
                                 TaskStatus::Pending => {}
@@ -2541,48 +2673,22 @@ pub fn apply_phase_operation_task_action(
         }
     }
 
+    let new_status = task_state.status();
+
     let mut task_history_items: Vec<(&TaskReference, Box<dyn OperationHistoryKind>)> = Vec::new();
 
-    if let Some(task_history_item) = build_operation_task_history_item(&task_reference, task_state.status()) {
-        task_history_items.push(task_history_item);
-    }
-
-    fn build_operation_task_history_item(
-        reference: &TaskReference,
-        new_status: TaskStatus,
-    ) -> Option<(&TaskReference, Box<dyn OperationHistoryKind>)> {
-        if reference.eq(&TaskReference::from_raw_str("core::load_pcbs")) {
-            Some((
-                reference,
-                Box::new(LoadPcbsOperationTaskHistoryKind {
-                    status: new_status,
-                }) as Box<dyn OperationHistoryKind>,
-            ))
-        } else if reference.eq(&TaskReference::from_raw_str("core::place_components")) {
-            Some((
-                reference,
-                Box::new(PlaceComponentsOperationTaskHistoryKind {
-                    status: new_status,
-                }) as Box<dyn OperationHistoryKind>,
-            ))
-        } else if reference.eq(&TaskReference::from_raw_str("core::manual_soldering")) {
-            Some((
-                reference,
-                Box::new(ManualSolderingOperationTaskHistoryKind {
-                    status: new_status,
-                }) as Box<dyn OperationHistoryKind>,
-            ))
-        } else if reference.eq(&TaskReference::from_raw_str("core::automated_soldering")) {
-            Some((
-                reference,
-                Box::new(AutomatedSolderingOperationTaskHistoryKind {
-                    status: new_status,
-                }) as Box<dyn OperationHistoryKind>,
-            ))
-        } else {
-            warn!("Unable to build history. task_reference: {:?}", reference);
-            None
-        }
+    match project.find_task_kind(phase_reference, &operation_reference, &task_reference) {
+        Some(kind) => task_history_items.push((
+            &task_reference,
+            Box::new(TaskOperationHistoryKind {
+                kind,
+                status: new_status,
+            }) as Box<dyn OperationHistoryKind>,
+        )),
+        None => warn!(
+            "Unable to build history, the task isn't in the phase's process. phase: {}, operation: {}, task: {}",
+            phase_reference, operation_reference, task_reference
+        ),
     }
 
     if !task_history_items.is_empty() {
@@ -2719,4 +2825,148 @@ pub enum ProjectError {
     UnableToBuildUnitPositions(String),
     #[error("Unable to assign phase to placements, cause: {0}")]
     UnableToAssignPhaseToPlacements(#[from] AssignmentError),
+}
+
+#[cfg(test)]
+mod project_process_tests {
+    use std::path::PathBuf;
+
+    use pnp::part::Part;
+    use pnp::pcb::PcbSide;
+    use pnp::reference::Reference;
+
+    use crate::file::FileReference;
+    use crate::part::PartState;
+    use crate::process::{ProcessDefinition, ProcessError, ProcessPresetFactory, TaskAction, TaskReference};
+    use crate::project::{apply_phase_operation_task_action, Project};
+
+    fn project_with_manual_process() -> Project {
+        let mut project = Project::default();
+        project
+            .add_process(
+                FileReference::Relative(PathBuf::from("manual.process.json")),
+                ProcessPresetFactory::by_preset_name("manual").unwrap(),
+            )
+            .unwrap();
+        project
+    }
+
+    fn renamed(definition: &ProcessDefinition, reference: &str) -> ProcessDefinition {
+        let mut definition = definition.clone();
+        definition.reference = Reference::from_raw_str(reference);
+        definition
+    }
+
+    /// `PROCDEF-4`
+    #[test]
+    fn a_project_has_no_processes_until_they_are_added() {
+        assert!(Project::default().processes.is_empty());
+    }
+
+    /// `PROCDEF-5`
+    #[test]
+    fn a_process_file_or_reference_can_only_be_added_once() {
+        let mut project = project_with_manual_process();
+        let manual = ProcessPresetFactory::by_preset_name("manual").unwrap();
+
+        let same_file = project.add_process(
+            FileReference::Relative(PathBuf::from("manual.process.json")),
+            renamed(&manual, "other"),
+        );
+        assert!(matches!(same_file, Err(ProcessError::DuplicateProcessFile { .. })));
+
+        let same_reference = project.add_process(FileReference::Relative(PathBuf::from("other.process.json")), manual);
+        assert!(matches!(
+            same_reference,
+            Err(ProcessError::DuplicateProcessReference { .. })
+        ));
+    }
+
+    /// `PROCDEF-6`
+    #[test]
+    fn renaming_a_process_renames_it_in_its_phases_and_parts() {
+        let mut project = project_with_manual_process();
+        let manual = project.processes[0].definition.clone();
+        let part = Part::new("MFR1".to_string(), "MPN1".to_string());
+        project
+            .part_states
+            .insert(part.clone(), PartState {
+                applicable_processes: [manual.reference.clone()].into(),
+            });
+        project
+            .update_phase(
+                Reference::from_raw_str("top_1"),
+                manual.reference.clone(),
+                "load_out.csv".to_string(),
+                PcbSide::Top,
+            )
+            .unwrap();
+
+        let result = project.replace_process(&manual.reference, renamed(&manual, "hand"));
+
+        assert_eq!(result.unwrap(), true);
+        let hand = Reference::from_raw_str("hand");
+        assert_eq!(project.phases[&Reference::from_raw_str("top_1")].process, hand);
+        assert_eq!(project.part_states[&part].applicable_processes, [hand].into());
+    }
+
+    /// `PROCDEF-6`
+    #[test]
+    fn a_process_cannot_be_changed_once_a_phase_using_it_has_started() {
+        let mut project = project_with_manual_process();
+        let manual = project.processes[0].definition.clone();
+        let phase = Reference::from_raw_str("top_1");
+        project
+            .update_phase(
+                phase.clone(),
+                manual.reference.clone(),
+                "load_out.csv".to_string(),
+                PcbSide::Top,
+            )
+            .unwrap();
+        let directory = std::env::temp_dir();
+        apply_phase_operation_task_action(
+            &mut project,
+            &directory,
+            &phase,
+            Reference::from_raw_str("load_pcbs"),
+            TaskReference::from_raw_str("load_pcbs"),
+            TaskAction::Start,
+        )
+        .unwrap();
+        let _ = std::fs::remove_file(directory.join("top_1_log.json"));
+
+        let result = project.replace_process(&manual.reference, renamed(&manual, "hand"));
+
+        assert!(matches!(result, Err(ProcessError::ProcessInProgress { .. })));
+        assert_eq!(project.processes[0].definition, manual);
+    }
+
+    /// `PROCDEF-8`
+    #[test]
+    fn a_project_from_before_processes_had_files_can_be_read() {
+        let json = r#"{
+            "name": "job1",
+            "processes": [
+                {
+                    "reference": "manual",
+                    "operations": [
+                        { "reference": "load_pcbs", "tasks": ["core::load_pcbs"] },
+                        { "reference": "manually_solder_components", "tasks": ["core::place_components", "core::manual_soldering"] }
+                    ],
+                    "rules": []
+                }
+            ]
+        }"#;
+
+        let project: Project = serde_json::from_str(json).unwrap();
+
+        assert_eq!(project.processes_without_files(), vec![0]);
+        let process = &project.processes[0].definition;
+        assert_eq!(
+            process.operations[1].tasks[0].reference,
+            TaskReference::from_raw_str("core::place_components")
+        );
+        assert_eq!(process.validate(), Ok(()));
+    }
 }

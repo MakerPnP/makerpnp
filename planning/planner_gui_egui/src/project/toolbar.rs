@@ -7,6 +7,7 @@ use crate::ui_component::{ComponentState, UiComponent};
 pub enum ProjectToolbarUiCommand {
     ProjectExplorerClicked,
     AddPcbClicked,
+    AddProcessClicked,
     AddPhaseClicked,
     PackageSourcesClicked,
     RefreshClicked,
@@ -18,6 +19,7 @@ pub enum ProjectToolbarUiCommand {
 pub enum ProjectToolbarAction {
     ShowProjectExplorer,
     PickPcbFile,
+    PickProcessFile,
     ShowAddPhaseDialog,
     ShowPackageSourcesDialog,
     Refresh,
@@ -77,6 +79,13 @@ impl UiComponent for ProjectToolbar {
                     .send(ProjectToolbarUiCommand::AddPcbClicked)
             }
             if ui
+                .button(tr!("project-toolbar-button-add-process"))
+                .clicked()
+            {
+                self.component
+                    .send(ProjectToolbarUiCommand::AddProcessClicked)
+            }
+            if ui
                 .button(tr!("project-toolbar-button-add-phase"))
                 .clicked()
             {
@@ -110,6 +119,7 @@ impl UiComponent for ProjectToolbar {
             ProjectToolbarUiCommand::ProjectExplorerClicked => Some(ProjectToolbarAction::ShowProjectExplorer),
             ProjectToolbarUiCommand::RefreshClicked => Some(ProjectToolbarAction::Refresh),
             ProjectToolbarUiCommand::AddPcbClicked => Some(ProjectToolbarAction::PickPcbFile),
+            ProjectToolbarUiCommand::AddProcessClicked => Some(ProjectToolbarAction::PickProcessFile),
             ProjectToolbarUiCommand::AddPhaseClicked => Some(ProjectToolbarAction::ShowAddPhaseDialog),
             ProjectToolbarUiCommand::PackageSourcesClicked => Some(ProjectToolbarAction::ShowPackageSourcesDialog),
             ProjectToolbarUiCommand::GenerateArtifactsClicked => Some(ProjectToolbarAction::GenerateArtifacts),

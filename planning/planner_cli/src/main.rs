@@ -7,7 +7,7 @@ use planner_app::{Effect, Event};
 use tracing::trace;
 
 use crate::core::Core;
-use crate::opts::{build_project_file_path, ModeCommand, Opts, PcbCommand, ProjectCommand};
+use crate::opts::{build_project_file_path, ModeCommand, Opts, PcbCommand, ProcessCommand, ProjectCommand};
 
 mod core;
 mod opts;
@@ -43,6 +43,15 @@ fn main() -> anyhow::Result<()> {
             }
             Event::try_from(opts)?
         }
+        ModeCommand::Process(process_args) => {
+            if !matches!(process_args.command, ProcessCommand::Create { .. }) {
+                let path = process_args.process_file.clone();
+                run_loop(&core, Event::LoadProcess {
+                    path,
+                })?;
+            }
+            Event::try_from(opts)?
+        }
     };
 
     run_loop(&core, event)?;
@@ -73,12 +82,15 @@ fn run_loop(core: &Core, event: Event) -> Result<(), anyhow::Error> {
                 if view.pcbs_modified {
                     run_loop(core, Event::SaveAllPcbs)?
                 }
+                if view.processes_modified {
+                    run_loop(core, Event::SaveAllProcesses)?
+                }
             }
             Effect::ProjectView(_) => {
                 // Currently, the CLI app should not cause these effects.
                 unreachable!()
             }
-            Effect::PcbView(_) => {
+            Effect::PcbView(_) | Effect::ProcessView(_) => {
                 // Currently, the CLI app should not cause these effects.
                 unreachable!()
             }

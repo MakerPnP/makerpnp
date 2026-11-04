@@ -19,6 +19,7 @@ A front end's requirements cite the core requirements they depend on, and do not
 | File | Area | ID prefix |
 |---|---|---|
 | [core/01-documents.md](core/01-documents.md) | Creating documents | `DOC` |
+| [core/02-processes.md](core/02-processes.md) | Defining processes, and a project's copies of them | `PROCDEF` |
 | [gui/01-architecture.md](gui/01-architecture.md) | How the GUI is structured, and how it uses the core | `GARCH` |
 | [gui/02-forms.md](gui/02-forms.md) | Controls shared by the GUI's forms | `FORM` |
 | [gui/03-pcb-configuration.md](gui/03-pcb-configuration.md) | A PCB's designs and which units use them | `PCBCFG` |
@@ -29,6 +30,7 @@ A front end's requirements cite the core requirements they depend on, and do not
 | [gui/08-phases.md](gui/08-phases.md) | Creating a project's phases | `PHASE` |
 | [gui/09-placements-and-load-outs.md](gui/09-placements-and-load-outs.md) | Assigning placements and feeders, and ordering placements | `PLACEMENTS`, `LOADOUT`, `ORDERING` |
 | [gui/10-artifacts-and-operations.md](gui/10-artifacts-and-operations.md) | Generating artifacts, and recording operations | `ARTIFACTS`, `OPERATIONS` |
+| [gui/11-processes.md](gui/11-processes.md) | Creating and editing processes, and a project's processes | `PROC`, `PROJPROC` |
 | [known-issues.md](known-issues.md) | Problems known and not yet fixed | `ISSUE` |
 
 ## Conventions
@@ -58,7 +60,8 @@ Every requirement has a status, because much of the planner was written before t
 |---|---|
 | **Core** | `planner_app`: all the planning logic, with no user interface. |
 | **Front end** | A program that uses the core: the GUI or the CLI. |
-| **Document** | An open project or PCB. Each is a file. |
+| **Process** | A way of attaching components to a PCB, as operations done in order, each with tasks done in order. See `PROCDEF`. |
+| **Document** | An open project, PCB or process. Each is a file. |
 | **Event** | A request to the core, to change something or to return a view. |
 | **View** | A copy of some of the core's data, returned by the core for a front end to show. |
 | **Component** | Part of the GUI with a `ui` method, which draws it, and an `update` method, which changes it. |
@@ -92,3 +95,5 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-03 | An older modified state no longer replaces a newer one, which sometimes left "`Save`" disabled after "`Refresh`" while the project had unsaved changes (`GARCH-11`). |
 | 2026-11-03 | Commands are now handled on the thread that draws the frames, in the order they were sent, with no tokio runtime (`GARCH-11`). |
 | 2026-11-04 | Moved the planner's entries from the user's list of known issues (`KnownIssues.md`), which no longer exists (`ISSUE-14` to `ISSUE-19`). Three were out of date and are not kept: a task can no longer start before those before it are complete, nor a phase before the phases before it, and placements can no longer be recorded before their task has started (`OPERATIONS-1`, `OPERATIONS-2`). |
+| 2026-11-04 | Processes are no longer built into the planner. The user defines each in its own file, from a preset or from nothing, and a project keeps a copy of each process it uses, updated when its processes are refreshed (`PROCDEF`). A task has a reference chosen by the user and a kind (`PROCDEF-2`). A new project has no processes, and an old project's processes are moved to their own files when it's loaded (`PROCDEF-8`). Added the GUI's process documents and a project's processes (`PROC`, `PROJPROC`), awaiting review, and `ISSUE-20` to `ISSUE-22`. A new process is saved as it is created (`DOC-1`). |
+| 2026-11-04 | Added GUI tests for the rest of process documents and a project's processes (`PROC`, `PROJPROC`): opening a process, the New process form's validation, moving, deleting and editing operations and tasks, rules, invalid processes, "`Open file`", and the refreshes and removals the core refuses. "`Remove process`" is now named without its icon. |

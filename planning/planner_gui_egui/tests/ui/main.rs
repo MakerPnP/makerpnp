@@ -7,5 +7,6 @@ mod load_outs;
 mod open_project;
 mod operations;
 mod phase_states;
+mod processes;
 mod tables;
 mod workflow;

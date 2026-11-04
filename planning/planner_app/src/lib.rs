@@ -30,20 +30,19 @@ pub use planning::placement::PlacementSortingMode;
 pub use planning::placement::PlacementStatus;
 pub use planning::placement::ProjectPlacementStatus;
 pub use planning::placement::{PlacementOperation, PlacementState};
-use planning::process::ProcessError;
 pub use planning::process::ProcessReference;
 pub use planning::process::TaskReference;
 pub use planning::process::TaskStatus;
 pub use planning::process::{
-    OperationDefinition, OperationReference, OperationStatus, ProcessDefinition, ProcessRuleReference, TaskAction,
+    OperationDefinition, OperationReference, OperationStatus, ProcessDefinition, ProcessDefinitionError, ProcessEdit,
+    ProcessPresetFactory, ProcessRuleReference, TaskAction, TaskDefinition, TaskKind, PROCESS_RULES,
 };
-use planning::project::{
-    PartStateError, PcbOperationError, ProcessPresetFactory, ProcessPresetFactoryError, Project, ProjectError,
-    ProjectPcb,
-};
+use planning::process::{ProcessError, ProcessPresetFactoryError};
+pub use planning::project::ProjectProcess;
+use planning::project::{PartStateError, PcbOperationError, Project, ProjectError, ProjectPcb};
 pub use planning::report::{IssueKind, IssueSeverity, ProjectReport};
 pub use planning::variant::VariantName;
-use planning::{file, pcb, project, report};
+use planning::{file, pcb, process, project, report};
 pub use pnp::load_out::LoadOutItem;
 pub use pnp::object_path::ObjectPath;
 use pnp::package::Package;
@@ -65,8 +64,9 @@ use tracing::{debug, error, info, trace, warn};
 use util::source::SourceError;
 
 use crate::effects::pcb_view_renderer::PcbViewRendererOperation;
+use crate::effects::process_view_renderer::ProcessViewRendererOperation;
 use crate::effects::project_view_renderer::ProjectViewRendererOperation;
-use crate::effects::{pcb_view_renderer, project_view_renderer};
+use crate::effects::{pcb_view_renderer, process_view_renderer, project_view_renderer};
 
 pub mod effects;
 
@@ -104,6 +104,14 @@ pub struct ModelPcb {
 
 type ModelPcbs = BTreeMap<PathBuf, ModelPcb>;
 
+/// A process document, a process's definition in its own file.
+pub struct ModelProcess {
+    definition: ProcessDefinition,
+    modified: bool,
+}
+
+type ModelProcesses = BTreeMap<PathBuf, ModelProcess>;
+
 #[derive(Default)]
 pub struct Model {
     model_project: Option<ModelProject>,
@@ -111,6 +119,11 @@ pub struct Model {
     ///
     /// Important: Can contain instances of [`ModelPcb`] that have been created or loaded, but not assigned to a project yet.
     model_pcbs: ModelPcbs,
+
+    /// Process documents that have been created/loaded.
+    ///
+    /// A project doesn't use these, it keeps its own copy of each process it uses, see [`ProjectProcess`].
+    model_processes: ModelProcesses,
 
     error: Option<(chrono::DateTime<chrono::Utc>, String)>,
 }
@@ -244,6 +257,95 @@ impl Model {
 
         Ok(())
     }
+
+    /// Load a process document, no project required.
+    fn load_process(&mut self, path: &PathBuf) -> Result<(), AppError> {
+        let definition = process::load_process(path).map_err(AppError::IoError)?;
+        definition
+            .validate()
+            .map_err(|cause| AppError::ProcessError(ProcessError::InvalidProcess(cause)))?;
+
+        self.model_processes
+            .insert(path.clone(), ModelProcess {
+                definition,
+                modified: false,
+            });
+
+        Ok(())
+    }
+
+    fn save_process(&mut self, path: &PathBuf) -> Result<(), AppError> {
+        let model_process = self
+            .model_processes
+            .get_mut(path)
+            .ok_or(AppError::ProcessNotLoaded(path.clone()))?;
+
+        process::save_process(&model_process.definition, path).map_err(AppError::IoError)?;
+
+        model_process.modified = false;
+
+        Ok(())
+    }
+
+    fn model_process_mut(&mut self, path: &PathBuf) -> Result<&mut ModelProcess, AppError> {
+        self.model_processes
+            .get_mut(path)
+            .ok_or(AppError::ProcessNotLoaded(path.clone()))
+    }
+}
+
+/// Gives each of a project's processes that has no file, as in projects from before processes had files, a file of its
+/// own in the project's folder.  The project then has unsaved changes.
+///
+/// A file is named after its process, e.g. `pnp.process.json`.  An existing file with the same definition is used as it
+/// is, otherwise a number is added to the name, e.g. `pnp_2.process.json`.
+///
+/// Returns whether any process was given a file.
+fn migrate_processes_to_files(project: &mut Project, project_directory: &PathBuf) -> Result<bool, AppError> {
+    let indexes = project.processes_without_files();
+
+    for index in indexes.iter() {
+        let project_process = &mut project.processes[*index];
+        let definition = &project_process.definition;
+
+        let base_name = definition
+            .reference
+            .to_string()
+            .chars()
+            .map(|c| match c {
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => c,
+                _ => '_',
+            })
+            .collect::<String>();
+
+        let mut number = 1;
+        let file_name = loop {
+            let file_name = match number {
+                1 => format!("{}.process.json", base_name),
+                _ => format!("{}_{}.process.json", base_name, number),
+            };
+            let path = project_directory.join(&file_name);
+
+            if !path.exists() {
+                process::save_process(definition, &path).map_err(AppError::IoError)?;
+                break file_name;
+            }
+
+            if matches!(process::load_process(&path), Ok(existing) if existing.eq(definition)) {
+                break file_name;
+            }
+
+            number += 1;
+        };
+
+        info!(
+            "Moved process to its own file. process: '{}', file: {:?}",
+            definition.reference, file_name
+        );
+        project_process.process_file = Some(FileReference::Relative(PathBuf::from(file_name)));
+    }
+
+    Ok(!indexes.is_empty())
 }
 
 #[effect]
@@ -252,6 +354,7 @@ pub enum Effect {
     Render(RenderOperation),
     ProjectView(ProjectViewRendererOperation),
     PcbView(PcbViewRendererOperation),
+    ProcessView(ProcessViewRendererOperation),
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
@@ -442,7 +545,8 @@ pub enum ProjectView {
     PhaseOverview(PhaseOverview),
     PhasePlacements(PhasePlacements),
     Placements(PlacementsList),
-    ProcessDefinition(ProcessDefinition),
+    /// The project's copy of a process, and the file it came from.
+    ProcessDefinition(ProjectProcess),
     ProjectTree(ProjectTreeView),
     ProjectReport(ProjectReport),
 }
@@ -475,10 +579,21 @@ pub enum PcbViewRequest {
     Panel { path: PathBuf },
 }
 
+/// A view of a process document.
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
+pub enum ProcessView {
+    Definition {
+        path: PathBuf,
+        definition: ProcessDefinition,
+    },
+}
+
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
 pub struct PlannerOperationViewModel {
     pub project_modified: bool,
     pub pcbs_modified: bool,
+    /// Whether any process document has unsaved changes.
+    pub processes_modified: bool,
     pub error: Option<(chrono::DateTime<chrono::Utc>, String)>,
 }
 
@@ -514,16 +629,19 @@ pub enum Event {
     },
     RefreshPcbs,
     SaveAllPcbs,
-    CreateProcessFromPreset {
-        preset: ProcessReference,
+    /// Adds a copy of a process, from its file, to the project.
+    AddProcess {
+        process_file: FileReference,
     },
-    ApplyProcessDefinition {
-        process_reference: ProcessReference,
-        process_definition: ProcessDefinition,
-    },
-    DeleteProcess {
+    /// Removes a process from the project.  Its file is not deleted.
+    RemoveProcess {
         process_reference: ProcessReference,
     },
+    /// Updates the project's copy of each process from its file.
+    ///
+    /// A process that has changed can't be updated while a phase that uses it is in progress, and then no process is
+    /// updated.
+    RefreshProcesses,
     ApplyPackageSources {
         packages_source: Option<PackagesSource>,
         package_mappings_source: Option<PackageMappingsSource>,
@@ -699,6 +817,41 @@ pub enum Event {
     RequestPcbPanelSizingView {
         path: PathBuf,
     },
+
+    //
+    // Process operations, no project required.
+    //
+    /// Creates a process document, and saves it.
+    CreateProcess {
+        path: PathBuf,
+        reference: ProcessReference,
+        /// The process to start from, see [`ProcessPresetFactory`], otherwise the process has no operations.
+        preset: Option<String>,
+    },
+    LoadProcess {
+        path: PathBuf,
+    },
+    SaveProcess {
+        path: PathBuf,
+    },
+    SaveAllProcesses,
+    /// Replaces the definition in a process document.
+    ApplyProcessDefinition {
+        path: PathBuf,
+        process_definition: ProcessDefinition,
+    },
+    /// Makes one change to the definition in a process document.
+    EditProcess {
+        path: PathBuf,
+        edit: ProcessEdit,
+    },
+
+    //
+    // Process views
+    //
+    RequestProcessView {
+        path: PathBuf,
+    },
 }
 
 impl Planner {
@@ -743,9 +896,11 @@ impl Planner {
             } => Box::new(move |model: &mut Model| {
                 info!("Load project. path: {:?}", &path);
 
-                let project: Project = file::load(&path).map_err(AppError::IoError)?;
+                let mut project: Project = file::load(&path).map_err(AppError::IoError)?;
 
                 let project_directory = path.parent().unwrap().to_path_buf();
+
+                let modified = migrate_processes_to_files(&mut project, &project_directory)?;
 
                 model
                     .model_project
@@ -753,7 +908,7 @@ impl Planner {
                         path: path.clone(),
                         project_directory: project_directory.clone(),
                         project,
-                        modified: false,
+                        modified,
                     });
 
                 model.load_unloaded_project_pcbs(&project_directory)?;
@@ -1088,6 +1243,127 @@ impl Planner {
 
                 Ok(render::render())
             }),
+            Event::CreateProcess {
+                path,
+                reference,
+                preset,
+            } => Box::new(move |model: &mut Model| {
+                // Note: doesn't require a project.
+                info!(
+                    "Create process. path: {:?}, reference: {}, preset: {:?}",
+                    &path, reference, preset
+                );
+
+                let mut definition = match preset {
+                    Some(preset) => ProcessPresetFactory::by_preset_name(&preset).map_err(|cause| match cause {
+                        ProcessPresetFactoryError::UnknownPreset {
+                            preset,
+                        } => AppError::ProcessError(ProcessError::UnknownPreset {
+                            preset,
+                            presets: ProcessPresetFactory::available_presets(),
+                        }),
+                    })?,
+                    None => ProcessDefinition::new(reference.clone()),
+                };
+                definition.reference = reference;
+
+                model
+                    .model_processes
+                    .insert(path.clone(), ModelProcess {
+                        definition,
+                        modified: true,
+                    });
+
+                // as with a new project or PCB, a new process is saved as it is created.
+                model.save_process(&path)?;
+
+                Ok(render::render())
+            }),
+            Event::LoadProcess {
+                path,
+            } => Box::new(move |model: &mut Model| {
+                // Note: doesn't require a project.
+                info!("Load process. path: {:?}", &path);
+
+                model.load_process(&path)?;
+
+                Ok(render::render())
+            }),
+            Event::SaveProcess {
+                path,
+            } => Box::new(move |model: &mut Model| {
+                model.save_process(&path)?;
+
+                info!("Saved process. path: {:?}", path);
+
+                Ok(render::render())
+            }),
+            Event::SaveAllProcesses => Box::new(|model: &mut Model| {
+                let paths = model
+                    .model_processes
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+
+                for path in paths {
+                    model.save_process(&path)?;
+                }
+
+                Ok(render::render())
+            }),
+            Event::ApplyProcessDefinition {
+                path,
+                process_definition,
+            } => Box::new(move |model: &mut Model| {
+                let ModelProcess {
+                    definition,
+                    modified,
+                } = model.model_process_mut(&path)?;
+
+                process_definition
+                    .validate()
+                    .map_err(|cause| AppError::ProcessError(ProcessError::InvalidProcess(cause)))?;
+
+                if !(*definition).eq(&process_definition) {
+                    info!(
+                        "Applied process definition. path: {:?}, process: {:?}",
+                        path, process_definition
+                    );
+                    *definition = process_definition;
+                    *modified = true;
+                }
+
+                Ok(render::render())
+            }),
+            Event::EditProcess {
+                path,
+                edit,
+            } => Box::new(move |model: &mut Model| {
+                let ModelProcess {
+                    definition,
+                    modified,
+                } = model.model_process_mut(&path)?;
+
+                info!("Edit process. path: {:?}, edit: {:?}", path, edit);
+
+                *modified |= definition
+                    .apply_edit(edit)
+                    .map_err(|cause| AppError::ProcessError(ProcessError::InvalidProcess(cause)))?;
+
+                Ok(render::render())
+            }),
+            Event::RequestProcessView {
+                path,
+            } => Box::new(move |model: &mut Model| {
+                let ModelProcess {
+                    definition, ..
+                } = model.model_process_mut(&path)?;
+
+                Ok(process_view_renderer::view(ProcessView::Definition {
+                    path: path.clone(),
+                    definition: definition.clone(),
+                }))
+            }),
             Event::SaveAllPcbs => Box::new(|model: &mut Model| {
                 for (path, model_pcb) in model.model_pcbs.iter_mut() {
                     let ModelPcb {
@@ -1157,38 +1433,32 @@ impl Planner {
 
                 Ok(render::render())
             }),
-            Event::CreateProcessFromPreset {
-                preset,
+            Event::AddProcess {
+                process_file,
             } => Box::new(move |model: &mut Model| {
                 let ModelProject {
                     project,
                     modified,
+                    project_directory,
                     ..
                 } = model
                     .model_project
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
-                let preset_name_str = preset.to_string();
-                let process =
-                    ProcessPresetFactory::by_preset_name(preset_name_str.as_str()).map_err(|cause| match cause {
-                        ProcessPresetFactoryError::UnknownPreset {
-                            preset,
-                        } => AppError::ProcessError(ProcessError::UnknownPreset {
-                            preset,
-                            presets: ProcessPresetFactory::available_presets(),
-                        }),
-                    })?;
+
+                let process_path = process_file.build_path(project_directory);
+                let definition = process::load_process(&process_path).map_err(AppError::IoError)?;
 
                 project
-                    .ensure_process(&process)
-                    .map_err(AppError::OperationError)?;
+                    .add_process(process_file, definition)
+                    .map_err(AppError::ProcessError)?;
+
                 *modified |= true;
 
                 Ok(render::render())
             }),
-            Event::ApplyProcessDefinition {
+            Event::RemoveProcess {
                 process_reference,
-                process_definition,
             } => Box::new(move |model: &mut Model| {
                 let ModelProject {
                     project,
@@ -1199,117 +1469,58 @@ impl Planner {
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
 
-                enum ApplyMode {
-                    OnlyModified,
-                    RenamedAndModified,
-                    New,
-                }
-
-                let process = project
-                    .processes
-                    .iter()
-                    .find(|it| it.reference.eq(&process_reference));
-
-                let mode = match &process {
-                    Some(process)
-                        if process
-                            .reference
-                            .eq(&process_definition.reference) =>
-                    {
-                        ApplyMode::OnlyModified
-                    }
-                    Some(_process) => ApplyMode::RenamedAndModified,
-                    None => ApplyMode::New,
-                };
-
-                if matches!(mode, ApplyMode::RenamedAndModified) {
-                    if let Some(_other_process) = project.processes.iter_mut().find(|it| {
-                        it.reference
-                            .eq(&process_definition.reference)
-                    }) {
-                        // reject a rename if the process reference is already in use
-                        return Err(AppError::ProcessError(ProcessError::DuplicateProcessReference {
-                            process_reference,
-                        }));
-                    }
-                }
-
                 project
-                    .ensure_process_not_in_progress(&process_reference)
+                    .remove_process(&process_reference)
                     .map_err(AppError::ProcessError)?;
-
-                let process = project
-                    .processes
-                    .iter_mut()
-                    .find(|it| it.reference.eq(&process_reference))
-                    .unwrap();
-
-                let new_process_reference = process_definition.reference.clone();
-
-                match mode {
-                    ApplyMode::RenamedAndModified | ApplyMode::OnlyModified => {
-                        *process = process_definition;
-
-                        // find the phases to update
-                        let phases_to_update = project
-                            .phases
-                            .iter()
-                            .filter_map(|(phase_reference, phase)| {
-                                if phase.process.eq(&process_reference) {
-                                    Some((phase_reference.clone(), phase.load_out_source.clone(), phase.pcb_side))
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>();
-                        debug!("phases_to_update: {:?}", phases_to_update);
-
-                        // update the phase states
-                        for (phase_reference, load_out_source, pcb_side) in phases_to_update {
-                            project
-                                .update_phase(
-                                    phase_reference,
-                                    new_process_reference.clone(),
-                                    load_out_source,
-                                    pcb_side,
-                                )
-                                .map_err(AppError::PhaseError)?;
-                        }
-                    }
-                    ApplyMode::New => {
-                        project
-                            .processes
-                            .push(process_definition);
-                    }
-                }
 
                 *modified = true;
 
                 Ok(render::render())
             }),
-            Event::DeleteProcess {
-                process_reference,
-            } => Box::new(move |model: &mut Model| {
+            Event::RefreshProcesses => Box::new(move |model: &mut Model| {
                 let ModelProject {
                     project,
                     modified,
+                    project_directory,
                     ..
                 } = model
                     .model_project
                     .as_mut()
                     .ok_or(AppError::OperationRequiresProject)?;
 
-                // Sanity check the process exists
-                let _process_definition = project
-                    .find_process(&process_reference)
-                    .map_err(AppError::ProcessError)?
-                    .clone();
+                // read every file first, so that nothing changes if one can't be read.
+                let mut definitions = vec![];
+                for project_process in project.processes.iter() {
+                    let Some(process_file) = &project_process.process_file else {
+                        continue;
+                    };
+                    let process_path = process_file.build_path(project_directory);
+                    let definition = process::load_process(&process_path).map_err(AppError::IoError)?;
 
-                project
-                    .delete_process(&process_reference)
-                    .map_err(AppError::ProcessError)?;
+                    definitions.push((
+                        project_process
+                            .definition
+                            .reference
+                            .clone(),
+                        definition,
+                    ));
+                }
 
-                *modified = true;
+                // update a copy, so that nothing changes if one process can't be updated.
+                let mut updated_project = project.clone();
+                let mut changed = false;
+                for (process_reference, definition) in definitions {
+                    changed |= updated_project
+                        .replace_process(&process_reference, definition)
+                        .map_err(AppError::ProcessError)?;
+                }
+
+                if changed {
+                    *project = updated_project;
+                    *modified = true;
+                } else {
+                    info!("Processes unchanged.");
+                }
 
                 Ok(render::render())
             }),
@@ -1867,7 +2078,7 @@ impl Planner {
                     processes: project
                         .processes
                         .iter()
-                        .map(|process| process.reference.clone())
+                        .map(|process| process.definition.reference.clone())
                         .collect(),
                     library_config: project.library_config.clone(),
                     pcbs: project.pcbs.to_vec(),
@@ -2196,8 +2407,11 @@ impl Planner {
                         .tree
                         .add_node(ProjectTreeItem {
                             key: "process".to_string(),
-                            args: HashMap::from([("name".to_string(), Arg::String(process.reference.to_string()))]),
-                            path: format!("/processes/{}", process.reference).to_string(),
+                            args: HashMap::from([(
+                                "name".to_string(),
+                                Arg::String(process.definition.reference.to_string()),
+                            )]),
+                            path: format!("/processes/{}", process.definition.reference).to_string(),
                         });
 
                     project_tree
@@ -2356,10 +2570,8 @@ impl Planner {
                     .ok_or(AppError::OperationRequiresProject)?;
 
                 let process = project
-                    .processes
-                    .iter()
-                    .find(|it| it.reference.eq(&process_reference))
-                    .ok_or(AppError::UnknownProcessReference(process_reference.clone()))?;
+                    .find_project_process(&process_reference)
+                    .map_err(|_| AppError::UnknownProcessReference(process_reference.clone()))?;
 
                 Ok(project_view_renderer::view(ProjectView::ProcessDefinition(
                     process.clone(),
@@ -2720,9 +2932,15 @@ impl App for Planner {
             .iter()
             .any(|(_file_reference, pcb)| pcb.modified);
 
+        let processes_modified = model
+            .model_processes
+            .values()
+            .any(|process| process.modified);
+
         let view_model = PlannerOperationViewModel {
             project_modified,
             pcbs_modified,
+            processes_modified,
             error: model.error.clone(),
         };
 
@@ -2759,6 +2977,8 @@ enum AppError {
     UnknownPhaseReference(Reference),
     #[error("Unknown process reference. reference: {0}")]
     UnknownProcessReference(ProcessReference),
+    #[error("Process not loaded. path: {0:?}")]
+    ProcessNotLoaded(PathBuf),
 }
 
 impl Planner {

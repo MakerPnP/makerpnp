@@ -45,6 +45,14 @@ A PCB assembly job generally consists of the following things:
 8) One or more load-outs.
 9) A defined placement ordering for each phase.
 
+The processes are defined by the user, so that the planner works however components are attached: a pick-and-place
+machine and reflow oven, placing and soldering by hand, applying glue and wave soldering, other machines or soldering
+robots, or any mix of these. As with a PCB, each process is created in its own file, `<name>.process.json`, and then
+added to a project, which keeps a copy of it until its processes are refreshed. A process can start from one of the
+presets, `pnp` or `manual`, which match the examples below. Each task has a name chosen by the user, and a kind the
+planner understands: generic, loading PCBs, or placing components. See
+[`assets/specs/planner/core/02-processes.md`](assets/specs/planner/core/02-processes.md).
+
 For example, a manual placement job for a double-sided 2x2 panel of PCBs with 2 designs, each design having 2 assembly
 variants might be defined as follows:
 

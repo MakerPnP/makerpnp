@@ -8,6 +8,7 @@ pub mod forms;
 pub mod i18n;
 pub mod pcb;
 pub mod planner_app_core;
+pub mod process;
 pub mod profiling;
 pub mod project;
 pub mod sync;

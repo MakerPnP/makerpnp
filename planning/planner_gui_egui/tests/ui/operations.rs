@@ -18,14 +18,14 @@ fn abandoning_a_task_saves_the_same_file_as_the_core() {
 
     create_project_with_phase_operations_recorded(&mut app, &folder);
 
-    app.choose_action_from_combo_box("automated_pnp: core::place_components", "Abandon");
+    app.choose_action_from_combo_box("automated_pnp: place_components", "Abandon");
     app.wait_for_enabled_button("Save");
 
     // it no longer offers any actions, and its placements can't be recorded.
     app.wait_until("the task offered no actions", |app| {
         !app.combo_box_labels()
             .iter()
-            .any(|label| label.contains("core::place_components"))
+            .any(|label| label.contains("place_components"))
     });
     app.wait_until("the task and its operation were abandoned", |app| {
         app.count_text("Abandoned") == 2
@@ -41,7 +41,7 @@ fn abandoning_a_task_saves_the_same_file_as_the_core() {
     update(&mut core, Event::RecordPhaseOperation {
         phase: Reference::from_raw_str("top_1"),
         operation: Reference::from_raw_str("automated_pnp"),
-        task: Reference::from_raw_str("core::place_components"),
+        task: Reference::from_raw_str("place_components"),
         action: TaskAction::Abandon,
     });
     update(&mut core, Event::Save);
@@ -93,12 +93,12 @@ fn skipping_the_last_placement_completes_the_task() {
     app.wait_until("the task offered no actions", |app| {
         !app.combo_box_labels()
             .iter()
-            .any(|label| label.contains("core::place_components"))
+            .any(|label| label.contains("place_components"))
     });
     let tasks = app
         .combo_box_labels()
         .into_iter()
         .filter(|label| label.contains(": "))
         .collect::<Vec<_>>();
-    assert_eq!(tasks, ["reflow_oven_soldering: core::automated_soldering"]);
+    assert_eq!(tasks, ["reflow_oven_soldering: automated_soldering"]);
 }

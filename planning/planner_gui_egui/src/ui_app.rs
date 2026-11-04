@@ -12,14 +12,17 @@ use crate::config::Config;
 use crate::file_picker::{FileDialogs, NativeFileDialogs, PickError, Picker};
 use crate::pcb::tabs::PcbTabs;
 use crate::pcb::{Pcb, PcbKey, PcbUiCommand};
+use crate::process::{Process, ProcessKey, ProcessUiCommand};
 use crate::project::tabs::ProjectTabs;
 use crate::project::{Project, ProjectKey, ProjectUiCommand};
 use crate::sync::{Enqueue, Queue, Value, ValueGuard};
 use crate::tabs::TabKey;
 use crate::toolbar::{Toolbar, ToolbarContext, ToolbarUiCommand};
 use crate::ui_app::app_tabs::new_pcb::NewPcbArgs;
+use crate::ui_app::app_tabs::new_process::NewProcessArgs;
 use crate::ui_app::app_tabs::new_project::NewProjectArgs;
 use crate::ui_app::app_tabs::pcb::{PcbTab, PcbTabUiCommand};
+use crate::ui_app::app_tabs::process::{ProcessTab, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabUiCommand};
 use crate::ui_app::app_tabs::{AppTabs, TabKind, TabKindContext, TabKindUiCommand, TabUiCommand};
 use crate::ui_commands::{UiCommand, handle_command};
@@ -48,6 +51,7 @@ pub struct UiApp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PickReason {
     PcbFile,
+    ProcessFile,
     ProjectFile,
 }
 
@@ -56,6 +60,7 @@ impl PickReason {
         match self {
             PickReason::ProjectFile => "*.project.json",
             PickReason::PcbFile => "*.pcb.json",
+            PickReason::ProcessFile => "*.process.json",
         }
     }
 }
@@ -76,6 +81,7 @@ pub struct AppState {
 
     pub toolbar: Toolbar,
     pub pcbs: Value<SlotMap<PcbKey, Pcb>>,
+    pub processes: Value<SlotMap<ProcessKey, Process>>,
 }
 
 impl AppState {
@@ -96,6 +102,7 @@ impl AppState {
             command_sender: sender,
             projects: Value::new(SlotMap::default()),
             pcbs: Value::new(SlotMap::default()),
+            processes: Value::new(SlotMap::default()),
             toolbar,
         }
     }
@@ -130,6 +137,11 @@ impl AppState {
     pub fn pick_pcb_file(&mut self) {
         let open_pcb_file_command_fn = |path: PathBuf| UiCommand::OpenPcbFile(path);
         self.pick_file(PickReason::PcbFile, Box::new(open_pcb_file_command_fn));
+    }
+
+    pub fn pick_process_file(&mut self) {
+        let open_process_file_command_fn = |path: PathBuf| UiCommand::OpenProcessFile(path);
+        self.pick_file(PickReason::ProcessFile, Box::new(open_process_file_command_fn));
     }
 
     pub fn make_project_tab(
@@ -327,6 +339,109 @@ impl AppState {
 
         self.configure_pcb_tab(pcb_key, tab_key, commands);
     }
+
+    //
+    // process tab
+    //
+
+    pub fn send_process_command(
+        command_sender: &mut Enqueue<UiCommand>,
+        process_command: ProcessUiCommand,
+        process_key: ProcessKey,
+        tab_key: TabKey,
+    ) {
+        command_sender
+            .send(UiCommand::TabCommand {
+                tab_key,
+                command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
+                    command: ProcessTabUiCommand::ProcessCommand {
+                        key: process_key,
+                        command: process_command,
+                    },
+                }),
+            })
+            .expect("sent");
+    }
+
+    pub fn make_process_tab(&mut self, path: PathBuf, process_key: ProcessKey) -> TabKind {
+        info!("Open process. path: {:?}", path);
+
+        let label = path
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        let tab_kind_component = ComponentState::default();
+        let tab_kind_sender = tab_kind_component.sender.clone();
+
+        let mut process_tab = ProcessTab::new(label, path, process_key);
+        process_tab
+            .component
+            .configure_mapper(tab_kind_sender, |command| {
+                trace!("process tab mapper. command: {:?}", command);
+                TabKindUiCommand::ProcessTabCommand {
+                    command,
+                }
+            });
+
+        TabKind::Process(process_tab, tab_kind_component)
+    }
+
+    pub fn configure_process_tab(&mut self, process_key: ProcessKey, tab_key: TabKey, commands: Vec<ProcessUiCommand>) {
+        let mut processes = self.processes.lock().unwrap();
+        let process = processes.get_mut(process_key).unwrap();
+
+        let app_command_sender = self.command_sender.clone();
+        configure_process_component(app_command_sender, tab_key, process);
+
+        for command in commands {
+            Self::send_process_command(&mut self.command_sender, command, process_key, tab_key);
+        }
+    }
+
+    pub fn open_process_file(&mut self, path: PathBuf, app_tabs: Value<AppTabs>) {
+        let (commands, process_key) = {
+            let mut processes = self.processes.lock().unwrap();
+            process_from_path(path.clone(), &mut processes)
+        };
+
+        let tab_kind = self.make_process_tab(path, process_key);
+
+        let tab_key = app_tabs
+            .lock()
+            .unwrap()
+            .add_tab(tab_kind);
+
+        self.configure_process_tab(process_key, tab_key, commands);
+    }
+
+    /// `tab_key` - the tab key of the tab to replace, e.g. the 'NewProcessTab' instance's key.
+    pub fn create_process(&mut self, tab_key: TabKey, args: NewProcessArgs, app_tabs: Value<AppTabs>) {
+        debug!("Creating process. tab_key: {:?}, args: {:?}", tab_key, args);
+
+        let path = args.build_path();
+        let (commands, process_key) = {
+            let mut processes = self.processes.lock().unwrap();
+            let mut process_commands = None;
+            let process_key = processes.insert_with_key(|key| {
+                let (process, commands) = Process::new(path.clone(), key, args.reference, args.preset);
+                process_commands.replace(commands);
+                process
+            });
+            (process_commands.unwrap(), process_key)
+        };
+
+        let tab_kind = self.make_process_tab(path, process_key);
+
+        app_tabs
+            .lock()
+            .unwrap()
+            .replace(&tab_key, tab_kind)
+            .expect("replaced");
+
+        self.configure_process_tab(process_key, tab_key, commands);
+    }
 }
 
 impl Default for UiApp {
@@ -504,6 +619,7 @@ impl UiApp {
         enum Kind {
             Project(Value<ProjectTabs>),
             Pcb(Value<PcbTabs>),
+            Process,
         }
 
         // step 1 - find the document tabs, return the tab keys and paths.
@@ -517,6 +633,7 @@ impl UiApp {
                     project_tab.path.clone(),
                 )),
                 TabKind::Pcb(pcb_tab, _) => Some((Kind::Pcb(pcb_tab.pcb_tabs.clone()), *tab_key, pcb_tab.path.clone())),
+                TabKind::Process(process_tab, _) => Some((Kind::Process, *tab_key, process_tab.path.clone())),
                 _ => None,
             })
         };
@@ -610,6 +727,44 @@ impl UiApp {
                                 })
                                 .expect("sent");
                         }
+                    }
+                }
+                Kind::Process => {
+                    let (process_key, commands) = {
+                        let app_state = self.app_state();
+                        let mut processes = app_state.processes.lock().unwrap();
+
+                        let (commands, process_key) = process_from_path(path, &mut processes);
+
+                        let process = processes.get_mut(process_key).unwrap();
+                        configure_process_component(app_command_sender.clone(), tab_key, process);
+
+                        (process_key, commands)
+                    };
+
+                    {
+                        let app_tabs = self.app_tabs.lock().unwrap();
+                        app_tabs.with_tab_mut(&tab_key, |tab| {
+                            if let TabKind::Process(process_tab, _) = tab {
+                                process_tab.process_key = process_key;
+                            } else {
+                                unreachable!()
+                            }
+                        });
+                    }
+
+                    for command in commands {
+                        app_command_sender
+                            .send(UiCommand::TabCommand {
+                                tab_key,
+                                command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
+                                    command: ProcessTabUiCommand::ProcessCommand {
+                                        key: process_key,
+                                        command,
+                                    },
+                                }),
+                            })
+                            .expect("sent");
                     }
                 }
             }
@@ -760,12 +915,13 @@ impl eframe::App for UiApp {
         {
             profiling::scope!("ui::central_panel");
             // block required limit the scope of the `app_state` guard
-            let (projects, pcbs) = {
+            let (projects, pcbs, processes) = {
                 let app_state = self.app_state();
                 let projects = app_state.projects.clone();
                 let pcbs = app_state.pcbs.clone();
+                let processes = app_state.processes.clone();
                 drop(app_state);
-                (projects, pcbs)
+                (projects, pcbs, processes)
             };
 
             let config = self.config.clone();
@@ -774,6 +930,7 @@ impl eframe::App for UiApp {
                 config,
                 projects,
                 pcbs,
+                processes,
             };
 
             let mut app_tabs = self.app_tabs.lock().unwrap();
@@ -955,6 +1112,40 @@ fn configure_pcb_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabK
 }
 
 //
+// process
+//
+
+fn process_from_path(
+    path: PathBuf,
+    processes: &mut ValueGuard<SlotMap<ProcessKey, Process>>,
+) -> (Vec<ProcessUiCommand>, ProcessKey) {
+    let mut process_commands = None;
+    let process_key = processes.insert_with_key(|key| {
+        let (process, commands) = Process::from_path(path.clone(), key);
+        process_commands.replace(commands);
+        process
+    });
+    (process_commands.unwrap(), process_key)
+}
+
+fn configure_process_component(app_command_sender: Enqueue<UiCommand>, tab_key: TabKey, process: &mut Process) {
+    process
+        .component
+        .configure_mapper(app_command_sender, move |(key, command)| {
+            trace!("process mapper. command: {:?}", command);
+            UiCommand::TabCommand {
+                tab_key,
+                command: TabUiCommand::TabKindCommand(TabKindUiCommand::ProcessTabCommand {
+                    command: ProcessTabUiCommand::ProcessCommand {
+                        key,
+                        command,
+                    },
+                }),
+            }
+        });
+}
+
+//
 // toolbar
 //
 
@@ -969,6 +1160,8 @@ pub fn build_toolbar_context(app_tabs: &Value<AppTabs>) -> ToolbarContext {
             TabKind::NewPcb(_, _) => false,
             TabKind::Project(project_tab, _) => project_tab.modified,
             TabKind::Pcb(pcb_tab, _) => pcb_tab.modified,
+            TabKind::NewProcess(_, _) => false,
+            TabKind::Process(process_tab, _) => process_tab.modified,
         })
     });
 

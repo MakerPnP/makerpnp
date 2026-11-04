@@ -11,22 +11,29 @@ use tracing::{error, trace};
 use crate::config::Config;
 use crate::file_picker::FileDialogs;
 use crate::pcb::{Pcb, PcbKey};
+use crate::process::{Process, ProcessKey};
 use crate::project::{Project, ProjectKey};
 use crate::sync::{Enqueue, Value, ValueGuard};
 use crate::tabs::{AppTabViewer, Tab, TabKey, Tabs};
 use crate::ui_app::app_tabs::home::{HomeTab, HomeTabAction, HomeTabContext, HomeTabUiCommand};
 use crate::ui_app::app_tabs::new_pcb::{NewPcbTab, NewPcbTabAction, NewPcbTabContext, NewPcbTabUiCommand};
+use crate::ui_app::app_tabs::new_process::{
+    NewProcessTab, NewProcessTabAction, NewProcessTabContext, NewProcessTabUiCommand,
+};
 use crate::ui_app::app_tabs::new_project::{
     NewProjectTab, NewProjectTabAction, NewProjectTabContext, NewProjectTabUiCommand,
 };
 use crate::ui_app::app_tabs::pcb::{PcbTab, PcbTabAction, PcbTabUiCommand};
+use crate::ui_app::app_tabs::process::{ProcessTab, ProcessTabAction, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabAction, ProjectTabUiCommand};
 use crate::ui_component::{ComponentState, UiComponent};
 
 pub mod home;
 pub mod new_pcb;
+pub mod new_process;
 pub mod new_project;
 pub mod pcb;
+pub mod process;
 pub mod project;
 
 #[derive(Debug)]
@@ -34,6 +41,7 @@ pub struct TabKindContext {
     pub config: Value<Config>,
     pub projects: Value<SlotMap<ProjectKey, Project>>,
     pub pcbs: Value<SlotMap<PcbKey, Pcb>>,
+    pub processes: Value<SlotMap<ProcessKey, Process>>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -43,6 +51,8 @@ pub enum TabKind {
     Project(ProjectTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
     NewPcb(NewPcbTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
     Pcb(PcbTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
+    NewProcess(NewProcessTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
+    Process(ProcessTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +62,8 @@ pub enum TabKindUiCommand {
     ProjectTabCommand { command: ProjectTabUiCommand },
     NewPcbTabCommand { command: NewPcbTabUiCommand },
     PcbTabCommand { command: PcbTabUiCommand },
+    NewProcessTabCommand { command: NewProcessTabUiCommand },
+    ProcessTabCommand { command: ProcessTabUiCommand },
 }
 
 #[derive(Debug)]
@@ -62,6 +74,8 @@ pub enum TabKindAction {
     ProjectTabAction { action: ProjectTabAction },
     NewPcbTabAction { action: NewPcbTabAction },
     PcbTabAction { action: PcbTabAction },
+    NewProcessTabAction { action: NewProcessTabAction },
+    ProcessTabAction { action: ProcessTabAction },
 }
 
 impl Tab for TabKind {
@@ -74,6 +88,8 @@ impl Tab for TabKind {
             TabKind::Project(tab, _) => tab.label(),
             TabKind::NewPcb(tab, _) => tab.label(),
             TabKind::Pcb(tab, _) => tab.label(),
+            TabKind::NewProcess(tab, _) => tab.label(),
+            TabKind::Process(tab, _) => tab.label(),
         }
     }
 
@@ -115,6 +131,19 @@ impl Tab for TabKind {
                     pcbs: context.pcbs.clone(),
                 };
                 tab.on_close(tab_key, &mut pcb_tab_context)
+            }
+            TabKind::NewProcess(tab, _) => {
+                let mut new_process_tab_context = NewProcessTabContext {
+                    tab_key: tab_key.clone(),
+                };
+                tab.on_close(tab_key, &mut new_process_tab_context)
+            }
+            TabKind::Process(tab, _) => {
+                let mut process_tab_context = process::ProcessTabContext {
+                    tab_key: tab_key.clone(),
+                    processes: context.processes.clone(),
+                };
+                tab.on_close(tab_key, &mut process_tab_context)
             }
         }
     }
@@ -163,6 +192,19 @@ impl UiComponent for TabKind {
                     pcbs: context.pcbs.clone(),
                 };
                 tab.ui(ui, &mut pcb_tab_context)
+            }
+            TabKind::NewProcess(tab, _) => {
+                let mut new_process_tab_context = NewProcessTabContext {
+                    tab_key,
+                };
+                tab.ui(ui, &mut new_process_tab_context)
+            }
+            TabKind::Process(tab, _) => {
+                let mut process_tab_context = process::ProcessTabContext {
+                    tab_key,
+                    processes: context.processes.clone(),
+                };
+                tab.ui(ui, &mut process_tab_context)
             }
         }
     }
@@ -247,6 +289,35 @@ impl UiComponent for TabKind {
                 };
                 tab.update(command, &mut pcb_tab_context)
                     .map(|action| TabKindAction::PcbTabAction {
+                        action,
+                    })
+            }
+            (
+                TabKind::NewProcess(tab, _),
+                TabKindUiCommand::NewProcessTabCommand {
+                    command,
+                },
+            ) => {
+                let mut new_process_tab_context = NewProcessTabContext {
+                    tab_key,
+                };
+                tab.update(command, &mut new_process_tab_context)
+                    .map(|action| TabKindAction::NewProcessTabAction {
+                        action,
+                    })
+            }
+            (
+                TabKind::Process(tab, _),
+                TabKindUiCommand::ProcessTabCommand {
+                    command,
+                },
+            ) => {
+                let mut process_tab_context = process::ProcessTabContext {
+                    tab_key,
+                    processes: context.processes.clone(),
+                };
+                tab.update(command, &mut process_tab_context)
+                    .map(|action| TabKindAction::ProcessTabAction {
                         action,
                     })
             }
@@ -514,6 +585,48 @@ impl AppTabs {
         tree.push_to_focused_leaf(tab_key);
     }
 
+    pub fn add_new_process_tab(&mut self, file_dialogs: Arc<dyn FileDialogs>) {
+        let tab_kind_component = ComponentState::default();
+
+        let mut tabs = self.tabs.lock().unwrap();
+        let new_process_tab = NewProcessTab::new(file_dialogs);
+        let tab_kind = TabKind::NewProcess(new_process_tab, tab_kind_component);
+        let tab_key = tabs.add(tab_kind);
+
+        let tab_kind_sender = self.component.sender.clone();
+        Self::configure_new_process_tab_mappers(tab_kind_sender, tabs, tab_key);
+
+        let mut tree = self.tree.lock().unwrap();
+        tree.push_to_focused_leaf(tab_key);
+    }
+
+    fn configure_new_process_tab_mappers(
+        tab_kind_sender: Enqueue<(TabKey, TabUiCommand)>,
+        mut tabs: ValueGuard<Tabs<TabKind, TabKindContext>>,
+        tab_key: TabKey,
+    ) {
+        match tabs.tabs.get_mut(&tab_key).unwrap() {
+            TabKind::NewProcess(new_process_tab, tab_kind_component) => {
+                tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
+                    trace!("tab kind mapper. command: {:?}", command);
+                    (tab_key, TabUiCommand::TabKindCommand(command))
+                });
+
+                let tab_kind_component_sender = tab_kind_component.sender.clone();
+
+                new_process_tab
+                    .component
+                    .configure_mapper(tab_kind_component_sender, move |command| {
+                        trace!("new process tab mapper. command: {:?}", command);
+                        TabKindUiCommand::NewProcessTabCommand {
+                            command,
+                        }
+                    });
+            }
+            _ => unreachable!(),
+        }
+    }
+
     fn configure_new_project_tab_mappers(
         tab_kind_sender: Enqueue<(TabKey, TabUiCommand)>,
         mut tabs: ValueGuard<Tabs<TabKind, TabKindContext>>,
@@ -590,6 +703,10 @@ impl AppTabs {
 
     pub fn show_pcb_tab(&mut self, path: &PathBuf) -> Result<TabKey, ()> {
         self.show_tab(|candidate_tab| matches!(candidate_tab, TabKind::Pcb(tab, _) if tab.path.eq(path)))
+    }
+
+    pub fn show_process_tab(&mut self, path: &PathBuf) -> Result<TabKey, ()> {
+        self.show_tab(|candidate_tab| matches!(candidate_tab, TabKind::Process(tab, _) if tab.path.eq(path)))
     }
 
     fn configure_home_tab_mappers(

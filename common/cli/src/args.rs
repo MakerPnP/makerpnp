@@ -2,7 +2,7 @@ use clap::ValueEnum;
 use eda::EdaTool;
 use planning::actions::{AddOrRemoveAction, SetOrClearAction};
 use planning::placement::{PlacementOperation, PlacementSortingMode};
-use planning::process::TaskAction;
+use planning::process::{TaskAction, TaskKind};
 use pnp::pcb::PcbSide;
 use util::sorting::SortOrder;
 
@@ -163,6 +163,30 @@ impl From<TaskActionArg> for TaskAction {
             TaskActionArg::Start => TaskAction::Start,
             TaskActionArg::Complete => TaskAction::Complete,
             TaskActionArg::Abandon => TaskAction::Abandon,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+#[derive(ValueEnum)]
+pub enum TaskKindArg {
+    /// Started, and then completed or abandoned, by the user, e.g. applying glue or wave soldering.
+    #[value(name("generic"))]
+    Generic,
+    /// As 'generic', and the project's report lists the PCBs to load.
+    #[value(name("load_pcbs"))]
+    LoadPcbs,
+    /// Places the phase's components, complete once every placement has been placed or skipped.  At most one per process.
+    #[value(name("place_components"))]
+    PlaceComponents,
+}
+
+impl From<TaskKindArg> for TaskKind {
+    fn from(value: TaskKindArg) -> Self {
+        match value {
+            TaskKindArg::Generic => TaskKind::Generic,
+            TaskKindArg::LoadPcbs => TaskKind::LoadPcbs,
+            TaskKindArg::PlaceComponents => TaskKind::PlaceComponents,
         }
     }
 }

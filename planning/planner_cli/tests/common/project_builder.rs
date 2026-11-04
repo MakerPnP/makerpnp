@@ -8,7 +8,9 @@ use planning::design::{DesignIndex, DesignName, DesignVariant};
 use planning::file::FileReference;
 use planning::pcb::PcbAssemblyOrientation;
 use planning::placement::{PlacementSortingMode, PlacementStatus, ProjectPlacementStatus};
-use planning::process::{OperationReference, ProcessReference, ProcessRuleReference, TaskReference, TaskStatus};
+use planning::process::{
+    OperationReference, ProcessReference, ProcessRuleReference, TaskKind, TaskReference, TaskStatus,
+};
 use pnp::object_path::ObjectPath;
 use pnp::panel::{Dimensions, Unit};
 use pnp::pcb::{PcbSide, PcbUnitIndex};
@@ -32,8 +34,8 @@ pub struct TestProject {
 
     pub library_config: TestLibraryConfig,
 
-    /// The *definition* of the processes used by this project.
-    pub processes: Vec<TestProcessDefinition>,
+    /// The processes used by this project, each a copy of the definition in its file.
+    pub processes: Vec<TestProjectProcess>,
 
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
@@ -75,47 +77,12 @@ impl TestProject {
         self.library_config = library_config.clone();
         self
     }
-    pub fn with_default_processes(mut self) -> Self {
-        self.processes.clear();
-
-        self.processes
-            .push(TestProcessDefinition {
-                reference: Reference::from_raw_str("pnp"),
-                operations: vec![
-                    TestOperationDefinition {
-                        reference: Reference::from_raw_str("load_pcbs"),
-                        tasks: vec![TaskReference::from_raw_str("core::load_pcbs")],
-                    },
-                    TestOperationDefinition {
-                        reference: Reference::from_raw_str("automated_pnp"),
-                        tasks: vec![TaskReference::from_raw_str("core::place_components")],
-                    },
-                    TestOperationDefinition {
-                        reference: Reference::from_raw_str("reflow_oven_soldering"),
-                        tasks: vec![TaskReference::from_raw_str("core::automated_soldering")],
-                    },
-                ],
-                rules: vec![ProcessRuleReference::from_raw_str("core::unique_feeder_references")],
-            });
-
-        self.processes
-            .push(TestProcessDefinition {
-                reference: Reference::from_raw_str("manual"),
-                operations: vec![
-                    TestOperationDefinition {
-                        reference: Reference::from_raw_str("load_pcbs"),
-                        tasks: vec![TaskReference::from_raw_str("core::load_pcbs")],
-                    },
-                    TestOperationDefinition {
-                        reference: Reference::from_raw_str("manually_solder_components"),
-                        tasks: vec![
-                            TaskReference::from_raw_str("core::place_components"),
-                            TaskReference::from_raw_str("core::manual_soldering"),
-                        ],
-                    },
-                ],
-                rules: vec![],
-            });
+    /// The `pnp` and `manual` processes, added from `pnp.process.json` and `manual.process.json` in the project's folder.
+    pub fn with_processes(mut self) -> Self {
+        self.processes = vec![
+            TestProjectProcess::new("pnp.process.json", TestProcessDefinition::pnp()),
+            TestProjectProcess::new("manual.process.json", TestProcessDefinition::manual()),
+        ];
 
         self
     }
@@ -171,17 +138,90 @@ impl TestProject {
     }
 }
 
+/// A project's copy of a process, with the file it came from.
 #[derive(Debug, serde::Serialize)]
+pub struct TestProjectProcess {
+    pub process_file: FileReference,
+    #[serde(flatten)]
+    pub definition: TestProcessDefinition,
+}
+
+impl TestProjectProcess {
+    pub fn new(relative_path: &str, definition: TestProcessDefinition) -> Self {
+        Self {
+            process_file: FileReference::Relative(relative_path.into()),
+            definition,
+        }
+    }
+}
+
+/// The content of a process file.
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TestProcessDefinition {
     pub reference: ProcessReference,
     pub operations: Vec<TestOperationDefinition>,
     pub rules: Vec<ProcessRuleReference>,
 }
 
-#[derive(Debug, serde::Serialize)]
+impl TestProcessDefinition {
+    /// As the `pnp` preset.
+    pub fn pnp() -> Self {
+        Self {
+            reference: Reference::from_raw_str("pnp"),
+            operations: vec![
+                TestOperationDefinition::new("load_pcbs", &[("load_pcbs", TaskKind::LoadPcbs)]),
+                TestOperationDefinition::new("automated_pnp", &[("place_components", TaskKind::PlaceComponents)]),
+                TestOperationDefinition::new("reflow_oven_soldering", &[("automated_soldering", TaskKind::Generic)]),
+            ],
+            rules: vec![ProcessRuleReference::from_raw_str("core::unique_feeder_references")],
+        }
+    }
+
+    /// As the `manual` preset.
+    pub fn manual() -> Self {
+        Self {
+            reference: Reference::from_raw_str("manual"),
+            operations: vec![
+                TestOperationDefinition::new("load_pcbs", &[("load_pcbs", TaskKind::LoadPcbs)]),
+                TestOperationDefinition::new("manually_solder_components", &[
+                    ("place_components", TaskKind::PlaceComponents),
+                    ("manual_soldering", TaskKind::Generic),
+                ]),
+            ],
+            rules: vec![],
+        }
+    }
+
+    pub fn content(&self) -> String {
+        self.to_formatted_json()
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct TestOperationDefinition {
     pub reference: OperationReference,
-    pub tasks: Vec<TaskReference>,
+    pub tasks: Vec<TestTaskDefinition>,
+}
+
+impl TestOperationDefinition {
+    pub fn new(reference: &str, tasks: &[(&str, TaskKind)]) -> Self {
+        Self {
+            reference: Reference::from_raw_str(reference),
+            tasks: tasks
+                .iter()
+                .map(|(reference, kind)| TestTaskDefinition {
+                    reference: TaskReference::from_raw_str(reference),
+                    kind: *kind,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TestTaskDefinition {
+    pub reference: TaskReference,
+    pub kind: TaskKind,
 }
 
 #[serde_as]
@@ -410,9 +450,7 @@ macro_rules! generic_test_task {
     };
 }
 
-generic_test_task!(TestLoadPcbsTaskState, "core::load_pcbs_task_state");
-generic_test_task!(TestAutomatedSolderingTaskState, "core::automated_soldering_task_state");
-generic_test_task!(TestManualSolderingTaskState, "core::manual_soldering_task_state");
+generic_test_task!(TestGenericTaskState, "core::generic_task_state");
 
 #[derive(Debug, serde::Serialize)]
 pub struct TestPlacementSortingItem {

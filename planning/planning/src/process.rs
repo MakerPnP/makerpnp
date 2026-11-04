@@ -8,23 +8,29 @@
 //! Each operation can have one or more tasks.
 //! Each task can be pending, incomplete, complete or abandoned.
 //!
+//! The user defines the processes, their operations and their tasks.  Each task has a reference chosen by the user, and
+//! a [`TaskKind`], which is all the planner needs to know about what the task does.
+//!
 //! Phases can be abandoned or skipped.
 //! Operations can be abandoned or skipped.
 //!
 //! Later operations and phases cannot be actioned unless preceding phases and actions are completed/skipped/abandoned.
 
-// FIXME there's nothing currently preventing a process from being defined with more than one task where [`TaskState::requires_placements`] returns true
-
+use std::collections::HashSet;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::ControlFlow;
+use std::path::PathBuf;
 
 use dyn_clone::DynClone;
 use dyn_eq::DynEq;
 use indexmap::IndexMap;
 use pnp::reference::Reference;
 use thiserror::Error;
+use tracing::info;
 use util::dynamic::as_any::AsAny;
 
+use crate::file;
+use crate::file::FileReference;
 use crate::phase::PhaseState;
 use crate::placement::PlacementStatus;
 
@@ -32,13 +38,16 @@ use crate::placement::PlacementStatus;
 pub type ProcessReference = Reference;
 
 /// The /definition/ of a process.
+///
+/// A process is defined in its own file, see [`load_process`] and [`save_process`].  A project keeps a copy of the
+/// definition of each process it uses, see `ProjectProcess`.
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct ProcessDefinition {
     pub reference: ProcessReference,
 
     /// examples:
-    /// for `Manual` = `["load-pcbs", "manually-place-and-solder"]`
-    /// for `PnP` = `["load-pcbs", "place-components", "solder"]`
+    /// for `manual` = `["load_pcbs", "manually_solder_components"]`
+    /// for `pnp` = `["load_pcbs", "automated_pnp", "reflow_oven_soldering"]`
     ///
     pub operations: Vec<OperationDefinition>,
 
@@ -53,23 +62,429 @@ pub type OperationReference = Reference;
 /// The /definition/ of a process operation
 #[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
 pub struct OperationDefinition {
-    /// e.g. "manually-place-and-solder"
+    /// e.g. "manually_solder_components"
     pub reference: OperationReference,
 
-    /// e.g. `["core::place_components", "core::manual_solder"]`
+    /// e.g. `place_components` then `manual_soldering`, done in that order.
     /// @see [`OperationState`]
-    pub tasks: Vec<TaskReference>,
+    pub tasks: Vec<TaskDefinition>,
 }
 
-/// a namespaced operation task reference.  e.g. "core::place_components"
+/// A task reference chosen by the user, e.g. "apply_glue".
+///
+/// Projects from before tasks had kinds use the references of the tasks that were built into the planner, e.g.
+/// "core::load_pcbs", see [`TaskKind::for_legacy_task`].
 pub type TaskReference = Reference;
 
 /// a namespaced rule reference. e.g. "core::unique_feeder_references"
 pub type ProcessRuleReference = Reference;
 
+/// The rules a process can have.
+pub const PROCESS_RULES: [&str; 1] = ["core::unique_feeder_references"];
+
+/// The /definition/ of a task.
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+#[serde(try_from = "TaskDefinitionRepr")]
+pub struct TaskDefinition {
+    /// e.g. "apply_glue", unique within its operation.
+    pub reference: TaskReference,
+    pub kind: TaskKind,
+}
+
+impl TaskDefinition {
+    pub fn new(reference: TaskReference, kind: TaskKind) -> Self {
+        Self {
+            reference,
+            kind,
+        }
+    }
+}
+
+/// What the planner needs to know about what a task does.
+///
+/// Anything else a task does, e.g. applying solder paste or glue, curing glue, or wave soldering, is up to the user.
+/// Such a task is [`TaskKind::Generic`].
+#[derive(
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord
+)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskKind {
+    /// Started, and then completed or abandoned, by the user.
+    Generic,
+    /// As [`TaskKind::Generic`], and the project's report lists the PCBs to load.
+    LoadPcbs,
+    /// Places the phase's components.  It's complete once every placement has been placed or skipped.
+    ///
+    /// A process can have at most one.
+    PlaceComponents,
+}
+
+impl TaskKind {
+    pub const ALL: [TaskKind; 3] = [TaskKind::Generic, TaskKind::LoadPcbs, TaskKind::PlaceComponents];
+
+    /// The kind of each task that was built into the planner before tasks had kinds.
+    pub fn for_legacy_task(reference: &TaskReference) -> Option<TaskKind> {
+        match reference.0.as_str() {
+            "core::load_pcbs" => Some(TaskKind::LoadPcbs),
+            "core::place_components" => Some(TaskKind::PlaceComponents),
+            "core::automated_soldering" | "core::manual_soldering" => Some(TaskKind::Generic),
+            _ => None,
+        }
+    }
+
+    /// The kind's name in files and on the command line, e.g. `place_components`.
+    pub fn name(&self) -> &'static str {
+        match self {
+            TaskKind::Generic => "generic",
+            TaskKind::LoadPcbs => "load_pcbs",
+            TaskKind::PlaceComponents => "place_components",
+        }
+    }
+}
+
+impl Display for TaskKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[error("Unknown task kind. kind: '{0}', kinds: generic, load_pcbs, place_components")]
+pub struct UnknownTaskKindError(String);
+
+impl std::str::FromStr for TaskKind {
+    type Err = UnknownTaskKindError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        TaskKind::ALL
+            .into_iter()
+            .find(|kind| kind.name().eq(s))
+            .ok_or_else(|| UnknownTaskKindError(s.to_string()))
+    }
+}
+
+/// A task as stored in a file: a [`TaskDefinition`], or, in projects from before tasks had kinds, the reference of a
+/// task that was built into the planner.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum TaskDefinitionRepr {
+    Legacy(TaskReference),
+    Current { reference: TaskReference, kind: TaskKind },
+}
+
+impl TryFrom<TaskDefinitionRepr> for TaskDefinition {
+    type Error = String;
+
+    fn try_from(value: TaskDefinitionRepr) -> Result<Self, Self::Error> {
+        match value {
+            TaskDefinitionRepr::Current {
+                reference,
+                kind,
+            } => Ok(TaskDefinition {
+                reference,
+                kind,
+            }),
+            TaskDefinitionRepr::Legacy(reference) => match TaskKind::for_legacy_task(&reference) {
+                Some(kind) => Ok(TaskDefinition {
+                    reference,
+                    kind,
+                }),
+                None => Err(format!("Unknown task. task: '{}'", reference)),
+            },
+        }
+    }
+}
+
 impl ProcessDefinition {
+    /// A process with no operations.
+    pub fn new(reference: ProcessReference) -> Self {
+        Self {
+            reference,
+            operations: vec![],
+            rules: vec![],
+        }
+    }
+
     pub fn has_rule(&self, rule: &ProcessRuleReference) -> bool {
         self.rules.contains(rule)
+    }
+
+    pub fn find_task(&self, operation: &OperationReference, task: &TaskReference) -> Option<&TaskDefinition> {
+        self.operations
+            .iter()
+            .find(|candidate| candidate.reference.eq(operation))
+            .and_then(|operation| {
+                operation
+                    .tasks
+                    .iter()
+                    .find(|candidate| candidate.reference.eq(task))
+            })
+    }
+
+    /// Checks that a phase's state can be built from the definition.
+    pub fn validate(&self) -> Result<(), ProcessDefinitionError> {
+        let mut operations = HashSet::new();
+        let mut place_components_tasks = 0;
+
+        for operation in self.operations.iter() {
+            if !operations.insert(&operation.reference) {
+                return Err(ProcessDefinitionError::DuplicateOperation {
+                    process: self.reference.clone(),
+                    operation: operation.reference.clone(),
+                });
+            }
+
+            let mut tasks = HashSet::new();
+            for task in operation.tasks.iter() {
+                if !tasks.insert(&task.reference) {
+                    return Err(ProcessDefinitionError::DuplicateTask {
+                        process: self.reference.clone(),
+                        operation: operation.reference.clone(),
+                        task: task.reference.clone(),
+                    });
+                }
+                if task.kind == TaskKind::PlaceComponents {
+                    place_components_tasks += 1;
+                }
+            }
+        }
+
+        if place_components_tasks > 1 {
+            return Err(ProcessDefinitionError::MoreThanOnePlaceComponentsTask {
+                process: self.reference.clone(),
+            });
+        }
+
+        Ok(())
+    }
+
+    /// Makes one change to the definition, as the CLI does.
+    ///
+    /// The definition is left unchanged if the change would make it invalid, see [`Self::validate`].
+    ///
+    /// Returns whether the definition changed.
+    pub fn apply_edit(&mut self, edit: ProcessEdit) -> Result<bool, ProcessDefinitionError> {
+        let mut candidate = self.clone();
+
+        match edit {
+            ProcessEdit::SetReference {
+                reference,
+            } => {
+                candidate.reference = reference;
+            }
+            ProcessEdit::AddOperation {
+                operation,
+            } => {
+                candidate
+                    .operations
+                    .push(OperationDefinition {
+                        reference: operation,
+                        tasks: vec![],
+                    });
+            }
+            ProcessEdit::RemoveOperation {
+                operation,
+            } => {
+                let index = candidate.operation_index(&operation)?;
+                candidate.operations.remove(index);
+            }
+            ProcessEdit::AddTask {
+                operation,
+                task,
+                kind,
+            } => {
+                let index = candidate.operation_index(&operation)?;
+                candidate.operations[index]
+                    .tasks
+                    .push(TaskDefinition::new(task, kind));
+            }
+            ProcessEdit::RemoveTask {
+                operation,
+                task,
+            } => {
+                let index = candidate.operation_index(&operation)?;
+                let tasks = &mut candidate.operations[index].tasks;
+                let task_index = tasks
+                    .iter()
+                    .position(|candidate| candidate.reference.eq(&task))
+                    .ok_or_else(|| ProcessDefinitionError::UnknownTask {
+                        process: self.reference.clone(),
+                        operation: operation.clone(),
+                        task: task.clone(),
+                    })?;
+                tasks.remove(task_index);
+            }
+            ProcessEdit::AddRule {
+                rule,
+            } => {
+                if !candidate.rules.contains(&rule) {
+                    candidate.rules.push(rule);
+                }
+            }
+            ProcessEdit::RemoveRule {
+                rule,
+            } => {
+                candidate
+                    .rules
+                    .retain(|candidate| !candidate.eq(&rule));
+            }
+        }
+
+        candidate.validate()?;
+
+        let modified = candidate.ne(self);
+        *self = candidate;
+
+        Ok(modified)
+    }
+
+    fn operation_index(&self, operation: &OperationReference) -> Result<usize, ProcessDefinitionError> {
+        self.operations
+            .iter()
+            .position(|candidate| candidate.reference.eq(operation))
+            .ok_or_else(|| ProcessDefinitionError::UnknownOperation {
+                process: self.reference.clone(),
+                operation: operation.clone(),
+            })
+    }
+}
+
+/// One change to a process's definition, see [`ProcessDefinition::apply_edit`].
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone, PartialEq, Eq)]
+pub enum ProcessEdit {
+    SetReference {
+        reference: ProcessReference,
+    },
+    /// Adds the operation after the others.
+    AddOperation {
+        operation: OperationReference,
+    },
+    RemoveOperation {
+        operation: OperationReference,
+    },
+    /// Adds the task after the operation's other tasks.
+    AddTask {
+        operation: OperationReference,
+        task: TaskReference,
+        kind: TaskKind,
+    },
+    RemoveTask {
+        operation: OperationReference,
+        task: TaskReference,
+    },
+    AddRule {
+        rule: ProcessRuleReference,
+    },
+    RemoveRule {
+        rule: ProcessRuleReference,
+    },
+}
+
+#[derive(Error, Debug, Clone, PartialEq, Eq)]
+pub enum ProcessDefinitionError {
+    #[error("Duplicate operation. process: '{process}', operation: '{operation}'")]
+    DuplicateOperation {
+        process: ProcessReference,
+        operation: OperationReference,
+    },
+    #[error("Duplicate task. process: '{process}', operation: '{operation}', task: '{task}'")]
+    DuplicateTask {
+        process: ProcessReference,
+        operation: OperationReference,
+        task: TaskReference,
+    },
+    #[error("A process can have at most one task that places components. process: '{process}'")]
+    MoreThanOnePlaceComponentsTask { process: ProcessReference },
+    #[error("Unknown operation. process: '{process}', operation: '{operation}'")]
+    UnknownOperation {
+        process: ProcessReference,
+        operation: OperationReference,
+    },
+    #[error("Unknown task. process: '{process}', operation: '{operation}', task: '{task}'")]
+    UnknownTask {
+        process: ProcessReference,
+        operation: OperationReference,
+        task: TaskReference,
+    },
+}
+
+pub fn load_process(path: &PathBuf) -> Result<ProcessDefinition, std::io::Error> {
+    info!("Loading process. path: {}", path.display());
+    file::load::<ProcessDefinition>(path)
+}
+
+pub fn save_process(process: &ProcessDefinition, path: &PathBuf) -> Result<(), std::io::Error> {
+    info!("Saving process. path: {}", path.display());
+    file::save(process, path)
+}
+
+/// Processes a new process can be made from, so the user doesn't have to start from nothing.
+pub struct ProcessPresetFactory {}
+
+#[derive(Error, Debug)]
+pub enum ProcessPresetFactoryError {
+    #[error("Unknown process preset.  preset: {}", preset)]
+    UnknownPreset { preset: String },
+}
+
+impl ProcessPresetFactory {
+    pub fn available_presets() -> Vec<String> {
+        vec!["pnp".to_string(), "manual".to_string()]
+    }
+
+    /// The process's reference is the preset's name.
+    pub fn by_preset_name(name: &str) -> Result<ProcessDefinition, ProcessPresetFactoryError> {
+        let task = |reference: &str, kind: TaskKind| TaskDefinition::new(TaskReference::from_raw_str(reference), kind);
+
+        match name {
+            "pnp" => Ok(ProcessDefinition {
+                reference: ProcessReference::from_raw_str("pnp"),
+                operations: vec![
+                    OperationDefinition {
+                        reference: Reference::from_raw_str("load_pcbs"),
+                        tasks: vec![task("load_pcbs", TaskKind::LoadPcbs)],
+                    },
+                    OperationDefinition {
+                        reference: Reference::from_raw_str("automated_pnp"),
+                        tasks: vec![task("place_components", TaskKind::PlaceComponents)],
+                    },
+                    OperationDefinition {
+                        reference: Reference::from_raw_str("reflow_oven_soldering"),
+                        tasks: vec![task("automated_soldering", TaskKind::Generic)],
+                    },
+                ],
+                rules: vec![ProcessRuleReference::from_raw_str("core::unique_feeder_references")],
+            }),
+            "manual" => Ok(ProcessDefinition {
+                reference: ProcessReference::from_raw_str("manual"),
+                operations: vec![
+                    OperationDefinition {
+                        reference: Reference::from_raw_str("load_pcbs"),
+                        tasks: vec![task("load_pcbs", TaskKind::LoadPcbs)],
+                    },
+                    OperationDefinition {
+                        reference: Reference::from_raw_str("manually_solder_components"),
+                        tasks: vec![
+                            task("place_components", TaskKind::PlaceComponents),
+                            task("manual_soldering", TaskKind::Generic),
+                        ],
+                    },
+                ],
+                rules: vec![],
+            }),
+            preset => Err(ProcessPresetFactoryError::UnknownPreset {
+                preset: preset.to_string(),
+            }),
+        }
     }
 }
 
@@ -77,7 +492,7 @@ impl ProcessDefinition {
 pub enum ProcessError {
     #[error("Undefined process. processes: {:?}, process: '{}'", processes, process)]
     UndefinedProcessError {
-        processes: Vec<ProcessDefinition>,
+        processes: Vec<ProcessReference>,
         process: String,
     },
     #[error("Process in use. process: '{}'", process_reference)]
@@ -86,8 +501,12 @@ pub enum ProcessError {
     ProcessInProgress { process_reference: ProcessReference },
     #[error("Duplicate process reference. process: '{}'", process_reference)]
     DuplicateProcessReference { process_reference: ProcessReference },
+    #[error("Process file already added. file: {}", process_file)]
+    DuplicateProcessFile { process_file: FileReference },
     #[error("Unknown pre-set process. available-presets: {:?}, pre-set: {}", presets, preset)]
     UnknownPreset { presets: Vec<String>, preset: String },
+    #[error("Invalid process. cause: {0}")]
+    InvalidProcess(ProcessDefinitionError),
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize, PartialEq, Clone)]
@@ -447,11 +866,23 @@ macro_rules! generic_task_impl {
     };
 }
 
+generic_task_impl!(GenericTaskState, "core::generic_task_state");
+
+// The states of the tasks that were built into the planner before tasks had kinds.  They're only read from projects, and
+// behave the same as a `GenericTaskState`.
 generic_task_impl!(LoadPcbsTaskState, "core::load_pcbs_task_state");
 generic_task_impl!(AutomatedSolderingTaskState, "core::automated_soldering_task_state");
 generic_task_impl!(ManualSolderingTaskState, "core::manual_soldering_task_state");
 #[cfg(test)]
 generic_task_impl!(TestTaskState, "core::test_task_state");
+
+/// The state of a task of the given kind, before it has started.
+pub fn make_task_state(kind: TaskKind) -> Box<dyn SerializableTaskState> {
+    match kind {
+        TaskKind::Generic | TaskKind::LoadPcbs => Box::new(GenericTaskState::default()),
+        TaskKind::PlaceComponents => Box::new(PlacementTaskState::default()),
+    }
+}
 
 /// Checks if an operation can be modified:
 /// - All preceding operations must be complete
@@ -493,4 +924,194 @@ pub fn can_modify_task(operation_state: &OperationState, task_index: usize) -> b
         .all(|(_, task)| matches!(task.status(), TaskStatus::Pending));
 
     all_preceding_tasks_complete && all_following_tasks_pending
+}
+
+#[cfg(test)]
+mod process_definition_tests {
+    use pnp::reference::Reference;
+
+    use super::{
+        OperationDefinition, ProcessDefinition, ProcessDefinitionError, ProcessEdit, ProcessPresetFactory,
+        TaskDefinition, TaskKind,
+    };
+
+    fn task(reference: &str, kind: TaskKind) -> TaskDefinition {
+        TaskDefinition::new(Reference::from_raw_str(reference), kind)
+    }
+
+    fn process(operations: Vec<(&str, Vec<TaskDefinition>)>) -> ProcessDefinition {
+        ProcessDefinition {
+            reference: Reference::from_raw_str("glue_and_wave"),
+            operations: operations
+                .into_iter()
+                .map(|(reference, tasks)| OperationDefinition {
+                    reference: Reference::from_raw_str(reference),
+                    tasks,
+                })
+                .collect(),
+            rules: vec![],
+        }
+    }
+
+    /// `PROCDEF-2`
+    #[test]
+    fn a_task_is_stored_with_its_kind() {
+        let definition = task("apply_glue", TaskKind::Generic);
+
+        let json = serde_json::to_string(&definition).unwrap();
+
+        assert_eq!(json, r#"{"reference":"apply_glue","kind":"generic"}"#);
+        assert_eq!(serde_json::from_str::<TaskDefinition>(&json).unwrap(), definition);
+    }
+
+    /// `PROCDEF-8`
+    #[test]
+    fn a_legacy_task_is_read_with_the_kind_of_the_task_built_into_the_planner() {
+        let tasks: Vec<TaskDefinition> = serde_json::from_str(
+            r#"["core::load_pcbs", "core::place_components", "core::automated_soldering", "core::manual_soldering"]"#,
+        )
+        .unwrap();
+
+        assert_eq!(tasks, vec![
+            task("core::load_pcbs", TaskKind::LoadPcbs),
+            task("core::place_components", TaskKind::PlaceComponents),
+            task("core::automated_soldering", TaskKind::Generic),
+            task("core::manual_soldering", TaskKind::Generic),
+        ]);
+    }
+
+    /// `PROCDEF-8`
+    #[test]
+    fn an_unknown_legacy_task_is_an_error() {
+        let result = serde_json::from_str::<TaskDefinition>(r#""core::unknown""#);
+
+        assert!(result.is_err());
+    }
+
+    /// `PROCDEF-4`
+    #[test]
+    fn the_presets_are_valid() {
+        for preset in ProcessPresetFactory::available_presets() {
+            let definition = ProcessPresetFactory::by_preset_name(&preset).unwrap();
+            assert_eq!(definition.validate(), Ok(()), "preset: {}", preset);
+        }
+    }
+
+    /// `PROCDEF-2`
+    #[test]
+    fn a_process_can_attach_components_without_placing_them_by_machine_or_reflow() {
+        // glue, place, cure, then wave solder
+        let definition = process(vec![
+            ("load", vec![task("load_pcbs", TaskKind::LoadPcbs)]),
+            ("glue", vec![task("apply_glue", TaskKind::Generic)]),
+            ("place", vec![task("place_components", TaskKind::PlaceComponents)]),
+            ("cure", vec![task("cure_glue", TaskKind::Generic)]),
+            ("wave", vec![task("wave_solder", TaskKind::Generic)]),
+        ]);
+
+        assert_eq!(definition.validate(), Ok(()));
+    }
+
+    /// `PROCDEF-3`
+    #[test]
+    fn a_process_can_have_only_one_task_that_places_components() {
+        let definition = process(vec![
+            ("place_top", vec![task("place", TaskKind::PlaceComponents)]),
+            ("place_again", vec![task("place", TaskKind::PlaceComponents)]),
+        ]);
+
+        assert_eq!(
+            definition.validate(),
+            Err(ProcessDefinitionError::MoreThanOnePlaceComponentsTask {
+                process: Reference::from_raw_str("glue_and_wave"),
+            })
+        );
+    }
+
+    /// `PROCDEF-3`
+    #[test]
+    fn operations_and_tasks_within_an_operation_must_be_unique() {
+        let duplicate_operation = process(vec![("glue", vec![]), ("glue", vec![])]);
+        assert!(matches!(
+            duplicate_operation.validate(),
+            Err(ProcessDefinitionError::DuplicateOperation { .. })
+        ));
+
+        let duplicate_task = process(vec![("glue", vec![
+            task("apply", TaskKind::Generic),
+            task("apply", TaskKind::Generic),
+        ])]);
+        assert!(matches!(
+            duplicate_task.validate(),
+            Err(ProcessDefinitionError::DuplicateTask { .. })
+        ));
+
+        // the same task in different operations is fine
+        let same_task_in_two_operations = process(vec![
+            ("glue_top", vec![task("apply", TaskKind::Generic)]),
+            ("glue_bottom", vec![task("apply", TaskKind::Generic)]),
+        ]);
+        assert_eq!(same_task_in_two_operations.validate(), Ok(()));
+    }
+
+    /// `PROCDEF-1`
+    #[test]
+    fn edits_build_a_process() {
+        let mut definition = ProcessDefinition::new(Reference::from_raw_str("glue_and_wave"));
+
+        let edits = vec![
+            ProcessEdit::AddOperation {
+                operation: Reference::from_raw_str("glue"),
+            },
+            ProcessEdit::AddTask {
+                operation: Reference::from_raw_str("glue"),
+                task: Reference::from_raw_str("apply_glue"),
+                kind: TaskKind::Generic,
+            },
+            ProcessEdit::AddTask {
+                operation: Reference::from_raw_str("glue"),
+                task: Reference::from_raw_str("place_components"),
+                kind: TaskKind::PlaceComponents,
+            },
+        ];
+        for edit in edits {
+            assert_eq!(definition.apply_edit(edit), Ok(true));
+        }
+
+        assert_eq!(
+            definition,
+            process(vec![("glue", vec![
+                task("apply_glue", TaskKind::Generic),
+                task("place_components", TaskKind::PlaceComponents)
+            ])])
+        );
+    }
+
+    /// `PROCDEF-3`
+    #[test]
+    fn an_edit_that_would_make_the_process_invalid_changes_nothing() {
+        let original = process(vec![("place", vec![task("place", TaskKind::PlaceComponents)])]);
+        let mut definition = original.clone();
+
+        let result = definition.apply_edit(ProcessEdit::AddTask {
+            operation: Reference::from_raw_str("place"),
+            task: Reference::from_raw_str("place_again"),
+            kind: TaskKind::PlaceComponents,
+        });
+
+        assert!(result.is_err());
+        assert_eq!(definition, original);
+    }
+
+    /// `PROCDEF-3`
+    #[test]
+    fn editing_an_unknown_operation_is_an_error() {
+        let mut definition = process(vec![]);
+
+        let result = definition.apply_edit(ProcessEdit::RemoveOperation {
+            operation: Reference::from_raw_str("glue"),
+        });
+
+        assert!(matches!(result, Err(ProcessDefinitionError::UnknownOperation { .. })));
+    }
 }

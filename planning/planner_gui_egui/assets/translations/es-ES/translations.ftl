@@ -21,6 +21,8 @@ toolbar-button-new-project = Nuevo proyecto
 toolbar-button-open-project = Abrir proyecto
 toolbar-button-new-pcb = Nuevo Placa
 toolbar-button-open-pcb = Abrir Placa
+toolbar-button-new-process = Nuevo proceso
+toolbar-button-open-process = Abrir proceso
 toolbar-button-save = Guardar
 toolbar-button-close-all = Cerrar todo
 
@@ -29,6 +31,7 @@ project-toolbar-button-generate-artifacts = Generar artefactos
 project-toolbar-button-refresh = Actualizar
 project-toolbar-button-remove-unused-placements = Eliminar ubicaciones no utilizadas
 project-toolbar-button-add-pcb = Añadir placa
+project-toolbar-button-add-process = Añadir proceso
 project-toolbar-button-add-phase = Añadir fase
 project-toolbar-button-package-sources = Fuentes de envases
 project-toolbar-button-reset-operations = Restablecer operaciones
@@ -39,6 +42,7 @@ project-pcb-toolbar-button-show-pcb = Mostrar Placa
 tab-label-home = Inicio
 tab-label-new-project = Nuevo proyecto
 tab-label-new-pcb = New placa
+tab-label-new-process = Nuevo proceso
 
 home-banner = MakerPnP - Planner
 home-checkbox-label-show-on-startup = Mostrar al inicio
@@ -74,6 +78,12 @@ project-parts-tab-label = Piezas
 project-pcb-tab-label = Placa ({ $pcb })
 
 project-process-tab-label = Proceso ({ $process })
+project-process-tab-button-open = Abrir archivo
+project-process-tab-button-refresh = Actualizar procesos
+project-process-tab-button-remove = Quitar proceso
+project-process-tab-detail-file = Archivo: { $file }
+project-process-tab-detail-reference = Referencia: { $reference }
+project-process-tab-task = { $task } ({ $kind })
 
 project-unit-assignments-tab-label = Asignaciones de unidad ({ $pcb })
 
@@ -115,6 +125,30 @@ form-new-pcb-input-name = Nombre de placa
 form-new-pcb-input-name-placeholder = (por ejemplo, el número de referencia del pedido de la fábrica de placa)
 form-new-pcb-input-directory = Directorio
 form-new-pcb-input-units = Unidades
+
+new-process-banner = Nuevo proceso
+form-new-process-input-reference-placeholder = (p. ej. 'pegar_y_soldar_por_ola')
+form-new-process-input-directory = Directorio
+form-new-process-input-preset = Plantilla
+
+process-detail-path = Ruta: { $path }
+process-editor-operation = Operación
+process-editor-task = tarea
+process-editor-button-move-up = Subir
+process-editor-button-move-down = Bajar
+process-editor-input-task-kind = Tipo
+process-editor-input-new-task = Nueva tarea
+process-editor-input-new-task-placeholder = (p. ej. 'aplicar_pegamento')
+process-editor-button-add-task = Añadir tarea
+process-editor-input-new-operation = Nueva operación
+process-editor-button-add-operation = Añadir operación
+process-editor-rules = Reglas
+process-editor-error-operation-reference-invalid = Operación { $operation }: referencia no válida
+process-editor-error-task-reference-invalid = Operación { $operation }, tarea { $number }: referencia no válida
+
+process-task-kind-generic = Genérica
+process-task-kind-load-pcbs = Cargar placas
+process-task-kind-place-components = Colocar componentes
 
 pcb-configuration-tab-label = Configuración
 pcb-configuration-detail-name = Nombre: { $name }
@@ -199,7 +233,6 @@ form-common-choice-phase = Fase
 form-common-input-load-out-source = Fuente de carga
 form-common-input-phase-reference = Referencia de fase
 form-common-input-process-reference = Referencia de proceso
-form-common-input-operation-reference = Referencia de operación
 form-common-input-x = X
 form-common-input-y = Y
 form-common-input-top = Arriba
@@ -365,10 +398,6 @@ table-fiducials-column-mask-diameter = Máscara ⌀
 table-fiducials-column-copper-diameter = Cobre ⌀
 table-fiducials-column-actions = Acciones
 
-table-operations-column-operation = Operación
-table-operations-column-actions = Acciones
-table-operations-column-task = { $task }
-
 table-phases-column-index = #
 table-phases-column-name = Nombre
 table-phases-column-status = Estado
@@ -395,12 +424,6 @@ ratio-error = Ratio: N/A
 filter-expression = Buscar...
 
 expanding-header-details = Detalles
-
-#
-# errors
-#
-
-process-error-name-already-in-use = Attempted to rename a process to a name already in use
 
 #
 # egui-data-tables

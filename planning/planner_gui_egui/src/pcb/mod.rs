@@ -1165,6 +1165,7 @@ mod core_helper {
                 project_modified,
                 pcbs_modified,
                 generation,
+                ..
             } => PcbAction::UiCommand(PcbUiCommand::SetModifiedState {
                 project_modified,
                 pcbs_modified,
@@ -1175,6 +1176,10 @@ mod core_helper {
                 PcbAction::UiCommand(PcbUiCommand::None)
             }
             PlannerAction::PcbView(pcb_view) => PcbAction::UiCommand(PcbUiCommand::PcbView(pcb_view)),
+            PlannerAction::ProcessView(_process_view) => {
+                warn!("pcb received process view action. ignoring.");
+                PcbAction::UiCommand(PcbUiCommand::None)
+            }
         }
     }
 

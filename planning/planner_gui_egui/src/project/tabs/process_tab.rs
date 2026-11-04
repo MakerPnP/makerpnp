@@ -1,25 +1,19 @@
-use std::str::FromStr;
+//! The project's copy of a process.
+//!
+//! The copy can't be edited here, it's edited in its process document, see [`crate::process`].  The project's copy is
+//! updated from the document's file when the project's processes are refreshed.
 
 use derivative::Derivative;
-use egui::{Frame, TextEdit, Ui, WidgetText};
+use egui::{Frame, Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
-use egui_extras::Column;
 use egui_i18n::tr;
-use egui_taffy::taffy::prelude::{auto, length, percent};
-use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
-use egui_taffy::tui;
-use indexmap::IndexMap;
-use planner_app::{
-    OperationDefinition, OperationReference, ProcessDefinition, ProcessReference, ProcessRuleReference, Reference,
-    TaskReference,
-};
+use planner_app::{FileReference, ProcessReference, ProjectProcess, Reference};
 use tracing::debug;
-use validator::Validate;
 
-use crate::forms::Form;
-use crate::project::data::{ProjectData, Synced};
+use crate::forms::NamedResponse;
+use crate::process::editor::task_kind_name;
+use crate::project::data::ProjectData;
 use crate::project::tabs::ProjectTabContext;
-use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::ui_component::{ComponentState, UiComponent};
 
@@ -28,393 +22,88 @@ use crate::ui_component::{ComponentState, UiComponent};
 pub struct ProcessTabUi {
     process: ProcessReference,
 
-    state: Option<ProcessTabUiState>,
-
-    /// the revision of the process definition view last considered for the form
-    synced: Synced<u64>,
-
     pub component: ComponentState<ProcessTabUiCommand>,
-}
-
-#[derive(Debug)]
-pub struct ProcessTabUiState {
-    available_tasks: Vec<TaskReference>,
-    fields: Value<ProcessFields>,
-    new_operation_fields: Value<NewOperationFields>,
-    initial_args: ProcessDefinitionArgs,
-    initial_process_reference: ProcessReference,
 }
 
 impl ProcessTabUi {
     pub fn new(process: ProcessReference) -> Self {
-        let component: ComponentState<ProcessTabUiCommand> = Default::default();
-
         Self {
             process,
-            state: None,
-            synced: Synced::default(),
-            component,
+            component: ComponentState::default(),
         }
     }
 
-    /// Rebuilds the form if the process definition changed, unless that would discard the user's unsaved edits.
-    pub fn sync(&mut self, data: &ProjectData) {
-        let Some(process_definition) = data.process_definition(&self.process) else {
-            return;
-        };
+    fn show_process(&self, ui: &mut Ui, project_process: &ProjectProcess) {
+        let definition = &project_process.definition;
 
-        if !self
-            .synced
-            .changed(data.process_definition_revision(&self.process))
-        {
-            return;
-        }
-
-        if let Some(state) = &self.state {
-            let fields = state.fields.lock().unwrap();
-            if !fields.can_be_replaced_by(&state.initial_args.process_definition, process_definition) {
-                debug!("keeping unsaved edits. process: {:?}", self.process);
-                return;
+        //
+        // toolbar
+        //
+        ui.horizontal(|ui| {
+            if let Some(process_file) = &project_process.process_file {
+                if ui
+                    .button(tr!("project-process-tab-button-open"))
+                    .clicked()
+                {
+                    self.component
+                        .send(ProcessTabUiCommand::OpenClicked(process_file.clone()));
+                }
             }
-        }
 
-        self.update_definition(process_definition.clone());
-    }
+            if ui
+                .button(tr!("project-process-tab-button-refresh"))
+                .clicked()
+            {
+                self.component
+                    .send(ProcessTabUiCommand::RefreshClicked);
+            }
 
-    /// Discards any unsaved edits.
-    pub fn reset_form(&mut self, data: &ProjectData) {
-        if let Some(process_definition) = data.process_definition(&self.process) {
-            self.update_definition(process_definition.clone());
-        }
-    }
+            if ui
+                .button(format!("🗑 {}", tr!("project-process-tab-button-remove")))
+                .named(tr!("project-process-tab-button-remove"))
+                .clicked()
+            {
+                self.component
+                    .send(ProcessTabUiCommand::RemoveClicked);
+            }
+        });
 
-    fn update_definition(&mut self, process_definition: ProcessDefinition) {
-        let available_tasks: Vec<TaskReference> = vec![
-            TaskReference::from_raw_str("core::load_pcbs"),
-            TaskReference::from_raw_str("core::place_components"),
-            TaskReference::from_raw_str("core::automated_soldering"),
-            TaskReference::from_raw_str("core::manual_soldering"),
-        ];
+        ui.separator();
 
-        let initial_process_reference = process_definition.reference.clone();
-
-        let fields = ProcessFields::from_process_definition(process_definition);
-        let initial_args = fields.build_args(initial_process_reference.clone());
-
-        self.state = Some(ProcessTabUiState {
-            fields: Value::new(fields),
-            new_operation_fields: Value::new(NewOperationFields::default()),
-            available_tasks,
-            initial_args,
-            initial_process_reference,
-        })
-    }
-
-    fn show_form(&self, ui: &mut Ui, form: &Form<ProcessFields, ProcessTabUiCommand>, state: &ProcessTabUiState) {
-        let default_style = || Style {
-            padding: length(2.),
-            gap: length(2.),
-            ..Default::default()
+        let file = match &project_process.process_file {
+            Some(FileReference::Relative(path)) | Some(FileReference::Absolute(path)) => path.display().to_string(),
+            None => tr!("common-value-not-available"),
         };
+        ui.label(tr!("project-process-tab-detail-file", { file: file }));
+        ui.label(tr!("project-process-tab-detail-reference", { reference: definition.reference.to_string() }));
 
-        tui(ui, ui.id().with("process_form"))
-            .reserve_available_width()
-            .style(Style {
-                align_items: Some(AlignItems::Center),
-                flex_direction: FlexDirection::Column,
-                size: Size {
-                    width: percent(1.),
-                    height: auto(),
-                },
-                padding: length(8.),
-                gap: length(8.),
-                ..default_style()
-            })
-            .show(|tui| {
-                form.show_fields_vertical(tui, |form, tui| {
-                    form.add_field_ui("reference", tr!("form-common-input-process-reference"), tui, {
-                        // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
-                        //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
-                        move |ui: &mut Ui, fields, sender| {
-                            let mut reference_clone = fields.process_reference.clone();
-                            let output = TextEdit::singleline(&mut reference_clone)
-                                .desired_width(ui.available_width().min(200.0))
-                                .show(ui);
-
-                            if !fields
-                                .process_reference
-                                .eq(&reference_clone)
-                            {
-                                sender
-                                    .send(ProcessTabUiCommand::ReferenceChanged(reference_clone))
-                                    .expect("sent")
-                            }
-
-                            output.response.response
+        ui.add_space(8.0);
+        ui.strong(tr!("form-process-operations"));
+        for operation in definition.operations.iter() {
+            Frame::group(ui.style()).show(ui, |ui| {
+                ui.label(operation.reference.to_string());
+                ui.indent(
+                    ui.id()
+                        .with(("tasks", operation.reference.to_string())),
+                    |ui| {
+                        for task in operation.tasks.iter() {
+                            ui.label(tr!("project-process-tab-task", {
+                                task: task.reference.to_string(),
+                                kind: task_kind_name(task.kind)
+                            }));
                         }
-                    });
-
-                    form.add_field_ui("operations", tr!("form-process-operations"), tui, {
-                        // NOTE text input does not resize with grid cell when using `.ui_add`, known issue - https://discord.com/channels/900275882684477440/904461220592119849/1338883750922293319
-                        //      as a workaround we use `ui_add_manual` for now, with `no_transform`.
-                        move |ui: &mut Ui, fields, sender| {
-                            let text_height = egui::TextStyle::Body
-                                .resolve(ui.style())
-                                .size
-                                .max(ui.spacing().interact_size.y);
-
-                            Frame::group(&egui::Style::default()).show(ui, |ui| {
-                                let mut table_builder = egui_extras::TableBuilder::new(ui)
-                                    .striped(true)
-                                    .column(Column::remainder());
-
-                                for _ in 0..state.available_tasks.len() {
-                                    table_builder = table_builder.column(Column::auto());
-                                }
-                                table_builder = table_builder.column(Column::auto());
-
-                                table_builder
-                                    .header(text_height, |mut header| {
-                                        header.col(|ui| {
-                                            ui.strong(tr!("table-operations-column-operation"));
-                                        });
-                                        for task in &state.available_tasks {
-                                            header.col(|ui| {
-                                                // TODO generate an i18n key from the task instead
-                                                ui.strong(
-                                                    tr!("table-operations-column-task", { task: task.to_string() }),
-                                                );
-                                            });
-                                        }
-                                        header.col(|ui| {
-                                            ui.strong(tr!("table-operations-column-actions"));
-                                        });
-                                    })
-                                    .body(|mut body| {
-                                        for (operation, tasks) in fields.operations.iter() {
-                                            body.row(text_height, |mut row| {
-                                                row.col(|ui| {
-                                                    let mut operation_reference = operation.to_string();
-                                                    let output =
-                                                        TextEdit::singleline(&mut operation_reference).show(ui);
-                                                    if output.response.changed() {
-                                                        self.component.send(
-                                                            ProcessTabUiCommand::OperationReferenceChanged {
-                                                                operation: operation.clone(),
-                                                                new_operation_reference: operation_reference,
-                                                            },
-                                                        );
-                                                    }
-                                                });
-
-                                                for task in &state.available_tasks {
-                                                    row.col(|ui| {
-                                                        let mut checked = tasks.contains(task);
-                                                        if ui
-                                                            .add(egui::Checkbox::without_text(&mut checked))
-                                                            .changed()
-                                                        {
-                                                            sender
-                                                                .send(ProcessTabUiCommand::TaskChanged {
-                                                                    operation: operation.clone(),
-                                                                    task: task.clone(),
-                                                                    checked,
-                                                                })
-                                                                .expect("sent");
-                                                        }
-                                                    });
-                                                }
-
-                                                row.col(|ui| {
-                                                    if ui
-                                                        .button(format!("🗑 {}", tr!("form-common-button-delete")))
-                                                        .clicked()
-                                                    {
-                                                        self.component.send(
-                                                            ProcessTabUiCommand::DeleteOperationClicked {
-                                                                operation: operation.clone(),
-                                                            },
-                                                        );
-                                                    }
-                                                });
-                                            })
-                                        }
-                                    });
-                            });
-                            ui.response()
-                        }
-                        // end of form.add_field_ui
-                    });
-                    // end of form.show_fields_vertical
-                });
-
-                // end of tui.show
+                    },
+                );
             });
-    }
-
-    /// we need an entirely different form for adding a new operation.
-    /// if we were to combine the 'operation_reference' with the other fields, it would prevent applying changes
-    /// when the field is empty or invalid, which is not the intention
-    /// FUTURE consider moving this form to a 'new operation' modal
-    pub fn show_new_operaton_form(
-        &self,
-        ui: &mut Ui,
-        form: &Form<NewOperationFields, ProcessTabUiCommand>,
-        _state: &ProcessTabUiState,
-    ) {
-        let default_style = || Style {
-            padding: length(2.),
-            gap: length(2.),
-            ..Default::default()
-        };
-
-        tui(ui, ui.id().with("new_operation_form"))
-            .reserve_available_width()
-            .style(Style {
-                align_items: Some(AlignItems::Center),
-                flex_direction: FlexDirection::Column,
-                size: Size {
-                    width: percent(1.),
-                    height: auto(),
-                },
-                padding: length(8.),
-                gap: length(8.),
-                ..default_style()
-            })
-            .show(|tui| {
-                form.show_fields_vertical(tui, |form, tui| {
-                    form.add_field_ui(
-                        "operation_reference",
-                        tr!("form-common-input-operation-reference"),
-                        tui,
-                        {
-                            move |ui: &mut Ui, fields, sender| {
-                                ui.horizontal(|ui| {
-                                    let mut operation_reference = fields.operation_reference.to_string();
-                                    let output = TextEdit::singleline(&mut operation_reference).show(ui);
-                                    if output.response.changed() {
-                                        sender
-                                            .send(ProcessTabUiCommand::NewOperationReferenceChanged(
-                                                operation_reference.clone(),
-                                            ))
-                                            .expect("sent");
-                                    }
-
-                                    let is_new_operation_valid = form
-                                        .field_validation_errors("operation_reference")
-                                        .is_none();
-
-                                    ui.add_enabled_ui(is_new_operation_valid, |ui| {
-                                        if ui
-                                            .button(tr!("form-common-button-add"))
-                                            .clicked()
-                                        {
-                                            sender
-                                                .send(ProcessTabUiCommand::AddOperationClicked)
-                                                .expect("sent");
-                                        }
-                                    });
-                                });
-
-                                ui.response()
-                            }
-                        },
-                    );
-
-                    // end of form.show_fields_vertical
-                });
-
-                // end of tui.show
-            });
-    }
-}
-
-#[derive(Clone, Debug, Default, Validate, serde::Deserialize, serde::Serialize)]
-pub struct ProcessFields {
-    // FUTURE could also validate that the reference is not already used
-    #[validate(length(min = 1, code = "form-input-error-length"))]
-    #[validate(custom(function = "crate::forms::validation::CommonValidation::validate_reference"))]
-    process_reference: String,
-
-    operations: IndexMap<OperationReference, Vec<TaskReference>>,
-
-    rules: Vec<ProcessRuleReference>,
-}
-
-impl ProcessFields {
-    pub fn from_process_definition(process: ProcessDefinition) -> Self {
-        Self {
-            process_reference: process.reference.to_string(),
-            operations: process
-                .operations
-                .into_iter()
-                .map(|it| (it.reference, it.tasks))
-                .collect(),
-            rules: process.rules.clone(),
         }
-    }
 
-    fn matches(&self, process: &ProcessDefinition) -> bool {
-        self.process_reference == process.reference.to_string()
-            && self.rules == process.rules
-            && self
-                .operations
-                .iter()
-                .map(|(reference, tasks)| (reference, tasks))
-                .eq(process
-                    .operations
-                    .iter()
-                    .map(|operation| (&operation.reference, &operation.tasks)))
-    }
-
-    /// The form can be replaced if there are no unsaved edits, or if they are what the new definition now contains,
-    /// which is the case after the user applies their edits.
-    fn can_be_replaced_by(&self, initial: &ProcessDefinition, new: &ProcessDefinition) -> bool {
-        self.matches(initial) || self.matches(new)
-    }
-
-    /// Safety: requires that the fields are valid.
-    pub fn build_args(&self, initial_process_reference: ProcessReference) -> ProcessDefinitionArgs {
-        let operations = self
-            .operations
-            .iter()
-            .map(|(operation, tasks)| OperationDefinition {
-                reference: operation.clone(),
-                tasks: tasks.clone(),
-            })
-            .collect::<Vec<_>>();
-
-        let rules = self.rules.clone();
-
-        ProcessDefinitionArgs {
-            process_reference: initial_process_reference,
-            process_definition: ProcessDefinition {
-                reference: ProcessReference::from_raw(self.process_reference.clone()),
-                operations,
-                rules,
-            },
+        ui.add_space(8.0);
+        ui.strong(tr!("process-editor-rules"));
+        if definition.rules.is_empty() {
+            ui.label(tr!("form-common-combo-none"));
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProcessDefinitionArgs {
-    pub process_reference: ProcessReference,
-    pub process_definition: ProcessDefinition,
-}
-
-#[derive(Clone, Debug, Validate, serde::Deserialize, serde::Serialize)]
-pub struct NewOperationFields {
-    // FUTURE could also validate that the reference is not already used
-    #[validate(length(min = 1, code = "form-input-error-length"))]
-    #[validate(custom(function = "crate::forms::validation::CommonValidation::validate_reference"))]
-    pub operation_reference: String,
-}
-
-impl Default for NewOperationFields {
-    fn default() -> Self {
-        Self {
-            operation_reference: tr!("common-value-operation-reference-default"),
+        for rule in definition.rules.iter() {
+            ui.label(rule.to_string());
         }
     }
 }
@@ -422,113 +111,48 @@ impl Default for NewOperationFields {
 #[derive(Debug, Clone)]
 pub enum ProcessTabUiCommand {
     None,
-    ReferenceChanged(String),
-    ApplyClicked,
-    ResetClicked,
-    DeleteClicked,
-    TaskChanged {
-        operation: OperationReference,
-        task: TaskReference,
-        checked: bool,
-    },
-    DeleteOperationClicked {
-        operation: OperationReference,
-    },
-    AddOperationClicked,
-    OperationReferenceChanged {
-        operation: OperationReference,
-        new_operation_reference: String,
-    },
-    NewOperationReferenceChanged(String),
+    OpenClicked(FileReference),
+    RefreshClicked,
+    RemoveClicked,
 }
 
 #[derive(Debug, Clone)]
 pub enum ProcessTabUiAction {
     None,
-    Reset { process_reference: ProcessReference },
-    Apply(ProcessDefinitionArgs),
-    Delete(ProcessReference),
+    Open(FileReference),
+    Refresh,
+    Remove(ProcessReference),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ProcessTabUiContext {}
+pub struct ProcessTabUiContext<'a> {
+    pub data: &'a ProjectData,
+}
 
 impl UiComponent for ProcessTabUi {
-    type UiContext<'context> = ProcessTabUiContext;
+    type UiContext<'context> = ProcessTabUiContext<'context>;
     type UiCommand = ProcessTabUiCommand;
     type UiAction = ProcessTabUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         ui.ctx().global_style_mut(|style| {
             // if this is not done, text in labels/checkboxes/etc wraps
             style.wrap_mode = Some(egui::TextWrapMode::Extend);
         });
 
-        let Some(state) = &self.state else {
+        let Some(project_process) = context
+            .data
+            .process_definition(&self.process)
+        else {
             ui.spinner();
             return;
         };
 
-        //
-        // toolbar
-        //
-        ui.horizontal(|ui| {
-            if ui
-                .button(format!("🗑 {}", tr!("form-common-button-delete")))
-                .clicked()
-            {
-                self.component
-                    .send(ProcessTabUiCommand::DeleteClicked);
-            }
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            Frame::new()
+                .inner_margin(8.0)
+                .show(ui, |ui| self.show_process(ui, project_process));
         });
-
-        ui.separator();
-
-        //
-        // form
-        //
-        let form = Form::new(&state.fields, &self.component.sender, ());
-
-        self.show_form(ui, &form, state);
-
-        let new_operation_form = Form::new(&state.new_operation_fields, &self.component.sender, ());
-
-        self.show_new_operaton_form(ui, &new_operation_form, state);
-
-        // IMPORTANT here the form must be valid before attempting to build the args otherwise a panic can occur
-        let is_changed = form.is_valid()
-            && state
-                .fields
-                .lock()
-                .unwrap()
-                .build_args(state.initial_process_reference.clone())
-                != state.initial_args;
-
-        egui::Sides::new().show(
-            ui,
-            |ui| {
-                if ui
-                    .add_enabled(is_changed, egui::Button::new(tr!("form-common-button-reset")))
-                    .clicked()
-                {
-                    self.component
-                        .send(ProcessTabUiCommand::ResetClicked);
-                }
-
-                if ui
-                    .add_enabled(
-                        is_changed && form.is_valid(),
-                        egui::Button::new(tr!("form-common-button-apply")),
-                    )
-                    .clicked()
-                {
-                    self.component
-                        .send(ProcessTabUiCommand::ApplyClicked);
-                }
-            },
-            |_ui| {},
-        );
     }
 
     #[profiling::function]
@@ -537,172 +161,12 @@ impl UiComponent for ProcessTabUi {
         command: Self::UiCommand,
         _context: &mut Self::UiContext<'context>,
     ) -> Option<Self::UiAction> {
-        let Some(state) = &mut self.state else {
-            let result = match command {
-                ProcessTabUiCommand::None => Some(ProcessTabUiAction::None),
-                _ => {
-                    // there are no commands that can be processed without the state
-                    None
-                }
-            };
-            return result;
-        };
-
-        let mut fields = state.fields.lock().unwrap();
         match command {
             ProcessTabUiCommand::None => Some(ProcessTabUiAction::None),
-            ProcessTabUiCommand::ReferenceChanged(reference) => {
-                fields.process_reference = reference;
-                None
-            }
-            ProcessTabUiCommand::NewOperationReferenceChanged(operation_reference) => {
-                let mut new_operation_fields = state
-                    .new_operation_fields
-                    .lock()
-                    .unwrap();
-
-                new_operation_fields.operation_reference = operation_reference;
-                None
-            }
-            ProcessTabUiCommand::DeleteClicked => {
-                Some(ProcessTabUiAction::Delete(state.initial_process_reference.clone()))
-            }
-            ProcessTabUiCommand::TaskChanged {
-                operation,
-                task,
-                checked,
-            } => {
-                debug!("operation: {:?}, task: {:?}, checked: {:?}", operation, task, checked);
-
-                // each task can only belong to one operation
-                for (operation_reference, tasks) in fields.operations.iter_mut() {
-                    enum Action {
-                        Add,
-                        Remove,
-                    }
-                    let action = match (operation_reference == &operation, checked) {
-                        (true, true) => Action::Add,
-                        (true, false) => Action::Remove,
-                        (false, _) => Action::Remove,
-                    };
-
-                    match action {
-                        Action::Add => {
-                            tasks.push(task.clone());
-                        }
-                        Action::Remove => {
-                            tasks.retain(|candidate_task| !task.eq(candidate_task));
-                        }
-                    }
-                }
-                None
-            }
-            ProcessTabUiCommand::AddOperationClicked => {
-                let new_operation_fields = state
-                    .new_operation_fields
-                    .lock()
-                    .unwrap();
-
-                if let Ok(new_operation) = OperationReference::from_str(&new_operation_fields.operation_reference) {
-                    fields
-                        .operations
-                        .insert(new_operation, vec![]);
-                }
-                None
-            }
-            ProcessTabUiCommand::OperationReferenceChanged {
-                operation,
-                new_operation_reference,
-            } => {
-                if let Ok(new_operation_reference) = OperationReference::from_str(&new_operation_reference) {
-                    if let Some(position) = fields
-                        .operations
-                        .iter()
-                        .position(|(candidate_operation, _tasks)| operation.eq(candidate_operation))
-                    {
-                        let tasks = fields
-                            .operations
-                            .shift_remove(&operation)
-                            .unwrap();
-                        fields
-                            .operations
-                            .insert_before(position, new_operation_reference, tasks);
-                    }
-                }
-                None
-            }
-            ProcessTabUiCommand::DeleteOperationClicked {
-                operation,
-            } => fields
-                .operations
-                .shift_remove(&operation)
-                .map(|_operation| {
-                    let args = fields.build_args(state.initial_process_reference.clone());
-
-                    ProcessTabUiAction::Apply(args)
-                }),
-
-            //
-            // form submission
-            //
-            ProcessTabUiCommand::ApplyClicked => {
-                let args = fields.build_args(state.initial_process_reference.clone());
-
-                Some(ProcessTabUiAction::Apply(args))
-            }
-            ProcessTabUiCommand::ResetClicked => Some(ProcessTabUiAction::Reset {
-                process_reference: state
-                    .initial_args
-                    .process_reference
-                    .clone(),
-            }),
+            ProcessTabUiCommand::OpenClicked(process_file) => Some(ProcessTabUiAction::Open(process_file)),
+            ProcessTabUiCommand::RefreshClicked => Some(ProcessTabUiAction::Refresh),
+            ProcessTabUiCommand::RemoveClicked => Some(ProcessTabUiAction::Remove(self.process.clone())),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use planner_app::{OperationDefinition, OperationReference, ProcessDefinition, ProcessReference, TaskReference};
-
-    use super::ProcessFields;
-
-    fn definition(tasks: &[&str]) -> ProcessDefinition {
-        ProcessDefinition {
-            reference: ProcessReference::from_raw_str("pnp"),
-            operations: vec![OperationDefinition {
-                reference: OperationReference::from_raw_str("place"),
-                tasks: tasks
-                    .iter()
-                    .map(|task| TaskReference::from_raw_str(task))
-                    .collect(),
-            }],
-            rules: vec![],
-        }
-    }
-
-    #[test]
-    fn an_unedited_form_can_be_replaced() {
-        let initial = definition(&["core::load_pcbs"]);
-        let fields = ProcessFields::from_process_definition(initial.clone());
-
-        assert!(fields.can_be_replaced_by(&initial, &definition(&["core::place_components"])));
-    }
-
-    #[test]
-    fn a_form_with_unsaved_edits_is_not_replaced() {
-        let initial = definition(&["core::load_pcbs"]);
-        let fields = ProcessFields::from_process_definition(definition(&["core::manual_soldering"]));
-
-        assert!(!fields.can_be_replaced_by(&initial, &definition(&["core::place_components"])));
-    }
-
-    #[test]
-    fn a_form_whose_edits_were_applied_can_be_replaced() {
-        let initial = definition(&["core::load_pcbs"]);
-        let applied = definition(&["core::manual_soldering"]);
-        let fields = ProcessFields::from_process_definition(applied.clone());
-
-        assert!(fields.can_be_replaced_by(&initial, &applied));
     }
 }
 
@@ -733,7 +197,9 @@ impl Tab for ProcessTab {
             ui.spinner();
             return;
         };
-        UiComponent::ui(process_ui, ui, &mut ProcessTabUiContext::default());
+        UiComponent::ui(process_ui, ui, &mut ProcessTabUiContext {
+            data: &state.data,
+        });
     }
 
     fn on_close<'a>(&mut self, _tab_key: &TabKey, context: &mut Self::Context) -> OnCloseResponse {

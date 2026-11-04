@@ -26,7 +26,7 @@ mod operation_sequence_1 {
     use planning::file::FileReference;
     use planning::pcb::PcbAssemblyOrientation;
     use planning::placement::{PlacementOperation, PlacementStatus, ProjectPlacementStatus};
-    use planning::process::TaskStatus;
+    use planning::process::{TaskKind, TaskStatus};
     use pnp::object_path::ObjectPath;
     use pnp::panel::Dimensions;
     use pnp::pcb::PcbSide;
@@ -36,23 +36,22 @@ mod operation_sequence_1 {
     use util::test::{build_temp_file, prepare_args, print};
 
     use crate::common::operation_history::{
-        TestLoadPcbsOperationTaskHistoryKind, TestOperationHistoryItem, TestOperationHistoryKind,
-        TestPlaceComponentsOperationTaskHistoryKind, TestPlacementOperationHistoryKind,
+        TestOperationHistoryItem, TestOperationHistoryKind, TestPlacementOperationHistoryKind,
+        TestTaskOperationHistoryKind,
     };
     use crate::common::package_mappings_builder::{PackageMappingsCSVBuilder, TestPackageMappingRecord};
     use crate::common::packages_builder::{PackagesCSVBuilder, TestPackageRecord};
     use crate::common::phase_placement_builder::{PhasePlacementsCSVBuilder, TestPhasePlacementRecord};
     use crate::common::project_builder as project;
     use crate::common::project_builder::{
-        TestAutomatedSolderingTaskState, TestDesignSizing, TestLoadPcbsTaskState, TestManualSolderingTaskState,
-        TestOperationState, TestPartState, TestPcbUnitPositioning, TestPhase, TestPlacement, TestPlacementState,
-        TestPlacementTaskState, TestProcessOperationStatus, TestProject, TestSerializableTaskState, TestUnitPosition,
+        TestDesignSizing, TestGenericTaskState, TestOperationState, TestPartState, TestPcbUnitPositioning, TestPhase,
+        TestPlacement, TestPlacementState, TestPlacementTaskState, TestProcessDefinition, TestProcessOperationStatus,
+        TestProject, TestSerializableTaskState, TestUnitPosition,
     };
     use crate::common::project_report_builder as report;
     use crate::common::project_report_builder::{
-        ProjectReportBuilder, TestAutomatedSolderingTaskOverview, TestAutomatedSolderingTaskSpecification, TestIssue,
-        TestIssueKind, TestIssueSeverity, TestLoadPcbsTaskOverview, TestLoadPcbsTaskSpecification,
-        TestManualSolderingTaskOverview, TestManualSolderingTaskSpecification, TestPart, TestPcbUnitAssignment,
+        ProjectReportBuilder, TestGenericTaskOverview, TestGenericTaskSpecification, TestIssue, TestIssueKind,
+        TestIssueSeverity, TestLoadPcbsTaskOverview, TestLoadPcbsTaskSpecification, TestPart, TestPcbUnitAssignment,
         TestPhaseLoadOutAssignmentItem, TestPhaseOperation, TestPhaseOperationOverview, TestPhaseOverview,
         TestPhaseSpecification, TestPlaceComponentsTaskOverview, TestPlaceComponentsTaskSpecification,
         TestTaskOverview, TestTaskSpecification,
@@ -83,6 +82,10 @@ mod operation_sequence_1 {
             pub test_project_path: PathBuf,
             pub test_pcb_1_path: PathBuf,
             pub test_pcb_1_arg: String,
+            pub pnp_process_path: PathBuf,
+            pub pnp_process_arg: String,
+            pub manual_process_path: PathBuf,
+            pub manual_process_arg: String,
             pub phase_1_load_out_path: PathBuf,
             pub phase_2_load_out_path: PathBuf,
             pub phase_1_log_path: PathBuf,
@@ -120,6 +123,11 @@ mod operation_sequence_1 {
                 let (test_pcb_1_path, _test_pcb_1_file_name) = build_temp_file(&temp_dir, "panel_a", "pcb.json");
                 let test_pcb_1_arg = format!("--pcb-file {}", test_pcb_1_path.to_str().unwrap());
 
+                let (pnp_process_path, _) = build_temp_file(&temp_dir, "pnp", "process.json");
+                let pnp_process_arg = format!("--process-file {}", pnp_process_path.to_str().unwrap());
+                let (manual_process_path, _) = build_temp_file(&temp_dir, "manual", "process.json");
+                let manual_process_arg = format!("--process-file {}", manual_process_path.to_str().unwrap());
+
                 let project_arg = "--project job1".to_string();
 
                 let mut phase_1_load_out_path = PathBuf::from(temp_dir.path());
@@ -140,6 +148,10 @@ mod operation_sequence_1 {
                     test_project_path,
                     test_pcb_1_path,
                     test_pcb_1_arg,
+                    pnp_process_path,
+                    pnp_process_arg,
+                    manual_process_path,
+                    manual_process_arg,
                     phase_1_load_out_path,
                     phase_1_log_path,
                     phase_2_load_out_path,
@@ -220,7 +232,6 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
             .content();
 
         // and
@@ -555,7 +566,6 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::default(),
@@ -635,7 +645,6 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -807,7 +816,6 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -966,10 +974,304 @@ mod operation_sequence_1 {
         Ok(())
     }
 
+    /// Runs the CLI with the given arguments, and returns its trace.  Fails if the CLI fails.
+    fn run_cli(ctx: &context::Context, args: Vec<&str>) -> Result<String, anyhow::Error> {
+        let (trace_content, cmd_assert) = run_cli_inner(ctx, args)?;
+        cmd_assert.success();
+        Ok(trace_content)
+    }
+
+    fn run_cli_inner(
+        ctx: &context::Context,
+        args: Vec<&str>,
+    ) -> Result<(String, assert_cmd::assert::Assert), anyhow::Error> {
+        ctx.delete_trace_log();
+
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
+        let args = prepare_args(args);
+        println!("args: {:?}", args);
+
+        let cmd_assert = cmd
+            .args(args)
+            .assert()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"));
+
+        let trace_content: String = read_and_show_file(&ctx.test_trace_log_path)?;
+
+        Ok((trace_content, cmd_assert))
+    }
+
+    /// `PROCDEF-1`, `PROCDEF-4`
     #[test]
-    fn sequence_07_assign_process_to_parts() -> Result<(), anyhow::Error> {
+    fn sequence_07_create_process_from_preset() -> Result<(), anyhow::Error> {
         // given
         let mut ctx_guard = context::acquire(7);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let expected_process_content = TestProcessDefinition::pnp().content();
+
+        // when
+        let trace_content = run_cli(ctx, vec![
+            ctx.trace_log_arg.as_str(),
+            "process",
+            ctx.pnp_process_arg.as_str(),
+            "-vvv",
+            "create",
+            "--reference pnp",
+            "--preset pnp",
+        ])?;
+
+        // then
+        assert_contains_inorder!(trace_content, ["Create process.", "Saving process.",]);
+
+        // and
+        let process_content: String = read_and_show_file(&ctx.pnp_process_path)?;
+        assert_eq!(process_content, expected_process_content);
+
+        Ok(())
+    }
+
+    /// `PROCDEF-1`, `PROCDEF-2`, `PROCDEF-3`
+    #[test]
+    fn sequence_08_define_process() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::acquire(8);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and the same process as the 'manual' preset, defined one change at a time.
+        let expected_process_content = TestProcessDefinition::manual().content();
+
+        let commands = [
+            "create --reference hand",
+            "set-reference --reference manual",
+            "add-operation --operation load_pcbs",
+            "add-task --operation load_pcbs --task load_pcbs --kind load_pcbs",
+            "add-operation --operation manually_solder_components",
+            "add-task --operation manually_solder_components --task place_components --kind place_components",
+            "add-task --operation manually_solder_components --task manual_soldering --kind generic",
+        ];
+
+        // when
+        for command in commands {
+            run_cli(ctx, vec![
+                ctx.trace_log_arg.as_str(),
+                "process",
+                ctx.manual_process_arg.as_str(),
+                "-vvv",
+                command,
+            ])?;
+        }
+
+        // then
+        let process_content: String = read_and_show_file(&ctx.manual_process_path)?;
+        assert_eq!(process_content, expected_process_content);
+
+        // and when a second task that places components is added
+        let (trace_content, cmd_assert) = run_cli_inner(ctx, vec![
+            ctx.trace_log_arg.as_str(),
+            "process",
+            ctx.manual_process_arg.as_str(),
+            "-vvv",
+            "add-task --operation load_pcbs --task place_again --kind place_components",
+        ])?;
+
+        // then it fails, and the process is unchanged
+        cmd_assert.failure();
+        assert_contains_inorder!(trace_content, ["Edit process.",]);
+        let process_content: String = read_and_show_file(&ctx.manual_process_path)?;
+        assert_eq!(process_content, expected_process_content);
+
+        Ok(())
+    }
+
+    /// `PROCDEF-5`, `PROCDEF-6`
+    #[test]
+    fn sequence_09_add_processes() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::acquire(9);
+        let ctx = ctx_guard.1.as_mut().unwrap();
+
+        // and
+        let expected_project_content = TestProject::new()
+            .with_name("job1")
+            .with_library_config(&ctx.library_config)
+            .with_processes()
+            .with_pcbs(vec![project::TestProjectPcb {
+                pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
+                unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
+                    design_name: "design_a".into(),
+                    variant_name: "variant_a".into(),
+                })]),
+            }])
+            .with_part_states(vec![
+                (project::TestPart::new("CONN_MFR1", "CONN1"), TestPartState::default()),
+                (project::TestPart::new("RES_MFR1", "RES1"), TestPartState::default()),
+                (project::TestPart::new("RES_MFR2", "RES2"), TestPartState::default()),
+            ])
+            .with_placements(vec![
+                (
+                    "pcb=1::unit=1::ref_des=C1",
+                    TestPlacementState::new(
+                        "pcb=1::unit=1",
+                        TestPlacement::new(
+                            "C1",
+                            "CAP_MFR1",
+                            "CAP1",
+                            true,
+                            PcbSide::Bottom,
+                            dec!(40),
+                            dec!(45),
+                            dec!(180),
+                        ),
+                        TestUnitPosition::new(dec!(42), dec!(74), dec!(0)),
+                        PlacementStatus::Pending,
+                        ProjectPlacementStatus::Unused,
+                        None,
+                    ),
+                ),
+                (
+                    "pcb=1::unit=1::ref_des=J1",
+                    TestPlacementState::new(
+                        "pcb=1::unit=1",
+                        TestPlacement::new(
+                            "J1",
+                            "CONN_MFR1",
+                            "CONN1",
+                            true,
+                            PcbSide::Bottom,
+                            dec!(10),
+                            dec!(10),
+                            dec!(0),
+                        ),
+                        TestUnitPosition::new(dec!(12), dec!(109), dec!(180)),
+                        PlacementStatus::Pending,
+                        ProjectPlacementStatus::Used,
+                        None,
+                    ),
+                ),
+                (
+                    "pcb=1::unit=1::ref_des=R1",
+                    TestPlacementState::new(
+                        "pcb=1::unit=1",
+                        TestPlacement::new(
+                            "R1",
+                            "RES_MFR1",
+                            "RES1",
+                            true,
+                            PcbSide::Top,
+                            dec!(20),
+                            dec!(20),
+                            dec!(-45),
+                        ),
+                        TestUnitPosition::new(dec!(22), dec!(17), dec!(-45)),
+                        PlacementStatus::Pending,
+                        ProjectPlacementStatus::Used,
+                        None,
+                    ),
+                ),
+                (
+                    "pcb=1::unit=1::ref_des=R2",
+                    TestPlacementState::new(
+                        "pcb=1::unit=1",
+                        TestPlacement::new(
+                            "R2",
+                            "RES_MFR2",
+                            "RES2",
+                            true,
+                            PcbSide::Top,
+                            dec!(30),
+                            dec!(30),
+                            dec!(45),
+                        ),
+                        TestUnitPosition::new(dec!(32), dec!(27), dec!(45)),
+                        PlacementStatus::Pending,
+                        ProjectPlacementStatus::Used,
+                        None,
+                    ),
+                ),
+                (
+                    "pcb=1::unit=1::ref_des=R3",
+                    TestPlacementState::new(
+                        "pcb=1::unit=1",
+                        TestPlacement::new(
+                            "R3",
+                            "RES_MFR1",
+                            "RES1",
+                            true,
+                            PcbSide::Top,
+                            dec!(40),
+                            dec!(40),
+                            dec!(135),
+                        ),
+                        TestUnitPosition::new(dec!(42), dec!(37), dec!(135)),
+                        PlacementStatus::Pending,
+                        ProjectPlacementStatus::Used,
+                        None,
+                    ),
+                ),
+            ])
+            .content();
+
+        // when
+        for file_arg in [
+            "--file relative=pnp.process.json",
+            "--file relative=manual.process.json",
+        ] {
+            let trace_content = run_cli(ctx, vec![
+                ctx.trace_log_arg.as_str(),
+                "project",
+                ctx.path_arg.as_str(),
+                ctx.project_arg.as_str(),
+                "-vvv",
+                "add-process",
+                file_arg,
+            ])?;
+
+            // then
+            assert_contains_inorder!(trace_content, ["Added process.",]);
+        }
+
+        // and
+        let project_content: String = read_and_show_file(&ctx.test_project_path)?;
+        assert_eq!(project_content, expected_project_content);
+
+        // and when the same process is added again
+        let (_trace_content, cmd_assert) = run_cli_inner(ctx, vec![
+            ctx.trace_log_arg.as_str(),
+            "project",
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "add-process",
+            "--file relative=pnp.process.json",
+        ])?;
+
+        // then it fails, and the project is unchanged
+        cmd_assert.failure();
+        let project_content: String = read_and_show_file(&ctx.test_project_path)?;
+        assert_eq!(project_content, expected_project_content);
+
+        // and when the processes are refreshed, nothing has changed
+        let trace_content = run_cli(ctx, vec![
+            ctx.trace_log_arg.as_str(),
+            "project",
+            ctx.path_arg.as_str(),
+            ctx.project_arg.as_str(),
+            "-vvv",
+            "refresh-processes",
+        ])?;
+        assert_contains_inorder!(trace_content, ["Processes unchanged.",]);
+        let project_content: String = read_and_show_file(&ctx.test_project_path)?;
+        assert_eq!(project_content, expected_project_content);
+
+        Ok(())
+    }
+
+    #[test]
+    fn sequence_10_assign_process_to_parts() -> Result<(), anyhow::Error> {
+        // given
+        let mut ctx_guard = context::acquire(10);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -980,7 +1282,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -1141,9 +1443,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_08_create_phase_top() -> Result<(), anyhow::Error> {
+    fn sequence_11_create_phase_top() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(8);
+        let mut ctx_guard = context::acquire(11);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -1154,7 +1456,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -1182,17 +1484,16 @@ mod operation_sequence_1 {
             .with_phase_orderings(&["top_1"])
             .with_phase_states(vec![("top_1", vec![
                 TestOperationState::new("load_pcbs", vec![(
-                    "core::load_pcbs",
-                    Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                    "load_pcbs",
+                    Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                 )]),
                 TestOperationState::new("automated_pnp", vec![(
-                    "core::place_components",
+                    "place_components",
                     Box::new(TestPlacementTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                 )]),
                 TestOperationState::new("reflow_oven_soldering", vec![(
-                    "core::automated_soldering",
-                    Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                        as Box<dyn TestSerializableTaskState>,
+                    "automated_soldering",
+                    Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                 )]),
             ])])
             .with_placements(vec![
@@ -1357,9 +1658,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_09_create_phase_bottom() -> Result<(), anyhow::Error> {
+    fn sequence_12_create_phase_bottom() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(9);
+        let mut ctx_guard = context::acquire(12);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -1370,7 +1671,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -1410,36 +1711,35 @@ mod operation_sequence_1 {
             .with_phase_states(vec![
                 ("bottom_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("manually_solder_components", vec![
                         (
-                            "core::place_components",
+                            "place_components",
                             Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                         (
-                            "core::manual_soldering",
-                            Box::new(TestManualSolderingTaskState::new(TaskStatus::Pending))
+                            "manual_soldering",
+                            Box::new(TestGenericTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                     ]),
                 ]),
                 ("top_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("automated_pnp", vec![(
-                        "core::place_components",
+                        "place_components",
                         Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                             as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("reflow_oven_soldering", vec![(
-                        "core::automated_soldering",
-                        Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                            as Box<dyn TestSerializableTaskState>,
+                        "automated_soldering",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                 ]),
             ])
@@ -1605,9 +1905,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_10_assign_placements_to_phase() -> Result<(), anyhow::Error> {
+    fn sequence_13_assign_placements_to_phase() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(10);
+        let mut ctx_guard = context::acquire(13);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -1618,7 +1918,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -1658,36 +1958,35 @@ mod operation_sequence_1 {
             .with_phase_states(vec![
                 ("bottom_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("manually_solder_components", vec![
                         (
-                            "core::place_components",
+                            "place_components",
                             Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                         (
-                            "core::manual_soldering",
-                            Box::new(TestManualSolderingTaskState::new(TaskStatus::Pending))
+                            "manual_soldering",
+                            Box::new(TestGenericTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                     ]),
                 ]),
                 ("top_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("automated_pnp", vec![(
-                        "core::place_components",
+                        "place_components",
                         Box::new(TestPlacementTaskState::new(TaskStatus::Pending).with_total(3))
                             as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("reflow_oven_soldering", vec![(
-                        "core::automated_soldering",
-                        Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                            as Box<dyn TestSerializableTaskState>,
+                        "automated_soldering",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                 ]),
             ])
@@ -1869,8 +2168,8 @@ mod operation_sequence_1 {
             "Assigning placement to phase. phase: top_1, placement_path: pcb=1::unit=1::ref_des=R2",
             "Assigning placement to phase. phase: top_1, placement_path: pcb=1::unit=1::ref_des=R3",
             // all phase status should be updated
-            "Refreshed placement task state. phase: bottom_1, operation: manually_solder_components, task: core::place_components, status: Pending, updated: false\n",
-            "Refreshed placement task state. phase: top_1, operation: automated_pnp, task: core::place_components, status: Pending, updated: true\n",
+            "Refreshed placement task state. phase: bottom_1, operation: manually_solder_components, task: place_components, status: Pending, updated: false\n",
+            "Refreshed placement task state. phase: top_1, operation: automated_pnp, task: place_components, status: Pending, updated: true\n",
             // part process should be updated
             "Added process. part: Part { manufacturer: \"RES_MFR1\", mpn: \"RES1\" }, applicable_processes: [\"pnp\"]",
             "Added process. part: Part { manufacturer: \"RES_MFR2\", mpn: \"RES2\" }, applicable_processes: [\"pnp\"]",
@@ -1898,9 +2197,9 @@ mod operation_sequence_1 {
 
     //noinspection MissingFeatures
     #[test]
-    fn sequence_11_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
+    fn sequence_14_assign_feeder_to_load_out_item() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(11);
+        let mut ctx_guard = context::acquire(14);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -1965,9 +2264,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_12_set_placement_ordering() -> Result<(), anyhow::Error> {
+    fn sequence_15_set_placement_ordering() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(12);
+        let mut ctx_guard = context::acquire(15);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -1978,7 +2277,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -2025,36 +2324,35 @@ mod operation_sequence_1 {
             .with_phase_states(vec![
                 ("bottom_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("manually_solder_components", vec![
                         (
-                            "core::place_components",
+                            "place_components",
                             Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                         (
-                            "core::manual_soldering",
-                            Box::new(TestManualSolderingTaskState::new(TaskStatus::Pending))
+                            "manual_soldering",
+                            Box::new(TestGenericTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                     ]),
                 ]),
                 ("top_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("automated_pnp", vec![(
-                        "core::place_components",
+                        "place_components",
                         Box::new(TestPlacementTaskState::new(TaskStatus::Pending).with_total(3))
                             as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("reflow_oven_soldering", vec![(
-                        "core::automated_soldering",
-                        Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                            as Box<dyn TestSerializableTaskState>,
+                        "automated_soldering",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                 ]),
             ])
@@ -2205,9 +2503,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_13_generate_artifacts() -> Result<(), anyhow::Error> {
+    fn sequence_16_generate_artifacts() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(13);
+        let mut ctx_guard = context::acquire(16);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -2302,7 +2600,7 @@ mod operation_sequence_1 {
                             operation: "load_pcbs".to_string(),
                             status: TestProcessOperationStatus::Pending,
                             tasks: vec![(
-                                "core::load_pcbs".to_string(),
+                                "load_pcbs".to_string(),
                                 Box::new(TestLoadPcbsTaskOverview {}) as Box<dyn TestTaskOverview>,
                             )],
                         },
@@ -2310,7 +2608,7 @@ mod operation_sequence_1 {
                             operation: "automated_pnp".to_string(),
                             status: TestProcessOperationStatus::Pending,
                             tasks: vec![(
-                                "core::place_components".to_string(),
+                                "place_components".to_string(),
                                 Box::new(TestPlaceComponentsTaskOverview {
                                     placed: 0,
                                     skipped: 0,
@@ -2322,8 +2620,8 @@ mod operation_sequence_1 {
                             operation: "reflow_oven_soldering".to_string(),
                             status: TestProcessOperationStatus::Pending,
                             tasks: vec![(
-                                "core::automated_soldering".to_string(),
-                                Box::new(TestAutomatedSolderingTaskOverview {}) as Box<dyn TestTaskOverview>,
+                                "automated_soldering".to_string(),
+                                Box::new(TestGenericTaskOverview {}) as Box<dyn TestTaskOverview>,
                             )],
                         },
                     ],
@@ -2337,7 +2635,7 @@ mod operation_sequence_1 {
                             operation: "load_pcbs".to_string(),
                             status: TestProcessOperationStatus::Pending,
                             tasks: vec![(
-                                "core::load_pcbs".to_string(),
+                                "load_pcbs".to_string(),
                                 Box::new(TestLoadPcbsTaskOverview {}) as Box<dyn TestTaskOverview>,
                             )],
                         },
@@ -2346,7 +2644,7 @@ mod operation_sequence_1 {
                             status: TestProcessOperationStatus::Pending,
                             tasks: vec![
                                 (
-                                    "core::place_components".to_string(),
+                                    "place_components".to_string(),
                                     Box::new(TestPlaceComponentsTaskOverview {
                                         placed: 0,
                                         skipped: 0,
@@ -2354,8 +2652,8 @@ mod operation_sequence_1 {
                                     }) as Box<dyn TestTaskOverview>,
                                 ),
                                 (
-                                    "core::manual_soldering".to_string(),
-                                    Box::new(TestManualSolderingTaskOverview {}) as Box<dyn TestTaskOverview>,
+                                    "manual_soldering".to_string(),
+                                    Box::new(TestGenericTaskOverview {}) as Box<dyn TestTaskOverview>,
                                 ),
                             ],
                         },
@@ -2369,7 +2667,7 @@ mod operation_sequence_1 {
                         TestPhaseOperation {
                             operation: "load_pcbs".to_string(),
                             task_specifications: vec![(
-                                "core::load_pcbs".to_string(),
+                                "load_pcbs".to_string(),
                                 Box::new(TestLoadPcbsTaskSpecification {
                                     pcbs: vec![report::TestPcb {
                                         name: "panel_a".to_string(),
@@ -2385,15 +2683,15 @@ mod operation_sequence_1 {
                         TestPhaseOperation {
                             operation: "automated_pnp".to_string(),
                             task_specifications: vec![(
-                                "core::place_components".to_string(),
+                                "place_components".to_string(),
                                 Box::new(TestPlaceComponentsTaskSpecification {}) as Box<dyn TestTaskSpecification>,
                             )],
                         },
                         TestPhaseOperation {
                             operation: "reflow_oven_soldering".to_string(),
                             task_specifications: vec![(
-                                "core::automated_soldering".to_string(),
-                                Box::new(TestAutomatedSolderingTaskSpecification {}) as Box<dyn TestTaskSpecification>,
+                                "automated_soldering".to_string(),
+                                Box::new(TestGenericTaskSpecification {}) as Box<dyn TestTaskSpecification>,
                             )],
                         },
                     ],
@@ -2418,7 +2716,7 @@ mod operation_sequence_1 {
                         TestPhaseOperation {
                             operation: "load_pcbs".to_string(),
                             task_specifications: vec![(
-                                "core::load_pcbs".to_string(),
+                                "load_pcbs".to_string(),
                                 Box::new(TestLoadPcbsTaskSpecification {
                                     pcbs: vec![report::TestPcb {
                                         name: "panel_a".to_string(),
@@ -2435,12 +2733,12 @@ mod operation_sequence_1 {
                             operation: "manually_solder_components".to_string(),
                             task_specifications: vec![
                                 (
-                                    "core::place_components".to_string(),
+                                    "place_components".to_string(),
                                     Box::new(TestPlaceComponentsTaskSpecification {}) as Box<dyn TestTaskSpecification>,
                                 ),
                                 (
-                                    "core::manual_soldering".to_string(),
-                                    Box::new(TestManualSolderingTaskSpecification {}) as Box<dyn TestTaskSpecification>,
+                                    "manual_soldering".to_string(),
+                                    Box::new(TestGenericTaskSpecification {}) as Box<dyn TestTaskSpecification>,
                                 ),
                             ],
                         },
@@ -2580,9 +2878,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_14_record_phase_operations() -> Result<(), anyhow::Error> {
+    fn sequence_17_record_phase_operations() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(14);
+        let mut ctx_guard = context::acquire(17);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -2595,7 +2893,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -2642,37 +2940,35 @@ mod operation_sequence_1 {
             .with_phase_states(vec![
                 ("bottom_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("manually_solder_components", vec![
                         (
-                            "core::place_components",
+                            "place_components",
                             Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                         (
-                            "core::manual_soldering",
-                            Box::new(TestManualSolderingTaskState::new(TaskStatus::Pending))
+                            "manual_soldering",
+                            Box::new(TestGenericTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                     ]),
                 ]),
                 ("top_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Complete))
-                            as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Complete)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("automated_pnp", vec![(
-                        "core::place_components",
+                        "place_components",
                         Box::new(TestPlacementTaskState::new(TaskStatus::Started).with_total(3))
                             as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("reflow_oven_soldering", vec![(
-                        "core::automated_soldering",
-                        Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                            as Box<dyn TestSerializableTaskState>,
+                        "automated_soldering",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                 ]),
             ])
@@ -2787,7 +3083,8 @@ mod operation_sequence_1 {
                 Some((
                     "top_1".to_string(),
                     "load_pcbs".to_string(),
-                    Box::new(TestLoadPcbsOperationTaskHistoryKind {
+                    Box::new(TestTaskOperationHistoryKind {
+                        kind: TaskKind::LoadPcbs,
                         status: TaskStatus::Started,
                     }) as Box<dyn TestOperationHistoryKind>,
                 )),
@@ -2797,7 +3094,8 @@ mod operation_sequence_1 {
                 Some((
                     "top_1".to_string(),
                     "load_pcbs".to_string(),
-                    Box::new(TestLoadPcbsOperationTaskHistoryKind {
+                    Box::new(TestTaskOperationHistoryKind {
+                        kind: TaskKind::LoadPcbs,
                         status: TaskStatus::Complete,
                     }) as Box<dyn TestOperationHistoryKind>,
                 )),
@@ -2807,7 +3105,8 @@ mod operation_sequence_1 {
                 Some((
                     "top_1".to_string(),
                     "automated_pnp".to_string(),
-                    Box::new(TestPlaceComponentsOperationTaskHistoryKind {
+                    Box::new(TestTaskOperationHistoryKind {
+                        kind: TaskKind::PlaceComponents,
                         status: TaskStatus::Started,
                     }) as Box<dyn TestOperationHistoryKind>,
                 )),
@@ -2824,10 +3123,10 @@ mod operation_sequence_1 {
             "record-phase-operation",
             "--phase top_1",
             "--operation load_pcbs",
-            "--task core::load_pcbs",
+            "--task load_pcbs",
             "--action start",
         ]);
-        let message_1 = "Marking task as started. phase: top_1, operation: load_pcbs, task: core::load_pcbs";
+        let message_1 = "Marking task as started. phase: top_1, operation: load_pcbs, task: load_pcbs";
 
         let args_2 = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
@@ -2837,10 +3136,10 @@ mod operation_sequence_1 {
             "record-phase-operation",
             "--phase top_1",
             "--operation load_pcbs",
-            "--task core::load_pcbs",
+            "--task load_pcbs",
             "--action complete",
         ]);
-        let message_2 = "Marking task as completed. phase: top_1, operation: load_pcbs, task: core::load_pcbs";
+        let message_2 = "Marking task as completed. phase: top_1, operation: load_pcbs, task: load_pcbs";
 
         let args_3 = prepare_args(vec![
             ctx.trace_log_arg.as_str(),
@@ -2850,10 +3149,10 @@ mod operation_sequence_1 {
             "record-phase-operation",
             "--phase top_1",
             "--operation automated_pnp",
-            "--task core::place_components",
+            "--task place_components",
             "--action start",
         ]);
-        let message_3 = "Marking task as started. phase: top_1, operation: automated_pnp, task: core::place_components";
+        let message_3 = "Marking task as started. phase: top_1, operation: automated_pnp, task: place_components";
 
         // when
         cmd_1
@@ -2912,9 +3211,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_15_record_placements_operation() -> Result<(), anyhow::Error> {
+    fn sequence_18_record_placements_operation() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(15);
+        let mut ctx_guard = context::acquire(18);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -2925,7 +3224,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -2972,30 +3271,29 @@ mod operation_sequence_1 {
             .with_phase_states(vec![
                 ("bottom_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("manually_solder_components", vec![
                         (
-                            "core::place_components",
+                            "place_components",
                             Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                         (
-                            "core::manual_soldering",
-                            Box::new(TestManualSolderingTaskState::new(TaskStatus::Pending))
+                            "manual_soldering",
+                            Box::new(TestGenericTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                     ]),
                 ]),
                 ("top_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Complete))
-                            as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Complete)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("automated_pnp", vec![(
-                        "core::place_components",
+                        "place_components",
                         Box::new(
                             TestPlacementTaskState::new(TaskStatus::Complete)
                                 .with_placed(3)
@@ -3003,9 +3301,8 @@ mod operation_sequence_1 {
                         ) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("reflow_oven_soldering", vec![(
-                        "core::automated_soldering",
-                        Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                            as Box<dyn TestSerializableTaskState>,
+                        "automated_soldering",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                 ]),
             ])
@@ -3187,8 +3484,8 @@ mod operation_sequence_1 {
             "Placement marked as placed. object_path: pcb=1::unit=1::ref_des=R2\n",
             "Placement marked as placed. object_path: pcb=1::unit=1::ref_des=R3\n",
             "Unmatched object path pattern. object_path_pattern: pcb=1::unit=2::ref_des=.*\n",
-            "Refreshed placement task state. phase: bottom_1, operation: manually_solder_components, task: core::place_components, status: Pending, updated: false\n",
-            "Refreshed placement task state. phase: top_1, operation: automated_pnp, task: core::place_components, status: Complete, updated: true\n",
+            "Refreshed placement task state. phase: bottom_1, operation: manually_solder_components, task: place_components, status: Pending, updated: false\n",
+            "Refreshed placement task state. phase: top_1, operation: automated_pnp, task: place_components, status: Complete, updated: true\n",
             &log_file_message,
         ]);
 
@@ -3208,9 +3505,9 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_16_reset_operations() -> Result<(), anyhow::Error> {
+    fn sequence_19_reset_operations() -> Result<(), anyhow::Error> {
         // given
-        let mut ctx_guard = context::acquire(16);
+        let mut ctx_guard = context::acquire(19);
         let ctx = ctx_guard.1.as_mut().unwrap();
         ctx.delete_trace_log();
 
@@ -3221,7 +3518,7 @@ mod operation_sequence_1 {
         let expected_project_content = TestProject::new()
             .with_name("job1")
             .with_library_config(&ctx.library_config)
-            .with_default_processes()
+            .with_processes()
             .with_pcbs(vec![project::TestProjectPcb {
                 pcb_file: FileReference::Relative("panel_a.pcb.json".into()),
                 unit_assignments: BTreeMap::from_iter([(0, DesignVariant {
@@ -3268,36 +3565,35 @@ mod operation_sequence_1 {
             .with_phase_states(vec![
                 ("bottom_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("manually_solder_components", vec![
                         (
-                            "core::place_components",
+                            "place_components",
                             Box::new(TestPlacementTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                         (
-                            "core::manual_soldering",
-                            Box::new(TestManualSolderingTaskState::new(TaskStatus::Pending))
+                            "manual_soldering",
+                            Box::new(TestGenericTaskState::new(TaskStatus::Pending))
                                 as Box<dyn TestSerializableTaskState>,
                         ),
                     ]),
                 ]),
                 ("top_1", vec![
                     TestOperationState::new("load_pcbs", vec![(
-                        "core::load_pcbs",
-                        Box::new(TestLoadPcbsTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
+                        "load_pcbs",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("automated_pnp", vec![(
-                        "core::place_components",
+                        "place_components",
                         Box::new(TestPlacementTaskState::new(TaskStatus::Pending).with_total(3))
                             as Box<dyn TestSerializableTaskState>,
                     )]),
                     TestOperationState::new("reflow_oven_soldering", vec![(
-                        "core::automated_soldering",
-                        Box::new(TestAutomatedSolderingTaskState::new(TaskStatus::Pending))
-                            as Box<dyn TestSerializableTaskState>,
+                        "automated_soldering",
+                        Box::new(TestGenericTaskState::new(TaskStatus::Pending)) as Box<dyn TestSerializableTaskState>,
                     )]),
                 ]),
             ])
@@ -3443,8 +3739,8 @@ mod operation_sequence_1 {
     }
 
     #[test]
-    fn sequence_17_cleanup() {
-        let mut ctx_guard = context::acquire(17);
+    fn sequence_20_cleanup() {
+        let mut ctx_guard = context::acquire(20);
         let ctx = ctx_guard.1.take().unwrap();
         drop(ctx);
     }
@@ -3509,6 +3805,7 @@ mod help {
             Commands:
               project  Project mode
               pcb      PCB mode
+              process  Process mode, to define a process's operations and tasks
               help     Print this message or the help of the given subcommand(s)
 
             Options:
@@ -3632,6 +3929,124 @@ mod help {
         }
     }
 
+    mod process_help {
+        use assert_cmd::Command;
+        use indoc::indoc;
+        use predicates::prelude::{predicate, PredicateBooleanExt};
+        use util::test::print;
+
+        #[test]
+        fn no_args() {
+            // given
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
+
+            // and
+            let expected_output = indoc! {"
+                Process mode, to define a process's operations and tasks
+
+                Usage: planner_cli process [OPTIONS] --process-file <PROCESS_FILE> <COMMAND>
+
+                Commands:
+                  create            Create a process file
+                  set-reference     Change the process's reference
+                  add-operation     Add an operation, after the others
+                  remove-operation  Remove an operation
+                  add-task          Add a task to an operation, after its other tasks
+                  remove-task       Remove a task from an operation
+                  add-rule          Add a rule
+                  remove-rule       Remove a rule
+                  help              Print this message or the help of the given subcommand(s)
+
+                Options:
+                      --process-file <PROCESS_FILE>  Specify a process context, e.g. 'glue_and_wave.process.json'
+                  -v, --verbose...                   Increase logging verbosity
+                  -q, --quiet...                     Decrease logging verbosity
+                  -h, --help                         Print help
+            "};
+
+            // when
+            cmd.args(&["process"])
+                // then
+                .assert()
+                .failure()
+                .stderr(print("stderr").and(predicate::str::diff(expected_output)))
+                .stdout(print("stdout"));
+        }
+
+        #[test]
+        fn help_for_create() {
+            // given
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
+
+            // and
+            let expected_output = indoc! {"
+                Create a process file
+
+                Usage: planner_cli process --process-file <PROCESS_FILE> create [OPTIONS] --reference <REFERENCE>
+
+                Options:
+                      --reference <REFERENCE>  Process reference, e.g. 'glue_and_wave'
+                      --preset <PRESET>        The process to start from, otherwise the process has no operations [possible values: pnp, manual]
+                  -v, --verbose...             Increase logging verbosity
+                  -q, --quiet...               Decrease logging verbosity
+                  -h, --help                   Print help
+            "};
+
+            // when
+            cmd.args(["process", "create", "--help"])
+                // then
+                .assert()
+                .success()
+                .stderr(print("stderr"))
+                .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+        }
+
+        #[test]
+        fn help_for_add_task() {
+            // given
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
+
+            // and
+            let expected_output = indoc! {"
+                Add a task to an operation, after its other tasks
+
+                Usage: planner_cli process --process-file <PROCESS_FILE> add-task [OPTIONS] --operation <OPERATION> --task <TASK> --kind <KIND>
+
+                Options:
+                      --operation <OPERATION>
+                          Operation reference
+
+                      --task <TASK>
+                          Task reference, e.g. 'wave_solder'
+
+                      --kind <KIND>
+                          What the task does, as far as the planner needs to know
+
+                          Possible values:
+                          - generic:          Started, and then completed or abandoned, by the user, e.g. applying glue or wave soldering
+                          - load_pcbs:        As 'generic', and the project's report lists the PCBs to load
+                          - place_components: Places the phase's components, complete once every placement has been placed or skipped.  At most one per process
+
+                  -v, --verbose...
+                          Increase logging verbosity
+
+                  -q, --quiet...
+                          Decrease logging verbosity
+
+                  -h, --help
+                          Print help (see a summary with '-h')
+            "};
+
+            // when
+            cmd.args(["process", "add-task", "--help"])
+                // then
+                .assert()
+                .success()
+                .stderr(print("stderr"))
+                .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+        }
+    }
+
     mod project_help {
         use assert_cmd::Command;
         use indoc::indoc;
@@ -3655,8 +4070,9 @@ mod help {
                   remove-pcb                      Remove a PCB from the project
                   assign-variant-to-unit          Assign a design variant to a PCB unit
                   refresh-from-design-variants    Refresh from design variants
-                  create-process-from-preset      Create a process from presets
-                  delete-process                  Delete a process from the project
+                  add-process                     Add a copy of a process, from its file, to the project
+                  remove-process                  Remove a process from the project, its file is not deleted
+                  refresh-processes               Update the project's copy of each process from its file
                   assign-process-to-parts         Assign a process to parts
                   create-phase                    Create a phase
                   assign-placements-to-phase      Assign placements to a phase
@@ -3822,25 +4238,25 @@ mod help {
         }
 
         #[test]
-        fn help_for_create_process_from_preset() {
+        fn help_for_add_process() {
             // given
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
             // and
             let expected_output = indoc! {"
-                Create a process from presets
+                Add a copy of a process, from its file, to the project
 
-                Usage: planner_cli project --project <PROJECT_NAME> create-process-from-preset [OPTIONS] --preset <PRESET>
+                Usage: planner_cli project --project <PROJECT_NAME> add-process [OPTIONS] --file <FILE_REFERENCE>
 
                 Options:
-                      --preset <PRESET>  Process preset name
-                  -v, --verbose...       Increase logging verbosity
-                  -q, --quiet...         Decrease logging verbosity
-                  -h, --help             Print help
+                      --file <FILE_REFERENCE>  The path of the process file, e.g. 'relative=<some_relative_path>' or '<some_absolute_path>' paths can be prefixed with `relative=` to make them relative to the project path
+                  -v, --verbose...             Increase logging verbosity
+                  -q, --quiet...               Decrease logging verbosity
+                  -h, --help                   Print help
             "};
 
             // when
-            cmd.args(["project", "create-process-from-preset", "--help"])
+            cmd.args(["project", "add-process", "--help"])
                 // then
                 .assert()
                 .success()
@@ -3849,25 +4265,51 @@ mod help {
         }
 
         #[test]
-        fn help_for_delete_process() {
+        fn help_for_remove_process() {
             // given
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
 
             // and
             let expected_output = indoc! {"
-                Delete a process from the project
-                
-                Usage: planner_cli project --project <PROJECT_NAME> delete-process [OPTIONS] --process <PROCESS>
-                
+                Remove a process from the project, its file is not deleted
+
+                Usage: planner_cli project --project <PROJECT_NAME> remove-process [OPTIONS] --process <PROCESS>
+
                 Options:
-                      --process <PROCESS>  Process preset name
+                      --process <PROCESS>  Process reference
                   -v, --verbose...         Increase logging verbosity
                   -q, --quiet...           Decrease logging verbosity
                   -h, --help               Print help
             "};
 
             // when
-            cmd.args(["project", "delete-process", "--help"])
+            cmd.args(["project", "remove-process", "--help"])
+                // then
+                .assert()
+                .success()
+                .stderr(print("stderr"))
+                .stdout(print("stdout").and(predicate::str::diff(expected_output)));
+        }
+
+        #[test]
+        fn help_for_refresh_processes() {
+            // given
+            let mut cmd = Command::new(env!("CARGO_BIN_EXE_planner_cli"));
+
+            // and
+            let expected_output = indoc! {"
+                Update the project's copy of each process from its file
+
+                Usage: planner_cli project --project <PROJECT_NAME> refresh-processes [OPTIONS]
+
+                Options:
+                  -v, --verbose...  Increase logging verbosity
+                  -q, --quiet...    Decrease logging verbosity
+                  -h, --help        Print help
+            "};
+
+            // when
+            cmd.args(["project", "refresh-processes", "--help"])
                 // then
                 .assert()
                 .success()
@@ -4320,5 +4762,110 @@ mod sizing_tests {
                 5.0 + 2.0 + 50.0 + 2.0 + 50.0 + 2.0
             ),
         ]);
+    }
+}
+
+/// Projects from before processes had files, whose processes are kept in the project file.
+mod legacy_processes {
+    use std::fs;
+
+    use assert_cmd::Command;
+    use indoc::indoc;
+    use planning::process::TaskKind;
+    use tempfile::tempdir;
+    use util::test::{prepare_args, print};
+
+    use crate::common::project_builder::{TestOperationDefinition, TestProcessDefinition};
+
+    const LEGACY_PROJECT: &str = indoc! {r#"
+        {
+            "name": "job1",
+            "processes": [
+                {
+                    "reference": "manual",
+                    "operations": [
+                        { "reference": "load_pcbs", "tasks": ["core::load_pcbs"] },
+                        { "reference": "manually_solder_components", "tasks": ["core::place_components", "core::manual_soldering"] }
+                    ],
+                    "rules": []
+                }
+            ]
+        }
+    "#};
+
+    /// As the legacy project's process, the legacy task references are kept, so the states of its phases still match.
+    fn legacy_manual_process() -> TestProcessDefinition {
+        let mut definition = TestProcessDefinition::manual();
+        definition.operations = vec![
+            TestOperationDefinition::new("load_pcbs", &[("core::load_pcbs", TaskKind::LoadPcbs)]),
+            TestOperationDefinition::new("manually_solder_components", &[
+                ("core::place_components", TaskKind::PlaceComponents),
+                ("core::manual_soldering", TaskKind::Generic),
+            ]),
+        ];
+        definition
+    }
+
+    /// `PROCDEF-8`
+    #[test]
+    fn loading_a_project_moves_its_processes_to_their_own_files() -> Result<(), anyhow::Error> {
+        // given
+        let temp_dir = tempdir()?;
+        let project_path = temp_dir
+            .path()
+            .join("project-job1.mpnp.json");
+        fs::write(&project_path, LEGACY_PROJECT)?;
+
+        // and a different process already uses the name of the file the process would be given
+        let existing_path = temp_dir
+            .path()
+            .join("manual.process.json");
+        let existing_content = TestProcessDefinition::pnp().content();
+        fs::write(&existing_path, &existing_content)?;
+
+        // and
+        let path_arg = format!("--path {}", temp_dir.path().to_str().unwrap());
+        let args = prepare_args(vec![
+            "project",
+            path_arg.as_str(),
+            "--project job1",
+            "refresh-processes",
+        ]);
+
+        // when
+        Command::new(env!("CARGO_BIN_EXE_planner_cli"))
+            .args(args)
+            // then
+            .assert()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"))
+            .success();
+
+        // and the process has a file of its own, with the kinds of the tasks that were built into the planner
+        let process_content = fs::read_to_string(
+            temp_dir
+                .path()
+                .join("manual_2.process.json"),
+        )?;
+        assert_eq!(process_content, legacy_manual_process().content());
+
+        // and the other file is unchanged
+        assert_eq!(fs::read_to_string(&existing_path)?, existing_content);
+
+        // and the project refers to the file
+        let project: serde_json::Value = serde_json::from_str(&fs::read_to_string(&project_path)?)?;
+        assert_eq!(
+            project["processes"][0]["process_file"],
+            serde_json::json!({ "Relative": "manual_2.process.json" })
+        );
+        assert_eq!(
+            project["processes"][0]["operations"][1]["tasks"][0],
+            serde_json::json!({
+                "reference": "core::place_components",
+                "kind": "place_components"
+            })
+        );
+
+        Ok(())
     }
 }

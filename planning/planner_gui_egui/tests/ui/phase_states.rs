@@ -74,7 +74,7 @@ fn a_phase_cannot_be_started_until_the_phases_before_it_are_complete() {
     create_project_with_placements_assigned_to_a_phase(&mut app, &folder);
 
     app.double_click_text_containing("top_1 (");
-    app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Pending");
+    app.wait_for_combo_box_value("load_pcbs: load_pcbs", "Pending");
 
     // its tasks are shown, with no actions.
     app.double_click_text_containing("bottom_1 (");
@@ -101,18 +101,18 @@ fn placements_cannot_be_recorded_before_their_phase_allows_it() {
     create_project_with_placements_assigned_to_a_phase(&mut app, &folder);
 
     app.double_click_text_containing("top_1 (");
-    app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Pending");
+    app.wait_for_combo_box_value("load_pcbs: load_pcbs", "Pending");
     app.assert_data_table_cell_is_not_editable("R1", "Placed?");
 
     // nor after the tasks before the placements task are complete, until it has been started (`ISSUE-12`).
-    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Start");
-    app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Incomplete");
-    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Complete");
-    app.wait_for_combo_box_value("automated_pnp: core::place_components", "Pending");
+    app.choose_action_from_combo_box("load_pcbs: load_pcbs", "Start");
+    app.wait_for_combo_box_value("load_pcbs: load_pcbs", "Incomplete");
+    app.choose_action_from_combo_box("load_pcbs: load_pcbs", "Complete");
+    app.wait_for_combo_box_value("automated_pnp: place_components", "Pending");
     app.wait_until("the operation offered 'Start'", |app| {
         app.combo_box_labels()
             .iter()
-            .any(|label| label == "automated_pnp: core::place_components")
+            .any(|label| label == "automated_pnp: place_components")
     });
     app.assert_data_table_cell_is_not_editable("R1", "Placed?");
 }
@@ -153,8 +153,8 @@ fn once_a_phase_has_started_it_cannot_be_deleted_and_placements_cannot_change_ph
     create_project_with_placements_assigned_to_a_phase(&mut app, &folder);
 
     app.double_click_text_containing("top_1 (");
-    app.choose_action_from_combo_box("load_pcbs: core::load_pcbs", "Start");
-    app.wait_for_combo_box_value("load_pcbs: core::load_pcbs", "Incomplete");
+    app.choose_action_from_combo_box("load_pcbs: load_pcbs", "Start");
+    app.wait_for_combo_box_value("load_pcbs: load_pcbs", "Incomplete");
 
     app.click_tab("Overview");
     app.wait_until_button_in_row_is("top_1", "Delete", false);
