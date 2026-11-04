@@ -51,7 +51,8 @@ robots, or any mix of these. As with a PCB, each process is created in its own f
 added to a project, which keeps a copy of it until its processes are refreshed. A process can start from one of the
 presets, `pnp` or `manual`, which match the examples below. Each task has a name chosen by the user, and a kind the
 planner understands: generic, loading PCBs, or placing components. See
-[`assets/specs/planner/core/02-processes.md`](assets/specs/planner/core/02-processes.md).
+[`assets/specs/planner/core/02-processes.md`](assets/specs/planner/core/02-processes.md), and
+[`assets/pcb-assembly.md`](assets/pcb-assembly.md) for the ways components are attached.
 
 For example, a manual placement job for a double-sided 2x2 panel of PCBs with 2 designs, each design having 2 assembly
 variants might be defined as follows:
@@ -279,7 +280,7 @@ The CLI tools can be run from anywhere, they are self-contained.
 The GUI tools need to be run from the corresponding source directory as they require assets.  e.g.
 
 ```
-cd crates/planner_gui_egui
+cd planning/planner_gui_egui
 ../../target/release/planner_gui_egui.exe
 ```
 
@@ -328,8 +329,8 @@ Written documentation for the project is sparse, further documentation will be c
 design and operation of the tools is detailed in the livestreams.
 
 There are also functional tests which detail the expected input/output and operation sequences, so you can refer to
-those to gain additional understanding.  See `crates/planner_cli/tests/planner.rs` and
-`crates/variantbuilder/tests/variantbuider.rs`.
+those to gain additional understanding.  See `planning/planner_cli/tests/planner.rs` and
+`planning/variantbuilder_cli/tests/variantbuilder.rs`.
 
 ## Links
 

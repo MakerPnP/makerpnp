@@ -53,6 +53,12 @@ definition is used as it is, otherwise `manual_2.process.json`, `manual_3.proces
 that used to be built in become tasks of their kind (`core::load_pcbs` is Load PCBs, `core::place_components` is Place
 components, the others are Generic), keeping their references.
 
+**PROCDEF-9 — Straddle-mount components.** *Target.* The planner MUST support components that straddle the PCB and are
+soldered on both sides, using a process of their own, for example operations and tasks to mount the PCB in a jig, place
+the components in the jig, slide the jig into place, solder the top, then solder the bottom (see `../../../pcb-assembly.md`).
+Gaps: not yet analysed. A phase is for one side of the PCB (`Phase::pcb_side`), and each placement is on one side, so it
+isn't yet known how a phase would cover a component soldered on both.
+
 ## Acceptance criteria
 
 - `planning/planning/src/process.rs` checks each way a process can be invalid, and that a refused change leaves it as it

@@ -6,6 +6,10 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
 
 - [`README.md`](README.md): what MakerPnP is, its tools, how to build and run them, and the Crux architecture shared by
   the planner's core and its front ends.
+- [`assets/pcb-assembly.md`](assets/pcb-assembly.md): the MakerPnP tools, each with its own name, and the assembly
+  domain: how components get attached (hand soldering, paste and reflow, glue and wave, straddle-mount, other machines)
+  and what a pick-and-place machine does. Read it before
+  reasoning about processes, operations, tasks or phases.
 - [`assets/repo-layout.md`](assets/repo-layout.md): where things are, where the layout isn't Cargo's convention.
 - [`assets/specs/issues/README.md`](assets/specs/issues/README.md): every tool's issues, one file each, with steps to
   repeat them. Check it before investigating a bug, as one may already describe it. Keep an issue's steps to repeat up to

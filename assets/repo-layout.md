@@ -12,6 +12,7 @@ The parts of the layout that Cargo's conventions don't explain. The workspace's 
 ## Files that aren't code
 
 - `assets/`: files for the whole repository.
+  - `pcb-assembly.md`: the PCB assembly domain the planner models.
   - `specs/`: requirement specifications, a folder per tool, each with its own `README.md`.
   - `specs/issues/`: every tool's issues, one file each, with steps to repeat them, indexed by its `README.md`.
   - `eda/`: example files exported from EDA tools.
