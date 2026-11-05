@@ -1218,6 +1218,8 @@ name = "criteria"
 version = "0.1.0"
 dependencies = [
  "regex",
+ "serde",
+ "serde_json",
  "util",
 ]
 
@@ -6008,8 +6010,11 @@ dependencies = [
 name = "stores_protocol"
 version = "0.1.0"
 dependencies = [
+ "assembly",
+ "criteria",
  "crux_core",
  "eda",
+ "heck",
  "pnp",
  "serde",
  "util",

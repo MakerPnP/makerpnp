@@ -2,7 +2,7 @@ use criteria::FieldCriterion;
 
 use crate::placement::EdaPlacement;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct EdaSubstitutionRuleTransformItem {
     pub field_name: String,
     pub field_value: String,

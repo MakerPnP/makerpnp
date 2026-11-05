@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use assembly::rules::AssemblyRule;
-use criteria::{ExactMatchCriterion, FieldCriterion, GenericCriteria, RegexMatchCriterion};
+use criteria::{ExactMatchCriterion, FieldCriterion, GenericCriteria, Pattern, RegexMatchCriterion};
 use eda::substitution::{EdaSubstitutionRule, EdaSubstitutionRuleClassification, EdaSubstitutionRuleTransformItem};
 use eda::EdaTool;
 use heck::ToUpperCamelCase;
@@ -30,32 +30,17 @@ pub fn read_rows(reader: impl std::io::Read) -> anyhow::Result<Vec<std::collecti
     Ok(rows)
 }
 
-/// A CSV file's headers, in order, and its rows, each a value for each header, every value as it is. A file without
-/// headers has none, and every row is read.
-pub fn read_table(reader: impl std::io::Read, has_headers: bool) -> anyhow::Result<(Vec<String>, Vec<Vec<String>>)> {
-    let mut csv_reader = csv::ReaderBuilder::new()
-        .has_headers(has_headers)
-        .from_reader(reader);
+/// The column an EDA tool's field's value is in, such as `Name` for `name`.
+pub fn field_column_name(field_name: &str) -> String {
+    // Note: heck's UpperCamelCase appears to be the same as serde's PascalCase
+    //       however we can't use serde's case transforms as they are internal to serde.
+    //       see serde_derive::internals::case::RenameRule
+    field_name.to_upper_camel_case()
+}
 
-    let headers = match has_headers {
-        true => csv_reader
-            .headers()?
-            .iter()
-            .map(str::to_string)
-            .collect(),
-        false => vec![],
-    };
-    let mut rows = vec![];
-    for result in csv_reader.records() {
-        let record = result?;
-        rows.push(
-            record
-                .iter()
-                .map(str::to_string)
-                .collect(),
-        );
-    }
-    Ok((headers, rows))
+/// The column the pattern an EDA tool's field is matched with is in, such as `NamePattern` for `name`.
+pub fn pattern_column_name(field_name: &str) -> String {
+    format!("{}_pattern", field_name).to_upper_camel_case()
 }
 
 // FUTURE Investigate whether the `build` methods should be taking `self` instead of `&self` to avoid additional allocations
@@ -262,17 +247,13 @@ pub enum ValueKind {
     ExactMatch(String),
 }
 
+/// The value as a [`Pattern`] says it is, refusing a regular expression that isn't valid.
 pub fn build_value_kind(value: &str) -> Result<ValueKind, Error> {
-    if value.starts_with('/') && value.ends_with('/') {
-        let (_prefix, remainder) = value.split_at(1);
-        let mut value = remainder.to_string();
-        value.pop();
-
-        let regex = Regex::new(&value)?;
-
-        Ok(ValueKind::Regex(regex))
-    } else {
-        Ok(ValueKind::ExactMatch(value.to_string()))
+    match Pattern::parse(value) {
+        Pattern::Exact(value) => Ok(ValueKind::ExactMatch(value)),
+        Pattern::Regex {
+            regex, ..
+        } => regex.map(ValueKind::Regex),
     }
 }
 
@@ -342,12 +323,8 @@ impl SubstitutionRecord {
         let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
 
         for &field_name in fields_names.iter() {
-            // Note: heck's UpperCamelCase appears to be the same as serde's PascalCase
-            //       however we can't use serde's case transforms as they are internal to serde.
-            //       see serde_derive::internals::case::RenameRule
-
-            let name_field = field_name.to_upper_camel_case();
-            let pattern_field = format!("{}_pattern", field_name).to_upper_camel_case();
+            let name_field = field_column_name(field_name);
+            let pattern_field = pattern_column_name(field_name);
 
             match (fields.get(&name_field), fields.get(&pattern_field)) {
                 (Some(field_name_value), Some(pattern_value)) => {
@@ -427,7 +404,8 @@ impl SubstitutionRecord {
     }
 }
 
-fn eda_fields_names(eda: &EdaTool) -> &'static [&'static str] {
+/// The names of the EDA tool's fields that part mappings and substitutions match, in order.
+pub fn eda_fields_names(eda: &EdaTool) -> &'static [&'static str] {
     match eda {
         EdaTool::DipTrace => &["name", "value"],
         EdaTool::KiCad => &["package", "val"],
@@ -435,7 +413,8 @@ fn eda_fields_names(eda: &EdaTool) -> &'static [&'static str] {
     }
 }
 
-fn csv_eda_tool_value_to_eda_tool(eda: &String) -> Option<EdaTool> {
+/// The EDA tool a CSV's `Eda` value names, such as `DipTrace`.
+pub fn csv_eda_tool_value_to_eda_tool(eda: &String) -> Option<EdaTool> {
     if eda.to_upper_camel_case().eq("DipTrace") {
         Some(EdaTool::DipTrace)
     } else if eda.to_upper_camel_case().eq("KiCad") {

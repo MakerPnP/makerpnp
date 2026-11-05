@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 thiserror = { workspace = true }
 eda = { path = "../../eda/eda" }
-serde = { workspace = true }
+serde = { workspace = true, features = ["derive"] }

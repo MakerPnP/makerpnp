@@ -5,5 +5,9 @@ edition = "2021"
 
 [dependencies]
 regex = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 
 util = { path = "../util" }
+
+[dev-dependencies]
+serde_json = { workspace = true }

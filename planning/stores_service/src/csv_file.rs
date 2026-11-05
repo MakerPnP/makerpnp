@@ -2,6 +2,8 @@
 //!
 //! The files are read with `std::fs`, which blocks the thread the future is polled on, as the files are small.
 
+use std::collections::BTreeMap;
+
 use anyhow::{anyhow, Context};
 use futures::channel::mpsc;
 use futures::stream::{self, BoxStream};
@@ -10,8 +12,10 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use stores_protocol::{
-    EdaPlacement, Parts, PartsSource, PartsViewItem, PartsWriteError, Records, RecordsKind, RecordsOf, Revision,
-    Source, StoresOutput, Table, TableKind, TableRecords,
+    AssemblyRulesViewItem, BomViewItem, EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern,
+    Part, PartMappingsViewItem, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, PlacementsViewItem,
+    Records, RecordsKind, RecordsOf, RefDes, Revision, Source, StoresOutput, SubstitutionsViewItem, Table, TableKind,
+    TableRecords,
 };
 use tracing::{info, warn};
 
@@ -174,10 +178,12 @@ pub async fn read_records(kind: RecordsKind, source: &Source) -> Result<Option<R
     }))
 }
 
-/// The data source's records, of the kind, as a table, and their revision, or `None` if there's no file (`STORE-17`).
+/// The data source's records, of the kind, as a table of view items, and their revision, or `None` if there's no file
+/// (`STORE-17`).
 ///
-/// A CSV file's columns are its headers, a BOM's, which has none, those of JLCPCB's BOMs, and EDA placements' are those
-/// of [`eda_placements_table`].
+/// Each record is read as the core that uses it reads it, a pattern's regular expression parsed once, here, kept even if
+/// it isn't valid, so that it's shown as it is. A record that can't be read, such as one with an unknown EDA tool, is
+/// refused, saying why.
 pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<TableRecords>, String> {
     let Source::File(path) = source else {
         return Err(format!("Unsupported source. source: {:?}", source));
@@ -197,27 +203,8 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
     };
     let revision = revision(&contents);
 
-    let table = match kind {
-        TableKind::EdaPlacements {
-            eda_tool,
-        } => stores::eda_placements::read_eda_placements(eda_tool, contents.as_slice())
-            .map(|placements| eda_placements_table(&placements)),
-        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules | TableKind::Placements => {
-            stores::csv::read_table(contents.as_slice(), true).map(|(columns, rows)| Table {
-                columns,
-                rows,
-            })
-        }
-        // written without headers, as JLCPCB's BOMs are.
-        TableKind::Bom => stores::csv::read_table(contents.as_slice(), false).map(|(_columns, rows)| Table {
-            columns: stores::bom::JLCPCB_BOM_COLUMNS
-                .iter()
-                .map(|column| column.to_string())
-                .collect(),
-            rows,
-        }),
-    }
-    .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+    let table = read_table_of(kind, contents.as_slice())
+        .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
 
     Ok(Some(TableRecords {
         revision,
@@ -225,51 +212,138 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
     }))
 }
 
-/// EDA placements as a table, with the columns `RefDes`, `Place`, `Side`, `X`, `Y` and `Rotation`, then each field's
-/// name, in the order they're first found, a placement without a field having an empty value for it.
-pub fn eda_placements_table(placements: &[EdaPlacement]) -> Table {
-    let mut field_names: Vec<String> = vec![];
-    for field in placements
-        .iter()
-        .flat_map(|placement| placement.fields.iter())
-    {
-        if !field_names.contains(&field.name) {
-            field_names.push(field.name.clone());
-        }
-    }
+/// The records, of the kind, as view items.
+pub fn read_table_of(kind: TableKind, contents: &[u8]) -> anyhow::Result<Table> {
+    Ok(match kind {
+        TableKind::EdaPlacements {
+            eda_tool,
+        } => Table::EdaPlacements(
+            stores::eda_placements::read_eda_placements(eda_tool, contents)?
+                .into_iter()
+                .map(|placement| EdaPlacementsViewItem {
+                    placement,
+                })
+                .collect(),
+        ),
+        TableKind::PartMappings => Table::PartMappings(
+            stores::csv::read_rows(contents)?
+                .iter()
+                .map(part_mapping_view_item)
+                .collect::<anyhow::Result<_>>()?,
+        ),
+        TableKind::Substitutions => Table::Substitutions(
+            stores::csv::read_rows(contents)?
+                .iter()
+                .map(substitution_view_item)
+                .collect::<anyhow::Result<_>>()?,
+        ),
+        TableKind::AssemblyRules => Table::AssemblyRules(
+            stores::csv::read_rows(contents)?
+                .into_iter()
+                .map(|row| {
+                    let fields = row.into_iter().collect();
+                    let rule = stores::csv::AssemblyRuleRecord::from_fields(&fields)?.build_assembly_rule()?;
+                    Ok(AssemblyRulesViewItem {
+                        rule,
+                    })
+                })
+                .collect::<anyhow::Result<_>>()?,
+        ),
+        TableKind::Placements => Table::Placements(
+            stores::placements::read_all_placements(contents)?
+                .into_iter()
+                .map(|placement| PlacementsViewItem {
+                    placement,
+                })
+                .collect(),
+        ),
+        TableKind::Bom => Table::Bom(
+            stores::bom::read_jlcpcb_bom(contents)?
+                .into_iter()
+                .map(|record| BomViewItem {
+                    // as the Variant Builder joins them.
+                    designators: record
+                        .designator
+                        .split(',')
+                        .map(str::trim)
+                        .filter(|ref_des| !ref_des.is_empty())
+                        .map(|ref_des| RefDes::from(ref_des.to_string()))
+                        .collect(),
+                    footprint: record.footprint,
+                    jlcpcb_part: record
+                        .jlcpcb_part
+                        .filter(|part| !part.is_empty()),
+                    quantity: record.quantity,
+                    comment: record.comment,
+                })
+                .collect(),
+        ),
+    })
+}
 
-    let mut columns: Vec<String> = ["RefDes", "Place", "Side", "X", "Y", "Rotation"]
-        .iter()
-        .map(|column| column.to_string())
-        .collect();
-    columns.extend(field_names.iter().cloned());
+/// The row's EDA tool, from its `Eda` value.
+fn eda_tool(row: &BTreeMap<String, String>) -> anyhow::Result<EdaTool> {
+    let eda = field(row, "Eda")?;
+    stores::csv::csv_eda_tool_value_to_eda_tool(eda).ok_or_else(|| anyhow!("Unknown EDA. value: {:?}", eda))
+}
 
-    let rows = placements
+fn field<'a>(row: &'a BTreeMap<String, String>, name: &str) -> anyhow::Result<&'a String> {
+    row.get(name)
+        .ok_or_else(|| anyhow!("Missing field. field: {:?}", name))
+}
+
+/// A part mapping, its EDA tool's fields' patterns found as the Planner's part mapper finds them, by name, in any case.
+fn part_mapping_view_item(row: &BTreeMap<String, String>) -> anyhow::Result<PartMappingsViewItem> {
+    let eda_tool = eda_tool(row)?;
+    let criteria = stores::csv::eda_fields_names(&eda_tool)
         .iter()
-        .map(|placement| {
-            let mut row = vec![
-                placement.ref_des.clone(),
-                placement.place.to_string(),
-                placement.pcb_side.to_string(),
-                placement.x.to_string(),
-                placement.y.to_string(),
-                placement.rotation.to_string(),
-            ];
-            row.extend(field_names.iter().map(|name| {
-                placement
-                    .fields
-                    .iter()
-                    .find(|field| field.name == *name)
-                    .map_or(String::new(), |field| field.value.clone())
-            }));
-            row
+        .filter_map(|&field_name| {
+            row.iter()
+                .find(|(key, _)| key.to_lowercase() == field_name)
+                .map(|(_, value)| FieldPattern {
+                    field_name: field_name.to_string(),
+                    pattern: Pattern::parse(value),
+                })
         })
         .collect();
 
-    Table {
-        columns,
-        rows,
+    Ok(PartMappingsViewItem {
+        eda_tool,
+        criteria,
+        part: Part {
+            manufacturer: field(row, "Manufacturer")?.clone(),
+            mpn: field(row, "Mpn")?.clone(),
+        },
+    })
+}
+
+/// A substitution, with a pattern and a value for each of its EDA tool's fields, as the Variant Builder reads it.
+fn substitution_view_item(row: &BTreeMap<String, String>) -> anyhow::Result<SubstitutionsViewItem> {
+    let eda_tool = eda_tool(row)?;
+    let mut criteria = vec![];
+    let mut transforms = vec![];
+    for &field_name in stores::csv::eda_fields_names(&eda_tool) {
+        let pattern = field(row, &stores::csv::pattern_column_name(field_name))?;
+        let value = field(row, &stores::csv::field_column_name(field_name))?;
+        criteria.push(FieldPattern {
+            field_name: field_name.to_string(),
+            pattern: Pattern::parse(pattern),
+        });
+        transforms.push(EdaSubstitutionRuleTransformItem {
+            field_name: field_name.to_string(),
+            field_value: value.clone(),
+        });
     }
+
+    Ok(SubstitutionsViewItem {
+        eda_tool,
+        criteria,
+        transforms,
+        comment: row
+            .get("Comment")
+            .filter(|comment| !comment.is_empty())
+            .cloned(),
+    })
 }
 
 /// What a table's records are called in the logs, as other records are.

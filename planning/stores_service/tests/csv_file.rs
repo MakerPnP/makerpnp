@@ -6,8 +6,8 @@ use std::path::Path;
 
 use futures::executor::block_on;
 use stores_protocol::{
-    EdaTool, Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, Source, StoresOperation, StoresOutput,
-    Table, TableKind, TableRecords,
+    EdaTool, FieldPattern, Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, RefDes, Revision, Source,
+    StoresOperation, StoresOutput, Table, TableKind, TableRecords,
 };
 use stores_service::StoresService;
 
@@ -62,6 +62,40 @@ fn read_table(kind: TableKind, source: &Source) -> Result<Option<TableRecords>, 
     }
 }
 
+/// The table read, which there must be.
+fn table_of(kind: TableKind, source: &Source) -> Table {
+    read_table(kind, source)
+        .unwrap()
+        .expect("a table")
+        .table
+}
+
+/// The table's column names, in order.
+fn names(table: &Table) -> Vec<String> {
+    table
+        .columns()
+        .into_iter()
+        .map(|column| column.name)
+        .collect()
+}
+
+/// Each row's values, as its columns show them.
+fn rows(table: &Table) -> Vec<Vec<String>> {
+    let columns = table.columns();
+    (0..table.len())
+        .map(|row| {
+            columns
+                .iter()
+                .map(|column| {
+                    table
+                        .cell(row, &column.value)
+                        .to_string()
+                })
+                .collect()
+        })
+        .collect()
+}
+
 fn strings(values: &[&str]) -> Vec<String> {
     values
         .iter()
@@ -69,52 +103,175 @@ fn strings(values: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// `STORE-17`, a CSV file's headers, in order, are the table's columns, and its values are kept as they are.
+/// `STORE-17`, part mappings are read as the part mapper reads them: the part, and each of the EDA tool's fields'
+/// patterns, a regular expression between `/`s parsed as it's read, and kept if it isn't valid.
 #[test]
-fn reads_a_csv_file_as_a_table() {
+fn reads_part_mappings_with_their_patterns() {
     let folder = tempfile::tempdir().unwrap();
     let source = csv_file(
         folder.path(),
         "part-mappings.csv",
-        "\"Eda\",\"Name\",\"Value\"\n\"DipTrace\",\"RES_0402\",\"0330\"\n\"DipTrace\",\"\",\"1\"\n",
+        "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"RES_0402\",\"/330R?/\",\"MFR1\",\"MPN1\"\n\
+         \"DipTrace\",\"/RES_[/\",\"1\",\"MFR2\",\"MPN2\"\n",
     );
 
     let records = read_table(TableKind::PartMappings, &source)
         .unwrap()
         .expect("a table");
 
-    assert_eq!(records.table, Table {
-        columns: strings(&["Eda", "Name", "Value"]),
-        rows: vec![
-            strings(&["DipTrace", "RES_0402", "0330"]),
-            strings(&["DipTrace", "", "1"]),
-        ],
-    });
+    let Table::PartMappings(items) = &records.table else {
+        panic!("part mappings");
+    };
+    assert_eq!(items[0].eda_tool, EdaTool::DipTrace);
+    assert_eq!(items[0].part, Part::new("MFR1".to_string(), "MPN1".to_string()));
+    assert_eq!(items[0].criteria, vec![
+        FieldPattern {
+            field_name: "name".to_string(),
+            pattern: Pattern::Exact("RES_0402".to_string()),
+        },
+        FieldPattern {
+            field_name: "value".to_string(),
+            pattern: Pattern::parse("/330R?/"),
+        },
+    ]);
+    assert!(matches!(&items[0].criteria[1].pattern, Pattern::Regex { regex: Ok(regex), .. } if regex.is_match("330")));
+    assert!(matches!(&items[1].criteria[0].pattern, Pattern::Regex {
+        regex: Err(_),
+        ..
+    }));
+
+    assert_eq!(
+        names(&records.table),
+        strings(&["Eda", "Name", "Value", "Manufacturer", "Mpn"])
+    );
+    assert_eq!(rows(&records.table), vec![
+        strings(&["DipTrace", "RES_0402", "/330R?/", "MFR1", "MPN1"]),
+        strings(&["DipTrace", "/RES_[/", "1", "MFR2", "MPN2"]),
+    ]);
     assert_eq!(
         records.revision,
         stores_service::csv_file::revision(&fs::read(folder.path().join("part-mappings.csv")).unwrap())
     );
 }
 
-/// `STORE-17`, a BOM is written without headers, as JLCPCB's are, so every row is read, with JLCPCB's columns.
+/// `STORE-17`, a part mapping whose EDA tool isn't known is refused, saying why.
 #[test]
-fn reads_a_bom_without_headers_with_jlcpcbs_columns() {
+fn part_mappings_with_an_unknown_eda_tool_are_refused() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "part-mappings.csv",
+        "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\"Unknown\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"\n",
+    );
+
+    let error = read_table(TableKind::PartMappings, &source).unwrap_err();
+
+    assert!(error.contains("Unknown EDA. value: \"Unknown\""), "{error}");
+}
+
+/// `STORE-17`, substitutions have a pattern and a value for each of the EDA tool's fields, and their comment, last.
+#[test]
+fn reads_substitutions_with_their_patterns_and_comment_last() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "substitutions.csv",
+        "\"Eda\",\"NamePattern\",\"ValuePattern\",\"Name\",\"Value\",\"Comment\"\n\
+         \"DipTrace\",\"/RES_.*/\",\"330R\",\"RES_0603\",\"330\",\"DERATE 50V\"\n",
+    );
+
+    let table = table_of(TableKind::Substitutions, &source);
+
+    let Table::Substitutions(items) = &table else {
+        panic!("substitutions");
+    };
+    assert!(matches!(&items[0].criteria[0].pattern, Pattern::Regex {
+        regex: Ok(_),
+        ..
+    }));
+    assert_eq!(
+        names(&table),
+        strings(&["Eda", "NamePattern", "Name", "ValuePattern", "Value", "Comment"])
+    );
+    assert_eq!(rows(&table), vec![strings(&[
+        "DipTrace",
+        "/RES_.*/",
+        "RES_0603",
+        "330R",
+        "330",
+        "DERATE 50V"
+    ])]);
+}
+
+/// `STORE-17`, assembly rules and a variant's placements are read as the Variant Builder writes them.
+#[test]
+fn reads_assembly_rules_and_placements() {
+    let folder = tempfile::tempdir().unwrap();
+    let rules = csv_file(
+        folder.path(),
+        "rules.csv",
+        "\"RefDes\",\"Manufacturer\",\"Mpn\"\n\"R1\",\"MFR1\",\"MPN1\"\n",
+    );
+    let placements = csv_file(
+        folder.path(),
+        "placements.csv",
+        "\"RefDes\",\"Manufacturer\",\"Mpn\",\"Place\",\"PcbSide\",\"X\",\"Y\",\"Rotation\"\n\
+         \"R1\",\"MFR1\",\"MPN1\",\"true\",\"Bottom\",\"10\",\"20\",\"-90\"\n",
+    );
+
+    let rules = table_of(TableKind::AssemblyRules, &rules);
+    assert_eq!(names(&rules), strings(&["RefDes", "Manufacturer", "Mpn"]));
+    assert_eq!(rows(&rules), vec![strings(&["R1", "MFR1", "MPN1"])]);
+
+    let placements = table_of(TableKind::Placements, &placements);
+    assert_eq!(
+        names(&placements),
+        strings(&[
+            "RefDes",
+            "Manufacturer",
+            "Mpn",
+            "Place",
+            "PcbSide",
+            "X",
+            "Y",
+            "Rotation"
+        ])
+    );
+    assert_eq!(rows(&placements), vec![strings(&[
+        "R1", "MFR1", "MPN1", "true", "bottom", "10", "20", "-90"
+    ])]);
+}
+
+/// `STORE-17`, a BOM is written without headers, as JLCPCB's are, so every row is read, by the order of its values,
+/// with its designators, and the comment last.
+#[test]
+fn reads_a_bom_without_headers_with_the_comment_last() {
     let folder = tempfile::tempdir().unwrap();
     let source = csv_file(
         folder.path(),
         "bom.csv",
-        "\"MPN1 (MFR1)\",\"R1, R2\",\"RES_0402\",\"C1234\",\"2\"\n",
+        "\"MPN1 (MFR1)\",\"R1, R2\",\"RES_0402\",\"C1234\",\"2\"\n\"MPN2 (MFR2)\",\"C1\",\"CAP_0402\",\"\",\"1\"\n",
     );
 
-    let table = read_table(TableKind::Bom, &source)
-        .unwrap()
-        .expect("a table")
-        .table;
+    let table = table_of(TableKind::Bom, &source);
 
-    assert_eq!(table, Table {
-        columns: strings(&["Comment", "Designator", "Footprint", "JLCPCB Part", "Quantity"]),
-        rows: vec![strings(&["MPN1 (MFR1)", "R1, R2", "RES_0402", "C1234", "2"])],
-    });
+    let Table::Bom(items) = &table else {
+        panic!("a BOM");
+    };
+    assert_eq!(items[0].designators, vec![
+        RefDes::from("R1".to_string()),
+        RefDes::from("R2".to_string())
+    ]);
+    assert_eq!(items[1].jlcpcb_part, None);
+    assert_eq!(
+        names(&table),
+        strings(&["Designator", "Footprint", "JLCPCB Part", "Quantity", "Comment"])
+    );
+    assert_eq!(rows(&table), vec![
+        strings(&["R1, R2", "RES_0402", "C1234", "2", "MPN1 (MFR1)"]),
+        strings(&["C1", "CAP_0402", "", "1", "MPN2 (MFR2)"]),
+    ]);
 }
 
 /// `STORE-17`, EDA placements are read in the EDA tool's format, with the fixed columns, then each field's name.
@@ -128,21 +285,18 @@ fn reads_eda_placements_as_a_table() {
          \"R1\",\"RES_0402\",\"330R\",\"Top\",\"10\",\"20\",\"90\"\n",
     );
 
-    let table = read_table(
+    let table = table_of(
         TableKind::EdaPlacements {
             eda_tool: EdaTool::DipTrace,
         },
         &source,
-    )
-    .unwrap()
-    .expect("a table")
-    .table;
+    );
 
     assert_eq!(
-        table.columns,
+        names(&table),
         strings(&["RefDes", "Place", "Side", "X", "Y", "Rotation", "name", "value"])
     );
-    assert_eq!(table.rows, vec![strings(&[
+    assert_eq!(rows(&table), vec![strings(&[
         "R1", "true", "top", "10", "20", "90", "RES_0402", "330R"
     ])]);
 }

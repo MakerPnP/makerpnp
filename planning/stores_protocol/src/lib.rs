@@ -11,17 +11,22 @@
 // A core does no IO, see `clippy.toml`.
 #![deny(clippy::disallowed_methods, clippy::disallowed_types)]
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::path::PathBuf;
 
+pub use assembly::rules::AssemblyRule;
+pub use criteria::{FieldPattern, Pattern};
 use crux_core::capability::Operation;
 pub use eda::placement::EdaPlacement;
+pub use eda::substitution::EdaSubstitutionRuleTransformItem;
 pub use eda::EdaTool;
+use heck::ToUpperCamelCase;
 pub use pnp::load_out::LoadOutItem;
 pub use pnp::package::Package;
 pub use pnp::part::Part;
-pub use pnp::placement::Placement;
+pub use pnp::placement::{Placement, RefDes};
 pub use util::source::Source;
 
 pub type PartsSource = Source;
@@ -155,12 +160,356 @@ pub enum TableKind {
     Bom,
 }
 
-/// A data source's records as a table: the names of its columns, in order, and its rows, in the order the data source
-/// has them, each a value for each column (`STORE-17`).
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
-pub struct Table {
-    pub columns: Vec<String>,
-    pub rows: Vec<Vec<String>>,
+/// A data source's records, of its kind, each a view item, in the order the data source has them (`STORE-17`).
+///
+/// Each view item has the domain's types, as [`PartsViewItem`] does, such as a [`Part`] or a [`Pattern`], so a front end
+/// shows each value as what it is, a pattern's regular expression parsed once, as it's read.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum Table {
+    EdaPlacements(Vec<EdaPlacementsViewItem>),
+    PartMappings(Vec<PartMappingsViewItem>),
+    Substitutions(Vec<SubstitutionsViewItem>),
+    AssemblyRules(Vec<AssemblyRulesViewItem>),
+    Placements(Vec<PlacementsViewItem>),
+    Bom(Vec<BomViewItem>),
+}
+
+/// A design's placement, as its EDA tool's file has it.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct EdaPlacementsViewItem {
+    pub placement: EdaPlacement,
+}
+
+/// A part mapping: the patterns an EDA tool's placement's fields are matched with, and the part it's mapped to.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct PartMappingsViewItem {
+    pub eda_tool: EdaTool,
+    /// Of the EDA tool's fields the data source has, in the EDA tool's order, such as `name` then `value`.
+    pub criteria: Vec<FieldPattern>,
+    pub part: Part,
+}
+
+/// A substitution: the patterns an EDA tool's placement's fields are matched with, the values they're substituted
+/// with, and its comment.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct SubstitutionsViewItem {
+    pub eda_tool: EdaTool,
+    /// Of the EDA tool's fields, in its order, such as `name` then `value`.
+    pub criteria: Vec<FieldPattern>,
+    /// A value for each of the criteria's fields.
+    pub transforms: Vec<EdaSubstitutionRuleTransformItem>,
+    pub comment: Option<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct AssemblyRulesViewItem {
+    pub rule: AssemblyRule,
+}
+
+/// A variant's placement, as built.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct PlacementsViewItem {
+    pub placement: Placement,
+}
+
+/// A row of a variant's BOM, as built, in JLCPCB's format: the placements of a part, and how many there are.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct BomViewItem {
+    pub designators: Vec<RefDes>,
+    pub footprint: String,
+    /// JLCPCB's part code, such as `C1234`, if the part has one.
+    pub jlcpcb_part: Option<String>,
+    pub quantity: usize,
+    /// Says which part it is, such as `MPN1 (MFR1)`.
+    pub comment: String,
+}
+
+/// A column of a table: its name, as the data source names it, and which of a view item's values it shows.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct TableColumn {
+    pub name: String,
+    pub value: ColumnValue,
+}
+
+impl TableColumn {
+    fn new(name: impl Into<String>, value: ColumnValue) -> Self {
+        Self {
+            name: name.into(),
+            value,
+        }
+    }
+}
+
+/// Which of a view item's values a column shows.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum ColumnValue {
+    RefDes,
+    Place,
+    Side,
+    X,
+    Y,
+    Rotation,
+    /// An EDA placement's field's value, by the field's name.
+    EdaField(String),
+    Eda,
+    /// The pattern a field's value is matched with, by the field's name.
+    Pattern(String),
+    /// The value a field is substituted with, by the field's name.
+    Substitute(String),
+    Manufacturer,
+    Mpn,
+    Designator,
+    Footprint,
+    JlcpcbPart,
+    Quantity,
+    Comment,
+}
+
+/// A table's value, as a column shows it.
+#[derive(Debug, PartialEq)]
+pub enum Cell<'a> {
+    Text(Cow<'a, str>),
+    /// Shown as what it is, an exact value, or a regular expression, valid or not.
+    Pattern(&'a Pattern),
+}
+
+impl Display for Cell<'_> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Cell::Text(text) => f.write_str(text),
+            Cell::Pattern(pattern) => Display::fmt(pattern, f),
+        }
+    }
+}
+
+impl Table {
+    pub fn len(&self) -> usize {
+        match self {
+            Table::EdaPlacements(items) => items.len(),
+            Table::PartMappings(items) => items.len(),
+            Table::Substitutions(items) => items.len(),
+            Table::AssemblyRules(items) => items.len(),
+            Table::Placements(items) => items.len(),
+            Table::Bom(items) => items.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// The table's columns, in order, named as the data source names them, a comment's last, as there's one at most,
+    /// and it's the longest. The EDA tool's fields, and the fields matched, are in the order they're first found.
+    pub fn columns(&self) -> Vec<TableColumn> {
+        use ColumnValue::*;
+        match self {
+            Table::EdaPlacements(items) => {
+                let mut columns = vec![
+                    TableColumn::new("RefDes", RefDes),
+                    TableColumn::new("Place", Place),
+                    TableColumn::new("Side", Side),
+                    TableColumn::new("X", X),
+                    TableColumn::new("Y", Y),
+                    TableColumn::new("Rotation", Rotation),
+                ];
+                let names = first_found(
+                    items
+                        .iter()
+                        .flat_map(|item| item.placement.fields.iter())
+                        .map(|field| &field.name),
+                );
+                columns.extend(
+                    names
+                        .into_iter()
+                        .map(|name| TableColumn::new(name.clone(), EdaField(name))),
+                );
+                columns
+            }
+            Table::PartMappings(items) => {
+                let mut columns = vec![TableColumn::new("Eda", Eda)];
+                let names = first_found(
+                    items
+                        .iter()
+                        .flat_map(|item| item.criteria.iter())
+                        .map(|criterion| &criterion.field_name),
+                );
+                columns.extend(
+                    names
+                        .into_iter()
+                        .map(|name| TableColumn::new(name.to_upper_camel_case(), Pattern(name))),
+                );
+                columns.push(TableColumn::new("Manufacturer", Manufacturer));
+                columns.push(TableColumn::new("Mpn", Mpn));
+                columns
+            }
+            Table::Substitutions(items) => {
+                let mut columns = vec![TableColumn::new("Eda", Eda)];
+                let names = first_found(
+                    items
+                        .iter()
+                        .flat_map(|item| item.criteria.iter())
+                        .map(|criterion| &criterion.field_name),
+                );
+                for name in names {
+                    columns.push(TableColumn::new(
+                        format!("{}_pattern", name).to_upper_camel_case(),
+                        Pattern(name.clone()),
+                    ));
+                    columns.push(TableColumn::new(name.to_upper_camel_case(), Substitute(name)));
+                }
+                columns.push(TableColumn::new("Comment", Comment));
+                columns
+            }
+            Table::AssemblyRules(_) => vec![
+                TableColumn::new("RefDes", RefDes),
+                TableColumn::new("Manufacturer", Manufacturer),
+                TableColumn::new("Mpn", Mpn),
+            ],
+            Table::Placements(_) => vec![
+                TableColumn::new("RefDes", RefDes),
+                TableColumn::new("Manufacturer", Manufacturer),
+                TableColumn::new("Mpn", Mpn),
+                TableColumn::new("Place", Place),
+                TableColumn::new("PcbSide", Side),
+                TableColumn::new("X", X),
+                TableColumn::new("Y", Y),
+                TableColumn::new("Rotation", Rotation),
+            ],
+            Table::Bom(_) => vec![
+                TableColumn::new("Designator", Designator),
+                TableColumn::new("Footprint", Footprint),
+                TableColumn::new("JLCPCB Part", JlcpcbPart),
+                TableColumn::new("Quantity", Quantity),
+                TableColumn::new("Comment", Comment),
+            ],
+        }
+    }
+
+    /// The row's value the column shows, empty if the row has none, such as a field a placement doesn't have.
+    pub fn cell(&self, row: usize, value: &ColumnValue) -> Cell<'_> {
+        use ColumnValue::*;
+        let text = |text: &str| Cell::Text(Cow::Owned(text.to_string()));
+        let display = |value: &dyn Display| Cell::Text(Cow::Owned(value.to_string()));
+        let borrowed = |text| Cell::Text(Cow::Borrowed(text));
+        let empty = || Cell::Text(Cow::Borrowed(""));
+        fn pattern<'a>(criteria: &'a [FieldPattern], name: &str) -> Option<&'a criteria::Pattern> {
+            criteria
+                .iter()
+                .find(|criterion| criterion.field_name == *name)
+                .map(|criterion| &criterion.pattern)
+        }
+
+        match self {
+            Table::EdaPlacements(items) => {
+                let placement = &items[row].placement;
+                match value {
+                    RefDes => borrowed(placement.ref_des.as_str()),
+                    Place => display(&placement.place),
+                    Side => display(&placement.pcb_side),
+                    X => display(&placement.x),
+                    Y => display(&placement.y),
+                    Rotation => display(&placement.rotation),
+                    EdaField(name) => placement
+                        .fields
+                        .iter()
+                        .find(|field| field.name == *name)
+                        .map_or_else(empty, |field| borrowed(field.value.as_str())),
+                    _ => empty(),
+                }
+            }
+            Table::PartMappings(items) => {
+                let item = &items[row];
+                match value {
+                    Eda => display(&EdaToolName(item.eda_tool)),
+                    Pattern(name) => pattern(&item.criteria, name).map_or_else(empty, Cell::Pattern),
+                    Manufacturer => borrowed(item.part.manufacturer.as_str()),
+                    Mpn => borrowed(item.part.mpn.as_str()),
+                    _ => empty(),
+                }
+            }
+            Table::Substitutions(items) => {
+                let item = &items[row];
+                match value {
+                    Eda => display(&EdaToolName(item.eda_tool)),
+                    Pattern(name) => pattern(&item.criteria, name).map_or_else(empty, Cell::Pattern),
+                    Substitute(name) => item
+                        .transforms
+                        .iter()
+                        .find(|transform| transform.field_name == *name)
+                        .map_or_else(empty, |transform| borrowed(transform.field_value.as_str())),
+                    Comment => item
+                        .comment
+                        .as_deref()
+                        .map_or_else(empty, borrowed),
+                    _ => empty(),
+                }
+            }
+            Table::AssemblyRules(items) => {
+                let rule = &items[row].rule;
+                match value {
+                    RefDes => borrowed(rule.ref_des.as_str()),
+                    Manufacturer => borrowed(rule.manufacturer.as_str()),
+                    Mpn => borrowed(rule.mpn.as_str()),
+                    _ => empty(),
+                }
+            }
+            Table::Placements(items) => {
+                let placement = &items[row].placement;
+                match value {
+                    RefDes => display(&placement.ref_des),
+                    Manufacturer => borrowed(placement.part.manufacturer.as_str()),
+                    Mpn => borrowed(placement.part.mpn.as_str()),
+                    Place => display(&placement.place),
+                    Side => display(&placement.pcb_side),
+                    X => display(&placement.x),
+                    Y => display(&placement.y),
+                    Rotation => display(&placement.rotation),
+                    _ => empty(),
+                }
+            }
+            Table::Bom(items) => {
+                let item = &items[row];
+                match value {
+                    Designator => text(
+                        &item
+                            .designators
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    ),
+                    Footprint => borrowed(item.footprint.as_str()),
+                    JlcpcbPart => item
+                        .jlcpcb_part
+                        .as_deref()
+                        .map_or_else(empty, borrowed),
+                    Quantity => display(&item.quantity),
+                    Comment => borrowed(item.comment.as_str()),
+                    _ => empty(),
+                }
+            }
+        }
+    }
+}
+
+/// The names, each once, in the order they're first found.
+fn first_found<'a>(names: impl Iterator<Item = &'a String>) -> Vec<String> {
+    let mut found: Vec<String> = vec![];
+    for name in names {
+        if !found.contains(name) {
+            found.push(name.clone());
+        }
+    }
+    found
+}
+
+/// An EDA tool as a CSV's `Eda` value names it, such as `DipTrace`.
+struct EdaToolName(EdaTool);
+
+impl Display for EdaToolName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        Debug::fmt(&self.0, f)
+    }
 }
 
 /// A data source's table, and the revision it was read from (`STORE-8`).
@@ -176,7 +525,7 @@ impl Debug for TableRecords {
         write!(
             f,
             "TableRecords(<{} rows>, revision: {:?})",
-            self.table.rows.len(),
+            self.table.len(),
             self.revision.0
         )
     }

@@ -229,17 +229,31 @@ left as it was.
 
 **STORE-17 — Tables.** *Confirmed.* The core MUST show a data source's records as a table, read-only, when asked
 (`OpenTable`), so a front end can show any data source before it can change it: its kind, its columns, in order, and
-its rows, each a value for each column, in the order the data source has them. The kinds are a design's EDA
-placements, in the EDA tool's format, part mappings, substitutions, assembly rules, and a variant's placements and BOM,
-as built (`STORE-14`); a parts data source has its parts view (`STORE-2`). A table MUST be opened, identified, loaded
+its rows, a view item for each record, in the order the data source has them. A view item has the domain's types, as a
+parts view's has a part (`STORE-2`), so each value is shown as what it is: a design's EDA placements are
+`EdaPlacement`s, in the EDA tool's format, part mappings an EDA tool, a `Pattern` for each of its fields the data source
+has, in the EDA tool's order, and a `Part`, substitutions an EDA tool, a `Pattern` and a value for each of its fields,
+and a comment, assembly rules `AssemblyRule`s, and a variant's placements and BOM, as built (`STORE-14`), `Placement`s,
+and each part's designators, as `RefDes`es, footprint, JLCPCB part, quantity and comment. A parts data source has its
+parts view (`STORE-2`). A pattern is a regular expression if it starts and ends with "`/`", the expression being
+between them, or else a value matched exactly, as the Planner and the Variant Builder match them, and is parsed once,
+as the data source is read, so it's ready to be shown, and used, as often as needed; one that isn't valid is kept, with
+why, so it's shown as it is. A record that can't be read, such as one whose EDA tool isn't known, MUST be refused,
+saying why. The columns are worked out once, as the table is read, named as the data source names them, the EDA
+tool's fields, and those matched, in the order they're first found, and a comment's column last. A table MUST be
+opened, identified, loaded
 once, and watched, as parts are (`STORE-5`, `STORE-6`, `STORE-8`, `STORE-9`), and a refused read MUST say why and keep
 the rows loaded before (`STORE-3`), by its kind and its data source, each opened and read on its own, so a data source
 shown as a table and as parts is read for each. A data source that doesn't exist, such as a BOM not yet built, MUST say
 "`Data source not found. source: '<source>'`", and is still watched, so it's shown once it's written. *Observed*: the
 operation is `ReadTable`, logged as the service's others are (`STORE-7`), saying how many rows there are, not what
-they are. The `csv_file` back end reads a CSV file's headers as the columns, and every value as it is (`ISSUE-23`),
-except a BOM, which is written without headers, as JLCPCB's are, so every row is read, with JLCPCB's columns
-"`Comment`", "`Designator`", "`Footprint`", "`JLCPCB Part`" and "`Quantity`". It reads EDA placements as the Variant
+they are. The `csv_file` back end reads each record as the core that uses it does: part mappings' fields' patterns by
+their names, in any case, as the part mapper does, and substitutions' as "`<Field>Pattern`" and "`<Field>`", with
+"`Comment`", as the Variant Builder does. A BOM is written without headers, as JLCPCB's are, so every row is read, by
+the order of its values, with the columns "`Designator`", "`Footprint`", "`JLCPCB Part`", "`Quantity`" and
+"`Comment`", its designators joined by "`, `", and a quantity as a number. Part mappings' columns are "`Eda`", each
+field's, such as "`Name`" and "`Value`", "`Manufacturer`" and "`Mpn`", and substitutions' "`Eda`", each field's
+pattern's and value's, such as "`NamePattern`" and "`Name`", and "`Comment`". It reads EDA placements as the Variant
 Builder reads them, with the columns "`RefDes`", "`Place`", "`Side`", "`X`", "`Y`", "`Rotation`", then each field's
 name, as the Variant Builder names them, such as "`name`" and "`value`", in the order they're first found, and each
 side as the Variant Builder names it, such as "`top`", logging "`Loading <kind>. source: '<source>'`"
@@ -258,13 +272,19 @@ value quoted, with its columns as the headers. The kinds are `eda-placements`, `
 ## Acceptance criteria
 
 - `planning/stores_app/tests/tables.rs`, with no files, checks opening a table identifies its data source, reads it,
-  watches it, and sends its view, with its kind, columns and rows in order, that opening it again reads nothing, that a
+  watches it, and sends its view, with its kind, columns and rows in order, a BOM's comment last, that opening it again
+  reads nothing, that a
   change reads it again, and an unchanged one sends no view, that a refused read says why and keeps the rows, that a
   data source that doesn't exist says so, and is shown once a change finds it, that the view model says each table's
   status, and that the result of a different operation is refused (`STORE-17`).
-- `planning/stores_service/tests/csv_file.rs` reads a CSV file as a table, its headers in order and values as they are,
-  a BOM without headers, with JLCPCB's columns, and EDA placements as a table, and checks a file that doesn't exist is
+- `planning/stores_service/tests/csv_file.rs` reads part mappings, with an exact pattern, a valid regular expression,
+  parsed, and one that isn't, kept, refuses part mappings whose EDA tool isn't known, reads substitutions, with their
+  comment last, assembly rules, a variant's placements, a BOM without headers, with its designators, and its comment
+  last, and EDA placements, checking each table's columns and values, in order, and checks a file that doesn't exist is
   none (`STORE-17`).
+- `common/criteria`'s tests check a value between "`/`"s is a regular expression, one that
+  isn't valid says why, any other value is matched exactly, a lone "`/`" is an empty expression, as it was, and a
+  pattern is serialized as the data source has it, and parsed again (`STORE-17`).
 - `planning/planner_cli/tests/tables.rs` lists a BOM, without headers, with JLCPCB's columns, and EDA placements, checks
   the output, and checks
   "`stores_app: Received event. event: OpenTable {`",

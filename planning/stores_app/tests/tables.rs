@@ -8,26 +8,30 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    Effect, Event, Revision, Source, Stores, StoresOperation, StoresOutput, Table, TableKind, TableRecords, TableView,
-    TableViewRendererOperation,
+    BomViewItem, Cell, ColumnValue, Effect, Event, RefDes, Revision, Source, Stores, StoresOperation, StoresOutput,
+    Table, TableKind, TableRecords, TableView, TableViewRendererOperation,
 };
 
 fn source(path: &str) -> Source {
     Source::File(PathBuf::from(path))
 }
 
+/// A BOM, a row for each designator and its quantity.
 fn table(rows: &[&[&str]]) -> Table {
-    Table {
-        columns: vec!["Designator".to_string(), "Quantity".to_string()],
-        rows: rows
-            .iter()
-            .map(|row| {
-                row.iter()
-                    .map(|value| value.to_string())
-                    .collect()
+    Table::Bom(
+        rows.iter()
+            .map(|row| BomViewItem {
+                designators: row[0]
+                    .split(", ")
+                    .map(|ref_des| RefDes::from(ref_des.to_string()))
+                    .collect(),
+                footprint: "RES_0402".to_string(),
+                jlcpcb_part: None,
+                quantity: row[1].parse().unwrap(),
+                comment: "MPN1 (MFR1)".to_string(),
             })
             .collect(),
-    }
+    )
 }
 
 /// A read of a data source with the table, whose revision, as a file's, is the same only if its contents are.
@@ -224,8 +228,23 @@ fn opening_a_table_reads_it_watches_it_and_sends_its_view() {
         kind: KIND,
         source: resolved.clone(),
         revision: read(rows.clone()).revision,
+        columns: rows.columns(),
         table: rows.clone(),
     }]);
+    // the columns are named as the data source names them, the comment last.
+    let view = &views[0];
+    assert_eq!(
+        view.columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Designator", "Footprint", "JLCPCB Part", "Quantity", "Comment"]
+    );
+    assert_eq!(
+        view.table
+            .cell(0, &ColumnValue::Designator),
+        Cell::Text("R1, R2".into())
+    );
 
     // the view model says the table's status, by the data source as asked for, and as identified.
     let view_model = shell.core.view();

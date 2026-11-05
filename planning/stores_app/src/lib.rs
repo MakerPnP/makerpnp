@@ -20,8 +20,10 @@ use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
 pub use stores_protocol::{
-    EdaTool, Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, Source, StoresOperation, StoresOutput,
-    Table, TableKind, TableRecords,
+    AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnValue, EdaPlacement, EdaPlacementsViewItem,
+    EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem, Parts, PartsSource,
+    PartsViewItem, PartsWriteError, Pattern, Placement, PlacementsViewItem, RefDes, Revision, Source, StoresOperation,
+    StoresOutput, SubstitutionsViewItem, Table, TableColumn, TableKind, TableRecords,
 };
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -263,6 +265,8 @@ pub struct TableView {
     pub source: Source,
     /// The revision of the data source the table was read from (`STORE-8`).
     pub revision: Revision,
+    /// Its columns, in order, worked out once, as the table's read, so a front end can show it each frame.
+    pub columns: Vec<TableColumn>,
     pub table: Table,
 }
 
@@ -755,7 +759,7 @@ impl Stores {
                     "Loaded table. kind: {:?}, source: '{}', row_count: {}, revision: '{}'",
                     kind,
                     source,
-                    table.rows.len(),
+                    table.len(),
                     revision
                 );
                 state.table = Some(table);
@@ -845,6 +849,7 @@ impl Stores {
             kind,
             source,
             revision: revision.clone(),
+            columns: table.columns(),
             table: table.clone(),
         };
 

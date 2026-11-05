@@ -83,3 +83,18 @@ pub fn read_placements(reader: impl std::io::Read) -> Result<Vec<Placement>, any
 
     Ok(records)
 }
+
+/// Every placement of their CSV, in order, refusing a record that can't be read, so that it's shown as it is
+/// (`STORE-17`).
+pub fn read_all_placements(reader: impl std::io::Read) -> Result<Vec<Placement>, anyhow::Error> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
+
+    csv_reader
+        .deserialize()
+        .map(|record: Result<PlacementRecord, csv::Error>| {
+            record
+                .map(|record| record.as_placement())
+                .map_err(anyhow::Error::from)
+        })
+        .collect()
+}
