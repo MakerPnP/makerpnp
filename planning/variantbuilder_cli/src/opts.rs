@@ -137,7 +137,7 @@ impl TryFrom<Opts> for Event {
                     .map_or_else(|| Ok(AssemblyVariant::default()), |args| args.build_assembly_variant())
                     .map_err(|error| EventError::AssemblyVariantError(error))?;
 
-                let event = Event::Build {
+                let event = Event::BuildWith {
                     eda_tool,
                     placements,
                     assembly_variant,

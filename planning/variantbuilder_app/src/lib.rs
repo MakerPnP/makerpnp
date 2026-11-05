@@ -44,9 +44,14 @@ pub use stores_protocol::{
 use termtree::Tree;
 use thiserror::Error;
 use tracing::Level;
-use tracing::{error, info, trace};
+use tracing::{debug, error, info, trace, warn};
+pub use variant_builders::{
+    Variant, VariantBuilderChange, VariantBuilderError, VariantBuilderFile, VariantBuilderView,
+};
 
 extern crate serde_regex;
+
+pub mod variant_builders;
 
 type Context = CommandContext<Effect, Event>;
 
@@ -56,11 +61,16 @@ pub struct VariantBuilder;
 #[derive(Default)]
 pub struct Model {
     error: Option<String>,
+    /// The open variant builders, by path (`VARB-3`).
+    variant_builders: BTreeMap<PathBuf, VariantBuilderView>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
 pub struct OperationViewModel {
+    /// Why the last event failed, if it did.
     pub error: Option<String>,
+    /// The open variant builders, by path (`VARB-3`).
+    pub variant_builders: BTreeMap<PathBuf, VariantBuilderView>,
 }
 
 #[effect]
@@ -75,7 +85,33 @@ pub enum Effect {
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub enum Event {
     None,
+    /// Creates a variant builder's file, and opens it, refusing to replace one unless asked to (`VARB-2`).
+    Create {
+        path: PathBuf,
+        overwrite: bool,
+    },
+    /// Opens a variant builder, reading its file (`VARB-3`).
+    Open {
+        path: PathBuf,
+    },
+    /// Makes the changes to a variant builder's file (`VARB-4`).
+    Configure {
+        path: PathBuf,
+        changes: Vec<VariantBuilderChange>,
+    },
+    /// Builds a variant builder's variant (`VARB-5`).
     Build {
+        path: PathBuf,
+    },
+    /// A variant builder's file was written, as it was created or configured, or read, as it was opened, or why not.
+    Opened {
+        path: PathBuf,
+        /// What was done, for the log.
+        done: Done,
+        result: Result<VariantBuilderView, VariantBuilderError>,
+    },
+    /// Builds a variant from the arguments given, without a variant builder's file (`STORE-14`).
+    BuildWith {
         eda_tool: EdaTool,
         placements: EdaPlacementsSource,
         assembly_variant: AssemblyVariant,
@@ -89,13 +125,22 @@ pub enum Event {
         ref_des_exclude_list: Vec<String>,
         ref_des_disable_list: Vec<String>,
     },
-    /// The variant was built, and its files written, or why not.
+    /// The variant was built, and its files written, or why not, from the variant builder's file, if there was one.
     Built {
-        result: Result<(), String>,
+        path: Option<PathBuf>,
+        result: Result<(), VariantBuilderError>,
     },
     //
     // Views
     //
+}
+
+/// What was done to a variant builder, see [`Event::Opened`].
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
+pub enum Done {
+    Created,
+    Opened,
+    Configured { change_count: usize },
 }
 
 /// What [`Event::Build`] builds, from what.
@@ -137,9 +182,105 @@ impl App for VariantBuilder {
     type Effect = Effect;
 
     fn update(&self, event: Self::Event, model: &mut Self::Model) -> Command<Self::Effect, Self::Event> {
+        // `VARB-6`, `LOG-1`
+        debug!("Received event. event: {:?}", event);
         match event {
             Event::None => render::render(),
+            Event::Create {
+                path,
+                overwrite,
+            } => {
+                model.error = None;
+                Command::new(|ctx| async move {
+                    let result = variant_builders::create(&ctx, &path, overwrite).await;
+                    ctx.send_event(Event::Opened {
+                        path,
+                        done: Done::Created,
+                        result,
+                    });
+                })
+            }
+            Event::Open {
+                path,
+            } => {
+                model.error = None;
+                Command::new(|ctx| async move {
+                    let result = variant_builders::open(&ctx, &path).await;
+                    ctx.send_event(Event::Opened {
+                        path,
+                        done: Done::Opened,
+                        result,
+                    });
+                })
+            }
+            Event::Configure {
+                path,
+                changes,
+            } => {
+                model.error = None;
+                let done = Done::Configured {
+                    change_count: changes.len(),
+                };
+                Command::new(|ctx| async move {
+                    let result = variant_builders::configure(&ctx, &path, changes).await;
+                    ctx.send_event(Event::Opened {
+                        path,
+                        done,
+                        result,
+                    });
+                })
+            }
+            Event::Opened {
+                path,
+                done,
+                result,
+            } => {
+                match result {
+                    Ok(view) => {
+                        match done {
+                            Done::Created => info!("Created variant builder. path: '{}'", path.display()),
+                            Done::Opened => info!(
+                                "Opened variant builder. path: '{}', revision: '{}'",
+                                path.display(),
+                                view.revision.0
+                            ),
+                            Done::Configured {
+                                change_count,
+                            } => info!(
+                                "Configured variant builder. path: '{}', change_count: {}",
+                                path.display(),
+                                change_count
+                            ),
+                        }
+                        // `VARB-4`, configuring one that isn't open doesn't open it.
+                        let configured = matches!(done, Done::Configured { .. });
+                        if !configured
+                            || model
+                                .variant_builders
+                                .contains_key(&path)
+                        {
+                            model
+                                .variant_builders
+                                .insert(path, view);
+                        }
+                    }
+                    Err(error) => fail(model, error),
+                }
+                render::render()
+            }
             Event::Build {
+                path,
+            } => {
+                model.error = None;
+                Command::new(|ctx| async move {
+                    let result = variant_builders::build(&ctx, &path).await;
+                    ctx.send_event(Event::Built {
+                        path: Some(path),
+                        result,
+                    });
+                })
+            }
+            Event::BuildWith {
                 eda_tool,
                 placements,
                 assembly_variant,
@@ -167,18 +308,28 @@ impl App for VariantBuilder {
                     ref_des_exclude_list,
                     ref_des_disable_list,
                 };
+                model.error = None;
                 Command::new(|ctx| async move {
-                    let result = build(&ctx, args).await;
+                    let result = build(&ctx, args)
+                        .await
+                        .map_err(VariantBuilderError::from);
                     ctx.send_event(Event::Built {
+                        path: None,
                         result,
                     });
                 })
             }
             Event::Built {
+                path,
                 result,
             } => {
-                if let Err(cause) = result {
-                    model.error.replace(cause);
+                match result {
+                    Ok(()) => {
+                        if let Some(path) = path {
+                            info!("Built variant. path: '{}'", path.display());
+                        }
+                    }
+                    Err(error) => fail(model, error),
                 }
                 render::render()
             }
@@ -188,8 +339,15 @@ impl App for VariantBuilder {
     fn view(&self, model: &Self::Model) -> Self::ViewModel {
         OperationViewModel {
             error: model.error.clone(),
+            variant_builders: model.variant_builders.clone(),
         }
     }
+}
+
+/// Logs why an event failed, and keeps it for the view (`VARB-6`, `LOG-2`).
+fn fail(model: &mut Model, error: VariantBuilderError) {
+    warn!("Event failed. error: {:?}", error);
+    model.error = Some(error.to_string());
 }
 
 #[derive(Error, Debug)]

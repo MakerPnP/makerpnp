@@ -36,6 +36,11 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
 - [`planning/planner_gui_egui/tests/ui/`](planning/planner_gui_egui/tests/ui/): the GUI's tests, run against the whole
   application with no window. `fixture.rs` has the helpers, `workflow.rs` the shared steps that build up a project.
 
+## The Variant Builder
+
+- [`assets/specs/variantbuilder/README.md`](assets/specs/variantbuilder/README.md): the Variant Builder's requirement
+  specifications, using the planner's conventions. Read the area's spec before changing its behaviour.
+
 ## Code conventions
 
 - [`Hacks.md`](Hacks.md): what each `HACK:` comment in the code means, before changing code near one.

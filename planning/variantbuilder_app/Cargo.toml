@@ -13,6 +13,7 @@ termtree = { workspace = true }
 serde = { workspace = true }
 serde_regex = { workspace = true }
 serde_with = { workspace = true }
+serde_json = { workspace = true }
 
 crux_core = { workspace = true }
 
