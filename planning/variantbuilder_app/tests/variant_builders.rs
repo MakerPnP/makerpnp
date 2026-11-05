@@ -6,27 +6,29 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::{revision, shell_with_a_design, source, Shell, BOM, PLACEMENTS};
+use variantbuilder_app::variant_builders::NEW_ASSEMBLY_RULES;
 use variantbuilder_app::{
-    EdaTool, Event, Variant, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus, VariantBuilderView,
+    EdaTool, Event, NewVariantBuilder, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus,
+    VariantBuilderView,
 };
 
 const PATH: &str = "in/job1.variant.json";
 
 /// A new variant builder's file.
 const NEW: &str = r#"{
-    "variant": {
-        "name": "Default",
-        "ref_des_list": []
-    },
+    "design_name": "",
+    "variant_name": "default",
     "eda_tool": null,
     "placements": null,
     "parts": null,
     "part_mappings": null,
-    "substitutions": [],
+    "global_substitutions": [],
     "load_out": null,
     "assembly_rules": null,
-    "ref_des_exclude_list": [],
-    "ref_des_disable_list": [],
+    "design_substitutions": [],
+    "ref_des_list": [],
+    "ref_des_exclusion_list": [],
+    "ref_des_no_place_list": [],
     "output_placements": null,
     "output_bom": null
 }"#;
@@ -39,6 +41,7 @@ fn create(overwrite: bool) -> Event {
     Event::Create {
         path: path(),
         overwrite,
+        new: NewVariantBuilder::default(),
     }
 }
 
@@ -116,15 +119,13 @@ fn view(shell: &Shell) -> Option<VariantBuilderView> {
 /// A variant builder of the design, with its data sources relative to its folder, `in`.
 fn complete() -> VariantBuilderFile {
     VariantBuilderFile {
-        variant: Variant {
-            name: "Variant 1".to_string(),
-            ref_des_list: vec![],
-        },
+        design_name: "design1".to_string(),
+        variant_name: "Variant 1".to_string(),
         eda_tool: Some(EdaTool::DipTrace),
         placements: Some(PathBuf::from("placements.csv")),
         parts: Some(PathBuf::from("parts.csv")),
         part_mappings: Some(PathBuf::from("part-mappings.csv")),
-        substitutions: vec![PathBuf::from("substitutions.csv")],
+        design_substitutions: vec![PathBuf::from("substitutions.csv")],
         load_out: Some(PathBuf::from("load-out.csv")),
         assembly_rules: Some(PathBuf::from("assembly-rules.csv")),
         ..VariantBuilderFile::default()
@@ -156,6 +157,66 @@ fn creating_writes_a_new_variant_builders_file_and_opens_it() {
             file: VariantBuilderFile::default(),
             revision: revision(NEW),
         })
+    );
+}
+
+/// `VARB-2`, a new variant builder has the names and changes it's created with, and the design is named after its
+/// placements' file unless it's named.
+#[test]
+fn creating_writes_the_names_and_changes_it_is_created_with() {
+    let mut shell = Shell::default();
+    let changes = vec![
+        VariantBuilderChange::EdaTool(Some(EdaTool::KiCad)),
+        VariantBuilderChange::Placements(Some(PathBuf::from("board1.csv"))),
+    ];
+
+    shell.process(Event::Create {
+        path: path(),
+        overwrite: false,
+        new: NewVariantBuilder {
+            design_name: None,
+            variant_name: None,
+            changes: changes.clone(),
+        },
+    });
+
+    assert_eq!(shell.error(), None);
+    let expected = VariantBuilderFile {
+        design_name: "board1".to_string(),
+        variant_name: "default".to_string(),
+        eda_tool: Some(EdaTool::KiCad),
+        placements: Some(PathBuf::from("board1.csv")),
+        ..VariantBuilderFile::default()
+    };
+    assert_eq!(view(&shell).unwrap().file, expected);
+
+    shell.process(Event::Create {
+        path: path(),
+        overwrite: true,
+        new: NewVariantBuilder {
+            design_name: Some("design1".to_string()),
+            variant_name: Some("variant1".to_string()),
+            changes,
+        },
+    });
+
+    assert_eq!(view(&shell).unwrap().file, VariantBuilderFile {
+        design_name: "design1".to_string(),
+        variant_name: "variant1".to_string(),
+        ..expected
+    });
+}
+
+/// `VARB-2`
+#[test]
+fn a_new_variant_builders_file_is_named_after_its_design_and_variant() {
+    assert_eq!(
+        variantbuilder_app::variant_builders::file_name("board1", "default"),
+        "board1_default.variant.json"
+    );
+    assert_eq!(
+        variantbuilder_app::variant_builders::design_name(&Path::new("in").join("board1.pos.csv")),
+        "board1.pos"
     );
 }
 
@@ -254,16 +315,13 @@ fn fields_left_out_of_the_file_are_as_they_are_when_it_is_new() {
     let mut shell = Shell::default();
     shell.documents.insert(
         path(),
-        r#"{ "variant": { "name": "Variant 1" }, "eda_tool": "KiCad" }"#.to_string(),
+        r#"{ "variant_name": "Variant 1", "eda_tool": "KiCad" }"#.to_string(),
     );
 
     shell.process(open());
 
     assert_eq!(view(&shell).unwrap().file, VariantBuilderFile {
-        variant: Variant {
-            name: "Variant 1".to_string(),
-            ref_des_list: vec![],
-        },
+        variant_name: "Variant 1".to_string(),
         eda_tool: Some(EdaTool::KiCad),
         ..VariantBuilderFile::default()
     });
@@ -277,19 +335,16 @@ fn configuring_makes_the_changes_keeps_the_rest_and_updates_the_view() {
     shell.process(open());
 
     shell.process(configure(vec![
-        VariantBuilderChange::VariantName("Variant 2".to_string()),
+        VariantBuilderChange::RefDesList(vec!["R1".to_string()]),
         VariantBuilderChange::LoadOut(None),
-        VariantBuilderChange::RefDesExcludeList(vec!["TP1".to_string(), "FID1".to_string()]),
+        VariantBuilderChange::RefDesExclusionList(vec!["TP1".to_string(), "FID1".to_string()]),
     ]));
 
     assert_eq!(shell.error(), None);
     let expected = VariantBuilderFile {
-        variant: Variant {
-            name: "Variant 2".to_string(),
-            ref_des_list: vec![],
-        },
+        ref_des_list: vec!["R1".to_string()],
         load_out: None,
-        ref_des_exclude_list: vec!["TP1".to_string(), "FID1".to_string()],
+        ref_des_exclusion_list: vec!["TP1".to_string(), "FID1".to_string()],
         ..complete()
     };
     assert_eq!(shell.documents[&path()], expected.contents().unwrap());
@@ -482,4 +537,107 @@ fn building_a_variant_builder_that_is_not_complete_names_what_is_missing() {
     );
     // no data source is read.
     assert_eq!(shell.done(), vec![format!("read {}", path().display())]);
+}
+
+/// `VARB-5`, the design's substitutions are applied before the global ones.
+#[test]
+fn building_reads_the_designs_substitutions_then_the_global_ones() {
+    let mut shell = shell_with_a_design();
+    let substitutions = shell.records[&source("substitutions.csv")].clone();
+    shell
+        .records
+        .insert(source("global.csv"), substitutions);
+    given(&mut shell, &VariantBuilderFile {
+        global_substitutions: vec![PathBuf::from("global.csv")],
+        ..complete()
+    });
+
+    shell.process(build());
+
+    assert_eq!(shell.error(), None);
+    let done = shell.done();
+    let read = |name: &str| {
+        done.iter()
+            .position(|done| *done == format!("read Substitutions {}", source(name)))
+            .unwrap()
+    };
+    assert!(read("substitutions.csv") < read("global.csv"), "{done:?}");
+}
+
+/// `VARB-5`, the order the substitutions are applied in, which front ends show, is the order they're read in.
+#[test]
+fn the_substitutions_are_in_the_order_they_are_applied() {
+    let file = VariantBuilderFile {
+        global_substitutions: vec![PathBuf::from("g1.csv"), PathBuf::from("g2.csv")],
+        design_substitutions: vec![PathBuf::from("d1.csv"), PathBuf::from("d2.csv")],
+        ..VariantBuilderFile::default()
+    };
+
+    assert_eq!(
+        file.substitutions()
+            .map(|path| path.to_str().unwrap())
+            .collect::<Vec<_>>(),
+        vec!["d1.csv", "d2.csv", "g1.csv", "g2.csv"]
+    );
+}
+
+fn create_assembly_rules() -> Event {
+    Event::CreateAssemblyRules {
+        path: path(),
+        assembly_rules: PathBuf::from("rules.csv"),
+    }
+}
+
+/// `VARB-8`
+#[test]
+fn creating_assembly_rules_writes_a_file_with_none_and_sets_the_variant_builders_to_it() {
+    let mut shell = Shell::default();
+    given(&mut shell, &complete());
+    shell.process(open());
+
+    shell.process(create_assembly_rules());
+
+    assert_eq!(shell.error(), None);
+    let rules = Path::new("in").join("rules.csv");
+    assert_eq!(shell.documents[&rules], NEW_ASSEMBLY_RULES);
+    let expected = VariantBuilderFile {
+        assembly_rules: Some(PathBuf::from("rules.csv")),
+        ..complete()
+    };
+    assert_eq!(shell.documents[&path()], expected.contents().unwrap());
+    assert_eq!(view(&shell).unwrap().file, expected);
+}
+
+/// `VARB-8`, an assembly rules file isn't replaced, and the variant builder isn't changed.
+#[test]
+fn creating_assembly_rules_refuses_to_replace_a_file() {
+    let mut shell = Shell::default();
+    given(&mut shell, &complete());
+    let rules = Path::new("in").join("rules.csv");
+    shell
+        .documents
+        .insert(rules.clone(), "kept".to_string());
+
+    shell.process(create_assembly_rules());
+
+    assert_eq!(
+        shell.error(),
+        Some(format!("Assembly rules exist already. path: '{}'", rules.display()))
+    );
+    assert_eq!(shell.documents[&rules], "kept");
+    assert_eq!(shell.documents[&path()], complete().contents().unwrap());
+}
+
+/// `VARB-8`, no assembly rules file is written for a variant builder that doesn't exist.
+#[test]
+fn creating_assembly_rules_for_a_variant_builder_that_does_not_exist_writes_nothing() {
+    let mut shell = Shell::default();
+
+    shell.process(create_assembly_rules());
+
+    assert_eq!(
+        shell.error(),
+        Some(format!("Variant builder not found. path: '{}'", path().display()))
+    );
+    assert!(shell.documents.is_empty());
 }

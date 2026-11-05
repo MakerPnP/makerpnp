@@ -46,7 +46,7 @@ use thiserror::Error;
 use tracing::Level;
 use tracing::{debug, error, info, trace, warn};
 pub use variant_builders::{
-    Variant, VariantBuilderChange, VariantBuilderError, VariantBuilderFile, VariantBuilderView,
+    NewVariantBuilder, VariantBuilderChange, VariantBuilderError, VariantBuilderFile, VariantBuilderView,
 };
 
 extern crate serde_regex;
@@ -104,6 +104,13 @@ pub enum Event {
     Create {
         path: PathBuf,
         overwrite: bool,
+        new: NewVariantBuilder,
+    },
+    /// Creates an assembly rules file, with no rules, refusing to replace one, and sets the variant builder's assembly
+    /// rules to it (`VARB-8`). `assembly_rules` is relative to the variant builder's folder, or absolute.
+    CreateAssemblyRules {
+        path: PathBuf,
+        assembly_rules: PathBuf,
     },
     /// Opens a variant builder, reading its file (`VARB-3`).
     Open {
@@ -136,11 +143,12 @@ pub enum Event {
 }
 
 /// What was done to a variant builder, see [`Event::Opened`].
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum Done {
     Created,
     Opened,
     Configured { change_count: usize },
+    AssemblyRulesCreated { assembly_rules: PathBuf },
 }
 
 /// What [`Event::Build`] builds, from what.
@@ -189,13 +197,30 @@ impl App for VariantBuilder {
             Event::Create {
                 path,
                 overwrite,
+                new,
             } => {
                 start(model, &path);
                 Command::new(|ctx| async move {
-                    let result = variant_builders::create(&ctx, &path, overwrite).await;
+                    let result = variant_builders::create(&ctx, &path, overwrite, new).await;
                     ctx.send_event(Event::Opened {
                         path,
                         done: Done::Created,
+                        result,
+                    });
+                })
+            }
+            Event::CreateAssemblyRules {
+                path,
+                assembly_rules,
+            } => {
+                start(model, &path);
+                Command::new(|ctx| async move {
+                    let result = variant_builders::create_assembly_rules(&ctx, &path, &assembly_rules).await;
+                    ctx.send_event(Event::Opened {
+                        path,
+                        done: Done::AssemblyRulesCreated {
+                            assembly_rules,
+                        },
                         result,
                     });
                 })
@@ -237,7 +262,7 @@ impl App for VariantBuilder {
             } => {
                 match result {
                     Ok(view) => {
-                        match done {
+                        match &done {
                             Done::Created => info!("Created variant builder. path: '{}'", path.display()),
                             Done::Opened => info!(
                                 "Opened variant builder. path: '{}', revision: '{}'",
@@ -251,9 +276,16 @@ impl App for VariantBuilder {
                                 path.display(),
                                 change_count
                             ),
+                            Done::AssemblyRulesCreated {
+                                assembly_rules,
+                            } => info!(
+                                "Created assembly rules. path: '{}', assembly_rules: '{}'",
+                                path.display(),
+                                assembly_rules.display()
+                            ),
                         }
                         // `VARB-4`, configuring one that isn't open doesn't open it.
-                        let configured = matches!(done, Done::Configured { .. });
+                        let configured = matches!(done, Done::Configured { .. } | Done::AssemblyRulesCreated { .. });
                         let status = finish(model, &path);
                         status.built = false;
                         if !configured

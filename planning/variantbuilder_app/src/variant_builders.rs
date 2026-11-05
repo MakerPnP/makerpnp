@@ -13,82 +13,145 @@ use crate::{AssemblyVariant, BuildArgs, Context, Source};
 /// The extension of a variant builder's file, after its name.
 pub const EXTENSION: &str = ".variant.json";
 
+/// The variant name of a new variant builder, unless another is given.
+pub const DEFAULT_VARIANT_NAME: &str = "default";
+
+/// The contents of a new assembly rules file: the header row, and no rules (`VARB-8`).
+pub const NEW_ASSEMBLY_RULES: &str = "\"RefDes\",\"Manufacturer\",\"Mpn\"\n";
+
 /// What a variant builder's file says (`VARB-1`). A field left out of the file is read as it is when it's new, so the
 /// file can be written by hand. A relative path is relative to the file's folder.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
+///
+/// The fields are in the groups the GUI shows them in: what the variant builder is of, part matching, design specific,
+/// reference designators, and output.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct VariantBuilderFile {
-    pub variant: Variant,
+    /// The design's name, set when the variant builder is created, and kept as it was (`VARB-2`).
+    pub design_name: String,
+    /// The variant's name, set when the variant builder is created, and kept as it was (`VARB-2`).
+    pub variant_name: String,
     pub eda_tool: Option<EdaTool>,
     pub placements: Option<PathBuf>,
+
     pub parts: Option<PathBuf>,
     pub part_mappings: Option<PathBuf>,
-    pub substitutions: Vec<PathBuf>,
+    /// Substitutions shared by designs, applied after the design's own.
+    pub global_substitutions: Vec<PathBuf>,
     pub load_out: Option<PathBuf>,
+
     pub assembly_rules: Option<PathBuf>,
-    pub ref_des_exclude_list: Vec<String>,
-    pub ref_des_disable_list: Vec<String>,
+    /// Substitutions of this design, applied first.
+    pub design_substitutions: Vec<PathBuf>,
+
+    /// The ref-des the variant is limited to, or all if there are none.
+    pub ref_des_list: Vec<String>,
+    /// The ref-des left out, such as test-pads and fiducials.
+    pub ref_des_exclusion_list: Vec<String>,
+    /// The ref-des not placed, such as do-not-fit.
+    pub ref_des_no_place_list: Vec<String>,
+
     pub output_placements: Option<PathBuf>,
     pub output_bom: Option<PathBuf>,
 }
 
-/// The variant to build: its name, and the ref-des it's limited to, or all if there are none.
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
-#[serde(default)]
-pub struct Variant {
-    pub name: String,
-    pub ref_des_list: Vec<String>,
-}
-
-impl Default for Variant {
+impl Default for VariantBuilderFile {
     fn default() -> Self {
-        let AssemblyVariant {
-            name,
-            ref_des_list,
-        } = AssemblyVariant::default();
         Self {
-            name,
-            ref_des_list,
+            design_name: String::new(),
+            variant_name: DEFAULT_VARIANT_NAME.to_string(),
+            eda_tool: None,
+            placements: None,
+            parts: None,
+            part_mappings: None,
+            global_substitutions: vec![],
+            load_out: None,
+            assembly_rules: None,
+            design_substitutions: vec![],
+            ref_des_list: vec![],
+            ref_des_exclusion_list: vec![],
+            ref_des_no_place_list: vec![],
+            output_placements: None,
+            output_bom: None,
         }
     }
 }
 
 /// A change to one field of a variant builder's file, setting it, or clearing it with `None` or an empty list
-/// (`VARB-4`).
+/// (`VARB-4`). The design name and variant name are set only as it's created (`VARB-2`).
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
 pub enum VariantBuilderChange {
-    VariantName(String),
-    RefDesList(Vec<String>),
     EdaTool(Option<EdaTool>),
     Placements(Option<PathBuf>),
     Parts(Option<PathBuf>),
     PartMappings(Option<PathBuf>),
-    Substitutions(Vec<PathBuf>),
+    GlobalSubstitutions(Vec<PathBuf>),
     LoadOut(Option<PathBuf>),
     AssemblyRules(Option<PathBuf>),
-    RefDesExcludeList(Vec<String>),
-    RefDesDisableList(Vec<String>),
+    DesignSubstitutions(Vec<PathBuf>),
+    RefDesList(Vec<String>),
+    RefDesExclusionList(Vec<String>),
+    RefDesNoPlaceList(Vec<String>),
     OutputPlacements(Option<PathBuf>),
     OutputBom(Option<PathBuf>),
+}
+
+/// What a new variant builder is created with (`VARB-2`): the design and variant names, which are kept as they are,
+/// and the changes made to it before it's written.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct NewVariantBuilder {
+    /// The design's name, or none for the name of the placements' file, without its extension.
+    pub design_name: Option<String>,
+    /// The variant's name, or none for [`DEFAULT_VARIANT_NAME`].
+    pub variant_name: Option<String>,
+    pub changes: Vec<VariantBuilderChange>,
+}
+
+impl NewVariantBuilder {
+    /// The new variant builder's file.
+    pub fn file(self) -> VariantBuilderFile {
+        let mut file = VariantBuilderFile::default();
+        for change in self.changes {
+            file.apply(change);
+        }
+        file.design_name = self.design_name.unwrap_or_else(|| {
+            file.placements
+                .as_deref()
+                .map(design_name)
+                .unwrap_or_default()
+        });
+        if let Some(variant_name) = self.variant_name {
+            file.variant_name = variant_name;
+        }
+        file
+    }
 }
 
 impl VariantBuilderFile {
     pub fn apply(&mut self, change: VariantBuilderChange) {
         match change {
-            VariantBuilderChange::VariantName(name) => self.variant.name = name,
-            VariantBuilderChange::RefDesList(list) => self.variant.ref_des_list = list,
             VariantBuilderChange::EdaTool(eda_tool) => self.eda_tool = eda_tool,
             VariantBuilderChange::Placements(path) => self.placements = path,
             VariantBuilderChange::Parts(path) => self.parts = path,
             VariantBuilderChange::PartMappings(path) => self.part_mappings = path,
-            VariantBuilderChange::Substitutions(paths) => self.substitutions = paths,
+            VariantBuilderChange::GlobalSubstitutions(paths) => self.global_substitutions = paths,
             VariantBuilderChange::LoadOut(path) => self.load_out = path,
             VariantBuilderChange::AssemblyRules(path) => self.assembly_rules = path,
-            VariantBuilderChange::RefDesExcludeList(list) => self.ref_des_exclude_list = list,
-            VariantBuilderChange::RefDesDisableList(list) => self.ref_des_disable_list = list,
+            VariantBuilderChange::DesignSubstitutions(paths) => self.design_substitutions = paths,
+            VariantBuilderChange::RefDesList(list) => self.ref_des_list = list,
+            VariantBuilderChange::RefDesExclusionList(list) => self.ref_des_exclusion_list = list,
+            VariantBuilderChange::RefDesNoPlaceList(list) => self.ref_des_no_place_list = list,
             VariantBuilderChange::OutputPlacements(path) => self.output_placements = path,
             VariantBuilderChange::OutputBom(path) => self.output_bom = path,
         }
+    }
+
+    /// The substitutions, in the order they're applied: the design's own first, so that where a design's substitution
+    /// and a global one both apply, the design's is applied, then the global ones, each in its list's order (`VARB-5`).
+    pub fn substitutions(&self) -> impl Iterator<Item = &PathBuf> {
+        self.design_substitutions
+            .iter()
+            .chain(self.global_substitutions.iter())
     }
 
     /// The file's contents, as JSON, indented as the planner's documents are.
@@ -151,12 +214,11 @@ impl VariantBuilderFile {
         Ok(BuildArgs {
             eda_tool,
             placements: source(placements),
-            assembly_variant: AssemblyVariant::new(self.variant.name.clone(), self.variant.ref_des_list.clone()),
+            assembly_variant: AssemblyVariant::new(self.variant_name.clone(), self.ref_des_list.clone()),
             parts: source(parts),
             part_mappings: source(part_mappings),
             substitutions: self
-                .substitutions
-                .iter()
+                .substitutions()
                 .map(source)
                 .collect(),
             load_out: self.load_out.as_ref().map(source),
@@ -171,9 +233,32 @@ impl VariantBuilderFile {
                     .display()
                     .to_string(),
             ),
-            ref_des_exclude_list: self.ref_des_exclude_list.clone(),
-            ref_des_disable_list: self.ref_des_disable_list.clone(),
+            ref_des_exclude_list: self.ref_des_exclusion_list.clone(),
+            ref_des_disable_list: self.ref_des_no_place_list.clone(),
         })
+    }
+}
+
+/// The name of a new variant builder's file, `<design name>_<variant name>.variant.json` (`VARB-2`).
+pub fn file_name(design_name: &str, variant_name: &str) -> String {
+    format!("{}_{}{}", design_name, variant_name, EXTENSION)
+}
+
+/// The design name for a placements file: its name, without its extension (`VARB-2`).
+pub fn design_name(placements: &Path) -> String {
+    placements
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+/// The extensions of the placements files the EDA tool writes, which the placements file is chosen from (`VARB-1`).
+pub fn placements_extensions(eda_tool: EdaTool) -> &'static [&'static str] {
+    match eda_tool {
+        EdaTool::DipTrace => &["csv"],
+        EdaTool::KiCad => &["csv"],
+        // tab-separated, but named `.csv`.
+        EdaTool::EasyEda => &["csv"],
     }
 }
 
@@ -227,6 +312,8 @@ pub enum VariantBuilderError {
     Invalid { path: PathBuf, cause: String },
     #[error("Variant builder incomplete. path: '{}', missing: {missing:?}", path.display())]
     Incomplete { path: PathBuf, missing: Vec<String> },
+    #[error("Assembly rules exist already. path: '{}'", path.display())]
+    AssemblyRulesExistAlready { path: PathBuf },
     /// The stores service couldn't read or write a file, or the build failed, saying why.
     #[error("{cause}")]
     Store { cause: String },
@@ -245,6 +332,7 @@ pub(crate) async fn create(
     ctx: &Context,
     path: &Path,
     overwrite: bool,
+    new: NewVariantBuilder,
 ) -> Result<VariantBuilderView, VariantBuilderError> {
     if !overwrite
         && read_document(ctx, path)
@@ -255,7 +343,7 @@ pub(crate) async fn create(
             path: path.to_path_buf(),
         });
     }
-    let file = VariantBuilderFile::default();
+    let file = new.file();
     let revision = write_document(ctx, path, file.contents()?).await?;
     Ok(VariantBuilderView {
         file,
@@ -293,6 +381,31 @@ pub(crate) async fn configure(
         file,
         revision,
     })
+}
+
+/// Writes a new assembly rules file, with no rules, unless there's one, then sets the variant builder's assembly rules
+/// to it (`VARB-8`). `assembly_rules` is relative to the variant builder's folder, or absolute.
+pub(crate) async fn create_assembly_rules(
+    ctx: &Context,
+    path: &Path,
+    assembly_rules: &Path,
+) -> Result<VariantBuilderView, VariantBuilderError> {
+    // the variant builder is read first, so that one that can't be read isn't left with a file it doesn't use.
+    open(ctx, path).await?;
+    let assembly_rules_path = folder(path).join(assembly_rules);
+    if read_document(ctx, &assembly_rules_path)
+        .await?
+        .is_some()
+    {
+        return Err(VariantBuilderError::AssemblyRulesExistAlready {
+            path: assembly_rules_path,
+        });
+    }
+    write_document(ctx, &assembly_rules_path, NEW_ASSEMBLY_RULES.to_string()).await?;
+    configure(ctx, path, vec![VariantBuilderChange::AssemblyRules(Some(
+        assembly_rules.to_path_buf(),
+    ))])
+    .await
 }
 
 /// Reads a variant builder's file, and builds its variant (`VARB-5`).
