@@ -227,7 +227,39 @@ revision given with `--revision`, as logged when the parts were loaded, or else 
 change made by anyone since is refused. If the core refuses, the CLI MUST fail with the core's error, and the file is
 left as it was.
 
+**STORE-17 — Tables.** *Confirmed.* The core MUST show a data source's records as a table, read-only, when asked
+(`OpenTable`), so a front end can show any data source before it can change it: its kind, its columns, in order, and
+its rows, each a value for each column, in the order the data source has them. The kinds are a design's EDA
+placements, in the EDA tool's format, part mappings, substitutions, assembly rules, and a variant's placements and BOM,
+as built (`STORE-14`); a parts data source has its parts view (`STORE-2`). A table MUST be opened, identified, loaded
+once, and watched, as parts are (`STORE-5`, `STORE-6`, `STORE-8`, `STORE-9`), and a refused read MUST say why and keep
+the rows loaded before (`STORE-3`), by its kind and its data source, each opened and read on its own, so a data source
+shown as a table and as parts is read for each. A data source that doesn't exist, such as a BOM not yet built, MUST say
+"`Data source not found. source: '<source>'`", and is still watched, so it's shown once it's written. *Observed*: the
+operation is `ReadTable`, logged as the service's others are (`STORE-7`), saying how many rows there are, not what
+they are. The `csv_file` back end reads a CSV file's headers as the columns, and every value as it is (`ISSUE-23`),
+except a BOM, which is written without headers, as JLCPCB's are, so every row is read, with JLCPCB's columns
+"`Comment`", "`Designator`", "`Footprint`", "`JLCPCB Part`" and "`Quantity`". It reads EDA placements as the Variant
+Builder reads them, with the columns "`RefDes`", "`Place`", "`Side`", "`X`", "`Y`", "`Rotation`", then each field's
+name, as the Variant Builder names them, such as "`name`" and "`value`", in the order they're first found, and each
+side as the Variant Builder names it, such as "`top`", logging "`Loading <kind>. source: '<source>'`"
+as `STORE-11`'s reads do. The view is sent as a `TableView` effect, and the core's view model says each table's status,
+by its kind and its data source as it was asked for. The core logs
+"`stores_app: Loaded table. kind: <kind>, source: '<source>', row_count: <count>, revision: '<revision>'`",
+"`stores_app: Table already loaded. kind: <kind>, source: '<source>'`" and
+"`stores_app: Table unchanged. kind: <kind>, source: '<source>', revision: '<revision>'`" at info level, and
+"`stores_app: Data source changed. source: '<source>', kind: <kind>`" for each change.
+
 ## Acceptance criteria
+
+- `planning/stores_app/tests/tables.rs`, with no files, checks opening a table identifies its data source, reads it,
+  watches it, and sends its view, with its kind, columns and rows in order, that opening it again reads nothing, that a
+  change reads it again, and an unchanged one sends no view, that a refused read says why and keeps the rows, that a
+  data source that doesn't exist says so, and is shown once a change finds it, that the view model says each table's
+  status, and that the result of a different operation is refused (`STORE-17`).
+- `planning/stores_service/tests/csv_file.rs` reads a CSV file as a table, its headers in order and values as they are,
+  a BOM without headers, with JLCPCB's columns, and EDA placements as a table, and checks a file that doesn't exist is
+  none (`STORE-17`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
   core asks to identify the data source and then read it, and sends the view, with the parts in order, the other values'

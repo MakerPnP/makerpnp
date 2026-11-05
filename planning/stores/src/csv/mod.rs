@@ -30,6 +30,34 @@ pub fn read_rows(reader: impl std::io::Read) -> anyhow::Result<Vec<std::collecti
     Ok(rows)
 }
 
+/// A CSV file's headers, in order, and its rows, each a value for each header, every value as it is. A file without
+/// headers has none, and every row is read.
+pub fn read_table(reader: impl std::io::Read, has_headers: bool) -> anyhow::Result<(Vec<String>, Vec<Vec<String>>)> {
+    let mut csv_reader = csv::ReaderBuilder::new()
+        .has_headers(has_headers)
+        .from_reader(reader);
+
+    let headers = match has_headers {
+        true => csv_reader
+            .headers()?
+            .iter()
+            .map(str::to_string)
+            .collect(),
+        false => vec![],
+    };
+    let mut rows = vec![];
+    for result in csv_reader.records() {
+        let record = result?;
+        rows.push(
+            record
+                .iter()
+                .map(str::to_string)
+                .collect(),
+        );
+    }
+    Ok((headers, rows))
+}
+
 // FUTURE Investigate whether the `build` methods should be taking `self` instead of `&self` to avoid additional allocations
 //        Most of the time records are parsed, then domain objects are built based on the records then the records
 //        is discarded.

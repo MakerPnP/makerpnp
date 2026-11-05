@@ -6,7 +6,8 @@ use std::path::Path;
 
 use futures::executor::block_on;
 use stores_protocol::{
-    Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, StoresOperation, StoresOutput,
+    EdaTool, Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, Source, StoresOperation, StoresOutput,
+    Table, TableKind, TableRecords,
 };
 use stores_service::StoresService;
 
@@ -49,6 +50,110 @@ fn resolve(source: &PartsSource) -> PartsSource {
         }) => source,
         output => panic!("unexpected output: {:?}", output),
     }
+}
+
+fn read_table(kind: TableKind, source: &Source) -> Result<Option<TableRecords>, String> {
+    match block_on(StoresService::new().perform_once(StoresOperation::ReadTable {
+        kind,
+        source: source.clone(),
+    })) {
+        Some(StoresOutput::TableRead(result)) => result,
+        output => panic!("unexpected output: {:?}", output),
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.to_string())
+        .collect()
+}
+
+/// `STORE-17`, a CSV file's headers, in order, are the table's columns, and its values are kept as they are.
+#[test]
+fn reads_a_csv_file_as_a_table() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "part-mappings.csv",
+        "\"Eda\",\"Name\",\"Value\"\n\"DipTrace\",\"RES_0402\",\"0330\"\n\"DipTrace\",\"\",\"1\"\n",
+    );
+
+    let records = read_table(TableKind::PartMappings, &source)
+        .unwrap()
+        .expect("a table");
+
+    assert_eq!(records.table, Table {
+        columns: strings(&["Eda", "Name", "Value"]),
+        rows: vec![
+            strings(&["DipTrace", "RES_0402", "0330"]),
+            strings(&["DipTrace", "", "1"]),
+        ],
+    });
+    assert_eq!(
+        records.revision,
+        stores_service::csv_file::revision(&fs::read(folder.path().join("part-mappings.csv")).unwrap())
+    );
+}
+
+/// `STORE-17`, a BOM is written without headers, as JLCPCB's are, so every row is read, with JLCPCB's columns.
+#[test]
+fn reads_a_bom_without_headers_with_jlcpcbs_columns() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "bom.csv",
+        "\"MPN1 (MFR1)\",\"R1, R2\",\"RES_0402\",\"C1234\",\"2\"\n",
+    );
+
+    let table = read_table(TableKind::Bom, &source)
+        .unwrap()
+        .expect("a table")
+        .table;
+
+    assert_eq!(table, Table {
+        columns: strings(&["Comment", "Designator", "Footprint", "JLCPCB Part", "Quantity"]),
+        rows: vec![strings(&["MPN1 (MFR1)", "R1, R2", "RES_0402", "C1234", "2"])],
+    });
+}
+
+/// `STORE-17`, EDA placements are read in the EDA tool's format, with the fixed columns, then each field's name.
+#[test]
+fn reads_eda_placements_as_a_table() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "board1.csv",
+        "\"RefDes\",\"Name\",\"Value\",\"Side\",\"X\",\"Y\",\"Rotation\"\n\
+         \"R1\",\"RES_0402\",\"330R\",\"Top\",\"10\",\"20\",\"90\"\n",
+    );
+
+    let table = read_table(
+        TableKind::EdaPlacements {
+            eda_tool: EdaTool::DipTrace,
+        },
+        &source,
+    )
+    .unwrap()
+    .expect("a table")
+    .table;
+
+    assert_eq!(
+        table.columns,
+        strings(&["RefDes", "Place", "Side", "X", "Y", "Rotation", "name", "value"])
+    );
+    assert_eq!(table.rows, vec![strings(&[
+        "R1", "true", "top", "10", "20", "90", "RES_0402", "330R"
+    ])]);
+}
+
+/// `STORE-17`, a data source that doesn't exist is none, not an error, such as a BOM not yet built.
+#[test]
+fn a_table_whose_file_does_not_exist_is_none() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = Source::File(folder.path().join("bom.csv"));
+
+    assert_eq!(read_table(TableKind::Bom, &source), Ok(None));
 }
 
 /// `STORE-1`

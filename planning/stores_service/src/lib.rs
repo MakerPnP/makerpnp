@@ -87,6 +87,12 @@ impl StoresService {
                 StoresOutput::PartsWritten(csv_file::write_parts(&source, &revision, &parts).await)
             })
             .boxed(),
+            StoresOperation::ReadTable {
+                kind,
+                source,
+            } => {
+                stream::once(async move { StoresOutput::TableRead(csv_file::read_table(kind, &source).await) }).boxed()
+            }
         }
     }
 

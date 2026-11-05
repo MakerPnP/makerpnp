@@ -123,6 +123,63 @@ pub enum StoresOperation {
         revision: Revision,
         parts: Vec<PartsViewItem>,
     },
+
+    /// The records of a data source of the kind, as a table, if there is one (`STORE-17`). Answered with
+    /// [`StoresOutput::TableRead`].
+    ReadTable { kind: TableKind, source: Source },
+}
+
+/// The kinds of data source shown as a table, read-only, each with a format the service knows (`STORE-17`).
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord
+)]
+pub enum TableKind {
+    /// A design's placements, from an EDA tool's file, whose format depends on the tool.
+    EdaPlacements {
+        eda_tool: EdaTool,
+    },
+    PartMappings,
+    Substitutions,
+    AssemblyRules,
+    /// A variant's placements, as built.
+    Placements,
+    /// A variant's BOM, as built.
+    Bom,
+}
+
+/// A data source's records as a table: the names of its columns, in order, and its rows, in the order the data source
+/// has them, each a value for each column (`STORE-17`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Default)]
+pub struct Table {
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+}
+
+/// A data source's table, and the revision it was read from (`STORE-8`).
+#[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
+pub struct TableRecords {
+    pub revision: Revision,
+    pub table: Table,
+}
+
+/// Says how many rows there are, not what they are, as they're logged.
+impl Debug for TableRecords {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "TableRecords(<{} rows>, revision: {:?})",
+            self.table.rows.len(),
+            self.revision.0
+        )
+    }
 }
 
 /// Why parts weren't written (`STORE-15`).
@@ -310,6 +367,14 @@ impl Debug for StoresOperation {
                 revision.0,
                 parts.len()
             ),
+            StoresOperation::ReadTable {
+                kind,
+                source,
+            } => f
+                .debug_struct("ReadTable")
+                .field("kind", kind)
+                .field("source", source)
+                .finish(),
         }
     }
 }
@@ -348,6 +413,9 @@ pub enum StoresOutput {
 
     /// The revision of the parts written, or why they weren't.
     PartsWritten(Result<Revision, PartsWriteError>),
+
+    /// The table, or `None` if there's no data source, for example no file, or why it couldn't be read.
+    TableRead(Result<Option<TableRecords>, String>),
 }
 
 impl Operation for StoresOperation {
@@ -375,6 +443,7 @@ impl Debug for StoresOutput {
             StoresOutput::RecordsRead(result) => write!(f, "RecordsRead({:?})", result),
             StoresOutput::RecordsWritten(result) => write!(f, "RecordsWritten({:?})", result),
             StoresOutput::PartsWritten(result) => write!(f, "PartsWritten({:?})", result),
+            StoresOutput::TableRead(result) => write!(f, "TableRead({:?})", result),
         }
     }
 }

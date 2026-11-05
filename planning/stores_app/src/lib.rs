@@ -20,7 +20,8 @@ use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
 pub use stores_protocol::{
-    Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, StoresOperation, StoresOutput,
+    EdaTool, Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Revision, Source, StoresOperation, StoresOutput,
+    Table, TableKind, TableRecords,
 };
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -36,6 +37,26 @@ pub struct Model {
     /// Each data source, as the stores service identified it.
     sources: BTreeMap<PartsSource, PartsSourceState>,
 
+    /// Each table, by its kind and its data source as it was asked for, and the data source the stores service
+    /// identified it as, once it has (`STORE-17`).
+    table_aliases: BTreeMap<(TableKind, Source), Source>,
+
+    /// Each table, by its kind and its data source as the stores service identified it (`STORE-17`).
+    tables: BTreeMap<(TableKind, Source), TableState>,
+
+    error: Option<String>,
+}
+
+/// A data source shown as a table, read as parts are, see [`PartsSourceState`] (`STORE-17`).
+#[derive(Default)]
+struct TableState {
+    /// The table loaded, kept when a later load is refused.
+    table: Option<Table>,
+    revision: Option<Revision>,
+    reading: bool,
+    changed_while_reading: bool,
+    watching: bool,
+    /// Why the last load was refused, until one succeeds.
     error: Option<String>,
 }
 
@@ -68,6 +89,35 @@ pub struct StoresViewModel {
     /// Each data source the core was asked for, by the source as it was asked for, and as the stores service
     /// identified it, once it has.
     pub parts_sources: BTreeMap<PartsSource, PartsSourceStatus>,
+
+    /// Each table the core was asked for, by its kind and its data source as it was asked for, once the stores service
+    /// has identified it (`STORE-17`).
+    pub tables: Vec<TableStatus>,
+}
+
+impl StoresViewModel {
+    /// The status of the table, by its kind and its data source as it was asked for, or as the stores service
+    /// identified it.
+    pub fn table(&self, kind: TableKind, source: &Source) -> Option<&TableStatus> {
+        self.tables
+            .iter()
+            .find(|status| status.kind == kind && (status.asked == *source || status.source == *source))
+    }
+}
+
+/// What the core knows of a table (`STORE-17`).
+#[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
+pub struct TableStatus {
+    pub kind: TableKind,
+    /// The data source as it was asked for.
+    pub asked: Source,
+    /// The data source as the stores service identified it, the one its views have (`STORE-6`).
+    pub source: Source,
+    pub loaded: bool,
+    pub revision: Option<Revision>,
+    pub reading: bool,
+    /// Why the last load was refused, until one succeeds. The table loaded before, if any, is kept.
+    pub error: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
@@ -91,6 +141,7 @@ pub struct PartsSourceStatus {
 pub enum Effect {
     Render(RenderOperation),
     PartsView(PartsViewRendererOperation),
+    TableView(TableViewRendererOperation),
     Stores(StoresOperation),
 }
 
@@ -114,7 +165,30 @@ pub enum Event {
         change: PartsChange,
     },
 
+    /// Opens the data source's records of the kind as a table, read-only: loads it, unless it's loaded already, then
+    /// sends its view (`STORE-17`).
+    OpenTable { kind: TableKind, source: Source },
+
     // internal, the results of the store operations the core asked for.
+    /// The table's data source, as the stores service identified it.
+    TableSourceResolved {
+        kind: TableKind,
+        source: Source,
+        output: StoresOutput,
+    },
+    /// The table of the data source, as the stores service identified it.
+    TableRead {
+        kind: TableKind,
+        source: Source,
+        output: StoresOutput,
+    },
+    /// The table's data source, as the stores service identified it, may have changed (`STORE-9`).
+    TableSourceChanged {
+        kind: TableKind,
+        source: Source,
+        output: StoresOutput,
+    },
+
     /// The data source, as the stores service identified it.
     SourceResolved {
         source: PartsSource,
@@ -181,6 +255,26 @@ impl Operation for PartsViewRendererOperation {
     type Output = ();
 }
 
+/// A data source's records of a kind, as a table, read-only (`STORE-17`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct TableView {
+    pub kind: TableKind,
+    /// The data source as the stores service identified it (`STORE-6`).
+    pub source: Source,
+    /// The revision of the data source the table was read from (`STORE-8`).
+    pub revision: Revision,
+    pub table: Table,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
+pub enum TableViewRendererOperation {
+    View { view: TableView },
+}
+
+impl Operation for TableViewRendererOperation {
+    type Output = ();
+}
+
 fn parts_view_builder<Effect, Event>(view: PartsView) -> NotificationBuilder<Effect, Event, impl Future<Output = ()>>
 where
     Effect: From<Request<PartsViewRendererOperation>> + Send + 'static,
@@ -221,6 +315,19 @@ pub enum StoresError {
 
     #[error("Unable to change the parts. source: '{parts_source}', cause: {cause}")]
     UnableToChangeParts { parts_source: PartsSource, cause: String },
+
+    #[error("Unable to load the table. kind: {kind:?}, source: '{data_source}', cause: {cause}")]
+    UnableToLoadTable {
+        kind: TableKind,
+        data_source: Source,
+        cause: String,
+    },
+
+    #[error("Data source not found. source: '{data_source}'")]
+    DataSourceNotFound { data_source: Source },
+
+    #[error("The table is not loaded. kind: {kind:?}, source: '{data_source}'")]
+    TableNotLoaded { kind: TableKind, data_source: Source },
 
     /// The shell gave the result of a different operation, which is a fault in the shell.
     #[error("Unexpected stores output. output: {output}")]
@@ -281,9 +388,29 @@ impl App for Stores {
             }
         }
 
+        let tables = model
+            .table_aliases
+            .iter()
+            .filter_map(|((kind, asked), source)| {
+                model
+                    .tables
+                    .get(&(*kind, source.clone()))
+                    .map(|state| TableStatus {
+                        kind: *kind,
+                        asked: asked.clone(),
+                        source: source.clone(),
+                        loaded: state.table.is_some(),
+                        revision: state.revision.clone(),
+                        reading: state.reading,
+                        error: state.error.clone(),
+                    })
+            })
+            .collect();
+
         StoresViewModel {
             error: model.error.clone(),
             parts_sources,
+            tables,
         }
     }
 }
@@ -306,6 +433,99 @@ impl From<StoresError> for Refused {
 impl Stores {
     fn update_inner(event: Event, model: &mut Model) -> Result<Command<Effect, Event>, Refused> {
         match event {
+            Event::OpenTable {
+                kind,
+                source,
+            } => {
+                // already identified and loaded, so there's nothing to ask the stores service, `STORE-5`.
+                if let Some(resolved) = model
+                    .table_aliases
+                    .get(&(kind, source.clone()))
+                    .cloned()
+                {
+                    if Self::is_table_loaded(model, kind, &resolved) {
+                        info!("Table already loaded. kind: {:?}, source: '{}'", kind, resolved);
+                        return Ok(render::render().and(Self::table_view(model, kind, resolved)?));
+                    }
+                }
+
+                Ok(Self::resolve_table(kind, source))
+            }
+            Event::TableSourceResolved {
+                kind,
+                source,
+                output,
+            } => {
+                let StoresOutput::SourceResolved {
+                    source: resolved,
+                } = output
+                else {
+                    return Err(StoresError::UnexpectedOutput {
+                        output: format!("{:?}", output),
+                    }
+                    .into());
+                };
+                model
+                    .table_aliases
+                    .insert((kind, source), resolved.clone());
+                let state = model
+                    .tables
+                    .entry((kind, resolved.clone()))
+                    .or_default();
+
+                // `STORE-9`, once for each table, so that its views are updated whoever changes it.
+                let watch = match state.watching {
+                    true => Command::done(),
+                    false => {
+                        state.watching = true;
+                        Self::watch_table(kind, resolved.clone())
+                    }
+                };
+
+                let command = if state.table.is_some() {
+                    info!("Table already loaded. kind: {:?}, source: '{}'", kind, resolved);
+                    render::render().and(Self::table_view(model, kind, resolved)?)
+                } else if state.reading {
+                    // another open is reading it, and its view will be sent to every view of the table.
+                    render::render()
+                } else {
+                    state.reading = true;
+                    render::render().and(Self::read_table(kind, resolved))
+                };
+
+                Ok(command.and(watch))
+            }
+            Event::TableSourceChanged {
+                kind,
+                source,
+                output,
+            } => {
+                let StoresOutput::Changed = output else {
+                    return Err(StoresError::UnexpectedOutput {
+                        output: format!("{:?}", output),
+                    }
+                    .into());
+                };
+                info!("Data source changed. source: '{}', kind: {:?}", source, kind);
+                let state = model
+                    .tables
+                    .entry((kind, source.clone()))
+                    .or_default();
+
+                if state.reading {
+                    // the table being read may be from before the change, so it's read again once it is.
+                    state.changed_while_reading = true;
+                    return Ok(render::render());
+                }
+
+                state.reading = true;
+                Ok(render::render().and(Self::read_table(kind, source)))
+            }
+            Event::TableRead {
+                kind,
+                source,
+                output,
+            } => Self::table_read(model, kind, source, output),
             Event::OpenParts {
                 source,
             } => {
@@ -491,6 +711,147 @@ impl Stores {
                 Ok(render::render().and(Self::parts_view(model, source)?))
             }
         }
+    }
+
+    /// Keeps the table read, and sends its view, unless its revision is the one every view shows already, or reads it
+    /// again, if its data source changed while it was read (`STORE-17`, `STORE-8`, `STORE-9`).
+    fn table_read(
+        model: &mut Model,
+        kind: TableKind,
+        source: Source,
+        output: StoresOutput,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .tables
+            .entry((kind, source.clone()))
+            .or_default();
+
+        if state.changed_while_reading {
+            state.changed_while_reading = false;
+            info!(
+                "Data source changed while being read, reading it again. source: '{}', kind: {:?}",
+                source, kind
+            );
+            return Ok(Self::read_table(kind, source));
+        }
+        state.reading = false;
+
+        let error = match output {
+            StoresOutput::TableRead(Ok(Some(TableRecords {
+                revision,
+                table,
+            }))) => {
+                state.error = None;
+
+                if state.table.is_some() && state.revision.as_ref() == Some(&revision) {
+                    info!(
+                        "Table unchanged. kind: {:?}, source: '{}', revision: '{}'",
+                        kind, source, revision
+                    );
+                    return Ok(render::render());
+                }
+
+                info!(
+                    "Loaded table. kind: {:?}, source: '{}', row_count: {}, revision: '{}'",
+                    kind,
+                    source,
+                    table.rows.len(),
+                    revision
+                );
+                state.table = Some(table);
+                state.revision = Some(revision);
+
+                return Ok(render::render().and(Self::table_view(model, kind, source)?));
+            }
+            StoresOutput::TableRead(Ok(None)) => StoresError::DataSourceNotFound {
+                data_source: source,
+            },
+            StoresOutput::TableRead(Err(cause)) => StoresError::UnableToLoadTable {
+                kind,
+                data_source: source,
+                cause,
+            },
+            output => {
+                return Err(StoresError::UnexpectedOutput {
+                    output: format!("{:?}", output),
+                }
+                .into());
+            }
+        };
+
+        // `STORE-3`, the table loaded before, if any, is kept.
+        state.error = Some(error.to_string());
+        Err(error.into())
+    }
+
+    fn is_table_loaded(model: &Model, kind: TableKind, source: &Source) -> bool {
+        model
+            .tables
+            .get(&(kind, source.clone()))
+            .is_some_and(|state| state.table.is_some())
+    }
+
+    fn resolve_table(kind: TableKind, source: Source) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::ResolveSource {
+            source: source.clone(),
+        })
+        .then_send(move |output| Event::TableSourceResolved {
+            kind,
+            source: source.clone(),
+            output,
+        })
+    }
+
+    fn watch_table(kind: TableKind, source: Source) -> Command<Effect, Event> {
+        Command::stream_from_shell(StoresOperation::WatchSource {
+            source: source.clone(),
+        })
+        .then_send(move |output| Event::TableSourceChanged {
+            kind,
+            source: source.clone(),
+            output,
+        })
+    }
+
+    fn read_table(kind: TableKind, source: Source) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::ReadTable {
+            kind,
+            source: source.clone(),
+        })
+        .then_send(move |output| Event::TableRead {
+            kind,
+            source: source.clone(),
+            output,
+        })
+    }
+
+    fn table_view(model: &Model, kind: TableKind, source: Source) -> Result<Command<Effect, Event>, StoresError> {
+        let state = model
+            .tables
+            .get(&(kind, source.clone()));
+        let (table, revision) = state
+            .and_then(|state| {
+                state
+                    .table
+                    .as_ref()
+                    .zip(state.revision.as_ref())
+            })
+            .ok_or_else(|| StoresError::TableNotLoaded {
+                kind,
+                data_source: source.clone(),
+            })?;
+
+        let view = TableView {
+            kind,
+            source,
+            revision: revision.clone(),
+            table: table.clone(),
+        };
+
+        Ok(Command::notify_shell(TableViewRendererOperation::View {
+            view,
+        })
+        .into())
     }
 
     fn is_loaded(model: &Model, source: &PartsSource) -> bool {

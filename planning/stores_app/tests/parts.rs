@@ -104,6 +104,7 @@ impl Shell {
                     } = request.operation;
                     views.push(view);
                 }
+                Effect::TableView(request) => panic!("unexpected table view: {:?}", request.operation),
                 Effect::Stores(request) if request.operation.is_stream() => {
                     let StoresOperation::WatchSource {
                         source,
@@ -192,6 +193,9 @@ fn service(
             ..
         }
         | StoresOperation::WriteParts {
+            ..
+        }
+        | StoresOperation::ReadTable {
             ..
         }) => panic!("unexpected operation: {:?}", operation),
     }
@@ -754,6 +758,7 @@ fn a_change_while_the_parts_are_read_reads_them_again() {
                     } = request.operation;
                     views.push(view);
                 }
+                Effect::TableView(request) => panic!("unexpected table view: {:?}", request.operation),
                 Effect::Render(_) => {}
             }
         }

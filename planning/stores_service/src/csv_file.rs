@@ -10,7 +10,8 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use stores_protocol::{
-    Parts, PartsSource, PartsViewItem, PartsWriteError, Records, RecordsKind, RecordsOf, Revision, Source, StoresOutput,
+    EdaPlacement, Parts, PartsSource, PartsViewItem, PartsWriteError, Records, RecordsKind, RecordsOf, Revision,
+    Source, StoresOutput, Table, TableKind, TableRecords,
 };
 use tracing::{info, warn};
 
@@ -141,7 +142,7 @@ pub async fn read_records(kind: RecordsKind, source: &Source) -> Result<Option<R
             return Err(format!(
                 "Unable to read the records. source: '{}', cause: '{}'",
                 source, error
-            ))
+            ));
         }
     };
     let revision = revision(&contents);
@@ -171,6 +172,118 @@ pub async fn read_records(kind: RecordsKind, source: &Source) -> Result<Option<R
         revision,
         records,
     }))
+}
+
+/// The data source's records, of the kind, as a table, and their revision, or `None` if there's no file (`STORE-17`).
+///
+/// A CSV file's columns are its headers, a BOM's, which has none, those of JLCPCB's BOMs, and EDA placements' are those
+/// of [`eda_placements_table`].
+pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<TableRecords>, String> {
+    let Source::File(path) = source else {
+        return Err(format!("Unsupported source. source: {:?}", source));
+    };
+
+    info!("Loading {}. source: '{}'", table_name(kind), source);
+    // read once, so the revision is of the contents the table was read from.
+    let contents = match std::fs::read(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(format!(
+                "Unable to read the table. source: '{}', cause: '{}'",
+                source, error
+            ));
+        }
+    };
+    let revision = revision(&contents);
+
+    let table = match kind {
+        TableKind::EdaPlacements {
+            eda_tool,
+        } => stores::eda_placements::read_eda_placements(eda_tool, contents.as_slice())
+            .map(|placements| eda_placements_table(&placements)),
+        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules | TableKind::Placements => {
+            stores::csv::read_table(contents.as_slice(), true).map(|(columns, rows)| Table {
+                columns,
+                rows,
+            })
+        }
+        // written without headers, as JLCPCB's BOMs are.
+        TableKind::Bom => stores::csv::read_table(contents.as_slice(), false).map(|(_columns, rows)| Table {
+            columns: stores::bom::JLCPCB_BOM_COLUMNS
+                .iter()
+                .map(|column| column.to_string())
+                .collect(),
+            rows,
+        }),
+    }
+    .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+
+    Ok(Some(TableRecords {
+        revision,
+        table,
+    }))
+}
+
+/// EDA placements as a table, with the columns `RefDes`, `Place`, `Side`, `X`, `Y` and `Rotation`, then each field's
+/// name, in the order they're first found, a placement without a field having an empty value for it.
+pub fn eda_placements_table(placements: &[EdaPlacement]) -> Table {
+    let mut field_names: Vec<String> = vec![];
+    for field in placements
+        .iter()
+        .flat_map(|placement| placement.fields.iter())
+    {
+        if !field_names.contains(&field.name) {
+            field_names.push(field.name.clone());
+        }
+    }
+
+    let mut columns: Vec<String> = ["RefDes", "Place", "Side", "X", "Y", "Rotation"]
+        .iter()
+        .map(|column| column.to_string())
+        .collect();
+    columns.extend(field_names.iter().cloned());
+
+    let rows = placements
+        .iter()
+        .map(|placement| {
+            let mut row = vec![
+                placement.ref_des.clone(),
+                placement.place.to_string(),
+                placement.pcb_side.to_string(),
+                placement.x.to_string(),
+                placement.y.to_string(),
+                placement.rotation.to_string(),
+            ];
+            row.extend(field_names.iter().map(|name| {
+                placement
+                    .fields
+                    .iter()
+                    .find(|field| field.name == *name)
+                    .map_or(String::new(), |field| field.value.clone())
+            }));
+            row
+        })
+        .collect();
+
+    Table {
+        columns,
+        rows,
+    }
+}
+
+/// What a table's records are called in the logs, as other records are.
+fn table_name(kind: TableKind) -> &'static str {
+    match kind {
+        TableKind::EdaPlacements {
+            ..
+        } => "eda placements",
+        TableKind::PartMappings => "part mappings",
+        TableKind::Substitutions => "eda substitutions",
+        TableKind::AssemblyRules => "assembly rules",
+        TableKind::Placements => "placements",
+        TableKind::Bom => "bom",
+    }
 }
 
 /// Writes the records, replacing the file if there is one, and returns the revision written (`STORE-11`).

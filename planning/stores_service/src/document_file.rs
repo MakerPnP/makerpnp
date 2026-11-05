@@ -19,7 +19,7 @@ pub async fn read(path: &Path) -> Result<Option<Document>, String> {
             return Err(format!(
                 "Unable to read the document. path: {:?}, cause: '{}'",
                 path, error
-            ))
+            ));
         }
     };
     // read once, so the revision is of the contents read.

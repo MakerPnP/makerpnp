@@ -7,6 +7,10 @@ pub struct BOMRecord {
     pub quantity: usize,
 }
 
+/// The names of the columns of a [`JLCPCBBOMRecord`], in order, as a BOM is written without headers, so they can be
+/// shown.
+pub const JLCPCB_BOM_COLUMNS: [&str; 5] = ["Comment", "Designator", "Footprint", "JLCPCB Part", "Quantity"];
+
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct JLCPCBBOMRecord {
