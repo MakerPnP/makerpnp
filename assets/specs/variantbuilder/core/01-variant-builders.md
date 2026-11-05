@@ -65,8 +65,9 @@ service read its file, then build the variant from it (`STORE-14`), with each re
 folder (`VARB-1`). The EDA tool, the placements, the parts and the part mappings MUST be set, and if any isn't, the
 core MUST refuse with "`Variant builder incomplete. path: '<path>', missing: [<fields>]`", naming each field that isn't
 set, before reading any data source. The design's substitutions MUST be applied before the global ones, so that where
-both apply, the design's is applied, each list in its order; the core gives this order to the front ends, which show
-it (`VBGUI-7`). An output that isn't set MUST be the variant builder's name, with
+both apply, the design's is applied, each list in its order; the core gives this order to the front ends, with each
+substitution's source, "`Design`" or "`Global`", which they show (`VBGUI-7`). An output that isn't set MUST be the
+variant builder's name, with
 `_placements.csv` or `_bom.csv`, in its folder, so `job1.variant.json` writes `job1_placements.csv` and `job1_bom.csv`.
 The core MUST log "`Building variant. path: '<path>'`" once the file is read, then build as `STORE-14` says, then
 "`Built variant. path: '<path>'`" once its files are written.
@@ -106,7 +107,7 @@ updated. *Target*: as for `VARB-2` and `VARB-4`, the files are read, then writte
     files named after the variant builder, unless they're set (`VARB-5`, `STORE-14`);
   - building one that isn't complete names each field missing, and reads no data source (`VARB-5`);
   - building reads the design's substitutions before the global ones, and the order the core gives is the design's,
-    then the global ones, each in its list's order (`VARB-5`);
+    then the global ones, each in its list's order, with its source (`VARB-5`);
   - a variant builder's status says it was built, until it's configured, and why its last event failed (`VARB-7`);
   - creating assembly rules writes a file with none, and sets the variant builder's to it, and that an existing file
     isn't replaced, and nothing is written for a variant builder that doesn't exist (`VARB-8`).

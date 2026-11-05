@@ -6,7 +6,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::{revision, shell_with_a_design, source, Shell, BOM, PLACEMENTS};
-use variantbuilder_app::variant_builders::NEW_ASSEMBLY_RULES;
+use variantbuilder_app::variant_builders::{SubstitutionsSource, NEW_ASSEMBLY_RULES};
 use variantbuilder_app::{
     EdaTool, Event, NewVariantBuilder, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus,
     VariantBuilderView,
@@ -575,9 +575,14 @@ fn the_substitutions_are_in_the_order_they_are_applied() {
 
     assert_eq!(
         file.substitutions()
-            .map(|path| path.to_str().unwrap())
+            .map(|(source, path)| (source, path.to_str().unwrap()))
             .collect::<Vec<_>>(),
-        vec!["d1.csv", "d2.csv", "g1.csv", "g2.csv"]
+        vec![
+            (SubstitutionsSource::Design, "d1.csv"),
+            (SubstitutionsSource::Design, "d2.csv"),
+            (SubstitutionsSource::Global, "g1.csv"),
+            (SubstitutionsSource::Global, "g2.csv"),
+        ]
     );
 }
 

@@ -96,6 +96,15 @@ pub enum VariantBuilderChange {
     OutputBom(Option<PathBuf>),
 }
 
+/// The list a substitutions data source is from (`VARB-1`).
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubstitutionsSource {
+    /// The design's own, `design_substitutions`.
+    Design,
+    /// Shared by designs, `global_substitutions`.
+    Global,
+}
+
 /// What a new variant builder is created with (`VARB-2`): the design and variant names, which are kept as they are,
 /// and the changes made to it before it's written.
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Default)]
@@ -146,12 +155,18 @@ impl VariantBuilderFile {
         }
     }
 
-    /// The substitutions, in the order they're applied: the design's own first, so that where a design's substitution
-    /// and a global one both apply, the design's is applied, then the global ones, each in its list's order (`VARB-5`).
-    pub fn substitutions(&self) -> impl Iterator<Item = &PathBuf> {
+    /// The substitutions, in the order they're applied, with the list each is from: the design's own first, so that
+    /// where a design's substitution and a global one both apply, the design's is applied, then the global ones, each
+    /// in its list's order (`VARB-5`).
+    pub fn substitutions(&self) -> impl Iterator<Item = (SubstitutionsSource, &PathBuf)> {
         self.design_substitutions
             .iter()
-            .chain(self.global_substitutions.iter())
+            .map(|path| (SubstitutionsSource::Design, path))
+            .chain(
+                self.global_substitutions
+                    .iter()
+                    .map(|path| (SubstitutionsSource::Global, path)),
+            )
     }
 
     /// The file's contents, as JSON, indented as the planner's documents are.
@@ -219,7 +234,7 @@ impl VariantBuilderFile {
             part_mappings: source(part_mappings),
             substitutions: self
                 .substitutions()
-                .map(source)
+                .map(|(_, path)| source(path))
                 .collect(),
             load_out: self.load_out.as_ref().map(source),
             assembly_rules: self.assembly_rules.as_ref().map(source),
