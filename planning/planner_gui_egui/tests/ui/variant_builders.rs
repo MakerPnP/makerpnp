@@ -322,6 +322,64 @@ fn double_clicking_a_data_source_shows_its_table() {
     app.assert_not_logged("Event failed.");
 }
 
+/// `VBGUI-11`, each of a data source's columns can be resized, by dragging the edge on its right.
+#[test]
+#[ignore = "ISSUE-24: the header cell's drag, to reorder columns, takes the resize handle's, in egui_deferred_table"]
+fn a_data_sources_columns_can_be_resized() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(&mut app, "Part mappings", folder.join("part-mappings.csv"));
+
+    app.double_click_text("Part mappings: part-mappings.csv");
+    app.wait_for_tab("Part mappings: part-mappings.csv");
+    app.wait_for_text("RES_0402");
+
+    for (column, next_column) in [("Eda", "Name"), ("Name", "Value"), ("Value", "Manufacturer")] {
+        let before = app.text_position(next_column).x;
+        app.drag_column_edge(next_column, 50.0);
+        let after = app.text_position(next_column).x;
+        assert!(
+            (after - before - 50.0).abs() < 5.0,
+            "'{column}' is wider by {}",
+            after - before
+        );
+    }
+}
+
+/// `VBGUI-11`, `STORE-17`, a part mapping's patterns are shown as the data source has them, an exact value, a valid
+/// regular expression and one that isn't, which says why when it's hovered. Their colours are checked by
+/// `data_sources::table`'s tests, as the GUI's tests can't see them.
+#[test]
+fn a_part_mappings_patterns_are_shown_and_an_invalid_one_says_why() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    fs::write(
+        folder.join("patterns.csv"),
+        "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"/RES_.*/\",\"/330R[/\",\"MFR1\",\"MPN1\"\n",
+    )
+    .unwrap();
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(&mut app, "Part mappings", folder.join("patterns.csv"));
+
+    app.double_click_text("Part mappings: patterns.csv");
+    app.wait_for_tab("Part mappings: patterns.csv");
+    for text in ["DipTrace", "/RES_.*/", "/330R[/", "MFR1", "MPN1"] {
+        app.wait_for_text(text);
+    }
+    // the columns as the data source names them, the EDA tool's fields, then the part.
+    let headers = ["Eda", "Name", "Value", "Manufacturer", "Mpn"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
+
+    app.hover_text("/330R[/");
+    app.wait_for_text_containing("regex parse error");
+}
+
 /// `VBGUI-12`, `STORE-17`, `STORE-9`, the "Build output" panel is a placeholder for the mapping results, and the BOM,
 /// which isn't there until the variant is built, is shown once it's built.
 #[test]
@@ -353,6 +411,10 @@ fn the_bom_is_shown_once_the_variant_is_built() {
     app.wait_for_text("MPN1 (MFR1)");
     app.wait_for_text("R1");
     app.wait_until_no_text_contains("Data source not found.");
+    // the comment is the last column (`VBGUI-11`).
+    let headers =
+        ["Designator", "Footprint", "JLCPCB Part", "Quantity", "Comment"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
 
     app.wait_for_logs_in_order(&[
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(BuildOutput)",

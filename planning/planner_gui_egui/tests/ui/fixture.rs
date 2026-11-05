@@ -906,6 +906,16 @@ impl App {
         self.wait_for_the_layout();
     }
 
+    /// Moves the pointer over some text, which is unique, such as to show its tooltip.
+    pub fn hover_text(&mut self, text: &str) {
+        self.wait_for_text(text);
+        self.wait_for_the_layout();
+        let position = self.text_position(text);
+        self.harness
+            .event(egui::Event::PointerMoved(position));
+        self.harness.step();
+    }
+
     /// Where some text is, which is unique.
     pub fn text_position(&self, text: &str) -> egui::Pos2 {
         self.harness
@@ -1016,6 +1026,46 @@ impl App {
                 });
             self.harness.step();
         }
+        self.wait_for_the_layout();
+    }
+
+    /// Drags the edge on the left of a data table's column, by its header, so the column on its left is wider by
+    /// `width`. A header's text starts just right of the edge.
+    pub fn drag_column_edge(&mut self, column_header: &str, width: f32) {
+        self.wait_for_text(column_header);
+        self.wait_for_the_layout();
+        let header = self
+            .harness
+            .get_by_role_and_label(Role::Label, column_header)
+            .rect();
+        let start = egui::pos2(header.left() - 3.0, header.center().y);
+        let end = start + egui::vec2(width, 0.0);
+
+        self.harness
+            .event(egui::Event::PointerMoved(start));
+        self.harness.step();
+        self.harness
+            .event(egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+        self.harness.step();
+        for step in 1..=5 {
+            self.harness
+                .event(egui::Event::PointerMoved(start + (end - start) * (step as f32 / 5.0)));
+            self.harness.step();
+        }
+        self.harness
+            .event(egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+        self.harness.step();
+        self.harness.step();
         self.wait_for_the_layout();
     }
 

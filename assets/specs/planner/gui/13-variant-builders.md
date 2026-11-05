@@ -94,9 +94,12 @@ nodes "`Placements`" and "`BOM`" (`VBGUI-12`). Each folder is open to begin with
 
 **VBGUI-11 — A data source's panel.** *Confirmed.* A data source's node MUST open a panel named "`<field>: <file>`",
 showing "`File: <file>`", and its records as a table, read-only, with the stores core (`STORE-17`), which takes all of
-the panel's space, and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it. The
-placements are read in the variant builder's EDA tool's format, and parts are shown as the parts view shows them
-(`STORE-2`). A data source is opened once, however often its panel is shown, and is watched, so its table follows its
+the panel's space, and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it, in its
+order, a comment's last, and MUST be resizable, by dragging the edge on its right (not yet: `ISSUE-24`), the last
+filling the rest of the width. Each value is shown as what it is (`STORE-17`): a pattern in blue if it's a value matched
+exactly, in green if it's a valid regular expression, and in red if it isn't, saying why when it's hovered, as it was
+parsed when it was read, not as it's shown. The placements are read in the variant builder's EDA tool's format, and
+parts are shown as the parts view shows them (`STORE-2`). A data source is opened once, however often its panel is shown, and is watched, so its table follows its
 file (`STORE-9`). If the stores core refuses it, the panel MUST say why, such as "`Data source not found.`", with the
 table as it was last read. *Observed*: the tab's "`ShowPanel(<panel>)`", "`OpenTable(<kind>, <source>)`" and
 "`OpenParts(<source>)`" commands are logged.
@@ -164,6 +167,12 @@ watched (`VBGUI-11`).
   are logged, in order (`VBGUI-12`).
 - `tests/ui/variant_builders.rs` checks the "`Overview`"'s fields are narrower once the window is, as it's beside the
   explorer (`VBGUI-8`, `VBGUI-9`).
+- `tests/ui/variant_builders.rs` opens part mappings with an exact pattern, a valid regular expression and one that
+  isn't, checks each is shown, as the data source has it, its columns in order, and that hovering the one that isn't
+  valid says "`regex parse error`", and checks a BOM's comment is its last column. `data_sources::table`'s tests check
+  a pattern's colour, in the dark and light themes, as the GUI's tests can't see colours (`VBGUI-11`).
+- `tests/ui/variant_builders.rs`'s `a_data_sources_columns_can_be_resized` drags the edges between part mappings'
+  columns and checks each column is wider; it's ignored until `ISSUE-24` is fixed (`VBGUI-11`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, the changes kept when the core refuses them (`VBGUI-3`),
   as the GUI's tests can't make the file unwritable between it being read and written, and a table taking all of its
