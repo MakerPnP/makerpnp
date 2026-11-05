@@ -9,6 +9,7 @@ use validator::{ValidateArgs, ValidationError, ValidationErrors};
 use crate::sync::Enqueue;
 use crate::sync::{Value, ValueGuard};
 
+pub mod fields;
 pub mod validation;
 
 use crate::forms::transforms::resize_x_transform;
@@ -268,6 +269,18 @@ impl<'v_a, F: ValidateArgs<'v_a>, C> Form<F, C> {
                 });
             }
         }
+    }
+
+    /// The field's validation errors, translated, for forms laid out without `Tui`, see [`fields::FieldGrid`].
+    pub fn field_error_messages(&self, field_name: &str) -> Vec<String> {
+        self.field_validation_errors(field_name)
+            .map(|field_errors| {
+                field_errors
+                    .iter()
+                    .map(|field_error| translate_fluent(&field_error.code, &build_fluent_args(&field_error.params)))
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 
     pub fn field_validation_errors(&self, field_name: &str) -> Option<&Vec<ValidationError>> {

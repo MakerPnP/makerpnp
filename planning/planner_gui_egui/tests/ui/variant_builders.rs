@@ -145,6 +145,11 @@ fn a_new_design_variant_is_named_after_its_placements_unless_named() {
     assert!(!app.is_button_shown("Placements: Choose"));
     app.wait_for_field_value("Design name", "");
     app.wait_for_field_value("Variant name", "default");
+    // `VBGUI-8`, the fields are as wide as each other, filling the width.
+    let design_name = app.field_rect("Design name");
+    let variant_name = app.field_rect("Variant name");
+    assert_eq!(design_name.x_range(), variant_name.x_range());
+    assert!(design_name.width() > 1500.0, "{design_name:?}");
 
     app.choose_from_combo_box("EDA tool", "DipTrace");
     choose(&mut app, "Placements", folder.join("board1.csv"));
@@ -224,6 +229,51 @@ fn open_design_variant_shows_what_its_file_says() {
     app.assert_not_logged("Event failed.");
 }
 
+/// The table of the substitutions as they're applied, its header and its rows (`VBGUI-7`).
+fn applied(app: &mut App) -> Vec<Vec<String>> {
+    app.rows_below("Substitutions, in the order they're applied")
+        .into_iter()
+        .take_while(|row| row.len() == 3)
+        .collect()
+}
+
+/// `VBGUI-2`, `VBGUI-8`, each field is as wide as the others, filling the width, resized with the window, and the
+/// buttons of a list of files are lined up by its table.
+#[test]
+fn the_fields_fill_the_width_and_the_buttons_of_a_list_line_up() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    add(&mut app, "Design substitutions", folder.join("d1.csv"));
+    add(&mut app, "Design substitutions", folder.join("a-longer-name.csv"));
+
+    let widths = |app: &mut App| {
+        ["Placements", "Exclusion list", "Output BOM"]
+            .map(|label| app.field_rect(label))
+            .map(|rect| (rect.left(), rect.right()))
+    };
+    let [placements, exclusion_list, output_bom] = widths(&mut app);
+    assert_eq!(placements.0, exclusion_list.0);
+    assert_eq!(placements.0, output_bom.0);
+    assert_eq!(exclusion_list.1, output_bom.1);
+
+    for action in ["Move up", "Move down", "Remove"] {
+        let first = app.button_rect(&format!("Design substitutions: {action} d1.csv"));
+        let second = app.button_rect(&format!("Design substitutions: {action} a-longer-name.csv"));
+        assert_eq!(first.center().x, second.center().x, "{action}");
+    }
+
+    app.resize_window(egui::vec2(1200.0, 1080.0));
+    let [_, narrower, _] = widths(&mut app);
+    assert_eq!(narrower.0, exclusion_list.0);
+    assert!(
+        narrower.1 < exclusion_list.1 - 600.0,
+        "{narrower:?}, {exclusion_list:?}"
+    );
+}
+
 /// `VBGUI-2`, `VBGUI-7`, `VARB-5`, the substitutions are reordered, and shown in the order they're applied, the design's
 /// first.
 #[test]
@@ -238,24 +288,31 @@ fn substitutions_are_reordered_and_shown_in_the_order_they_are_applied() {
     add(&mut app, "Global substitutions", folder.join("g1.csv"));
     add(&mut app, "Design substitutions", folder.join("d1.csv"));
     add(&mut app, "Design substitutions", folder.join("d2.csv"));
-    app.wait_for_text("1. d1.csv");
-    app.wait_for_text("2. d2.csv");
-    app.wait_for_text("3. g1.csv");
     app.wait_until_text_is_gone("(none)");
+    assert_eq!(applied(&mut app), [
+        ["Order", "File", "Source"],
+        ["1", "d1.csv", "Design"],
+        ["2", "d2.csv", "Design"],
+        ["3", "g1.csv", "Global"],
+    ]);
     app.assert_button_is_disabled("Design substitutions: Move up d1.csv");
     app.assert_button_is_disabled("Design substitutions: Move down d2.csv");
     app.assert_button_is_disabled("Global substitutions: Move up g1.csv");
     app.assert_button_is_disabled("Global substitutions: Move down g1.csv");
 
     app.click_button("Design substitutions: Move down d1.csv");
-    app.wait_for_text("1. d2.csv");
-    app.wait_for_text("2. d1.csv");
-    app.wait_for_text("3. g1.csv");
+    app.wait_for_enabled_button("Design substitutions: Move up d1.csv");
+    assert_eq!(applied(&mut app), [
+        ["Order", "File", "Source"],
+        ["1", "d2.csv", "Design"],
+        ["2", "d1.csv", "Design"],
+        ["3", "g1.csv", "Global"],
+    ]);
 
     app.click_button("Design substitutions: Move up d1.csv");
-    app.wait_for_text("1. d1.csv");
+    app.wait_until_button_is_disabled("Design substitutions: Move up d1.csv");
     app.click_button("Design substitutions: Move down d1.csv");
-    app.wait_for_text("1. d2.csv");
+    app.wait_until_button_is_disabled("Design substitutions: Move down d1.csv");
 
     app.click_button("Save changes");
     app.wait_for_logs_in_order(&[

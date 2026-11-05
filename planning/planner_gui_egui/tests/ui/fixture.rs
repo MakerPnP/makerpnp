@@ -914,6 +914,68 @@ impl App {
             .center()
     }
 
+    /// The texts shown below the text, a row for each line, each row's texts from left to right, for example a table's
+    /// header and rows below its heading.
+    pub fn rows_below(&mut self, text: &str) -> Vec<Vec<String>> {
+        self.wait_for_text(text);
+        self.wait_for_the_layout();
+        let top = self.text_position(text).y;
+        let mut labels = self
+            .harness
+            .query_all(By::new().role(Role::Label))
+            .filter_map(|label| {
+                let center = label.rect().center();
+                let node = label.accesskit_node();
+                // a label's text is its value.
+                let text = node.label().or_else(|| node.value())?;
+                (center.y > top + 4.0).then_some((center.y, center.x, text.replace(ISOLATES, "")))
+            })
+            .collect::<Vec<_>>();
+        labels.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+        let mut rows: Vec<(f32, Vec<(f32, String)>)> = vec![];
+        for (y, x, text) in labels {
+            match rows.last_mut() {
+                Some((row_y, row)) if (y - *row_y).abs() < 4.0 => row.push((x, text)),
+                _ => rows.push((y, vec![(x, text)])),
+            }
+        }
+        rows.into_iter()
+            .map(|(_, mut row)| {
+                row.sort_by(|a, b| a.0.total_cmp(&b.0));
+                row.into_iter()
+                    .map(|(_, text)| text)
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Where the control, by its role and label, is shown.
+    pub fn rect_of(&mut self, role: Role, label: &str) -> egui::Rect {
+        self.wait_until(&format!("'{label}' was shown"), |app| app.is_shown(role, label));
+        self.wait_for_the_layout();
+        self.harness
+            .get_by_role_and_label(role, label)
+            .rect()
+    }
+
+    /// Where the text field is shown.
+    pub fn field_rect(&mut self, label: &str) -> egui::Rect {
+        self.rect_of(Role::TextInput, label)
+    }
+
+    /// Where the button is shown.
+    pub fn button_rect(&mut self, label: &str) -> egui::Rect {
+        self.rect_of(Role::Button, label)
+    }
+
+    /// Resizes the window, and waits for the layout.
+    pub fn resize_window(&mut self, size: egui::Vec2) {
+        self.harness.set_size(size);
+        self.harness.step();
+        self.wait_for_the_layout();
+    }
+
     pub fn wait_for_text_count(&mut self, text: &str, count: usize) {
         self.wait_until(&format!("text '{text}' was shown {count} times"), |app| {
             app.count_text(text) == count

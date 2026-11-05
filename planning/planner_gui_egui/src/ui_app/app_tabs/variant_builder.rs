@@ -9,15 +9,13 @@ use std::sync::Arc;
 
 use derivative::Derivative;
 use egui::{Button, TextEdit, Ui, Widget, WidgetText};
+use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
-use egui_taffy::taffy::prelude::{auto, length, percent};
-use egui_taffy::taffy::{AlignItems, FlexDirection, Size, Style};
-use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
-    DEFAULT_VARIANT_NAME, design_name, file_name, placements_extensions, stored_path,
+    DEFAULT_VARIANT_NAME, SubstitutionsSource, design_name, file_name, placements_extensions, stored_path,
 };
 use variantbuilder_app::{
     EdaTool, Event, NewVariantBuilder, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus,
@@ -25,7 +23,8 @@ use variantbuilder_app::{
 };
 
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
-use crate::forms::{Form, NamedResponse, PickerFieldAction, picker_field};
+use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
+use crate::forms::{Form, NamedResponse};
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
@@ -41,7 +40,7 @@ pub enum FileField {
 }
 
 /// A field of a variant builder whose value is a list of files, to which those chosen are added.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FilesField {
     GlobalSubstitutions,
     DesignSubstitutions,
@@ -558,127 +557,97 @@ fn csv_filters() -> Vec<FileFilter> {
 }
 
 impl VariantBuilderTab {
+    /// The new design variant's form, its labels in one column, and its fields filling the rest of the width
+    /// (`VBGUI-1`, `VBGUI-8`).
     fn show_form(&self, ui: &mut Ui, form: &Form<NewVariantBuilderFields, VariantBuilderTabUiCommand>) {
-        let default_style = || Style {
-            padding: length(2.),
-            gap: length(2.),
-            ..Default::default()
-        };
+        let fields = self.fields.lock().unwrap().clone();
+        let send = |command| self.component.send(command);
 
-        let has_eda_tool = self
-            .fields
-            .lock()
-            .unwrap()
-            .eda_tool
-            .is_some();
+        let eda_label = tr!("variant-builder-input-eda-tool");
+        let placements_label = tr!("variant-builder-input-placements");
+        let design_name_label = tr!("variant-builder-input-design-name");
+        let variant_name_label = tr!("variant-builder-input-variant-name");
+        let label_width = FieldGrid::label_width(ui, &[
+            eda_label.clone(),
+            placements_label.clone(),
+            design_name_label.clone(),
+            variant_name_label.clone(),
+        ]);
 
-        tui(ui, ui.id().with("new_variant_builder_form"))
-            .reserve_available_width()
-            .style(Style {
-                align_items: Some(AlignItems::Center),
-                flex_direction: FlexDirection::Column,
-                size: Size {
-                    width: percent(1.),
-                    height: auto(),
-                },
-                padding: length(8.),
-                gap: length(8.),
-                ..default_style()
-            })
-            .show(|tui| {
-                form.show_fields_vertical(tui, |form, tui| {
-                    form.add_field_ui("eda_tool", tr!("variant-builder-input-eda-tool"), tui, {
-                        move |ui: &mut Ui, fields, sender| {
-                            egui::ComboBox::from_id_salt(ui.id().with("eda_tool"))
-                                .width(ui.available_width())
-                                .selected_text(eda_tool_label(fields.eda_tool))
-                                .show_ui(ui, |ui| {
-                                    for eda_tool in [EdaTool::DipTrace, EdaTool::KiCad, EdaTool::EasyEda] {
-                                        if ui
-                                            .add(Button::selectable(
-                                                fields.eda_tool == Some(eda_tool),
-                                                eda_tool_label(Some(eda_tool)),
-                                            ))
-                                            .clicked()
-                                        {
-                                            sender
-                                                .send(VariantBuilderTabUiCommand::EdaToolChanged(Some(eda_tool)))
-                                                .expect("sent");
-                                        }
+        egui::Frame::new()
+            .inner_margin(8.0)
+            .show(ui, |ui| {
+                FieldGrid::new(ui.id().with("new_design_variant"), label_width).show(ui, |rows| {
+                    rows.row(&eda_label, |ui| {
+                        egui::ComboBox::from_id_salt(ui.id().with("eda_tool"))
+                            .width(ui.available_width())
+                            .selected_text(eda_tool_label(fields.eda_tool))
+                            .show_ui(ui, |ui| {
+                                for eda_tool in [EdaTool::DipTrace, EdaTool::KiCad, EdaTool::EasyEda] {
+                                    if ui
+                                        .add(Button::selectable(
+                                            fields.eda_tool == Some(eda_tool),
+                                            eda_tool_label(Some(eda_tool)),
+                                        ))
+                                        .clicked()
+                                    {
+                                        send(VariantBuilderTabUiCommand::EdaToolChanged(Some(eda_tool)));
                                     }
-                                })
-                                .response
-                        }
+                                }
+                            })
+                            .response
+                            .named(eda_label.clone());
                     });
+                    rows.errors(&form.field_error_messages("eda_tool"));
 
                     // `VBGUI-1`, the placements are chosen from the EDA tool's files, so once it's chosen.
-                    if has_eda_tool {
-                        let placements_label = tr!("variant-builder-input-placements");
-                        form.add_field_tui("placements", placements_label.clone(), tui, {
-                            move |tui: &mut Tui, fields, sender| {
-                                let value = fields
-                                    .placements
-                                    .as_ref()
-                                    .map_or("".to_string(), |path| path.display().to_string());
-
-                                match picker_field(tui, &placements_label, &value) {
-                                    Some(PickerFieldAction::Clear) => sender
-                                        .send(VariantBuilderTabUiCommand::ClearPlacementsClicked)
-                                        .expect("sent"),
-                                    Some(PickerFieldAction::Pick) => sender
-                                        .send(VariantBuilderTabUiCommand::PickPlacementsClicked)
-                                        .expect("sent"),
-                                    None => {}
-                                }
-                            }
-                        });
+                    if fields.eda_tool.is_some() {
+                        let value = fields
+                            .placements
+                            .as_ref()
+                            .map_or("".to_string(), |path| path.display().to_string());
+                        match rows.picker(&placements_label, &value) {
+                            Some(PickerAction::Clear) => send(VariantBuilderTabUiCommand::ClearPlacementsClicked),
+                            Some(PickerAction::Choose) => send(VariantBuilderTabUiCommand::PickPlacementsClicked),
+                            _ => {}
+                        }
+                        rows.errors(&form.field_error_messages("placements"));
                     }
 
-                    for (field_name, label, command) in [
+                    for (field_name, label, value, command) in [
                         (
                             "design_name",
-                            tr!("variant-builder-input-design-name"),
+                            &design_name_label,
+                            &fields.design_name,
                             VariantBuilderTabUiCommand::DesignNameChanged as fn(String) -> VariantBuilderTabUiCommand,
                         ),
                         (
                             "variant_name",
-                            tr!("variant-builder-input-variant-name"),
+                            &variant_name_label,
+                            &fields.variant_name,
                             VariantBuilderTabUiCommand::VariantNameChanged,
                         ),
                     ] {
-                        form.add_field_ui(field_name, label, tui, {
-                            move |ui: &mut Ui, fields, sender| {
-                                let value = match field_name {
-                                    "design_name" => &fields.design_name,
-                                    _ => &fields.variant_name,
-                                };
-                                let mut text = value.clone();
-                                let output = TextEdit::singleline(&mut text)
-                                    .desired_width(ui.available_width())
-                                    .show(ui);
-
-                                if *value != text {
-                                    sender
-                                        .send(command(text))
-                                        .expect("sent")
-                                }
-
-                                output.response.response
+                        rows.row(label, |ui| {
+                            let mut text = value.clone();
+                            TextEdit::singleline(&mut text)
+                                .desired_width(ui.available_width())
+                                .ui(ui)
+                                .named(label.clone());
+                            if *value != text {
+                                send(command(text));
                             }
                         });
+                        rows.errors(&form.field_error_messages(field_name));
                     }
                 });
 
-                if tui
-                    .style(Style {
-                        ..default_style()
-                    })
-                    .enabled_ui(form.is_valid())
-                    .ui_add(Button::new(tr!("form-common-button-ok")))
+                ui.add_space(8.0);
+                if ui
+                    .add_enabled(form.is_valid(), Button::new(tr!("form-common-button-ok")))
                     .clicked()
                 {
-                    self.component
-                        .send(VariantBuilderTabUiCommand::Submit);
+                    send(VariantBuilderTabUiCommand::Submit);
                 }
             });
     }
@@ -746,114 +715,33 @@ impl VariantBuilderTab {
             });
     }
 
-    /// The variant builder's fields: what it's of, which can't be changed, then the rest in groups (`VBGUI-2`).
+    /// The variant builder's fields: what it's of, which can't be changed, then the rest in groups (`VBGUI-2`), each
+    /// group a grid whose labels are as wide as the widest of every group's, so every field is as wide as the others,
+    /// filling the rest of the width (`VBGUI-8`).
     fn show_fields(&self, ui: &mut Ui, file: &VariantBuilderFile) {
         let send = |command| self.component.send(command);
 
-        let grid = |ui: &mut Ui, id: &str, add_contents: &mut dyn FnMut(&mut Ui)| {
-            egui::Grid::new(ui.id().with(id))
-                .num_columns(2)
-                .striped(true)
-                .show(ui, |ui| add_contents(ui));
-        };
-        let group = |ui: &mut Ui, id: &str, title: String, add_contents: &mut dyn FnMut(&mut Ui)| {
-            ui.group(|ui| {
-                ui.set_width(ui.available_width());
-                ui.strong(title);
-                grid(ui, id, add_contents);
-            });
-        };
-
-        // `VBGUI-1`, set as it's created, and kept as they are.
-        grid(ui, "variant_builder_of", &mut |ui| {
-            let placements = file
-                .placements
-                .as_ref()
-                .map_or("".to_string(), |path| path.display().to_string());
-            for (label, value) in [
-                (tr!("variant-builder-input-eda-tool"), eda_tool_label(file.eda_tool)),
-                (tr!("variant-builder-input-placements"), placements),
-                (tr!("variant-builder-input-design-name"), file.design_name.clone()),
-                (tr!("variant-builder-input-variant-name"), file.variant_name.clone()),
-            ] {
-                show_read_only(ui, label, value);
-            }
-        });
-
-        group(
-            ui,
-            "part_matching",
-            tr!("variant-builder-group-part-matching"),
-            &mut |ui| {
-                for (field, label, value) in [
-                    (FileField::Parts, tr!("variant-builder-input-parts"), &file.parts),
-                    (
-                        FileField::PartMappings,
-                        tr!("variant-builder-input-part-mappings"),
-                        &file.part_mappings,
-                    ),
-                ] {
-                    self.show_file(ui, field, label, value, false);
-                }
-                self.show_files(
-                    ui,
-                    file,
-                    FilesField::GlobalSubstitutions,
-                    tr!("variant-builder-input-global-substitutions"),
-                );
-            },
-        );
-
-        group(
-            ui,
-            "design_specific",
-            tr!("variant-builder-group-design-specific"),
-            &mut |ui| {
-                self.show_file(
-                    ui,
-                    FileField::AssemblyRules,
-                    tr!("variant-builder-input-assembly-rules"),
-                    &file.assembly_rules,
-                    true,
-                );
-                self.show_files(
-                    ui,
-                    file,
-                    FilesField::DesignSubstitutions,
-                    tr!("variant-builder-input-design-substitutions"),
-                );
-            },
-        );
-
-        group(
-            ui,
-            "reference_designators",
-            tr!("variant-builder-group-reference-designators"),
-            &mut |ui| {
-                for (field, label) in [
-                    (ListField::RefDesList, tr!("variant-builder-input-ref-des-list")),
-                    (
-                        ListField::RefDesExclusionList,
-                        tr!("variant-builder-input-ref-des-exclusion-list"),
-                    ),
-                    (
-                        ListField::RefDesNoPlaceList,
-                        tr!("variant-builder-input-ref-des-no-place-list"),
-                    ),
-                ] {
-                    self.show_list(ui, file, field, label);
-                }
-            },
-        );
-
-        group(ui, "output", tr!("variant-builder-group-output"), &mut |ui| {
-            self.show_outputs(ui, file, &send)
-        });
-    }
-
-    /// The outputs' paths, typed, relative to the variant builder's folder, or its defaults if they're empty.
-    fn show_outputs(&self, ui: &mut Ui, file: &VariantBuilderFile, send: &dyn Fn(VariantBuilderTabUiCommand)) {
-        for (label, value, change) in [
+        let eda_label = tr!("variant-builder-input-eda-tool");
+        let placements_label = tr!("variant-builder-input-placements");
+        let design_name_label = tr!("variant-builder-input-design-name");
+        let variant_name_label = tr!("variant-builder-input-variant-name");
+        let parts_label = tr!("variant-builder-input-parts");
+        let part_mappings_label = tr!("variant-builder-input-part-mappings");
+        let global_label = tr!("variant-builder-input-global-substitutions");
+        let assembly_rules_label = tr!("variant-builder-input-assembly-rules");
+        let design_label = tr!("variant-builder-input-design-substitutions");
+        let lists = [
+            (ListField::RefDesList, tr!("variant-builder-input-ref-des-list")),
+            (
+                ListField::RefDesExclusionList,
+                tr!("variant-builder-input-ref-des-exclusion-list"),
+            ),
+            (
+                ListField::RefDesNoPlaceList,
+                tr!("variant-builder-input-ref-des-no-place-list"),
+            ),
+        ];
+        let outputs = [
             (
                 tr!("variant-builder-input-output-placements"),
                 &file.output_placements,
@@ -864,109 +752,176 @@ impl VariantBuilderTab {
                 &file.output_bom,
                 VariantBuilderChange::OutputBom,
             ),
-        ] {
-            ui.label(&label);
-            let mut text = value
-                .as_ref()
-                .map_or("".to_string(), |path| path.display().to_string());
-            if TextEdit::singleline(&mut text)
-                .hint_text(tr!("variant-builder-output-default"))
-                .ui(ui)
-                .named(label)
-                .changed()
-            {
-                let path = (!text.trim().is_empty()).then(|| PathBuf::from(text.trim()));
-                send(VariantBuilderTabUiCommand::Changed(change(path)));
-            }
-            ui.end_row();
-        }
-    }
+        ];
 
-    /// A file field: the file shown, and buttons named after the field to clear it and to choose it, and, if `new`, to
-    /// create a new one (`VBGUI-6`).
-    fn show_file(&self, ui: &mut Ui, field: FileField, label: String, value: &Option<PathBuf>, new: bool) {
-        ui.label(&label);
-        ui.horizontal(|ui| {
-            let mut value = value
+        let mut labels = vec![
+            eda_label.clone(),
+            placements_label.clone(),
+            design_name_label.clone(),
+            variant_name_label.clone(),
+            parts_label.clone(),
+            part_mappings_label.clone(),
+            global_label.clone(),
+            assembly_rules_label.clone(),
+            design_label.clone(),
+        ];
+        labels.extend(
+            lists
+                .iter()
+                .map(|(_, label)| label.clone()),
+        );
+        labels.extend(
+            outputs
+                .iter()
+                .map(|(label, ..)| label.clone()),
+        );
+        let label_width = FieldGrid::label_width(ui, &labels);
+
+        let group = |ui: &mut Ui, id: &str, title: Option<String>, add_rows: &mut dyn FnMut(&mut FieldRows)| {
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                if let Some(title) = title {
+                    ui.strong(title);
+                }
+                FieldGrid::new(ui.id().with(id), label_width).show(ui, |rows| add_rows(rows));
+            });
+        };
+
+        // `VBGUI-1`, set as it's created, and kept as they are.
+        group(ui, "variant_builder_of", None, &mut |rows| {
+            let placements = file
+                .placements
                 .as_ref()
                 .map_or("".to_string(), |path| path.display().to_string());
-            TextEdit::singleline(&mut value)
-                .interactive(false)
-                .ui(ui)
-                .named(label.clone());
-            if Button::new("x")
-                .ui(ui)
-                .named(format!("{}: {}", label, tr!("form-common-button-clear")))
-                .clicked()
-            {
-                self.component
-                    .send(VariantBuilderTabUiCommand::ClearClicked(field));
-            }
-            if Button::new("...")
-                .ui(ui)
-                .named(format!("{}: {}", label, tr!("form-common-button-choose")))
-                .clicked()
-            {
-                self.component
-                    .send(VariantBuilderTabUiCommand::PickClicked(field));
-            }
-            if new
-                && Button::new(tr!("variant-builder-button-new"))
-                    .ui(ui)
-                    .named(format!("{}: {}", label, tr!("variant-builder-button-new")))
-                    .clicked()
-            {
-                self.component
-                    .send(VariantBuilderTabUiCommand::NewAssemblyRulesClicked);
-            }
+            rows.read_only(&eda_label, &eda_tool_label(file.eda_tool));
+            rows.read_only(&placements_label, &placements);
+            rows.read_only(&design_name_label, &file.design_name);
+            rows.read_only(&variant_name_label, &file.variant_name);
         });
-        ui.end_row();
-    }
 
-    /// A list of files: each file, with buttons to move it up and down the list, and to remove it, named after the field
-    /// and the file, then a button to add files (`VBGUI-2`).
-    fn show_files(&self, ui: &mut Ui, file: &VariantBuilderFile, field: FilesField, label: String) {
-        ui.label(&label);
-        ui.vertical(|ui| {
-            let paths = files(file, field);
-            for (index, path) in paths.iter().enumerate() {
-                ui.horizontal(|ui| {
-                    let path = path.display().to_string();
-                    ui.label(&path);
-                    for (enabled, text, action, command) in [
-                        (
-                            index > 0,
-                            "⏶",
-                            tr!("variant-builder-button-move-up"),
-                            VariantBuilderTabUiCommand::MoveUpClicked(field, index),
-                        ),
-                        (
-                            index + 1 < paths.len(),
-                            "⏷",
-                            tr!("variant-builder-button-move-down"),
-                            VariantBuilderTabUiCommand::MoveDownClicked(field, index),
-                        ),
-                    ] {
-                        if ui
-                            .add_enabled(enabled, Button::new(text))
-                            .named(format!("{}: {} {}", label, action, path))
-                            .clicked()
-                        {
-                            self.component.send(command);
-                        }
-                    }
-                    if Button::new("x")
+        group(
+            ui,
+            "part_matching",
+            Some(tr!("variant-builder-group-part-matching")),
+            &mut |rows| {
+                self.show_file(rows, FileField::Parts, &parts_label, &file.parts);
+                self.show_file(rows, FileField::PartMappings, &part_mappings_label, &file.part_mappings);
+                self.show_files(rows, file, FilesField::GlobalSubstitutions, &global_label);
+            },
+        );
+
+        group(
+            ui,
+            "design_specific",
+            Some(tr!("variant-builder-group-design-specific")),
+            &mut |rows| {
+                self.show_file(
+                    rows,
+                    FileField::AssemblyRules,
+                    &assembly_rules_label,
+                    &file.assembly_rules,
+                );
+                self.show_files(rows, file, FilesField::DesignSubstitutions, &design_label);
+            },
+        );
+
+        group(
+            ui,
+            "reference_designators",
+            Some(tr!("variant-builder-group-reference-designators")),
+            &mut |rows| {
+                for (field, label) in lists.iter() {
+                    self.show_list(rows, file, *field, label);
+                }
+            },
+        );
+
+        group(ui, "output", Some(tr!("variant-builder-group-output")), &mut |rows| {
+            // typed, relative to the variant builder's folder, or its defaults if they're empty.
+            for (label, value, change) in outputs.iter() {
+                rows.row(label, |ui| {
+                    let mut text = value
+                        .as_ref()
+                        .map_or("".to_string(), |path| path.display().to_string());
+                    if TextEdit::singleline(&mut text)
+                        .hint_text(tr!("variant-builder-output-default"))
+                        .desired_width(ui.available_width())
                         .ui(ui)
-                        .named(format!("{}: {} {}", label, tr!("variant-builder-button-remove"), path))
-                        .clicked()
+                        .named(label.clone())
+                        .changed()
                     {
-                        self.component
-                            .send(VariantBuilderTabUiCommand::RemoveClicked(field, index));
+                        let path = (!text.trim().is_empty()).then(|| PathBuf::from(text.trim()));
+                        send(VariantBuilderTabUiCommand::Changed(change(path)));
                     }
                 });
             }
-            if Button::new(tr!("variant-builder-button-add"))
-                .ui(ui)
+        });
+    }
+
+    /// A file field: the file shown, and buttons named after the field to clear it and to choose it, and, for the
+    /// assembly rules, to create new ones (`VBGUI-6`).
+    fn show_file(&self, rows: &mut FieldRows, field: FileField, label: &str, value: &Option<PathBuf>) {
+        let value = value
+            .as_ref()
+            .map_or("".to_string(), |path| path.display().to_string());
+        let others = match field {
+            FileField::AssemblyRules => vec![tr!("variant-builder-button-new")],
+            _ => vec![],
+        };
+        let action = rows.row(label, |ui| picker(ui, label, &value, &others));
+        let command = match action {
+            Some(PickerAction::Clear) => VariantBuilderTabUiCommand::ClearClicked(field),
+            Some(PickerAction::Choose) => VariantBuilderTabUiCommand::PickClicked(field),
+            Some(PickerAction::Other(_)) => VariantBuilderTabUiCommand::NewAssemblyRulesClicked,
+            None => return,
+        };
+        self.component.send(command);
+    }
+
+    /// A list of files, in a table, a row for each file: its place in the list, its path, and buttons to move it up and
+    /// down the list, and to remove it, named after the field and the file, lined up by the table, then a button to add
+    /// files (`VBGUI-2`).
+    fn show_files(&self, rows: &mut FieldRows, file: &VariantBuilderFile, field: FilesField, label: &str) {
+        let paths = files(file, field);
+        rows.row(label, |ui| {
+            let row_height = ui.spacing().interact_size.y;
+            TableBuilder::new(ui)
+                .id_salt(field)
+                .striped(true)
+                .vscroll(false)
+                .auto_shrink([false, true])
+                .column(Column::auto())
+                .column(Column::remainder())
+                .column(Column::auto())
+                .header(row_height, |mut header| {
+                    for key in [
+                        "variant-builder-column-order",
+                        "variant-builder-column-file",
+                        "variant-builder-column-actions",
+                    ] {
+                        header.col(|ui| {
+                            ui.strong(tr!(key));
+                        });
+                    }
+                })
+                .body(|mut body| {
+                    for (index, path) in paths.iter().enumerate() {
+                        let path = path.display().to_string();
+                        body.row(row_height, |mut row| {
+                            row.col(|ui| {
+                                ui.label((index + 1).to_string());
+                            });
+                            row.col(|ui| {
+                                ui.label(&path);
+                            });
+                            row.col(|ui| {
+                                ui.horizontal(|ui| self.show_file_actions(ui, field, label, &path, index, paths.len()));
+                            });
+                        });
+                    }
+                });
+            if ui
+                .button(tr!("variant-builder-button-add"))
                 .named(format!("{}: {}", label, tr!("variant-builder-button-add")))
                 .clicked()
             {
@@ -974,12 +929,43 @@ impl VariantBuilderTab {
                     .send(VariantBuilderTabUiCommand::AddClicked(field));
             }
         });
-        ui.end_row();
+    }
+
+    /// The buttons to move the file at the index up and down its list, and to remove it, each named after the field,
+    /// what it does, and the file.
+    fn show_file_actions(&self, ui: &mut Ui, field: FilesField, label: &str, path: &str, index: usize, count: usize) {
+        for (enabled, text, action, command) in [
+            (
+                index > 0,
+                "⏶",
+                tr!("variant-builder-button-move-up"),
+                VariantBuilderTabUiCommand::MoveUpClicked(field, index),
+            ),
+            (
+                index + 1 < count,
+                "⏷",
+                tr!("variant-builder-button-move-down"),
+                VariantBuilderTabUiCommand::MoveDownClicked(field, index),
+            ),
+            (
+                true,
+                "x",
+                tr!("variant-builder-button-remove"),
+                VariantBuilderTabUiCommand::RemoveClicked(field, index),
+            ),
+        ] {
+            if ui
+                .add_enabled(enabled, Button::new(text))
+                .named(format!("{}: {} {}", label, action, path))
+                .clicked()
+            {
+                self.component.send(command);
+            }
+        }
     }
 
     /// A ref-des list, typed separated by commas.
-    fn show_list(&self, ui: &mut Ui, file: &VariantBuilderFile, field: ListField, label: String) {
-        ui.label(&label);
+    fn show_list(&self, rows: &mut FieldRows, file: &VariantBuilderFile, field: ListField, label: &str) {
         let list = match field {
             ListField::RefDesList => &file.ref_des_list,
             ListField::RefDesExclusionList => &file.ref_des_exclusion_list,
@@ -990,41 +976,69 @@ impl VariantBuilderTab {
             .get(&field)
             .cloned()
             .unwrap_or_else(|| list.join(", "));
-        if TextEdit::singleline(&mut text)
-            .ui(ui)
-            .named(label)
-            .changed()
-        {
-            self.component
-                .send(VariantBuilderTabUiCommand::ListChanged(field, text));
-        }
-        ui.end_row();
+        rows.row(label, |ui| {
+            if TextEdit::singleline(&mut text)
+                .desired_width(ui.available_width())
+                .ui(ui)
+                .named(label.to_string())
+                .changed()
+            {
+                self.component
+                    .send(VariantBuilderTabUiCommand::ListChanged(field, text));
+            }
+        });
     }
 }
 
-/// The substitutions, numbered, in the order the core applies them, with the changes not yet saved, so the user sees
-/// the effect of the order of the design's and the global ones (`VBGUI-7`, `VARB-5`).
+/// The substitutions, in a table, in the order the core applies them, with the changes not yet saved, so the user sees
+/// the effect of the order of the design's and the global ones: each one's place, its path, and the list it's from
+/// (`VBGUI-7`, `VARB-5`).
 fn show_substitutions_applied(ui: &mut Ui, file: &VariantBuilderFile) {
     ui.strong(tr!("variant-builder-substitutions-applied"));
-    let mut substitutions = file.substitutions().peekable();
-    if substitutions.peek().is_none() {
+    let substitutions = file.substitutions().collect::<Vec<_>>();
+    if substitutions.is_empty() {
         ui.label(tr!("variant-builder-substitutions-applied-none"));
-    }
-    for (index, path) in substitutions.enumerate() {
-        ui.label(format!("{}. {}", index + 1, path.display()));
+    } else {
+        let row_height = ui.spacing().interact_size.y;
+        TableBuilder::new(ui)
+            .id_salt("substitutions_applied")
+            .striped(true)
+            .vscroll(false)
+            .auto_shrink([false, true])
+            .column(Column::auto())
+            .column(Column::remainder())
+            .column(Column::auto())
+            .header(row_height, |mut header| {
+                for key in [
+                    "variant-builder-column-order",
+                    "variant-builder-column-file",
+                    "variant-builder-column-source",
+                ] {
+                    header.col(|ui| {
+                        ui.strong(tr!(key));
+                    });
+                }
+            })
+            .body(|mut body| {
+                for (index, (source, path)) in substitutions.iter().enumerate() {
+                    body.row(row_height, |mut row| {
+                        row.col(|ui| {
+                            ui.label((index + 1).to_string());
+                        });
+                        row.col(|ui| {
+                            ui.label(path.display().to_string());
+                        });
+                        row.col(|ui| {
+                            ui.label(match source {
+                                SubstitutionsSource::Design => tr!("variant-builder-source-design"),
+                                SubstitutionsSource::Global => tr!("variant-builder-source-global"),
+                            });
+                        });
+                    });
+                }
+            });
     }
     ui.separator();
-}
-
-/// A read-only field, named for assistive technology and tests.
-fn show_read_only(ui: &mut Ui, label: String, value: String) {
-    ui.label(&label);
-    let mut value = value;
-    TextEdit::singleline(&mut value)
-        .interactive(false)
-        .ui(ui)
-        .named(label);
-    ui.end_row();
 }
 
 fn eda_tool_label(eda_tool: Option<EdaTool>) -> String {

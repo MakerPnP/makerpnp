@@ -33,11 +33,13 @@ what the file says: first what's set as it's created (`VBGUI-1`), then the rest 
 | "`Reference designators`" | "`Ref-des list`", "`Exclusion list`", "`No-place list`" |
 | "`Output`" | "`Output placements`", "`Output BOM`" |
 
-Each ref-des list is shown, and typed, separated by commas. Each list of files shows each file, with
-"`<field>: Move up <file>`" and "`<field>: Move down <file>`" to move it one place up or down the list, disabled for the
-first and the last, and "`<field>: Remove <file>`" to remove it, and "`<field>: Add`" to add the files chosen with a
-dialog. The load-out isn't shown yet. *Target*: a list of load-outs, one for each pick-and-place machine of the job
-(`VARB-1`), shown as a list of files.
+Each ref-des list is shown, and typed, separated by commas. Each list of files is a table, with the columns
+"`Order`", the file's place in the list, "`File`", its path, relative to the variant builder's folder or absolute
+(`VARB-1`), and "`Actions`", with "`<field>: Move up <file>`" and "`<field>: Move down <file>`" to move it one place up
+or down the list, disabled for the first and the last, and "`<field>: Remove <file>`" to remove it, each lined up with
+the same button of the other rows, and "`<field>: Add`", below it, adds the files chosen with a dialog. The load-out
+isn't shown yet. *Target*: a list of load-outs, one for each pick-and-place machine of the job (`VARB-1`), shown as a
+list of files.
 
 **VBGUI-3 — Changing a design variant.** *Confirmed.* The user MUST be able to change each field in the groups: the
 text fields by typing, each data source by choosing its file with "`<field>: Choose`", or clearing it with
@@ -62,9 +64,16 @@ then create assembly rules there (`VARB-8`), which the variant builder's assembl
 change to them not yet saved. If the core refuses, the tab MUST show why.
 
 **VBGUI-7 — The substitutions, as they're applied.** *Confirmed.* Below the groups' separator, the tab MUST show
-"`Substitutions, in the order they're applied`", and each substitution, numbered, "`<n>. <file>`", in the order the
-core applies them (`VARB-5`): the design's, then the global ones, with the changes not yet saved, so that adding,
-moving or removing one shows at once where it's applied. With none, it MUST show "`(none)`".
+"`Substitutions, in the order they're applied`", and a table of the substitutions, in the order the core applies them
+(`VARB-5`): the design's, then the global ones, with the changes not yet saved, so that adding, moving or removing one
+shows at once where it's applied. Its columns MUST be "`Order`", its place, "`File`", its path, as in its list, and
+"`Source`", "`Design`" or "`Global`". With none, it MUST show "`(none)`" rather than the table.
+
+**VBGUI-8 — The layout.** *Confirmed.* The "`New design variant`" form, and each group of a design variant's fields,
+MUST be laid out in two columns: the labels, as wide as the widest label of the form, or of all the groups, and the
+fields, filling the rest of the width, so every field is as wide as the others, and lines up with them, and is resized
+with the tab. A file's buttons are on the right of its field. The layout doesn't use `egui_taffy`, which is to be
+removed from the GUI, but the form helpers' `FieldGrid`, a grid of egui's own.
 
 ## Acceptance criteria
 
@@ -83,16 +92,21 @@ moving or removing one shows at once where it's applied. With none, it MUST show
   "`variantbuilder_app: Received event. event: Build {`", "`variantbuilder_app::variant_builders: Building variant.`"
   and "`variantbuilder_app: Built variant.`" are logged, in order, with no "`Event failed.`" (`VBGUI-1`, `VBGUI-3`,
   `VBGUI-4`).
+- `tests/ui/variant_builders.rs` checks the fields of the "`New design variant`" form are as wide as each other and
+  fill the width, that a design variant's "`Placements`", "`Exclusion list`" and "`Output BOM`", in different groups,
+  start and end at the same place, and are narrower once the window is, and that each of the "`Move up`",
+  "`Move down`" and "`Remove`" buttons of a list's rows are lined up (`VBGUI-2`, `VBGUI-8`).
 - `tests/ui/variant_builders.rs` checks the placements are chosen once there's an EDA tool, and again once it's
   changed, that the design is named after the placements until the user names it, and that "`Ok`" creates
   `<design name>_<variant name>.variant.json` (`VBGUI-1`).
 - `tests/ui/variant_builders.rs` opens a design variant with "`Open design variant`" and checks each field shows what
   its file says (`VBGUI-2`), adds global and design substitutions, removes one, and checks the file is saved with the
-  rest (`VBGUI-3`), adds substitutions and checks they're shown numbered, the design's first, then moves one down and
-  up, checking the first's "`Move up`" and the last's "`Move down`" are disabled, the numbered list follows, and the
-  file is saved in the new order, logging "`MoveDownClicked(DesignSubstitutions, 0)`" and
-  "`MoveUpClicked(DesignSubstitutions, 1)`" (`VBGUI-2`, `VBGUI-7`), creates assembly rules with "`Assembly rules: New`", checking the file and the suggested name are as
-  `VBGUI-6` says, and the variant builder's assembly rules are set to it (`VBGUI-6`), checks a new design variant whose
+  rest (`VBGUI-3`), adds substitutions and checks the table of them as they're applied has the rows
+  "`Order`, `File`, `Source`", then "`1`, `d1.csv`, `Design`" and so on, the design's first, then moves one down and
+  up, checking the first's "`Move up`" and the last's "`Move down`" are disabled, the table follows, and the file is
+  saved in the new order, logging "`MoveDownClicked(DesignSubstitutions, 0)`" and
+  "`MoveUpClicked(DesignSubstitutions, 1)`" (`VBGUI-2`, `VBGUI-7`), creates assembly rules with
+  "`Assembly rules: New`", checking the file and the suggested name are as `VBGUI-6` says, and the variant builder's assembly rules are set to it (`VBGUI-6`), checks a new design variant whose
   file exists isn't created, the tab says "`Variant builder exists already.`" and the file is kept (`VBGUI-1`), and
   that building one that isn't complete says what it's missing (`VBGUI-4`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), as the GUI's tests start
