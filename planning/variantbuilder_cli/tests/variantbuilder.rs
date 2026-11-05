@@ -194,7 +194,7 @@ mod tests {
         dump_file("global substitutions", test_placements_path.clone())?;
 
         let substitutions_arg = format!(
-            "--substitutions {},{}",
+            "--design-substitutions {} --global-substitutions {}",
             test_assembly_substitutions_file_name
                 .to_str()
                 .unwrap(),
@@ -475,7 +475,7 @@ mod tests {
         );
 
         // when
-        create_configure_and_build(&temp_dir, &trace_log_arg, vec![
+        create_configure_and_build(&temp_dir, &trace_log_arg, vec!["--variant-name", "Variant_1"], vec![
             "--eda diptrace",
             placements_arg.as_str(),
             parts_arg.as_str(),
@@ -484,10 +484,8 @@ mod tests {
             substitutions_arg.as_str(),
             assembly_rules_arg.as_str(),
             csv_output_arg.as_str(),
-            "--name",
-            "Variant_1",
             "--ref-des-list R1,R3,R4,D1,C1,J1,TP1,TP2",
-            "--ref-des-disable-list TP1,TP2",
+            "--ref-des-no-place-list TP1,TP2",
         ]);
 
         // and
@@ -563,12 +561,17 @@ mod tests {
             .success();
     }
 
-    /// Creates a variant builder in the folder, configures it with the arguments, and builds it (`VARBCLI-1` to
-    /// `VARBCLI-3`).
-    fn create_configure_and_build(temp_dir: &TempDir, trace_log_arg: &str, configure_args: Vec<&str>) {
+    /// Creates a variant builder in the folder with the create arguments, configures it with the configure arguments,
+    /// and builds it (`VARBCLI-1` to `VARBCLI-3`).
+    fn create_configure_and_build(
+        temp_dir: &TempDir,
+        trace_log_arg: &str,
+        create_args: Vec<&str>,
+        configure_args: Vec<&str>,
+    ) {
         let file = variant_builder_file(temp_dir);
         let file = file.to_str().unwrap();
-        run(trace_log_arg, vec!["create", "--file", file]);
+        run(trace_log_arg, [vec!["create", "--file", file], create_args].concat());
         run(
             trace_log_arg,
             [vec!["configure", "--file", file], configure_args].concat(),
@@ -647,7 +650,7 @@ mod tests {
         dump_file("global substitutions", test_placements_path.clone())?;
 
         let substitutions_arg = format!(
-            "--substitutions {}",
+            "--global-substitutions {}",
             test_global_substitutions_file_name
                 .to_str()
                 .unwrap(),
@@ -732,7 +735,7 @@ mod tests {
         .to_string();
 
         // when
-        create_configure_and_build(&temp_dir, &trace_log_arg, vec![
+        create_configure_and_build(&temp_dir, &trace_log_arg, vec![], vec![
             "--eda kicad",
             placements_arg.as_str(),
             parts_arg.as_str(),
@@ -756,7 +759,7 @@ mod tests {
             "Loaded 1 placements\n",
             expected_substitutions_file_1_message.as_str(),
             "Loaded 1 parts\n",
-            "Assembly variant: Default\n",
+            "Assembly variant: default\n",
             "Ref_des list: \n",
             "Matched 1 placements for assembly variant\n",
             expected_part_mapping_tree,
@@ -840,7 +843,7 @@ mod tests {
         dump_file("global substitutions", test_placements_path.clone())?;
 
         let substitutions_arg = format!(
-            "--substitutions {}",
+            "--global-substitutions {}",
             test_global_substitutions_file_name
                 .to_str()
                 .unwrap(),
@@ -925,7 +928,7 @@ mod tests {
         .to_string();
 
         // when
-        create_configure_and_build(&temp_dir, &trace_log_arg, vec![
+        create_configure_and_build(&temp_dir, &trace_log_arg, vec![], vec![
             "--eda easyeda",
             placements_arg.as_str(),
             parts_arg.as_str(),
@@ -949,7 +952,7 @@ mod tests {
             "Loaded 1 placements\n",
             expected_substitutions_file_1_message.as_str(),
             "Loaded 1 parts\n",
-            "Assembly variant: Default\n",
+            "Assembly variant: default\n",
             "Ref_des list: \n",
             "Matched 1 placements for assembly variant\n",
             expected_part_mapping_tree,
@@ -1101,10 +1104,11 @@ mod help {
             Usage: variantbuilder_cli [OPTIONS] <COMMAND>
 
             Commands:
-              create     Create a variant builder's file
-              configure  Configure a variant builder, setting only the options given
-              build      Build a variant builder's variant
-              help       Print this message or the help of the given subcommand(s)
+              create                 Create a variant builder's file, setting the options given
+              create-assembly-rules  Create an assembly rules file, with no rules, and set the variant builder's assembly rules to it
+              configure              Configure a variant builder, setting only the options given
+              build                  Build a variant builder's variant
+              help                   Print this message or the help of the given subcommand(s)
 
             Options:
                   --trace [<TRACE>]  Trace log file
@@ -1143,7 +1147,7 @@ mod help {
 
             Options:
                   --file <FILE>
-                      Variant builder file, <name>.variant.json
+                      Variant builder file, <design name>_<variant name>.variant.json
                   --eda <EDA>
                       EDA tool [possible values: diptrace, kicad, easyeda]
                   --load-out <SOURCE>
@@ -1152,27 +1156,27 @@ mod help {
                       Placements source
                   --parts <SOURCE>
                       Parts source
-              -v, --verbose...
-                      Increase logging verbosity
                   --part-mappings <SOURCE>
                       Part-mappings source
+              -v, --verbose...
+                      Increase logging verbosity
+                  --global-substitutions [<SOURCE>...]
+                      Global substitution sources, shared by designs, none to clear them
               -q, --quiet...
                       Decrease logging verbosity
-                  --substitutions [<SOURCE>...]
-                      Substitution sources, none to clear them
-                  --ref-des-exclude-list [<REF_DES_EXCLUDE_LIST>...]
+                  --design-substitutions [<SOURCE>...]
+                      Design substitution sources, applied before the global ones, none to clear them
+                  --ref-des-exclusion-list [<REF_DES>...]
                       List of reference designators to exclude (test-pads, fiducials, etc), none to clear it
-                  --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
-                      List of reference designators to disable (use for do-not-fit, no-place, etc), none to clear it
+                  --ref-des-no-place-list [<REF_DES>...]
+                      List of reference designators not to place (do-not-fit, etc), none to clear it
                   --assembly-rules <SOURCE>
                       Assembly rules source
                   --output <FILE>
                       Output CSV file [default: <name>_placements.csv]
                   --output-bom <FILE>
                       Output BOM CSV file (Currently JLCPCB format only) [default: <name>_bom.csv]
-                  --name <NAME>
-                      Name of assembly variant
-                  --ref-des-list [<REF_DES_LIST>...]
+                  --ref-des-list [<REF_DES>...]
                       List of reference designators for assembly variant (all if there are none), none to clear it
                   --clear <OPTION>...
                       Options to clear [possible values: eda, load-out, placements, parts, part-mappings, assembly-rules, output, output-bom]

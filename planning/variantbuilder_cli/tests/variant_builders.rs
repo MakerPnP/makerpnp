@@ -35,7 +35,7 @@ fn create_refuses_to_replace_a_file_without_overwrite() -> Result<(), anyhow::Er
 
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let created = read_to_string(&file)?;
-    assert!(created.contains("\"name\": \"Default\""), "{created}");
+    assert!(created.contains("\"variant_name\": \"default\""), "{created}");
     assert_contains_inorder!(trace(folder)?, [
         "variantbuilder_app: Received event. event: Create {",
         "stores_service: Performing stores operation. operation: ReadDocument {",
@@ -78,7 +78,7 @@ fn configure_sets_only_the_options_given() -> Result<(), anyhow::Error> {
     let file = file.to_str().unwrap();
     let outside = folder.join("shared").join("parts.csv");
 
-    run(folder, &["create", "--file", file])?;
+    run(folder, &["create", "--file", file, "--variant-name", "Variant_1"])?;
     let output = run(folder, &[
         "configure",
         "--file",
@@ -92,44 +92,126 @@ fn configure_sets_only_the_options_given() -> Result<(), anyhow::Error> {
             .unwrap(),
         "--parts",
         outside.to_str().unwrap(),
-        "--substitutions",
+        "--global-substitutions",
         "job1/a.csv,job1/b.csv",
-        "--ref-des-exclude-list",
+        "--design-substitutions",
+        "job1/c.csv",
+        "--ref-des-exclusion-list",
         "TP1,TP2",
-        "--name",
-        "Variant_1",
+        "--ref-des-no-place-list",
+        "R1",
     ])?;
 
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let configured: serde_json::Value = serde_json::from_str(&read_to_string(folder.join(file))?)?;
-    assert_eq!(configured["variant"]["name"], "Variant_1");
+    assert_eq!(configured["variant_name"], "Variant_1");
     assert_eq!(configured["eda_tool"], "KiCad");
     assert_eq!(configured["placements"], "placements.csv");
     assert_eq!(configured["parts"], outside.to_str().unwrap());
-    assert_eq!(configured["substitutions"], serde_json::json!(["a.csv", "b.csv"]));
-    assert_eq!(configured["ref_des_exclude_list"], serde_json::json!(["TP1", "TP2"]));
+    assert_eq!(
+        configured["global_substitutions"],
+        serde_json::json!(["a.csv", "b.csv"])
+    );
+    assert_eq!(configured["design_substitutions"], serde_json::json!(["c.csv"]));
+    assert_eq!(configured["ref_des_exclusion_list"], serde_json::json!(["TP1", "TP2"]));
+    assert_eq!(configured["ref_des_no_place_list"], serde_json::json!(["R1"]));
     assert_contains_inorder!(trace(folder)?, [
         "variantbuilder_app: Received event. event: Configure {",
         "variantbuilder_app: Configured variant builder. path: '",
-        "change_count: 6",
+        "change_count: 7",
     ]);
 
     let output = run(folder, &[
         "configure",
         "--file",
         file,
-        "--ref-des-exclude-list",
+        "--ref-des-exclusion-list",
         "--clear",
         "eda,parts",
     ])?;
 
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     let configured: serde_json::Value = serde_json::from_str(&read_to_string(folder.join(file))?)?;
-    assert_eq!(configured["variant"]["name"], "Variant_1");
+    assert_eq!(configured["variant_name"], "Variant_1");
     assert_eq!(configured["eda_tool"], serde_json::Value::Null);
     assert_eq!(configured["placements"], "placements.csv");
     assert_eq!(configured["parts"], serde_json::Value::Null);
-    assert_eq!(configured["ref_des_exclude_list"], serde_json::json!([]));
+    assert_eq!(configured["ref_des_exclusion_list"], serde_json::json!([]));
+
+    Ok(())
+}
+
+/// `VARBCLI-1`, `VARB-2`, a new variant builder is created with the options given, and its design is named after its
+/// placements' file unless it's named.
+#[test]
+fn create_sets_the_options_given() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let folder = temp_dir.path();
+
+    let output = run(folder, &[
+        "create",
+        "--file",
+        "board1_default.variant.json",
+        "--eda",
+        "kicad",
+        "--placements",
+        "board1.csv",
+    ])?;
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let created: serde_json::Value =
+        serde_json::from_str(&read_to_string(folder.join("board1_default.variant.json"))?)?;
+    assert_eq!(created["design_name"], "board1");
+    assert_eq!(created["variant_name"], "default");
+    assert_eq!(created["eda_tool"], "KiCad");
+    assert_eq!(created["placements"], "board1.csv");
+
+    Ok(())
+}
+
+/// `VARBCLI-4`, `VARB-8`
+#[test]
+fn create_assembly_rules_writes_a_file_with_none_and_refuses_to_replace_one() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let folder = temp_dir.path();
+    run(folder, &["create", "--file", "job1.variant.json"])?;
+
+    let output = run(folder, &[
+        "create-assembly-rules",
+        "--file",
+        "job1.variant.json",
+        "--assembly-rules",
+        "rules.csv",
+    ])?;
+
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        read_to_string(folder.join("rules.csv"))?,
+        "\"RefDes\",\"Manufacturer\",\"Mpn\"\n"
+    );
+    let configured: serde_json::Value = serde_json::from_str(&read_to_string(folder.join("job1.variant.json"))?)?;
+    assert_eq!(configured["assembly_rules"], "rules.csv");
+    assert_contains_inorder!(trace(folder)?, [
+        "variantbuilder_app: Received event. event: CreateAssemblyRules {",
+        "variantbuilder_app: Created assembly rules. path: 'job1.variant.json', assembly_rules: 'rules.csv'",
+    ]);
+
+    write(folder.join("rules.csv"), "kept")?;
+    let output = run(folder, &[
+        "create-assembly-rules",
+        "--file",
+        "job1.variant.json",
+        "--assembly-rules",
+        "rules.csv",
+    ])?;
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(
+        stderr.contains("Assembly rules exist already. path: 'rules.csv'"),
+        "{stderr}"
+    );
+    assert_eq!(read_to_string(folder.join("rules.csv"))?, "kept");
 
     Ok(())
 }

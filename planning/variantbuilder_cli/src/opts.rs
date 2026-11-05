@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use cli::args::EdaToolArg;
 use variantbuilder_app::variant_builders::stored_path;
-use variantbuilder_app::{Event, VariantBuilderChange};
+use variantbuilder_app::{Event, NewVariantBuilder, VariantBuilderChange};
 
 #[derive(Parser)]
 #[command(name = "variantbuilder_cli")]
@@ -25,19 +25,40 @@ pub struct Opts {
 #[derive(Subcommand)]
 #[command(arg_required_else_help(true))]
 pub enum Command {
-    /// Create a variant builder's file
+    /// Create a variant builder's file, setting the options given
     Create {
-        /// Variant builder file, <name>.variant.json
+        /// Variant builder file, <design name>_<variant name>.variant.json
         #[arg(long, value_name = "FILE")]
         file: PathBuf,
 
         /// Replace the file if there is one
         #[arg(long)]
         overwrite: bool,
+
+        /// Name of the design, kept as it is [default: the placements file's name, without its extension]
+        #[arg(long)]
+        design_name: Option<String>,
+
+        /// Name of the assembly variant, kept as it is [default: default]
+        #[arg(long)]
+        variant_name: Option<String>,
+
+        #[command(flatten)]
+        args: ConfigureArgs,
+    },
+    /// Create an assembly rules file, with no rules, and set the variant builder's assembly rules to it
+    CreateAssemblyRules {
+        /// Variant builder file, <design name>_<variant name>.variant.json
+        #[arg(long, value_name = "FILE")]
+        file: PathBuf,
+
+        /// Assembly rules file to create
+        #[arg(long, value_name = "FILE")]
+        assembly_rules: PathBuf,
     },
     /// Configure a variant builder, setting only the options given
     Configure {
-        /// Variant builder file, <name>.variant.json
+        /// Variant builder file, <design name>_<variant name>.variant.json
         #[arg(long, value_name = "FILE")]
         file: PathBuf,
 
@@ -46,7 +67,7 @@ pub enum Command {
     },
     /// Build a variant builder's variant
     Build {
-        /// Variant builder file, <name>.variant.json
+        /// Variant builder file, <design name>_<variant name>.variant.json
         #[arg(long, value_name = "FILE")]
         file: PathBuf,
     },
@@ -75,17 +96,21 @@ pub struct ConfigureArgs {
     #[arg(long, value_name = "SOURCE")]
     part_mappings: Option<PathBuf>,
 
-    /// Substitution sources, none to clear them
+    /// Global substitution sources, shared by designs, none to clear them
     #[arg(long, value_delimiter = ',', num_args = 0.., value_name = "SOURCE")]
-    substitutions: Option<Vec<PathBuf>>,
+    global_substitutions: Option<Vec<PathBuf>>,
+
+    /// Design substitution sources, applied before the global ones, none to clear them
+    #[arg(long, value_delimiter = ',', num_args = 0.., value_name = "SOURCE")]
+    design_substitutions: Option<Vec<PathBuf>>,
 
     /// List of reference designators to exclude (test-pads, fiducials, etc), none to clear it
-    #[arg(long, num_args = 0.., value_delimiter = ',')]
-    ref_des_exclude_list: Option<Vec<String>>,
+    #[arg(long, num_args = 0.., value_delimiter = ',', value_name = "REF_DES")]
+    ref_des_exclusion_list: Option<Vec<String>>,
 
-    /// List of reference designators to disable (use for do-not-fit, no-place, etc), none to clear it
-    #[arg(long, num_args = 0.., value_delimiter = ',')]
-    ref_des_disable_list: Option<Vec<String>>,
+    /// List of reference designators not to place (do-not-fit, etc), none to clear it
+    #[arg(long, num_args = 0.., value_delimiter = ',', value_name = "REF_DES")]
+    ref_des_no_place_list: Option<Vec<String>>,
 
     /// Assembly rules source
     #[arg(long, value_name = "SOURCE")]
@@ -99,12 +124,8 @@ pub struct ConfigureArgs {
     #[arg(long, value_name = "FILE")]
     output_bom: Option<PathBuf>,
 
-    /// Name of assembly variant
-    #[arg(long)]
-    name: Option<String>,
-
     /// List of reference designators for assembly variant (all if there are none), none to clear it
-    #[arg(long, num_args = 0.., value_delimiter = ',')]
+    #[arg(long, num_args = 0.., value_delimiter = ',', value_name = "REF_DES")]
     ref_des_list: Option<Vec<String>>,
 
     /// Options to clear
@@ -129,20 +150,38 @@ impl Opts {
     /// The event the command asks the core for. A relative path given to `configure` is relative to the folder the CLI
     /// is run in, so it's made relative to the variant builder's folder, or absolute if it's outside it (`VARBCLI-2`).
     pub fn event(self, current_dir: &Path) -> Event {
+        let stored = |file: &Path, path: PathBuf| stored_path(&current_dir.join(file), &current_dir.join(path));
         match self.command {
             Command::Create {
                 file,
                 overwrite,
-            } => Event::Create {
+                design_name,
+                variant_name,
+                args,
+            } => {
+                let changes = args.changes(|path| stored(&file, path));
+                Event::Create {
+                    path: file,
+                    overwrite,
+                    new: NewVariantBuilder {
+                        design_name,
+                        variant_name,
+                        changes,
+                    },
+                }
+            }
+            Command::CreateAssemblyRules {
+                file,
+                assembly_rules,
+            } => Event::CreateAssemblyRules {
+                assembly_rules: stored(&file, assembly_rules),
                 path: file,
-                overwrite,
             },
             Command::Configure {
                 file,
                 args,
             } => {
-                let variant_builder = current_dir.join(&file);
-                let changes = args.changes(|path| stored_path(&variant_builder, &current_dir.join(path)));
+                let changes = args.changes(|path| stored(&file, path));
                 Event::Configure {
                     path: file,
                     changes,
@@ -166,31 +205,32 @@ impl ConfigureArgs {
             placements,
             parts,
             part_mappings,
-            substitutions,
-            ref_des_exclude_list,
-            ref_des_disable_list,
+            global_substitutions,
+            design_substitutions,
+            ref_des_exclusion_list,
+            ref_des_no_place_list,
             assembly_rules,
             output,
             output_bom,
-            name,
             ref_des_list,
             clear,
         } = self;
 
         let path = &path;
         let some_path = |value: Option<PathBuf>| value.map(|value| Some(path(value)));
+        let paths = |values: Option<Vec<PathBuf>>| values.map(|values| values.into_iter().map(path).collect());
         let changes = [
-            name.map(VariantBuilderChange::VariantName),
-            ref_des_list.map(VariantBuilderChange::RefDesList),
             eda.map(|eda| VariantBuilderChange::EdaTool(Some(eda.build()))),
             some_path(placements).map(VariantBuilderChange::Placements),
             some_path(parts).map(VariantBuilderChange::Parts),
             some_path(part_mappings).map(VariantBuilderChange::PartMappings),
-            substitutions.map(|paths| VariantBuilderChange::Substitutions(paths.into_iter().map(path).collect())),
+            paths(global_substitutions).map(VariantBuilderChange::GlobalSubstitutions),
             some_path(load_out).map(VariantBuilderChange::LoadOut),
             some_path(assembly_rules).map(VariantBuilderChange::AssemblyRules),
-            ref_des_exclude_list.map(VariantBuilderChange::RefDesExcludeList),
-            ref_des_disable_list.map(VariantBuilderChange::RefDesDisableList),
+            paths(design_substitutions).map(VariantBuilderChange::DesignSubstitutions),
+            ref_des_list.map(VariantBuilderChange::RefDesList),
+            ref_des_exclusion_list.map(VariantBuilderChange::RefDesExclusionList),
+            ref_des_no_place_list.map(VariantBuilderChange::RefDesNoPlaceList),
             some_path(output).map(VariantBuilderChange::OutputPlacements),
             some_path(output_bom).map(VariantBuilderChange::OutputBom),
         ];

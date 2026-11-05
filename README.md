@@ -200,17 +200,18 @@ CharmHigh CHMT32VA/CHMT32VB/CHMT48VA/CHMT48VB machines, where the feeders are no
 variant builder software is sensitive to the knowledge that changing feeders and machine-setup can be a very
 time-consuming process. 
 
-A variant is defined in a variant builder's file, `<name>.variant.json`, which is created, configured, a few options
-at a time, and built, each with its own command:
+A variant is defined in a variant builder's file, `<design name>_<variant name>.variant.json`, which is created,
+configured, a few options at a time, and built, each with its own command. In the planner's GUI, it's a design variant,
+created with "New design variant".
 
 ```
-$ ./target/debug/variantbuilder_cli.exe create --file job1.variant.json
-$ ./target/debug/variantbuilder_cli.exe configure --file job1.variant.json --eda kicad --placements job1-all-pos.csv --parts parts.csv --part-mappings part-mappings.csv
-$ ./target/debug/variantbuilder_cli.exe build --file job1.variant.json
+$ ./target/debug/variantbuilder_cli.exe create --file job1_default.variant.json --eda kicad --placements job1-all-pos.csv
+$ ./target/debug/variantbuilder_cli.exe configure --file job1_default.variant.json --parts parts.csv --part-mappings part-mappings.csv
+$ ./target/debug/variantbuilder_cli.exe build --file job1_default.variant.json
 ```
 
-`build` writes `job1_placements.csv` and `job1_bom.csv`, unless `--output` and `--output-bom` say otherwise. Here's the
-current help output for `configure`:
+`build` writes `job1_default_placements.csv` and `job1_default_bom.csv`, unless `--output` and `--output-bom` say
+otherwise. Here's the current help output for `configure`:
 
 ```
 $ ./target/debug/variantbuilder_cli.exe configure --help
@@ -220,7 +221,7 @@ Usage: variantbuilder_cli configure [OPTIONS] --file <FILE>
 
 Options:
       --file <FILE>
-          Variant builder file, <name>.variant.json
+          Variant builder file, <design name>_<variant name>.variant.json
       --eda <EDA>
           EDA tool [possible values: diptrace, kicad, easyeda]
       --load-out <SOURCE>
@@ -229,27 +230,27 @@ Options:
           Placements source
       --parts <SOURCE>
           Parts source
-  -v, --verbose...
-          Increase logging verbosity
       --part-mappings <SOURCE>
           Part-mappings source
+  -v, --verbose...
+          Increase logging verbosity
+      --global-substitutions [<SOURCE>...]
+          Global substitution sources, shared by designs, none to clear them
   -q, --quiet...
           Decrease logging verbosity
-      --substitutions [<SOURCE>...]
-          Substitution sources, none to clear them
-      --ref-des-exclude-list [<REF_DES_EXCLUDE_LIST>...]
+      --design-substitutions [<SOURCE>...]
+          Design substitution sources, applied before the global ones, none to clear them
+      --ref-des-exclusion-list [<REF_DES>...]
           List of reference designators to exclude (test-pads, fiducials, etc), none to clear it
-      --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
-          List of reference designators to disable (use for do-not-fit, no-place, etc), none to clear it
+      --ref-des-no-place-list [<REF_DES>...]
+          List of reference designators not to place (do-not-fit, etc), none to clear it
       --assembly-rules <SOURCE>
           Assembly rules source
       --output <FILE>
           Output CSV file [default: <name>_placements.csv]
       --output-bom <FILE>
           Output BOM CSV file (Currently JLCPCB format only) [default: <name>_bom.csv]
-      --name <NAME>
-          Name of assembly variant
-      --ref-des-list [<REF_DES_LIST>...]
+      --ref-des-list [<REF_DES>...]
           List of reference designators for assembly variant (all if there are none), none to clear it
       --clear <OPTION>...
           Options to clear [possible values: eda, load-out, placements, parts, part-mappings, assembly-rules, output, output-bom]
