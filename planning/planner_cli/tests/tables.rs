@@ -19,8 +19,8 @@ fn table(trace_path: &Path, args: &[&str]) -> Result<Output, anyhow::Error> {
     Ok(cmd.args(all_args).output()?)
 }
 
-/// `STORE-17`, `STORE-18`, a BOM, written without headers, as JLCPCB's are, is listed with JLCPCB's columns, and its
-/// values as they are.
+/// `STORE-17`, `STORE-18`, a BOM, written without headers, as JLCPCB's are, is listed with JLCPCB's columns, the comment
+/// last, and its values as they are.
 #[test]
 fn lists_a_bom() -> Result<(), anyhow::Error> {
     let temp_dir = tempdir()?;
@@ -42,8 +42,8 @@ fn lists_a_bom() -> Result<(), anyhow::Error> {
 
     assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(String::from_utf8(output.stdout)?, indoc! {r#"
-        "Comment","Designator","Footprint","JLCPCB Part","Quantity"
-        "330R","R1,R2","RES_0402","C1234","02"
+        "Designator","Footprint","JLCPCB Part","Quantity","Comment"
+        "R1, R2","RES_0402","C1234","2","330R"
     "#});
 
     let trace = read_to_string(&trace_path)?;

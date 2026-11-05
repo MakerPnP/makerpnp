@@ -143,15 +143,24 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The table, as CSV, every value quoted, with its columns as the headers.
+/// The table, as CSV, every value quoted, with its columns' names as the headers, and each value as its column shows
+/// it, a pattern as the data source has it.
 fn write_table_csv(view: &TableView, writer: impl std::io::Write) -> anyhow::Result<()> {
     let mut writer = csv::WriterBuilder::new()
         .quote_style(csv::QuoteStyle::Always)
         .from_writer(writer);
 
-    writer.write_record(&view.table.columns)?;
-    for row in view.table.rows.iter() {
-        writer.write_record(row)?;
+    writer.write_record(
+        view.columns
+            .iter()
+            .map(|column| column.name.as_str()),
+    )?;
+    for row in 0..view.table.len() {
+        writer.write_record(view.columns.iter().map(|column| {
+            view.table
+                .cell(row, &column.value)
+                .to_string()
+        }))?;
     }
     writer.flush()?;
 

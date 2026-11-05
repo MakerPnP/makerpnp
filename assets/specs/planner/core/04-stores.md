@@ -266,7 +266,8 @@ by its kind and its data source as it was asked for. The core logs
 
 **STORE-18 — Listing a table from the CLI.** *Observed.* `planner_cli table --kind <kind> --source <file> list`, with
 `--eda-tool <tool>` for EDA placements, MUST open the table (`STORE-17`) and write it to standard output as CSV, every
-value quoted, with its columns as the headers. The kinds are `eda-placements`, `part-mappings`, `substitutions`,
+value quoted, with its columns' names as the headers, and each value as its column shows it, a pattern as the data
+source has it. The kinds are `eda-placements`, `part-mappings`, `substitutions`,
 `assembly-rules`, `placements` and `bom`. If the core refuses, the CLI MUST fail with the core's error.
 
 ## Acceptance criteria
@@ -285,7 +286,8 @@ value quoted, with its columns as the headers. The kinds are `eda-placements`, `
 - `common/criteria`'s tests check a value between "`/`"s is a regular expression, one that
   isn't valid says why, any other value is matched exactly, a lone "`/`" is an empty expression, as it was, and a
   pattern is serialized as the data source has it, and parsed again (`STORE-17`).
-- `planning/planner_cli/tests/tables.rs` lists a BOM, without headers, with JLCPCB's columns, and EDA placements, checks
+- `planning/planner_cli/tests/tables.rs` lists a BOM, without headers, with JLCPCB's columns, the comment last, and EDA
+  placements, checks
   the output, and checks
   "`stores_app: Received event. event: OpenTable {`",
   "`stores_service: Performing stores operation. operation: ReadTable {`" and
