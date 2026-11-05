@@ -81,7 +81,12 @@ fn a_file_with_only_the_headers_has_no_parts() {
     assert_eq!(read_parts(&source), Ok(vec![]));
 }
 
-/// `STORE-1`, `ISSUE-23`, values that look like numbers are kept as they are in the file.
+/// `STORE-1`, values that look like numbers are kept as they are in the file.
+///
+/// Regression test for `ISSUE-23`: a parts CSV file couldn't be loaded if any value looked like a number, for example an
+/// MPN of `1234`, or a package of `0402` in a column of its own. `variantbuilder_cli build` failed, as did anything
+/// else that loaded parts, with an error that didn't say which value or why. With `#[serde(flatten)]`, serde read every
+/// field through `deserialize_any`, and the csv crate guessed each value's type, reading `0402` as an integer.
 #[test]
 fn keeps_values_that_look_like_numbers() {
     let folder = tempfile::tempdir().unwrap();

@@ -121,6 +121,9 @@ fn open_parts_table(app: &mut App) {
 }
 
 /// `FORM-9`
+///
+/// Regression test for `ISSUE-4`: dragging a row of the Parts, Placements or load-out table moved the table's
+/// columns, not the row.
 #[test]
 fn dragging_a_row_of_a_data_table_moves_the_row_and_not_the_columns() {
     let mut app = App::start();

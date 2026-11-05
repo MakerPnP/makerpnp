@@ -133,7 +133,8 @@ mod tests {
 
     use super::process_task_action_to_i18n_key;
 
-    /// `ISSUE-13` showed the actions' names from the code.
+    /// Regression test for `ISSUE-13`: the actions a phase's tasks offer, such as "Start", "Complete" and "Abandon",
+    /// were shown with their names from the code, in English, whatever the language.
     #[test]
     fn every_task_action_is_translated() {
         for language in ["en-US", "es-ES"] {

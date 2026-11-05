@@ -93,6 +93,10 @@ fn a_phase_cannot_be_started_until_the_phases_before_it_are_complete() {
 }
 
 /// `OPERATIONS-2`
+///
+/// Regression test for `ISSUE-12`: a phase's "Placed?" cells could be edited before the task that places components
+/// had started, and choosing "Placed" or "Skipped" then did nothing, with no message. The core refuses these changes,
+/// so the GUI shouldn't offer them.
 #[test]
 fn placements_cannot_be_recorded_before_their_phase_allows_it() {
     let mut app = App::start();

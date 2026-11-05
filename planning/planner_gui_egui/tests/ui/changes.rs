@@ -381,6 +381,12 @@ fn the_add_phase_dialog_needs_a_valid_reference_a_side_and_a_process() {
 }
 
 /// `PLACEMENTS-2`, `PLACEMENTS-3`
+///
+/// Regression test for `ISSUE-10`: "Remove" on the Placements tab ignored the phase chosen in "Phase". With `top_1`
+/// chosen, it removed a selected placement from `bottom_1`. "Actions" stayed disabled until a phase was chosen, so it
+/// looked as if the choice mattered.
+///
+/// Regression test for `ISSUE-11` too, see `applying_a_phase_to_a_placement_on_the_other_side_says_so`.
 #[test]
 fn removing_a_phase_leaves_the_placements_of_other_phases_as_they_were() {
     let mut app = App::start();
@@ -430,6 +436,10 @@ fn removing_a_phase_leaves_the_placements_of_other_phases_as_they_were() {
 }
 
 /// `PLACEMENTS-2`
+///
+/// Regression test for `ISSUE-11`: "Apply" on the Placements tab left any selected placement on the other side of the
+/// PCB to the phase as it was, with no message. If all of them were on the other side, nothing at all appeared to
+/// happen.
 #[test]
 fn applying_a_phase_to_a_placement_on_the_other_side_says_so() {
     let mut app = App::start();

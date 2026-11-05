@@ -11,7 +11,10 @@ use assert_cmd::Command;
 use indoc::indoc;
 use tempfile::tempdir;
 
-/// `STORE-1`, `STORE-2`, `STORE-4`, `ISSUE-23`
+/// `STORE-1`, `STORE-2`, `STORE-4`
+///
+/// Regression test for `ISSUE-23`, from the CLI, see `keeps_values_that_look_like_numbers` in
+/// `planning/stores_service/tests/csv_file.rs`.
 #[test]
 fn lists_the_parts_with_their_other_values() -> Result<(), anyhow::Error> {
     let temp_dir = tempdir()?;
