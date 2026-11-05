@@ -42,7 +42,10 @@ From the CLI, in an empty folder:
 
 2026-11-05, CLI, Windows 11, after the Variant Builder's core was made to read its parts through the stores service, as
 the stores core does (`STORE-14`): not reproduced, the part was listed with `1234` and `0402`, and the expected log
-lines were logged, in order.
+lines were logged, in order. The `variantbuilder_cli build` route was followed too, for the first time, with the same
+`parts.csv`, a DipTrace placement of `R1` and a part mapping to `RESCO` `1234`: not reproduced, the build succeeded,
+logging "`Loaded 1 parts`", "`Loaded 1 part mappings`" and "`All placements mapped!`", and the placements and BOM
+written had the MPN `1234` as it is in the file.
 
 Before that, 2026-11-04, CLI, Windows 11, after the stores core was made pure, reading the file through the stores service
 (`STORE-7`): not reproduced, the part was listed with `1234` and `0402`, and the expected log lines were logged, in
@@ -56,8 +59,8 @@ Before that, 2026-11-04, CLI, Windows 11, after `11fe63f1`, with the `parts` mod
 and `0402`, and the expected log lines were logged, in order. Before the fix, the CLI had no `parts` mode, and the issue
 was reproduced by `keeps_values_that_look_like_numbers` and a first version of
 `loads_the_parts_from_a_csv_file_in_order_with_their_other_values`, through the stores core, with
-"`invalid type: integer `402`, expected a string`" for a value of `0402`. The steps through `variantbuilder_cli build`
-come from reading the code, and haven't been followed.
+"`invalid type: integer `402`, expected a string`" for a value of `0402`. The failure through `variantbuilder_cli build`
+before the fix comes from reading the code, as that route wasn't followed until 2026-11-05.
 
 ## Notes
 

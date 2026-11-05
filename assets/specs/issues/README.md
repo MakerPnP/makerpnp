@@ -3,10 +3,17 @@
 Problems found in MakerPnP's tools, one file per issue. Each issue has steps to repeat it, which are how a fix is
 verified, so they're kept up to date.
 
+- [`open/`](open/): the issues not fixed yet. When working on an area of the code, or on a tool, check its open issues
+  first: one may describe the code you're changing, and its steps to repeat may need updating.
+- [`fixed/`](fixed/): the issues that have been fixed. When a problem is encountered, check the fixed issues to see
+  whether it was fixed before: its notes say what the cause was, and its test should have caught it coming back.
+
 ## Conventions
 
 - Each issue has an ID such as `ISSUE-7`, and is in a file named after it, `ISSUE-7-<what it is>.md`. IDs are never
   reused, and a file is never deleted.
+- An issue's file is in `open/` until it's fixed, or withdrawn, when it's moved to `fixed/`, with `git mv`, so its
+  history is kept, and its row is moved to the index's table of fixed issues, below.
 - Specifications, code and tests cite an issue by its ID.
 - Each file has:
   - A table with its **Status**, the **Tool** and the part of it affected (core, CLI or GUI), the **Requirements** it
@@ -118,31 +125,38 @@ From the CLI, in an empty folder:
 
 ## Issues
 
+### Open
+
 | ID | Status | Tool | Issue |
 |---|---|---|---|
-| [`ISSUE-1`](ISSUE-1-creating-a-document-overwrites-its-file.md) | Open | Planner: core | Creating a document overwrites an existing file |
-| [`ISSUE-2`](ISSUE-2-subfolder-paths-use-the-system-separator.md) | Open | Planner: GUI | A file in a subfolder is stored with the system's separator |
-| [`ISSUE-3`](ISSUE-3-table-minimum-height-assumes-default-row-height.md) | Open | Planner: GUI | A table's minimum height assumes the default row height |
-| [`ISSUE-4`](ISSUE-4-dragging-a-table-row-moved-the-columns.md) | Fixed | Planner: GUI | Dragging a table's row moved the columns |
-| [`ISSUE-5`](ISSUE-5-pcb-tabs-number-pcbs-from-0.md) | Open | Planner: GUI | A project's PCB tabs number PCBs from 0 |
-| [`ISSUE-6`](ISSUE-6-add-phase-cannot-create-a-load-out.md) | Open | Planner: GUI | The Add phase dialog can't create a new load-out |
-| [`ISSUE-7`](ISSUE-7-load-outs-are-not-stored-relative-to-the-project.md) | Open, the CLI's part fixed | Planner: core | Load-outs aren't stored relative to the project's folder |
-| [`ISSUE-8`](ISSUE-8-adding-a-phase-with-a-used-reference-replaces-it.md) | Open | Planner: core | Adding a phase with a reference that's already used replaces that phase |
-| [`ISSUE-9`](ISSUE-9-placed-cell-edit-does-not-finish-on-the-next-row.md) | Open | Planner: GUI | Clicking the next row's "Placed?" cell doesn't finish an edit |
-| [`ISSUE-10`](ISSUE-10-remove-ignored-the-chosen-phase.md) | Fixed | Planner: GUI | "Remove" on the Placements tab ignored the chosen phase |
-| [`ISSUE-11`](ISSUE-11-apply-silently-skipped-the-other-side.md) | Fixed | Planner: GUI | "Apply" silently skipped placements on the other side of the PCB |
-| [`ISSUE-12`](ISSUE-12-placements-could-be-recorded-too-early.md) | Fixed | Planner: GUI | A "Placed?" cell could be edited before its task had started |
-| [`ISSUE-13`](ISSUE-13-task-actions-were-not-translated.md) | Fixed | Planner: GUI | The actions of a phase's tasks weren't translated |
-| [`ISSUE-14`](ISSUE-14-reordering-phases-by-dragging-is-hard.md) | Open | Planner: GUI | Phases are hard to reorder by dragging them in the project explorer |
-| [`ISSUE-15`](ISSUE-15-changing-a-pcbs-designs-breaks-assignments.md) | Open | Planner: GUI | Changing which design a PCB's units use breaks a project's assignments |
-| [`ISSUE-16`](ISSUE-16-pcb-changes-are-not-shown-in-an-open-project.md) | Open | Planner: GUI | A PCB's changes aren't shown in an open project that uses it |
-| [`ISSUE-17`](ISSUE-17-some-tab-layouts-are-not-restored.md) | Open | Planner: GUI | Some layouts of the GUI's tabs aren't saved and restored correctly |
-| [`ISSUE-18`](ISSUE-18-a-document-can-be-opened-twice.md) | Open | Planner: GUI | The same document can be opened more than once |
-| [`ISSUE-19`](ISSUE-19-docking-a-table-tab-panics-in-debug.md) | Open | Planner: GUI | Putting back a tab with a data table panics in a debug build |
-| [`ISSUE-20`](ISSUE-20-renamed-process-tab-shows-a-spinner.md) | Open | Planner: GUI | A process's tab shows a spinner after a refresh renames the process |
-| [`ISSUE-21`](ISSUE-21-cli-help-gives-the-wrong-file-reference-format.md) | Open | Planner: CLI | The CLI's help gives the wrong format for a file reference |
-| [`ISSUE-22`](ISSUE-22-cli-absolute-paths-keep-their-prefix.md) | Open | Planner: CLI | A file given to the CLI as `absolute=` keeps the prefix in its path |
-| [`ISSUE-23`](ISSUE-23-parts-values-that-look-like-numbers-fail-to-load.md) | Fixed | Variant Builder: core and CLI | A parts file's values that look like numbers failed to load |
+| [`ISSUE-1`](open/ISSUE-1-creating-a-document-overwrites-its-file.md) | Open | Planner: core | Creating a document overwrites an existing file |
+| [`ISSUE-2`](open/ISSUE-2-subfolder-paths-use-the-system-separator.md) | Open | Planner: GUI | A file in a subfolder is stored with the system's separator |
+| [`ISSUE-3`](open/ISSUE-3-table-minimum-height-assumes-default-row-height.md) | Open | Planner: GUI | A table's minimum height assumes the default row height |
+| [`ISSUE-5`](open/ISSUE-5-pcb-tabs-number-pcbs-from-0.md) | Open | Planner: GUI | A project's PCB tabs number PCBs from 0 |
+| [`ISSUE-6`](open/ISSUE-6-add-phase-cannot-create-a-load-out.md) | Open | Planner: GUI | The Add phase dialog can't create a new load-out |
+| [`ISSUE-7`](open/ISSUE-7-load-outs-are-not-stored-relative-to-the-project.md) | Open, the CLI's part fixed | Planner: core | Load-outs aren't stored relative to the project's folder |
+| [`ISSUE-8`](open/ISSUE-8-adding-a-phase-with-a-used-reference-replaces-it.md) | Open | Planner: core | Adding a phase with a reference that's already used replaces that phase |
+| [`ISSUE-9`](open/ISSUE-9-placed-cell-edit-does-not-finish-on-the-next-row.md) | Open | Planner: GUI | Clicking the next row's "Placed?" cell doesn't finish an edit |
+| [`ISSUE-14`](open/ISSUE-14-reordering-phases-by-dragging-is-hard.md) | Open | Planner: GUI | Phases are hard to reorder by dragging them in the project explorer |
+| [`ISSUE-15`](open/ISSUE-15-changing-a-pcbs-designs-breaks-assignments.md) | Open | Planner: GUI | Changing which design a PCB's units use breaks a project's assignments |
+| [`ISSUE-16`](open/ISSUE-16-pcb-changes-are-not-shown-in-an-open-project.md) | Open | Planner: GUI | A PCB's changes aren't shown in an open project that uses it |
+| [`ISSUE-17`](open/ISSUE-17-some-tab-layouts-are-not-restored.md) | Open | Planner: GUI | Some layouts of the GUI's tabs aren't saved and restored correctly |
+| [`ISSUE-18`](open/ISSUE-18-a-document-can-be-opened-twice.md) | Open | Planner: GUI | The same document can be opened more than once |
+| [`ISSUE-19`](open/ISSUE-19-docking-a-table-tab-panics-in-debug.md) | Open | Planner: GUI | Putting back a tab with a data table panics in a debug build |
+| [`ISSUE-20`](open/ISSUE-20-renamed-process-tab-shows-a-spinner.md) | Open | Planner: GUI | A process's tab shows a spinner after a refresh renames the process |
+| [`ISSUE-21`](open/ISSUE-21-cli-help-gives-the-wrong-file-reference-format.md) | Open | Planner: CLI | The CLI's help gives the wrong format for a file reference |
+| [`ISSUE-22`](open/ISSUE-22-cli-absolute-paths-keep-their-prefix.md) | Open | Planner: CLI | A file given to the CLI as `absolute=` keeps the prefix in its path |
+
+### Fixed
+
+| ID | Status | Tool | Issue |
+|---|---|---|---|
+| [`ISSUE-4`](fixed/ISSUE-4-dragging-a-table-row-moved-the-columns.md) | Fixed | Planner: GUI | Dragging a table's row moved the columns |
+| [`ISSUE-10`](fixed/ISSUE-10-remove-ignored-the-chosen-phase.md) | Fixed | Planner: GUI | "Remove" on the Placements tab ignored the chosen phase |
+| [`ISSUE-11`](fixed/ISSUE-11-apply-silently-skipped-the-other-side.md) | Fixed | Planner: GUI | "Apply" silently skipped placements on the other side of the PCB |
+| [`ISSUE-12`](fixed/ISSUE-12-placements-could-be-recorded-too-early.md) | Fixed | Planner: GUI | A "Placed?" cell could be edited before its task had started |
+| [`ISSUE-13`](fixed/ISSUE-13-task-actions-were-not-translated.md) | Fixed | Planner: GUI | The actions of a phase's tasks weren't translated |
+| [`ISSUE-23`](fixed/ISSUE-23-parts-values-that-look-like-numbers-fail-to-load.md) | Fixed | Variant Builder: core and CLI | A parts file's values that look like numbers failed to load |
 
 ## Contributing
 

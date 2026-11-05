@@ -12,8 +12,9 @@ Pointers to the files that matter. Read the one a task needs, when it needs it.
   reasoning about processes, operations, tasks or phases.
 - [`assets/repo-layout.md`](assets/repo-layout.md): where things are, where the layout isn't Cargo's convention.
 - [`assets/specs/issues/README.md`](assets/specs/issues/README.md): every tool's issues, one file each, with steps to
-  repeat them. Check it before changing an area's behaviour, a refactor included, and before investigating a bug, as
-  one may already describe the code you're changing. Keep an issue's steps to repeat up to
+  repeat them, in `open/` and `fixed/`. Check the open issues before changing an area's behaviour, a refactor
+  included, as one may already describe the code you're changing, and the fixed ones when investigating a bug, as it
+  may have been fixed before. Keep an issue's steps to repeat up to
   date when a change affects them, and follow them before and after fixing it.
 - [`assets/missions/`](assets/missions/): the missions, one file each: a goal bigger than one change, its high-level
   requirements and its steps. Read the mission a task is part of before starting it, and keep its steps up to date.
