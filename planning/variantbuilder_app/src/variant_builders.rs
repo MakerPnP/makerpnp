@@ -216,15 +216,7 @@ impl VariantBuilderFile {
 
         let folder = folder(path);
         let source = |file: &PathBuf| Source::from_path(&folder, file);
-        let name = name(path);
-        let output_placements = self
-            .output_placements
-            .clone()
-            .unwrap_or_else(|| PathBuf::from(format!("{}_placements.csv", name)));
-        let output_bom = self
-            .output_bom
-            .clone()
-            .unwrap_or_else(|| PathBuf::from(format!("{}_bom.csv", name)));
+        let outputs = self.outputs(path);
 
         Ok(BuildArgs {
             eda_tool,
@@ -238,20 +230,45 @@ impl VariantBuilderFile {
                 .collect(),
             load_out: self.load_out.as_ref().map(source),
             assembly_rules: self.assembly_rules.as_ref().map(source),
-            output: folder
-                .join(output_placements)
-                .display()
-                .to_string(),
-            output_bom: Some(
-                folder
-                    .join(output_bom)
-                    .display()
-                    .to_string(),
-            ),
+            output: outputs.placements.display().to_string(),
+            output_bom: Some(outputs.bom.display().to_string()),
             ref_des_exclude_list: self.ref_des_exclusion_list.clone(),
             ref_des_disable_list: self.ref_des_no_place_list.clone(),
         })
     }
+
+    /// Where the variant's placements and BOM are written, for the file at `path`: each output set, relative to the
+    /// file's folder, unless it's absolute, or else the variant builder's name with `_placements.csv` or `_bom.csv`, in
+    /// its folder (`VARB-5`, `VARB-9`).
+    pub fn outputs(&self, path: &Path) -> Outputs {
+        let name = name(path);
+        let output = |output: &Option<PathBuf>, suffix: &str| {
+            source_path(
+                path,
+                &output
+                    .clone()
+                    .unwrap_or_else(|| PathBuf::from(format!("{}_{}.csv", name, suffix))),
+            )
+        };
+
+        Outputs {
+            placements: output(&self.output_placements, "placements"),
+            bom: output(&self.output_bom, "bom"),
+        }
+    }
+}
+
+/// Where a variant's outputs are written (`VARB-9`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Outputs {
+    pub placements: PathBuf,
+    pub bom: PathBuf,
+}
+
+/// The path of a file a variant builder's file names, for the variant builder at `variant_builder`: relative to its
+/// folder, unless it's absolute (`VARB-1`). Only the paths are joined, no file is read.
+pub fn source_path(variant_builder: &Path, path: &Path) -> PathBuf {
+    folder(variant_builder).join(path)
 }
 
 /// The name of a new variant builder's file, `<design name>_<variant name>.variant.json` (`VARB-2`).

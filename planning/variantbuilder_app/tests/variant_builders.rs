@@ -6,7 +6,7 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::{revision, shell_with_a_design, source, Shell, BOM, PLACEMENTS};
-use variantbuilder_app::variant_builders::{SubstitutionsSource, NEW_ASSEMBLY_RULES};
+use variantbuilder_app::variant_builders::{source_path, Outputs, SubstitutionsSource, NEW_ASSEMBLY_RULES};
 use variantbuilder_app::{
     EdaTool, Event, NewVariantBuilder, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus,
     VariantBuilderView,
@@ -514,6 +514,25 @@ fn building_writes_the_outputs_set_relative_to_the_files_folder() {
     assert_eq!(shell.error(), None);
     assert_eq!(shell.documents[&Path::new("in").join("out/placements.csv")], PLACEMENTS);
     assert_eq!(shell.documents[&Path::new("in").join("out/bom.csv")], BOM);
+}
+
+/// `VARB-9`, the outputs are where they're written: those set, relative to the file's folder, or else named after the
+/// variant builder, in its folder.
+#[test]
+fn the_outputs_are_where_building_writes_them() {
+    let file = VariantBuilderFile {
+        output_placements: Some(PathBuf::from("out/placements.csv")),
+        ..complete()
+    };
+
+    assert_eq!(file.outputs(&path()), Outputs {
+        placements: Path::new("in").join("out/placements.csv"),
+        bom: Path::new("in").join("job1_bom.csv"),
+    });
+    assert_eq!(
+        source_path(&path(), Path::new("parts.csv")),
+        Path::new("in").join("parts.csv")
+    );
 }
 
 /// `VARB-5`

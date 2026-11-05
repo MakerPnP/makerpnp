@@ -90,6 +90,12 @@ builder is written, the core MUST log
 "`Created assembly rules. path: '<path>', assembly_rules: '<assembly rules>'`", and if it's open, its view MUST be
 updated. *Target*: as for `VARB-2` and `VARB-4`, the files are read, then written.
 
+**VARB-9 — Where a variant's outputs are.** *Confirmed.* The core MUST say where a variant builder's variant's
+placements and BOM are written, as building writes them (`VARB-5`), so a front end can show them, and the path of each
+data source, relative to the variant builder's folder, unless it's absolute (`VARB-1`), so the front ends don't each
+work them out. *Observed*: they're `VariantBuilderFile::outputs` and `source_path`, worked out from the paths alone,
+reading no file, and building uses them.
+
 ## Acceptance criteria
 
 - `planning/variantbuilder_app/tests/variant_builders.rs`, with no files, answers the operations the core asks for, and
@@ -110,7 +116,9 @@ updated. *Target*: as for `VARB-2` and `VARB-4`, the files are read, then writte
     then the global ones, each in its list's order, with its source (`VARB-5`);
   - a variant builder's status says it was built, until it's configured, and why its last event failed (`VARB-7`);
   - creating assembly rules writes a file with none, and sets the variant builder's to it, and that an existing file
-    isn't replaced, and nothing is written for a variant builder that doesn't exist (`VARB-8`).
+    isn't replaced, and nothing is written for a variant builder that doesn't exist (`VARB-8`);
+  - the outputs are those set, relative to the file's folder, or else named after the variant builder, in its folder,
+    and a data source's path is relative to the file's folder (`VARB-9`).
 - The CLI's tests check the core logs "`variantbuilder_app: Received event. event: Create {`",
   "`variantbuilder_app: Created variant builder. path: '`", "`variantbuilder_app: Received event. event: Build {`",
   "`variantbuilder_app::variant_builders: Building variant. path: '`" and "`variantbuilder_app: Built variant. path: '`", in order
