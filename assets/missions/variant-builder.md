@@ -134,5 +134,5 @@ create, configure and build. Each is a commit, the core first.
 | What | Status |
 |---|---|
 | 9a. The Variant Builder's core creates, opens, configures and builds a variant builder, through the stores service (`VARB-1` to `VARB-6`). | Done |
-| 9b. The CLI: `variantbuilder_cli create --file <file>`, refusing to replace a file without `--overwrite`, `configure --file <file>`, with the arguments `build` has today, each optional, setting only those given, and `build --file <file>`. `build`'s arguments move to `configure`, and the core's `BuildWith` event, which builds without a file, is removed. | Next |
-| 9c. The GUI: "New variant builder" and "Open variant builder" open a tab in which the variant is defined and each data source chosen, and "Build" builds it. The explorer, and the tabs for its data sources and results, are step 10. | |
+| 9b. The CLI: `variantbuilder_cli create --file <file>`, refusing to replace a file without `--overwrite`, `configure --file <file>`, with the arguments `build` has today, each optional, setting only those given, and `build --file <file>`. `build`'s arguments move to `configure`, and the core's `BuildWith` event, which builds without a file, is removed (`VARBCLI-1` to `VARBCLI-3`). | Done |
+| 9c. The GUI: "New variant builder" and "Open variant builder" open a tab in which the variant is defined and each data source chosen, and "Build" builds it. The explorer, and the tabs for its data sources and results, are step 10. | Next |

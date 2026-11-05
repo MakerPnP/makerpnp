@@ -110,24 +110,9 @@ pub enum Event {
         done: Done,
         result: Result<VariantBuilderView, VariantBuilderError>,
     },
-    /// Builds a variant from the arguments given, without a variant builder's file (`STORE-14`).
-    BuildWith {
-        eda_tool: EdaTool,
-        placements: EdaPlacementsSource,
-        assembly_variant: AssemblyVariant,
-        parts: PartsSource,
-        part_mappings: PartMappingsSource,
-        substitutions: Vec<EdaSubstitutionsSource>,
-        load_out: Option<LoadOutSource>,
-        assembly_rules: Option<AssemblyRuleSource>,
-        output: String,
-        output_bom: Option<String>,
-        ref_des_exclude_list: Vec<String>,
-        ref_des_disable_list: Vec<String>,
-    },
-    /// The variant was built, and its files written, or why not, from the variant builder's file, if there was one.
+    /// The variant builder's variant was built, and its files written, or why not.
     Built {
-        path: Option<PathBuf>,
+        path: PathBuf,
         result: Result<(), VariantBuilderError>,
     },
     //
@@ -275,46 +260,7 @@ impl App for VariantBuilder {
                 Command::new(|ctx| async move {
                     let result = variant_builders::build(&ctx, &path).await;
                     ctx.send_event(Event::Built {
-                        path: Some(path),
-                        result,
-                    });
-                })
-            }
-            Event::BuildWith {
-                eda_tool,
-                placements,
-                assembly_variant,
-                parts,
-                part_mappings,
-                substitutions,
-                load_out,
-                assembly_rules,
-                output,
-                output_bom,
-                ref_des_exclude_list,
-                ref_des_disable_list,
-            } => {
-                let args = BuildArgs {
-                    eda_tool,
-                    placements,
-                    assembly_variant,
-                    parts,
-                    part_mappings,
-                    substitutions,
-                    load_out,
-                    assembly_rules,
-                    output,
-                    output_bom,
-                    ref_des_exclude_list,
-                    ref_des_disable_list,
-                };
-                model.error = None;
-                Command::new(|ctx| async move {
-                    let result = build(&ctx, args)
-                        .await
-                        .map_err(VariantBuilderError::from);
-                    ctx.send_event(Event::Built {
-                        path: None,
+                        path,
                         result,
                     });
                 })
@@ -324,11 +270,7 @@ impl App for VariantBuilder {
                 result,
             } => {
                 match result {
-                    Ok(()) => {
-                        if let Some(path) = path {
-                            info!("Built variant. path: '{}'", path.display());
-                        }
-                    }
+                    Ok(()) => info!("Built variant. path: '{}'", path.display()),
                     Err(error) => fail(model, error),
                 }
                 render::render()

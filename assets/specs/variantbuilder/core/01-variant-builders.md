@@ -77,5 +77,5 @@ The core MUST log "`Building variant. path: '<path>'`" once the file is read, th
   - building one that isn't complete names each field missing, and reads no data source (`VARB-5`).
 - The CLI's tests check the core logs "`variantbuilder_app: Received event. event: Create {`",
   "`variantbuilder_app: Created variant builder. path: '`", "`variantbuilder_app: Received event. event: Build {`",
-  "`variantbuilder_app: Building variant. path: '`" and "`variantbuilder_app: Built variant. path: '`", in order
-  (`VARB-6`). *Target*: the CLI's commands use these events from step 9 of the mission.
+  "`variantbuilder_app::variant_builders: Building variant. path: '`" and "`variantbuilder_app: Built variant. path: '`", in order
+  (`VARB-6`), see `VARBCLI`.

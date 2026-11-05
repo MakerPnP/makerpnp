@@ -4,6 +4,7 @@ extern crate util;
 #[cfg(test)]
 mod tests {
     use std::fs::read_to_string;
+    use std::path::PathBuf;
     use std::process::Command;
 
     use assert_cmd::prelude::OutputAssertExt;
@@ -15,7 +16,7 @@ mod tests {
     use rust_decimal_macros::dec;
     use stores::part_mappings::test::TestPartMappingRecord;
     use stores::test::load_out_builder::TestLoadOutRecord;
-    use tempfile::tempdir;
+    use tempfile::{tempdir, TempDir};
     use util::test::{build_temp_csv_file, build_temp_file, dump_args, dump_file, prepare_args, print};
 
     /// This functional test tests the following:
@@ -40,9 +41,6 @@ mod tests {
     #[test]
     fn build() -> Result<(), std::io::Error> {
         // given
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder_cli"));
-
-        // and
         let temp_dir = tempdir()?;
 
         // and placements
@@ -476,10 +474,8 @@ mod tests {
                 .unwrap()
         );
 
-        // and
-        let args = prepare_args(vec![
-            trace_log_arg.as_str(),
-            "build",
+        // when
+        create_configure_and_build(&temp_dir, &trace_log_arg, vec![
             "--eda diptrace",
             placements_arg.as_str(),
             parts_arg.as_str(),
@@ -493,15 +489,6 @@ mod tests {
             "--ref-des-list R1,R3,R4,D1,C1,J1,TP1,TP2",
             "--ref-des-disable-list TP1,TP2",
         ]);
-        dump_args(&args);
-
-        // when
-        cmd.args(args)
-            // then
-            .assert()
-            .stderr(print("stderr"))
-            .stdout(print("stdout"))
-            .success();
 
         // and
         let trace_content: String = read_to_string(test_trace_log_path.clone())?;
@@ -521,7 +508,15 @@ mod tests {
                 .unwrap()
         );
 
+        // `VARB-6`, `VARBCLI-1` to `VARBCLI-3`
         assert_contains_inorder!(trace_content, [
+            "variantbuilder_app: Received event. event: Create {",
+            "variantbuilder_app: Created variant builder. path: '",
+            "variantbuilder_app: Received event. event: Configure {",
+            "variantbuilder_app: Configured variant builder. path: '",
+            "change_count: 11",
+            "variantbuilder_app: Received event. event: Build {",
+            "variantbuilder_app::variant_builders: Building variant. path: '",
             "Loaded 9 placements\n",
             expected_substitutions_file_1_message.as_str(),
             expected_substitutions_file_2_message.as_str(),
@@ -534,7 +529,9 @@ mod tests {
             "Matched 8 placements for assembly variant\n",
             expected_part_mapping_tree,
             "5 Mapping failure(s)\n",
+            "variantbuilder_app: Built variant. path: '",
         ]);
+        assert!(!trace_content.contains("Event failed."));
 
         // and
         let csv_output_file = assert_fs::NamedTempFile::new(test_csv_output_path).unwrap();
@@ -546,6 +543,39 @@ mod tests {
         Ok(())
     }
 
+    /// The variant builder's file the tests build from, in the folder.
+    pub fn variant_builder_file(temp_dir: &TempDir) -> PathBuf {
+        temp_dir
+            .path()
+            .join("job1.variant.json")
+    }
+
+    /// Runs the CLI with the arguments, after `--trace` and `-v`, and checks it succeeds.
+    pub fn run(trace_log_arg: &str, args: Vec<&str>) {
+        let args = prepare_args([vec![trace_log_arg, "-v"], args].concat());
+        dump_args(&args);
+
+        Command::new(env!("CARGO_BIN_EXE_variantbuilder_cli"))
+            .args(args)
+            .assert()
+            .stderr(print("stderr"))
+            .stdout(print("stdout"))
+            .success();
+    }
+
+    /// Creates a variant builder in the folder, configures it with the arguments, and builds it (`VARBCLI-1` to
+    /// `VARBCLI-3`).
+    fn create_configure_and_build(temp_dir: &TempDir, trace_log_arg: &str, configure_args: Vec<&str>) {
+        let file = variant_builder_file(temp_dir);
+        let file = file.to_str().unwrap();
+        run(trace_log_arg, vec!["create", "--file", file]);
+        run(
+            trace_log_arg,
+            [vec!["configure", "--file", file], configure_args].concat(),
+        );
+        run(trace_log_arg, vec!["build", "--file", file]);
+    }
+
     fn assert_csv_content(csv_content: String, expected_csv_content: String) {
         if let Some(case) = predicate::str::diff(expected_csv_content).find_case(false, csv_content.as_str()) {
             panic!("Unexpected CSV content\n{}", case.tree());
@@ -555,8 +585,6 @@ mod tests {
     /// See `build` test, this test is focussed on Kicad specifics
     #[test]
     fn build_kicad_using_default_assembly_variant() -> Result<(), std::io::Error> {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder_cli"));
-
         // and
         let temp_dir = tempdir()?;
 
@@ -703,10 +731,8 @@ mod tests {
         "#}
         .to_string();
 
-        // and
-        let args = prepare_args(vec![
-            trace_log_arg.as_str(),
-            "build",
+        // when
+        create_configure_and_build(&temp_dir, &trace_log_arg, vec![
             "--eda kicad",
             placements_arg.as_str(),
             parts_arg.as_str(),
@@ -714,15 +740,6 @@ mod tests {
             csv_output_arg.as_str(),
             substitutions_arg.as_str(),
         ]);
-        dump_args(&args);
-
-        // when
-        cmd.args(args)
-            // then
-            .assert()
-            .stderr(print("stderr"))
-            .stdout(print("stdout"))
-            .success();
 
         // and
         let trace_content: String = read_to_string(test_trace_log_path.clone())?;
@@ -759,8 +776,6 @@ mod tests {
     /// See `build` test, this test is focussed on EasyEDA specifics
     #[test]
     fn build_easyeda_using_default_assembly_variant() -> Result<(), std::io::Error> {
-        let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder_cli"));
-
         // and
         let temp_dir = tempdir()?;
 
@@ -909,10 +924,8 @@ mod tests {
         "#}
         .to_string();
 
-        // and
-        let args = prepare_args(vec![
-            trace_log_arg.as_str(),
-            "build",
+        // when
+        create_configure_and_build(&temp_dir, &trace_log_arg, vec![
             "--eda easyeda",
             placements_arg.as_str(),
             parts_arg.as_str(),
@@ -920,15 +933,6 @@ mod tests {
             csv_output_arg.as_str(),
             substitutions_arg.as_str(),
         ]);
-        dump_args(&args);
-
-        // when
-        cmd.args(args)
-            // then
-            .assert()
-            .stderr(print("stderr"))
-            .stdout(print("stdout"))
-            .success();
 
         // and
         let trace_content: String = read_to_string(test_trace_log_path.clone())?;
@@ -1097,8 +1101,10 @@ mod help {
             Usage: variantbuilder_cli [OPTIONS] <COMMAND>
 
             Commands:
-              build  Build variant
-              help   Print this message or the help of the given subcommand(s)
+              create     Create a variant builder's file
+              configure  Configure a variant builder, setting only the options given
+              build      Build a variant builder's variant
+              help       Print this message or the help of the given subcommand(s)
 
             Options:
                   --trace [<TRACE>]  Trace log file
@@ -1125,47 +1131,51 @@ mod help {
     }
 
     #[test]
-    fn help_for_build_subcommand() {
+    fn help_for_configure_subcommand() {
         // given
         let mut cmd = Command::new(env!("CARGO_BIN_EXE_variantbuilder_cli"));
 
         // and
         let expected_output = indoc! {"
-            Build variant
+            Configure a variant builder, setting only the options given
 
-            Usage: variantbuilder_cli build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE>
+            Usage: variantbuilder_cli configure [OPTIONS] --file <FILE>
 
             Options:
+                  --file <FILE>
+                      Variant builder file, <name>.variant.json
                   --eda <EDA>
                       EDA tool [possible values: diptrace, kicad, easyeda]
                   --load-out <SOURCE>
                       Load-out source
                   --placements <SOURCE>
                       Placements source
-              -v, --verbose...
-                      Increase logging verbosity
                   --parts <SOURCE>
                       Parts source
-              -q, --quiet...
-                      Decrease logging verbosity
+              -v, --verbose...
+                      Increase logging verbosity
                   --part-mappings <SOURCE>
                       Part-mappings source
+              -q, --quiet...
+                      Decrease logging verbosity
                   --substitutions [<SOURCE>...]
-                      Substitution sources
+                      Substitution sources, none to clear them
                   --ref-des-exclude-list [<REF_DES_EXCLUDE_LIST>...]
-                      List of reference designators to exclude (test-pads, fiducials, etc)
+                      List of reference designators to exclude (test-pads, fiducials, etc), none to clear it
                   --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
-                      List of reference designators to disable (use for do-not-fit, no-place, etc)
+                      List of reference designators to disable (use for do-not-fit, no-place, etc), none to clear it
                   --assembly-rules <SOURCE>
                       Assembly rules source
                   --output <FILE>
-                      Output CSV file
+                      Output CSV file [default: <name>_placements.csv]
                   --output-bom <FILE>
-                      Output BOM CSV file (Currently JLCPCB format only)
+                      Output BOM CSV file (Currently JLCPCB format only) [default: <name>_bom.csv]
                   --name <NAME>
-                      Name of assembly variant [default: Default]
+                      Name of assembly variant
                   --ref-des-list [<REF_DES_LIST>...]
-                      List of reference designators for assembly variant (defaults to all if not specified)
+                      List of reference designators for assembly variant (all if there are none), none to clear it
+                  --clear <OPTION>...
+                      Options to clear [possible values: eda, load-out, placements, parts, part-mappings, assembly-rules, output, output-bom]
               -h, --help
                       Print help
         "};
@@ -1177,7 +1187,7 @@ mod help {
         //               the error was: '^^^ the trait `IntoResettable<char>` is not implemented for `&str`'
 
         // when
-        cmd.args(["build", "--help"])
+        cmd.args(["configure", "--help"])
             // then
             .assert()
             .success()

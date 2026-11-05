@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, bail};
+use anyhow::bail;
 use clap::Parser;
 use cli;
 use crossbeam_channel::unbounded;
@@ -20,7 +20,7 @@ fn main() -> anyhow::Result<()> {
 
     cli::tracing::configure_tracing(opts.trace.clone(), opts.verbose.clone())?;
 
-    let event = Event::try_from(opts).map_err(|error| anyhow!("{}", error))?;
+    let event = opts.event(&std::env::current_dir()?);
 
     let core = core::new();
     run_loop(&core, event)?;

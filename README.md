@@ -200,41 +200,59 @@ CharmHigh CHMT32VA/CHMT32VB/CHMT48VA/CHMT48VB machines, where the feeders are no
 variant builder software is sensitive to the knowledge that changing feeders and machine-setup can be a very
 time-consuming process. 
 
-Here's the current help output:
+A variant is defined in a variant builder's file, `<name>.variant.json`, which is created, configured, a few options
+at a time, and built, each with its own command:
 
 ```
-$ ./target/debug/variantbuilder_cli.exe build --help
-Build variant
+$ ./target/debug/variantbuilder_cli.exe create --file job1.variant.json
+$ ./target/debug/variantbuilder_cli.exe configure --file job1.variant.json --eda kicad --placements job1-all-pos.csv --parts parts.csv --part-mappings part-mappings.csv
+$ ./target/debug/variantbuilder_cli.exe build --file job1.variant.json
+```
 
-Usage: variantbuilder_cli build [OPTIONS] --eda <EDA> --placements <SOURCE> --parts <SOURCE> --part-mappings <SOURCE> --output <FILE>
+`build` writes `job1_placements.csv` and `job1_bom.csv`, unless `--output` and `--output-bom` say otherwise. Here's the
+current help output for `configure`:
+
+```
+$ ./target/debug/variantbuilder_cli.exe configure --help
+Configure a variant builder, setting only the options given
+
+Usage: variantbuilder_cli configure [OPTIONS] --file <FILE>
 
 Options:
+      --file <FILE>
+          Variant builder file, <name>.variant.json
       --eda <EDA>
           EDA tool [possible values: diptrace, kicad, easyeda]
       --load-out <SOURCE>
           Load-out source
       --placements <SOURCE>
           Placements source
-  -v, --verbose...
-          Increase logging verbosity
       --parts <SOURCE>
           Parts source
-  -q, --quiet...
-          Decrease logging verbosity
+  -v, --verbose...
+          Increase logging verbosity
       --part-mappings <SOURCE>
           Part-mappings source
+  -q, --quiet...
+          Decrease logging verbosity
       --substitutions [<SOURCE>...]
-          Substitution sources
+          Substitution sources, none to clear them
+      --ref-des-exclude-list [<REF_DES_EXCLUDE_LIST>...]
+          List of reference designators to exclude (test-pads, fiducials, etc), none to clear it
       --ref-des-disable-list [<REF_DES_DISABLE_LIST>...]
-          List of reference designators to disable (use for do-not-fit, no-place, test-points, fiducials, etc)
+          List of reference designators to disable (use for do-not-fit, no-place, etc), none to clear it
       --assembly-rules <SOURCE>
           Assembly rules source
       --output <FILE>
-          Output CSV file
+          Output CSV file [default: <name>_placements.csv]
+      --output-bom <FILE>
+          Output BOM CSV file (Currently JLCPCB format only) [default: <name>_bom.csv]
       --name <NAME>
-          Name of assembly variant [default: Default]
+          Name of assembly variant
       --ref-des-list [<REF_DES_LIST>...]
-          List of reference designators
+          List of reference designators for assembly variant (all if there are none), none to clear it
+      --clear <OPTION>...
+          Options to clear [possible values: eda, load-out, placements, parts, part-mappings, assembly-rules, output, output-bom]
   -h, --help
           Print help
 ```

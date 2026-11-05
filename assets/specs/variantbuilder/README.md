@@ -11,6 +11,7 @@ criteria, logging (`LOG`) and the stores service (`STORE`).
 | File | Area | ID prefix |
 |---|---|---|
 | [core/01-variant-builders.md](core/01-variant-builders.md) | A variant builder's file: creating, opening, configuring and building it | `VARB` |
+| [cli/01-commands.md](cli/01-commands.md) | The CLI's `create`, `configure` and `build` commands | `VARBCLI` |
 
 ## Glossary
 
@@ -24,3 +25,4 @@ criteria, logging (`LOG`) and the stores service (`STORE`).
 | Date | Change |
 |---|---|
 | 2026-11-05 | A variant builder is a file, `<name>.variant.json`, which the core creates, opens, configures and builds from, through the stores service (`VARB-1` to `VARB-6`), so that a variant is defined once, rather than with every build's arguments. |
+| 2026-11-05 | The CLI creates, configures and builds a variant builder's file: `variantbuilder_cli create --file <file>`, refusing to replace one without `--overwrite`, `configure`, with the arguments `build` took before, each optional, and `build --file <file>`, which no longer takes them (`VARBCLI-1` to `VARBCLI-3`). The core no longer builds without a file, and an unset BOM is written to `<name>_bom.csv` (`VARB-5`). |

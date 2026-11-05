@@ -322,13 +322,12 @@ left as it was.
   "`planner_app: Updated operation history file. path: `" and
   "`planner_app: Received event. event: OperationHistoryWritten { result: Ok(()) }`" are logged, in order, with no
   "`Event failed.`" (`STORE-13`).
-- `planning/variantbuilder_app/tests/build.rs`, with no files, answers the Variant Builder's core's reads and writes
-  itself, and checks building reads each data source in order, then writes the placements and the BOM, as CSV, that
-  with no BOM asked for only the placements are written, that a data source that doesn't exist says so, the data
-  sources after it aren't read, and nothing is written, and that placements that can't be written say why, and the BOM
-  isn't written (`STORE-14`).
+- `planning/variantbuilder_app/tests/variant_builders.rs`, with no files, answers the Variant Builder's core's reads and
+  writes itself, and checks building reads each data source in order, then writes the placements and the BOM, as CSV,
+  that a data source that doesn't exist says so, the data sources after it aren't read, and nothing is written, and
+  that placements that can't be written say why, and the BOM isn't written (`STORE-14`).
 - `planning/variantbuilder_cli/tests/variantbuilder.rs` builds variants of DipTrace, KiCad and EasyEDA designs, and
-  checks the "`Loaded`" lines are logged in order, and that the placements are as before (`STORE-14`).
+  checks the "`Loaded`" lines are logged in order, and that the placements are as before (`STORE-14`, `VARBCLI`).
 - `planning/planner_cli/tests/planner.rs` checks "`Created load-out. source: '`" is logged before the phase is created,
   that "`Loading load-out. source: '`" is logged before the placements are assigned to the phase, and
   "`Storing load-out. source: '`" after, and that the load-out is as before (`STORE-11`). It creates a phase with a

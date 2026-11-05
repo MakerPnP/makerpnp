@@ -337,11 +337,66 @@ fn building_reads_the_file_then_its_data_sources_relative_to_its_folder() {
                 .display()
         ),
     ]);
+    // the substitution is made before the part is mapped, which it's mapped by.
     assert_eq!(
         shell.documents[&Path::new("in").join("job1_placements.csv")],
         PLACEMENTS
     );
     assert_eq!(shell.documents[&Path::new("in").join("job1_bom.csv")], BOM);
+}
+
+/// `STORE-14`
+#[test]
+fn a_data_source_that_does_not_exist_says_so_and_nothing_is_written() {
+    let mut shell = shell_with_a_design();
+    given(&mut shell, &complete());
+    shell
+        .records
+        .remove(&source("part-mappings.csv"));
+
+    shell.process(build());
+
+    assert_eq!(
+        shell.error(),
+        Some(format!(
+            "Data source not found. source: '{}'",
+            source("part-mappings.csv")
+        ))
+    );
+    // the data sources after it aren't read.
+    assert_eq!(
+        shell.done().last().unwrap(),
+        &format!("read PartMappings {}", source("part-mappings.csv"))
+    );
+    assert_eq!(
+        shell
+            .documents
+            .keys()
+            .collect::<Vec<_>>(),
+        vec![&path()]
+    );
+}
+
+/// `STORE-14`
+#[test]
+fn placements_that_can_not_be_written_say_why_and_the_bom_is_not_written() {
+    let mut shell = shell_with_a_design();
+    given(&mut shell, &complete());
+    shell.refused.insert(
+        Path::new("in").join("job1_placements.csv"),
+        "Access denied.".to_string(),
+    );
+
+    shell.process(build());
+
+    assert_eq!(shell.error(), Some("Access denied.".to_string()));
+    assert_eq!(
+        shell
+            .documents
+            .keys()
+            .collect::<Vec<_>>(),
+        vec![&path()]
+    );
 }
 
 /// `VARB-5`
