@@ -4651,6 +4651,7 @@ dependencies = [
  "tracing-subscriber",
  "util",
  "validator",
+ "variantbuilder_app",
 ]
 
 [[package]]

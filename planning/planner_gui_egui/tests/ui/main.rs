@@ -10,4 +10,5 @@ mod parts_sources;
 mod phase_states;
 mod processes;
 mod tables;
+mod variant_builders;
 mod workflow;

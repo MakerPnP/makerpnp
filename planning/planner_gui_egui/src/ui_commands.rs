@@ -21,11 +21,13 @@ use crate::ui_app::app_tabs::parts::PartsTabAction;
 use crate::ui_app::app_tabs::pcb::{PcbTabAction, PcbTabUiCommand};
 use crate::ui_app::app_tabs::process::{ProcessTabAction, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTabAction, ProjectTabUiCommand};
+use crate::ui_app::app_tabs::variant_builder::{VariantBuilderTabAction, VariantBuilderTabUiCommand};
 use crate::ui_app::app_tabs::{
     AppTabs, TabAction, TabKind, TabKindAction, TabKindContext, TabKindUiCommand, TabUiCommand,
 };
 use crate::ui_app::{AppState, build_toolbar_context};
 use crate::ui_component::UiComponent;
+use crate::variant_builder_core::VariantBuilderReply;
 
 #[derive(Debug, Clone)]
 pub enum UiCommand {
@@ -52,6 +54,9 @@ pub enum UiCommand {
     },
     /// The result of a store operation the stores core asked for, done by the stores service (`STORE-7`).
     StoresReply(StoresReply),
+    /// The result of a store operation the Variant Builder core asked for, done by the stores service (`STORE-7`).
+    VariantBuilderReply(VariantBuilderReply),
+    OpenVariantBuilderFile(PathBuf),
 }
 
 // TODO perhaps the return type of this method be `Task<Result<UiCommand, UiAppError>>`
@@ -83,6 +88,31 @@ pub fn handle_command(
             let stores = app_state.lock().unwrap().stores.clone();
             stores.lock().unwrap().resolve(reply);
             Task::none()
+        }
+        UiCommand::VariantBuilderReply(reply) => {
+            let variant_builders = app_state
+                .lock()
+                .unwrap()
+                .variant_builders
+                .clone();
+            variant_builders
+                .lock()
+                .unwrap()
+                .resolve(reply);
+            Task::none()
+        }
+        UiCommand::OpenVariantBuilderFile(path) => {
+            let file_dialogs = app_state.lock().unwrap().file_dialogs();
+            let tab_key = app_tabs
+                .lock()
+                .unwrap()
+                .add_variant_builder_tab(file_dialogs, Some(path));
+            Task::done(UiCommand::TabCommand {
+                tab_key,
+                command: TabUiCommand::TabKindCommand(TabKindUiCommand::VariantBuilderTabCommand {
+                    command: VariantBuilderTabUiCommand::Open,
+                }),
+            })
         }
         UiCommand::ToolbarCommand(command) => {
             let mut context = build_toolbar_context(&app_tabs);
@@ -167,14 +197,15 @@ pub fn handle_command(
             command,
         } => {
             // block required limit the scope of the `app_state` guard
-            let (projects, pcbs, processes, stores) = {
+            let (projects, pcbs, processes, stores, variant_builders) = {
                 let app_state = app_state.lock().unwrap();
                 let projects = app_state.projects.clone();
                 let pcbs = app_state.pcbs.clone();
                 let processes = app_state.processes.clone();
                 let stores = app_state.stores.clone();
+                let variant_builders = app_state.variant_builders.clone();
                 drop(app_state);
-                (projects, pcbs, processes, stores)
+                (projects, pcbs, processes, stores, variant_builders)
             };
 
             let mut tab_context = TabKindContext {
@@ -183,6 +214,7 @@ pub fn handle_command(
                 pcbs,
                 processes,
                 stores,
+                variant_builders,
             };
 
             let action = {
@@ -301,6 +333,16 @@ pub fn handle_command(
                             }),
                         }),
                     },
+                    TabKindAction::VariantBuilderTabAction {
+                        action,
+                    } => match action {
+                        VariantBuilderTabAction::Task(task) => task.map(move |command| UiCommand::TabCommand {
+                            tab_key,
+                            command: TabUiCommand::TabKindCommand(TabKindUiCommand::VariantBuilderTabCommand {
+                                command,
+                            }),
+                        }),
+                    },
                     TabKindAction::ProjectTabAction {
                         action,
                     } => match action {
@@ -403,6 +445,17 @@ fn handle_toolbar_action(
             let file_dialogs = app_state.lock().unwrap().file_dialogs();
             let mut app_tabs = app_tabs.lock().unwrap();
             app_tabs.add_parts_tab(file_dialogs);
+            Task::none()
+        }
+        ToolbarAction::AddNewVariantBuilderTab => {
+            let file_dialogs = app_state.lock().unwrap().file_dialogs();
+            let mut app_tabs = app_tabs.lock().unwrap();
+            app_tabs.add_variant_builder_tab(file_dialogs, None);
+            Task::none()
+        }
+        ToolbarAction::PickVariantBuilderFile => {
+            let mut app_state = app_state.lock().unwrap();
+            app_state.pick_variant_builder_file();
             Task::none()
         }
         ToolbarAction::CloseAllTabs => {

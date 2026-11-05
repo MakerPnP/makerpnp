@@ -22,4 +22,5 @@ pub mod ui_commands;
 pub mod ui_component;
 pub mod ui_components;
 pub mod ui_util;
+pub mod variant_builder_core;
 pub mod widgets;

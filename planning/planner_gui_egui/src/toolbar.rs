@@ -17,6 +17,8 @@ pub enum ToolbarUiCommand {
     NewProcessClicked,
     OpenProcessClicked,
     OpenPartsClicked,
+    NewVariantBuilderClicked,
+    OpenVariantBuilderClicked,
 }
 
 pub enum ToolbarAction {
@@ -33,6 +35,9 @@ pub enum ToolbarAction {
     AddNewProcessTab,
 
     AddPartsTab,
+
+    AddNewVariantBuilderTab,
+    PickVariantBuilderFile,
 
     SaveTab(TabKey),
 }
@@ -137,6 +142,24 @@ impl UiComponent for Toolbar {
 
                 ui.separator();
 
+                if ui
+                    .button(tr!("toolbar-button-new-variant-builder"))
+                    .clicked()
+                {
+                    self.component
+                        .send(ToolbarUiCommand::NewVariantBuilderClicked);
+                }
+
+                if ui
+                    .button(tr!("toolbar-button-open-variant-builder"))
+                    .clicked()
+                {
+                    self.component
+                        .send(ToolbarUiCommand::OpenVariantBuilderClicked);
+                }
+
+                ui.separator();
+
                 ui.add_enabled_ui(context.can_save, |ui| {
                     if ui
                         .button(tr!("toolbar-button-save"))
@@ -176,6 +199,8 @@ impl UiComponent for Toolbar {
             ToolbarUiCommand::NewProcessClicked => Some(ToolbarAction::AddNewProcessTab),
             ToolbarUiCommand::OpenProcessClicked => Some(ToolbarAction::PickProcessFile),
             ToolbarUiCommand::OpenPartsClicked => Some(ToolbarAction::AddPartsTab),
+            ToolbarUiCommand::NewVariantBuilderClicked => Some(ToolbarAction::AddNewVariantBuilderTab),
+            ToolbarUiCommand::OpenVariantBuilderClicked => Some(ToolbarAction::PickVariantBuilderFile),
             ToolbarUiCommand::SaveClicked(tab_key) => Some(ToolbarAction::SaveTab(tab_key)),
         }
     }

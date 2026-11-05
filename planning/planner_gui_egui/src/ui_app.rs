@@ -26,9 +26,11 @@ use crate::ui_app::app_tabs::parts::PartsTabUiCommand;
 use crate::ui_app::app_tabs::pcb::{PcbTab, PcbTabUiCommand};
 use crate::ui_app::app_tabs::process::{ProcessTab, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabUiCommand};
+use crate::ui_app::app_tabs::variant_builder::VariantBuilderTabUiCommand;
 use crate::ui_app::app_tabs::{AppTabs, TabKind, TabKindContext, TabKindUiCommand, TabUiCommand};
 use crate::ui_commands::{UiCommand, handle_command};
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::variant_builder_core::VariantBuilderCoreService;
 use crate::{fonts, pcb, project, task};
 
 pub mod app_tabs;
@@ -55,6 +57,7 @@ enum PickReason {
     PcbFile,
     ProcessFile,
     ProjectFile,
+    VariantBuilderFile,
 }
 
 impl PickReason {
@@ -63,6 +66,7 @@ impl PickReason {
             PickReason::ProjectFile => "*.project.json",
             PickReason::PcbFile => "*.pcb.json",
             PickReason::ProcessFile => "*.process.json",
+            PickReason::VariantBuilderFile => "*.variant.json",
         }
     }
 }
@@ -87,6 +91,9 @@ pub struct AppState {
 
     /// The one stores core, shared by every tab that uses a data source.
     pub stores: Value<StoresCoreService>,
+
+    /// The one Variant Builder core, shared by every variant builder tab.
+    pub variant_builders: Value<VariantBuilderCoreService>,
 }
 
 impl AppState {
@@ -98,7 +105,8 @@ impl AppState {
                 UiCommand::ToolbarCommand(command)
             });
 
-        let stores = Value::new(StoresCoreService::new(sender.clone(), ui_context));
+        let stores = Value::new(StoresCoreService::new(sender.clone(), ui_context.clone()));
+        let variant_builders = Value::new(VariantBuilderCoreService::new(sender.clone(), ui_context));
 
         Self {
             startup_done: false,
@@ -110,6 +118,7 @@ impl AppState {
             pcbs: Value::new(SlotMap::default()),
             processes: Value::new(SlotMap::default()),
             stores,
+            variant_builders,
             toolbar,
         }
     }
@@ -144,6 +153,11 @@ impl AppState {
     pub fn pick_pcb_file(&mut self) {
         let open_pcb_file_command_fn = |path: PathBuf| UiCommand::OpenPcbFile(path);
         self.pick_file(PickReason::PcbFile, Box::new(open_pcb_file_command_fn));
+    }
+
+    pub fn pick_variant_builder_file(&mut self) {
+        let open_command_fn = |path: PathBuf| UiCommand::OpenVariantBuilderFile(path);
+        self.pick_file(PickReason::VariantBuilderFile, Box::new(open_command_fn));
     }
 
     pub fn pick_process_file(&mut self) {
@@ -799,6 +813,33 @@ impl UiApp {
                 .expect("sent");
         }
     }
+
+    /// Wires up the variant builder tabs restored from the saved state, and opens those with a file (`VBGUI-1`).
+    ///
+    /// Safety: call only once on startup, before the tabs are shown.
+    fn restore_variant_builder_tabs_on_startup(&mut self) {
+        let (file_dialogs, sender) = {
+            let app_state = self.app_state();
+            (app_state.file_dialogs(), app_state.command_sender.clone())
+        };
+
+        let tab_keys = self
+            .app_tabs
+            .lock()
+            .unwrap()
+            .restore_variant_builder_tabs_on_startup(file_dialogs);
+
+        for tab_key in tab_keys {
+            sender
+                .send(UiCommand::TabCommand {
+                    tab_key,
+                    command: TabUiCommand::TabKindCommand(TabKindUiCommand::VariantBuilderTabCommand {
+                        command: VariantBuilderTabUiCommand::Open,
+                    }),
+                })
+                .expect("sent");
+        }
+    }
 }
 
 impl eframe::App for UiApp {
@@ -939,20 +980,22 @@ impl eframe::App for UiApp {
             }
             self.restore_documents_on_startup();
             self.restore_parts_tabs_on_startup();
+            self.restore_variant_builder_tabs_on_startup();
         }
 
         // in a block to limit the scope of the `app_tabs` borrow/guard
         {
             profiling::scope!("ui::central_panel");
             // block required limit the scope of the `app_state` guard
-            let (projects, pcbs, processes, stores) = {
+            let (projects, pcbs, processes, stores, variant_builders) = {
                 let app_state = self.app_state();
                 let projects = app_state.projects.clone();
                 let pcbs = app_state.pcbs.clone();
                 let processes = app_state.processes.clone();
                 let stores = app_state.stores.clone();
+                let variant_builders = app_state.variant_builders.clone();
                 drop(app_state);
-                (projects, pcbs, processes, stores)
+                (projects, pcbs, processes, stores, variant_builders)
             };
 
             let config = self.config.clone();
@@ -963,6 +1006,7 @@ impl eframe::App for UiApp {
                 pcbs,
                 processes,
                 stores,
+                variant_builders,
             };
 
             let mut app_tabs = self.app_tabs.lock().unwrap();
@@ -1187,6 +1231,8 @@ pub fn build_toolbar_context(app_tabs: &Value<AppTabs>) -> ToolbarContext {
             TabKind::Process(process_tab, _) => process_tab.modified,
             // a data source's changes aren't saved by "Save", see `PARTSRC-1`.
             TabKind::Parts(_, _) => false,
+            // a variant builder is saved with its own "Save", see `VBGUI-3`.
+            TabKind::VariantBuilder(_, _) => false,
         })
     });
 

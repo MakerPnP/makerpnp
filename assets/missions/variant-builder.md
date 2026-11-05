@@ -90,8 +90,8 @@ a data source, with nothing to keep them in step, which matters once data source
 | 6 | Watching: a change to a data source's file, by anyone, is noticed, and every core and view using it is updated. | Done |
 | 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Done |
 | 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Done |
-| 9 | A variant builder: define the variant and choose its data sources. | Next |
-| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | |
+| 9 | A variant builder: define the variant and choose its data sources. | Done |
+| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | Next |
 | 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
 | 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
 | 13 | Confirming BOM items. | |
@@ -135,4 +135,4 @@ create, configure and build. Each is a commit, the core first.
 |---|---|
 | 9a. The Variant Builder's core creates, opens, configures and builds a variant builder, through the stores service (`VARB-1` to `VARB-6`). | Done |
 | 9b. The CLI: `variantbuilder_cli create --file <file>`, refusing to replace a file without `--overwrite`, `configure --file <file>`, with the arguments `build` has today, each optional, setting only those given, and `build --file <file>`. `build`'s arguments move to `configure`, and the core's `BuildWith` event, which builds without a file, is removed (`VARBCLI-1` to `VARBCLI-3`). | Done |
-| 9c. The GUI: "New variant builder" and "Open variant builder" open a tab in which the variant is defined and each data source chosen, and "Build" builds it. The explorer, and the tabs for its data sources and results, are step 10. | Next |
+| 9c. The GUI: "New variant builder" and "Open variant builder" open a tab in which the variant is defined and each data source chosen, and "Build" builds it. The explorer, and the tabs for its data sources and results, are step 10 (`VBGUI`). | Done |

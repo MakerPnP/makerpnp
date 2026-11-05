@@ -28,7 +28,11 @@ use crate::ui_app::app_tabs::parts::{PartsTab, PartsTabAction, PartsTabContext, 
 use crate::ui_app::app_tabs::pcb::{PcbTab, PcbTabAction, PcbTabUiCommand};
 use crate::ui_app::app_tabs::process::{ProcessTab, ProcessTabAction, ProcessTabUiCommand};
 use crate::ui_app::app_tabs::project::{ProjectTab, ProjectTabAction, ProjectTabUiCommand};
+use crate::ui_app::app_tabs::variant_builder::{
+    VariantBuilderTab, VariantBuilderTabAction, VariantBuilderTabContext, VariantBuilderTabUiCommand,
+};
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::variant_builder_core::VariantBuilderCoreService;
 
 pub mod home;
 pub mod new_pcb;
@@ -38,6 +42,7 @@ pub mod parts;
 pub mod pcb;
 pub mod process;
 pub mod project;
+pub mod variant_builder;
 
 #[derive(Debug)]
 pub struct TabKindContext {
@@ -47,6 +52,8 @@ pub struct TabKindContext {
     pub processes: Value<SlotMap<ProcessKey, Process>>,
     /// The application's one stores core, shared by every tab.
     pub stores: Value<StoresCoreService>,
+    /// The application's one Variant Builder core, shared by every variant builder tab.
+    pub variant_builders: Value<VariantBuilderCoreService>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -59,6 +66,7 @@ pub enum TabKind {
     NewProcess(NewProcessTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
     Process(ProcessTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
     Parts(PartsTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
+    VariantBuilder(VariantBuilderTab, #[serde(skip)] ComponentState<TabKindUiCommand>),
 }
 
 #[derive(Debug, Clone)]
@@ -71,6 +79,7 @@ pub enum TabKindUiCommand {
     NewProcessTabCommand { command: NewProcessTabUiCommand },
     ProcessTabCommand { command: ProcessTabUiCommand },
     PartsTabCommand { command: PartsTabUiCommand },
+    VariantBuilderTabCommand { command: VariantBuilderTabUiCommand },
 }
 
 #[derive(Debug)]
@@ -84,6 +93,7 @@ pub enum TabKindAction {
     NewProcessTabAction { action: NewProcessTabAction },
     ProcessTabAction { action: ProcessTabAction },
     PartsTabAction { action: PartsTabAction },
+    VariantBuilderTabAction { action: VariantBuilderTabAction },
 }
 
 impl Tab for TabKind {
@@ -99,6 +109,7 @@ impl Tab for TabKind {
             TabKind::NewProcess(tab, _) => tab.label(),
             TabKind::Process(tab, _) => tab.label(),
             TabKind::Parts(tab, _) => tab.label(),
+            TabKind::VariantBuilder(tab, _) => tab.label(),
         }
     }
 
@@ -160,6 +171,13 @@ impl Tab for TabKind {
                     stores: context.stores.clone(),
                 };
                 tab.on_close(tab_key, &mut parts_tab_context)
+            }
+            TabKind::VariantBuilder(tab, _) => {
+                let mut tab_context = VariantBuilderTabContext {
+                    tab_key: tab_key.clone(),
+                    variant_builders: context.variant_builders.clone(),
+                };
+                tab.on_close(tab_key, &mut tab_context)
             }
         }
     }
@@ -228,6 +246,13 @@ impl UiComponent for TabKind {
                     stores: context.stores.clone(),
                 };
                 tab.ui(ui, &mut parts_tab_context)
+            }
+            TabKind::VariantBuilder(tab, _) => {
+                let mut tab_context = VariantBuilderTabContext {
+                    tab_key,
+                    variant_builders: context.variant_builders.clone(),
+                };
+                tab.ui(ui, &mut tab_context)
             }
         }
     }
@@ -356,6 +381,21 @@ impl UiComponent for TabKind {
                 };
                 tab.update(command, &mut parts_tab_context)
                     .map(|action| TabKindAction::PartsTabAction {
+                        action,
+                    })
+            }
+            (
+                TabKind::VariantBuilder(tab, _),
+                TabKindUiCommand::VariantBuilderTabCommand {
+                    command,
+                },
+            ) => {
+                let mut tab_context = VariantBuilderTabContext {
+                    tab_key,
+                    variant_builders: context.variant_builders.clone(),
+                };
+                tab.update(command, &mut tab_context)
+                    .map(|action| TabKindAction::VariantBuilderTabAction {
                         action,
                     })
             }
@@ -651,6 +691,75 @@ impl AppTabs {
 
         let mut tree = self.tree.lock().unwrap();
         tree.push_to_focused_leaf(tab_key);
+    }
+
+    /// Adds a tab for a new variant builder, or for the one whose file is given, returning its key.
+    pub fn add_variant_builder_tab(&mut self, file_dialogs: Arc<dyn FileDialogs>, path: Option<PathBuf>) -> TabKey {
+        let tab_kind_component = ComponentState::default();
+
+        let mut tabs = self.tabs.lock().unwrap();
+        let tab = VariantBuilderTab::new(file_dialogs, path);
+        let tab_kind = TabKind::VariantBuilder(tab, tab_kind_component);
+        let tab_key = tabs.add(tab_kind);
+
+        let tab_kind_sender = self.component.sender.clone();
+        Self::configure_variant_builder_tab_mappers(tab_kind_sender, &mut tabs, tab_key);
+
+        let mut tree = self.tree.lock().unwrap();
+        tree.push_to_focused_leaf(tab_key);
+        tab_key
+    }
+
+    /// The variant builder tabs restored when the application starts aren't wired up, nor have file dialogs, as they
+    /// were restored with `Default`.  Returns the tabs with a variant builder's file, so they can open it.
+    ///
+    /// Safety: call only once on startup, before the tabs are shown.
+    pub fn restore_variant_builder_tabs_on_startup(&mut self, file_dialogs: Arc<dyn FileDialogs>) -> Vec<TabKey> {
+        let mut tabs = self.tabs.lock().unwrap();
+
+        let tab_keys = tabs
+            .iter()
+            .filter_map(|(tab_key, tab_kind)| matches!(tab_kind, TabKind::VariantBuilder(..)).then_some(*tab_key))
+            .collect::<Vec<_>>();
+
+        let tab_kind_sender = self.component.sender.clone();
+        let mut tab_keys_with_files = vec![];
+        for tab_key in tab_keys {
+            Self::configure_variant_builder_tab_mappers(tab_kind_sender.clone(), &mut tabs, tab_key);
+
+            if let Some(TabKind::VariantBuilder(tab, _)) = tabs.get_mut(&tab_key) {
+                tab.set_file_dialogs(file_dialogs.clone());
+                if tab.path.is_some() {
+                    tab_keys_with_files.push(tab_key);
+                }
+            }
+        }
+
+        tab_keys_with_files
+    }
+
+    fn configure_variant_builder_tab_mappers(
+        tab_kind_sender: Enqueue<(TabKey, TabUiCommand)>,
+        tabs: &mut ValueGuard<Tabs<TabKind, TabKindContext>>,
+        tab_key: TabKey,
+    ) {
+        match tabs.tabs.get_mut(&tab_key).unwrap() {
+            TabKind::VariantBuilder(tab, tab_kind_component) => {
+                tab_kind_component.configure_mapper(tab_kind_sender, move |command| {
+                    (tab_key, TabUiCommand::TabKindCommand(command))
+                });
+
+                let tab_kind_component_sender = tab_kind_component.sender.clone();
+
+                tab.component
+                    .configure_mapper(tab_kind_component_sender, move |command| {
+                        TabKindUiCommand::VariantBuilderTabCommand {
+                            command,
+                        }
+                    });
+            }
+            _ => unreachable!(),
+        }
     }
 
     /// The parts tabs restored when the application starts aren't wired up, nor have file dialogs, as they were

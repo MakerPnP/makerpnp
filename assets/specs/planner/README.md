@@ -70,6 +70,7 @@ ID prefix `ISSUE`.
 | [gui/10-artifacts-and-operations.md](gui/10-artifacts-and-operations.md) | Generating artifacts, and recording operations | `ARTIFACTS`, `OPERATIONS` |
 | [gui/11-processes.md](gui/11-processes.md) | Creating and editing processes, and a project's processes | `PROC`, `PROJPROC` |
 | [gui/12-parts-sources.md](gui/12-parts-sources.md) | Opening a parts data source and showing its parts | `PARTSRC` |
+| [gui/13-variant-builders.md](gui/13-variant-builders.md) | Creating, opening, changing and building a variant builder | `VBGUI` |
 
 ## Conventions
 
@@ -160,3 +161,4 @@ Every requirement has a status, because much of the planner was written before t
 | 2026-11-05 | The stores core changes a data source's parts, adding, setting the other values of, or removing a part, each change based on a revision, and refused if the data source changed since, by the core or by the stores service (`STORE-15`). |
 | 2026-11-05 | The CLI's `parts` mode adds, sets and removes parts: `planner_cli parts --source <file> add`, `set` and `remove`, based on the revision just read, or one given with `--revision` (`STORE-16`). |
 | 2026-11-05 | A parts tab adds and removes parts, typed in its "`Manufacturer`" and "`MPN`", with "`Add part`" and "`Remove part`", each change based on the revision of the parts shown, and shows why a change was refused (`PARTSRC-6`). |
+| 2026-11-05 | Added "`New variant builder`" and "`Open variant builder`" to the GUI's toolbar: a variant builder's tab shows what its file says, keeps the user's changes until "`Save changes`", and builds its variant with "`Build`", through the GUI's one Variant Builder core, shared by every tab (`VBGUI`). The Variant Builder's core says what it's doing with each variant builder, and how its last event went (`VARB-7`). |
