@@ -63,6 +63,7 @@ pub struct Model {
     error: Option<String>,
     /// The open variant builders, by path (`VARB-3`).
     variant_builders: BTreeMap<PathBuf, VariantBuilderView>,
+    statuses: BTreeMap<PathBuf, VariantBuilderStatus>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Default, PartialEq, Debug)]
@@ -71,6 +72,20 @@ pub struct OperationViewModel {
     pub error: Option<String>,
     /// The open variant builders, by path (`VARB-3`).
     pub variant_builders: BTreeMap<PathBuf, VariantBuilderView>,
+    /// What's being done to each variant builder asked for, and how the last event for it went (`VARB-7`).
+    pub statuses: BTreeMap<PathBuf, VariantBuilderStatus>,
+}
+
+/// What's being done to a variant builder, and how the last event for it went, so that each front end, and each of a
+/// front end's views of it, can show it (`VARB-7`).
+#[derive(serde::Serialize, serde::Deserialize, Default, Clone, PartialEq, Debug)]
+pub struct VariantBuilderStatus {
+    /// An event for it is being processed, so the stores service is reading or writing its files.
+    pub busy: bool,
+    /// Why the last event for it failed, if it did.
+    pub error: Option<String>,
+    /// Its variant was built, and hasn't been configured since.
+    pub built: bool,
 }
 
 #[effect]
@@ -175,7 +190,7 @@ impl App for VariantBuilder {
                 path,
                 overwrite,
             } => {
-                model.error = None;
+                start(model, &path);
                 Command::new(|ctx| async move {
                     let result = variant_builders::create(&ctx, &path, overwrite).await;
                     ctx.send_event(Event::Opened {
@@ -188,7 +203,7 @@ impl App for VariantBuilder {
             Event::Open {
                 path,
             } => {
-                model.error = None;
+                start(model, &path);
                 Command::new(|ctx| async move {
                     let result = variant_builders::open(&ctx, &path).await;
                     ctx.send_event(Event::Opened {
@@ -202,7 +217,7 @@ impl App for VariantBuilder {
                 path,
                 changes,
             } => {
-                model.error = None;
+                start(model, &path);
                 let done = Done::Configured {
                     change_count: changes.len(),
                 };
@@ -239,6 +254,8 @@ impl App for VariantBuilder {
                         }
                         // `VARB-4`, configuring one that isn't open doesn't open it.
                         let configured = matches!(done, Done::Configured { .. });
+                        let status = finish(model, &path);
+                        status.built = false;
                         if !configured
                             || model
                                 .variant_builders
@@ -249,14 +266,14 @@ impl App for VariantBuilder {
                                 .insert(path, view);
                         }
                     }
-                    Err(error) => fail(model, error),
+                    Err(error) => fail(model, &path, error),
                 }
                 render::render()
             }
             Event::Build {
                 path,
             } => {
-                model.error = None;
+                start(model, &path);
                 Command::new(|ctx| async move {
                     let result = variant_builders::build(&ctx, &path).await;
                     ctx.send_event(Event::Built {
@@ -270,8 +287,11 @@ impl App for VariantBuilder {
                 result,
             } => {
                 match result {
-                    Ok(()) => info!("Built variant. path: '{}'", path.display()),
-                    Err(error) => fail(model, error),
+                    Ok(()) => {
+                        info!("Built variant. path: '{}'", path.display());
+                        finish(model, &path).built = true;
+                    }
+                    Err(error) => fail(model, &path, error),
                 }
                 render::render()
             }
@@ -282,14 +302,38 @@ impl App for VariantBuilder {
         OperationViewModel {
             error: model.error.clone(),
             variant_builders: model.variant_builders.clone(),
+            statuses: model.statuses.clone(),
         }
     }
 }
 
-/// Logs why an event failed, and keeps it for the view (`VARB-6`, `LOG-2`).
-fn fail(model: &mut Model, error: VariantBuilderError) {
+/// An event for the variant builder is being processed (`VARB-7`).
+fn start(model: &mut Model, path: &PathBuf) {
+    model.error = None;
+    let status = model
+        .statuses
+        .entry(path.clone())
+        .or_default();
+    status.busy = true;
+    status.error = None;
+}
+
+/// The event for the variant builder is done.
+fn finish<'model>(model: &'model mut Model, path: &PathBuf) -> &'model mut VariantBuilderStatus {
+    let status = model
+        .statuses
+        .entry(path.clone())
+        .or_default();
+    status.busy = false;
+    status
+}
+
+/// Logs why an event failed, and keeps it for the view, and the variant builder's status (`VARB-6`, `VARB-7`,
+/// `LOG-2`).
+fn fail(model: &mut Model, path: &PathBuf, error: VariantBuilderError) {
     warn!("Event failed. error: {:?}", error);
     model.error = Some(error.to_string());
+    finish(model, path).error = Some(error.to_string());
 }
 
 #[derive(Error, Debug)]

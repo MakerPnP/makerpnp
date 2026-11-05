@@ -6,7 +6,9 @@ mod common;
 use std::path::{Path, PathBuf};
 
 use common::{revision, shell_with_a_design, source, Shell, BOM, PLACEMENTS};
-use variantbuilder_app::{EdaTool, Event, Variant, VariantBuilderChange, VariantBuilderFile, VariantBuilderView};
+use variantbuilder_app::{
+    EdaTool, Event, Variant, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus, VariantBuilderView,
+};
 
 const PATH: &str = "in/job1.variant.json";
 
@@ -57,6 +59,49 @@ fn build() -> Event {
     Event::Build {
         path: path(),
     }
+}
+
+fn status(shell: &Shell) -> VariantBuilderStatus {
+    shell
+        .core
+        .view()
+        .statuses
+        .get(&path())
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// `VARB-7`, each variant builder's status says whether it was built, until it's configured, and why its last event
+/// failed, until the next.
+#[test]
+fn the_status_of_a_variant_builder_says_how_its_last_event_went() {
+    let mut shell = shell_with_a_design();
+    given(&mut shell, &complete());
+
+    shell.process(build());
+
+    assert_eq!(status(&shell), VariantBuilderStatus {
+        busy: false,
+        error: None,
+        built: true,
+    });
+
+    shell.process(configure(vec![VariantBuilderChange::PartMappings(None)]));
+
+    assert_eq!(status(&shell).built, false);
+
+    shell.process(build());
+
+    let status = status(&shell);
+    assert!(
+        status
+            .error
+            .as_ref()
+            .is_some_and(|error| error.starts_with("Variant builder incomplete.")),
+        "{status:?}"
+    );
+    assert!(!status.built);
+    assert!(!status.busy);
 }
 
 fn view(shell: &Shell) -> Option<VariantBuilderView> {

@@ -184,6 +184,16 @@ fn folder(path: &Path) -> PathBuf {
         .unwrap_or_default()
 }
 
+/// The path to keep in a variant builder's file for a file the user chose: relative to the variant builder's folder,
+/// if it's in it, or else as it is (`VARB-1`). Both are relative to the same folder, or absolute, such as the folder a
+/// front end is run in. Only the paths are compared, no file is read.
+pub fn stored_path(variant_builder: &Path, path: &Path) -> PathBuf {
+    match path.strip_prefix(folder(variant_builder)) {
+        Ok(relative) if !relative.as_os_str().is_empty() => relative.to_path_buf(),
+        _ => path.to_path_buf(),
+    }
+}
+
 /// A variant builder's name: its file's name, without [`EXTENSION`].
 pub fn name(path: &Path) -> String {
     let file_name = path

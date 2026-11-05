@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use cli::args::EdaToolArg;
+use variantbuilder_app::variant_builders::stored_path;
 use variantbuilder_app::{Event, VariantBuilderChange};
 
 #[derive(Parser)]
@@ -140,12 +141,8 @@ impl Opts {
                 file,
                 args,
             } => {
-                let folder = current_dir
-                    .join(&file)
-                    .parent()
-                    .map(Path::to_path_buf)
-                    .unwrap_or_default();
-                let changes = args.changes(|path| relative_to(&folder, &current_dir.join(path)));
+                let variant_builder = current_dir.join(&file);
+                let changes = args.changes(|path| stored_path(&variant_builder, &current_dir.join(path)));
                 Event::Configure {
                     path: file,
                     changes,
@@ -216,13 +213,5 @@ impl ConfigureArgs {
                     }),
             )
             .collect()
-    }
-}
-
-/// The path relative to the folder, if it's in it, or else as it is.
-fn relative_to(folder: &Path, path: &Path) -> PathBuf {
-    match path.strip_prefix(folder) {
-        Ok(relative) => relative.to_path_buf(),
-        Err(_) => path.to_path_buf(),
     }
 }

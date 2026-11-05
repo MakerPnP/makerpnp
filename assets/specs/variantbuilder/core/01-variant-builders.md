@@ -61,6 +61,11 @@ The core MUST log "`Building variant. path: '<path>'`" once the file is read, th
 **VARB-6 — The core's logs.** *Confirmed.* The core MUST log each event it receives, at debug level, as
 "`Received event. event: <event>`" (`LOG-1`), and why it refused one, as "`Event failed. error: <error>`" (`LOG-2`).
 
+**VARB-7 — A variant builder's status.** *Confirmed.* The core's view MUST say, for each variant builder it's been
+asked about, by its path, whether an event for it is being processed, why the last one failed, if it did, until the
+next, and whether its variant was built, until it's created, opened or configured again, so that each front end, and
+each of its views of the variant builder, shows them.
+
 ## Acceptance criteria
 
 - `planning/variantbuilder_app/tests/variant_builders.rs`, with no files, answers the operations the core asks for, and
@@ -74,7 +79,8 @@ The core MUST log "`Building variant. path: '<path>'`" once the file is read, th
     of one that's open (`VARB-4`);
   - building reads the file, then each data source relative to the file's folder, and writes the placements and BOM
     files named after the variant builder, unless they're set (`VARB-5`, `STORE-14`);
-  - building one that isn't complete names each field missing, and reads no data source (`VARB-5`).
+  - building one that isn't complete names each field missing, and reads no data source (`VARB-5`);
+  - a variant builder's status says it was built, until it's configured, and why its last event failed (`VARB-7`).
 - The CLI's tests check the core logs "`variantbuilder_app: Received event. event: Create {`",
   "`variantbuilder_app: Created variant builder. path: '`", "`variantbuilder_app: Received event. event: Build {`",
   "`variantbuilder_app::variant_builders: Building variant. path: '`" and "`variantbuilder_app: Built variant. path: '`", in order

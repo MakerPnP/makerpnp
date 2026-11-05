@@ -13,6 +13,9 @@ criteria, logging (`LOG`) and the stores service (`STORE`).
 | [core/01-variant-builders.md](core/01-variant-builders.md) | A variant builder's file: creating, opening, configuring and building it | `VARB` |
 | [cli/01-commands.md](cli/01-commands.md) | The CLI's `create`, `configure` and `build` commands | `VARBCLI` |
 
+The planner's GUI's variant builder tabs are specified with the planner's GUI, in
+[`../planner/gui/13-variant-builders.md`](../planner/gui/13-variant-builders.md) (`VBGUI`).
+
 ## Glossary
 
 | Term | Meaning |
@@ -26,3 +29,4 @@ criteria, logging (`LOG`) and the stores service (`STORE`).
 |---|---|
 | 2026-11-05 | A variant builder is a file, `<name>.variant.json`, which the core creates, opens, configures and builds from, through the stores service (`VARB-1` to `VARB-6`), so that a variant is defined once, rather than with every build's arguments. |
 | 2026-11-05 | The CLI creates, configures and builds a variant builder's file: `variantbuilder_cli create --file <file>`, refusing to replace one without `--overwrite`, `configure`, with the arguments `build` took before, each optional, and `build --file <file>`, which no longer takes them (`VARBCLI-1` to `VARBCLI-3`). The core no longer builds without a file, and an unset BOM is written to `<name>_bom.csv` (`VARB-5`). |
+| 2026-11-05 | The core's view says, for each variant builder, whether an event for it is being processed, why its last one failed, and whether its variant was built (`VARB-7`), which the planner's GUI shows (`VBGUI`). A path is kept relative to the variant builder's folder by the core's `stored_path`, which the CLI and the GUI share. |
