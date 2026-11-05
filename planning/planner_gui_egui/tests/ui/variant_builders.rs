@@ -1,5 +1,5 @@
-//! Variant builders, created with "New variant builder", or opened with "Open variant builder", whose variant is
-//! defined, and data sources chosen, then saved, and built (`VBGUI`, `VARB`).
+//! Design variants, each a variant builder, created with "New design variant", from an EDA tool's placements, or
+//! opened with "Open design variant", whose data sources are chosen, then saved, and built (`VBGUI`, `VARB`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,21 +15,28 @@ const PARTS: &str = "\"Manufacturer\",\"Mpn\"\n\
 const PART_MAPPINGS: &str = "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
                              \"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"\n";
 
-/// The data sources of a design with one resistor, in the folder.
+/// The data sources of a design with one resistor, `board1`, in the folder.
 fn given_a_design(folder: &Path) {
-    fs::write(folder.join("placements.csv"), PLACEMENTS).unwrap();
+    fs::write(folder.join("board1.csv"), PLACEMENTS).unwrap();
     fs::write(folder.join("parts.csv"), PARTS).unwrap();
     fs::write(folder.join("part-mappings.csv"), PART_MAPPINGS).unwrap();
 }
 
-/// Creates `job1.variant.json` in the folder, with "New variant builder".
-fn create_variant_builder(app: &mut App, folder: &Path) {
-    app.click_button("New variant builder");
-    app.wait_for_tab("New variant builder");
-    app.type_into("Variant builder name", "job1");
-    app.when_a_file_dialog_opens_answer(Some(folder.to_path_buf()));
-    app.click_button("Directory: Choose");
-    app.wait_for_file_dialogs();
+/// The variant builder [`create_design_variant`] creates, in the folder.
+const FILE_NAME: &str = "board1_default.variant.json";
+
+/// Chooses DipTrace and the placements `board1.csv` in the folder, in the "New design variant" form.
+fn choose_eda_tool_and_placements(app: &mut App, folder: &Path) {
+    app.click_button("New design variant");
+    app.wait_for_tab("New design variant");
+    app.choose_from_combo_box("EDA tool", "DipTrace");
+    choose(app, "Placements", folder.join("board1.csv"));
+}
+
+/// Creates `board1_default.variant.json` in the folder, with "New design variant".
+fn create_design_variant(app: &mut App, folder: &Path) {
+    choose_eda_tool_and_placements(app, folder);
+    app.wait_for_field_value("Design name", "board1");
     app.wait_for_enabled_button("Ok");
     app.click_button("Ok");
 }
@@ -41,29 +48,38 @@ fn choose(app: &mut App, label: &str, path: PathBuf) {
     app.wait_for_file_dialogs();
 }
 
+/// Adds the file to the field's list, with its file dialog.
+fn add(app: &mut App, label: &str, path: PathBuf) {
+    app.when_a_file_dialog_opens_answer(Some(path));
+    app.click_button(&format!("{label}: Add"));
+    app.wait_for_file_dialogs();
+}
+
 /// `VBGUI-1` to `VBGUI-4`, `VARB-2`, `VARB-4`, `VARB-5`
 #[test]
-fn a_new_variant_builder_is_configured_saved_and_built() {
+fn a_new_design_variant_is_configured_saved_and_built() {
     let mut app = App::start();
     let folder = app.folder();
     given_a_design(&folder);
 
-    create_variant_builder(&mut app, &folder);
+    create_design_variant(&mut app, &folder);
 
-    app.wait_for_tab("job1.variant.json");
-    app.wait_until_file_exists(&folder.join("job1.variant.json"));
-    app.wait_for_field_value("Variant name", "Default");
-    app.wait_until_no_tab_contains("New variant builder");
+    app.wait_for_tab(FILE_NAME);
+    app.wait_until_file_exists(&folder.join(FILE_NAME));
+    app.wait_until_no_tab_contains("New design variant");
+    // `VBGUI-1`, what it's of is shown, and can't be changed.
+    app.wait_for_field_value("EDA tool", "DipTrace");
+    app.wait_for_field_value("Placements", "board1.csv");
+    app.wait_for_field_value("Design name", "board1");
+    app.wait_for_field_value("Variant name", "default");
+    assert!(!app.is_button_shown("Placements: Choose"));
 
-    app.choose_from_combo_box("EDA tool", "DipTrace");
     // `VARB-1`, the files chosen are kept relative to the variant builder's folder.
-    choose(&mut app, "Placements", folder.join("placements.csv"));
-    app.wait_for_field_value("Placements", "placements.csv");
     choose(&mut app, "Parts", folder.join("parts.csv"));
     app.wait_for_field_value("Parts", "parts.csv");
     choose(&mut app, "Part mappings", folder.join("part-mappings.csv"));
     app.wait_for_field_value("Part mappings", "part-mappings.csv");
-    app.type_into("Variant name", "Variant_1");
+    app.type_into("No-place list", "R2");
 
     // `VBGUI-4`, a variant is built from what its file says, so not until the changes are saved.
     app.assert_button_is_disabled("Build");
@@ -71,20 +87,31 @@ fn a_new_variant_builder_is_configured_saved_and_built() {
     app.wait_for_enabled_button("Build");
     app.assert_button_is_disabled("Save changes");
 
-    let saved = fs::read_to_string(folder.join("job1.variant.json")).unwrap();
-    assert!(saved.contains("\"name\": \"Variant_1\""), "{saved}");
+    let saved = fs::read_to_string(folder.join(FILE_NAME)).unwrap();
+    assert!(saved.contains("\"design_name\": \"board1\""), "{saved}");
+    assert!(saved.contains("\"variant_name\": \"default\""), "{saved}");
     assert!(saved.contains("\"eda_tool\": \"DipTrace\""), "{saved}");
-    assert!(saved.contains("\"placements\": \"placements.csv\""), "{saved}");
+    assert!(saved.contains("\"placements\": \"board1.csv\""), "{saved}");
+    assert!(saved.contains("\"parts\": \"parts.csv\""), "{saved}");
 
     app.click_button("Build");
     app.wait_for_text("Built.");
 
-    let placements = fs::read_to_string(folder.join("job1_placements.csv")).unwrap();
+    let placements = fs::read_to_string(folder.join("board1_default_placements.csv")).unwrap();
     assert!(placements.contains("\"R1\",\"MFR1\",\"MPN1\""), "{placements}");
-    assert!(folder.join("job1_bom.csv").exists());
+    assert!(
+        folder
+            .join("board1_default_bom.csv")
+            .exists()
+    );
 
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::toolbar: Toolbar command. command: NewVariantBuilderClicked",
+        "planner_gui_egui::toolbar: Toolbar command. command: NewDesignVariantClicked",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: EdaToolChanged(Some(DipTrace))",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: PickPlacementsClicked",
+        // `VBGUI-1`, the placements are chosen from the EDA tool's files.
+        "planner_gui_egui::file_picker: Picking a file. extensions: [\"csv\"]",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: PlacementsPicked(",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Submit",
         "variantbuilder_app: Received event. event: Create {",
         // `STORE-7`, the stores service does the operations, and its results come back as commands.
@@ -92,9 +119,8 @@ fn a_new_variant_builder_is_configured_saved_and_built() {
         "planner_gui_egui::ui_commands: UiApp command. command: VariantBuilderReply(VariantBuilderReply { operation: ReadDocument {",
         "stores_service: Performing stores operation. operation: WriteDocument {",
         "variantbuilder_app: Created variant builder. path: '",
-        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Changed(EdaTool(Some(DipTrace)))",
-        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: PickClicked(Placements)",
-        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: FilesPicked(Placements, [",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: PickClicked(Parts)",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: FilePicked(Parts, ",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: SaveClicked",
         "variantbuilder_app: Received event. event: Configure {",
         "variantbuilder_app: Configured variant builder. path: '",
@@ -106,38 +132,90 @@ fn a_new_variant_builder_is_configured_saved_and_built() {
     app.assert_not_logged("Event failed.");
 }
 
+/// `VBGUI-1`, the placements are chosen once there's an EDA tool, and again if it's changed, and the design is named
+/// after them unless the user has named it.
+#[test]
+fn a_new_design_variant_is_named_after_its_placements_unless_named() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+
+    app.click_button("New design variant");
+    app.wait_for_tab("New design variant");
+    assert!(!app.is_button_shown("Placements: Choose"));
+    app.wait_for_field_value("Design name", "");
+    app.wait_for_field_value("Variant name", "default");
+
+    app.choose_from_combo_box("EDA tool", "DipTrace");
+    choose(&mut app, "Placements", folder.join("board1.csv"));
+    app.wait_for_field_value("Design name", "board1");
+    choose(&mut app, "Placements", folder.join("board2.csv"));
+    app.wait_for_field_value("Design name", "board2");
+
+    app.type_into("Design name", "design1");
+    choose(&mut app, "Placements", folder.join("board1.csv"));
+    app.wait_for_field_value(
+        "Placements",
+        &folder
+            .join("board1.csv")
+            .display()
+            .to_string(),
+    );
+    app.wait_for_field_value("Design name", "design1");
+
+    app.choose_from_combo_box("EDA tool", "KiCad");
+    app.wait_for_field_value("Placements", "");
+    app.wait_until_button_is_disabled("Ok");
+
+    choose(&mut app, "Placements", folder.join("board1.csv"));
+    app.type_into("Variant name", "variant1");
+    app.wait_for_enabled_button("Ok");
+    app.click_button("Ok");
+
+    app.wait_for_tab("design1_variant1.variant.json");
+    app.wait_until_file_exists(&folder.join("design1_variant1.variant.json"));
+    app.wait_for_field_value("EDA tool", "KiCad");
+}
+
 /// `VBGUI-2`, `VARB-3`
 #[test]
-fn open_variant_builder_shows_what_its_file_says() {
+fn open_design_variant_shows_what_its_file_says() {
     let mut app = App::start();
     let folder = app.folder();
     let path = folder.join("job1.variant.json");
     fs::write(
         &path,
         r#"{
-            "variant": { "name": "Variant_1", "ref_des_list": ["R1", "R2"] },
+            "design_name": "board1",
+            "variant_name": "Variant_1",
             "eda_tool": "KiCad",
             "placements": "placements.csv",
-            "substitutions": ["a.csv", "b.csv"],
-            "ref_des_exclude_list": ["TP1"]
+            "global_substitutions": ["a.csv", "b.csv"],
+            "design_substitutions": ["c.csv"],
+            "ref_des_list": ["R1", "R2"],
+            "ref_des_exclusion_list": ["TP1"]
         }"#,
     )
     .unwrap();
 
     app.when_a_file_dialog_opens_answer(Some(path));
-    app.click_button("Open variant builder");
+    app.click_button("Open design variant");
 
     app.wait_for_tab("job1.variant.json");
+    app.wait_for_field_value("Design name", "board1");
     app.wait_for_field_value("Variant name", "Variant_1");
-    app.wait_for_field_value("Ref-des list", "R1, R2");
-    app.wait_for_combo_box_value("EDA tool", "KiCad");
+    app.wait_for_field_value("EDA tool", "KiCad");
     app.wait_for_field_value("Placements", "placements.csv");
     app.wait_for_field_value("Parts", "");
-    app.wait_for_field_value("Substitutions", "a.csv, b.csv");
-    app.wait_for_field_value("Ref-des excluded", "TP1");
+    app.wait_for_button("Global substitutions: Remove a.csv");
+    app.wait_for_button("Global substitutions: Remove b.csv");
+    app.wait_for_button("Design substitutions: Remove c.csv");
+    app.wait_for_field_value("Ref-des list", "R1, R2");
+    app.wait_for_field_value("Exclusion list", "TP1");
+    app.wait_for_field_value("No-place list", "");
 
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::toolbar: Toolbar command. command: OpenVariantBuilderClicked",
+        "planner_gui_egui::toolbar: Toolbar command. command: OpenDesignVariantClicked",
         "planner_gui_egui::ui_commands: UiApp command. command: OpenVariantBuilderFile(",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Open",
         "variantbuilder_app: Received event. event: Open {",
@@ -146,15 +224,133 @@ fn open_variant_builder_shows_what_its_file_says() {
     app.assert_not_logged("Event failed.");
 }
 
-/// `VBGUI-1`, `VARB-2`, a variant builder whose file exists isn't created, and the file is kept.
+/// `VBGUI-2`, `VBGUI-7`, `VARB-5`, the substitutions are reordered, and shown in the order they're applied, the design's
+/// first.
 #[test]
-fn a_new_variant_builder_does_not_replace_a_file() {
+fn substitutions_are_reordered_and_shown_in_the_order_they_are_applied() {
     let mut app = App::start();
     let folder = app.folder();
-    let path = folder.join("job1.variant.json");
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    app.wait_for_text("(none)");
+
+    add(&mut app, "Global substitutions", folder.join("g1.csv"));
+    add(&mut app, "Design substitutions", folder.join("d1.csv"));
+    add(&mut app, "Design substitutions", folder.join("d2.csv"));
+    app.wait_for_text("1. d1.csv");
+    app.wait_for_text("2. d2.csv");
+    app.wait_for_text("3. g1.csv");
+    app.wait_until_text_is_gone("(none)");
+    app.assert_button_is_disabled("Design substitutions: Move up d1.csv");
+    app.assert_button_is_disabled("Design substitutions: Move down d2.csv");
+    app.assert_button_is_disabled("Global substitutions: Move up g1.csv");
+    app.assert_button_is_disabled("Global substitutions: Move down g1.csv");
+
+    app.click_button("Design substitutions: Move down d1.csv");
+    app.wait_for_text("1. d2.csv");
+    app.wait_for_text("2. d1.csv");
+    app.wait_for_text("3. g1.csv");
+
+    app.click_button("Design substitutions: Move up d1.csv");
+    app.wait_for_text("1. d1.csv");
+    app.click_button("Design substitutions: Move down d1.csv");
+    app.wait_for_text("1. d2.csv");
+
+    app.click_button("Save changes");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: MoveDownClicked(DesignSubstitutions, 0)",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: MoveUpClicked(DesignSubstitutions, 1)",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: MoveDownClicked(DesignSubstitutions, 0)",
+        "variantbuilder_app: Received event. event: Configure {",
+        "variantbuilder_app: Configured variant builder. path: '",
+    ]);
+
+    let saved = fs::read_to_string(folder.join(FILE_NAME)).unwrap();
+    assert!(
+        saved.contains("\"design_substitutions\": [\n        \"d2.csv\",\n        \"d1.csv\"\n    ],"),
+        "{saved}"
+    );
+}
+
+/// `VBGUI-2`, files are added to a list, and removed from it, until the changes are saved.
+#[test]
+fn substitutions_are_added_and_removed() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+
+    add(&mut app, "Global substitutions", folder.join("a.csv"));
+    add(&mut app, "Global substitutions", folder.join("b.csv"));
+    add(&mut app, "Design substitutions", folder.join("c.csv"));
+    app.wait_for_button("Design substitutions: Remove c.csv");
+    app.click_button("Global substitutions: Remove a.csv");
+    app.wait_until_button_is_gone("Global substitutions: Remove a.csv");
+
+    app.click_button("Save changes");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: AddClicked(GlobalSubstitutions)",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: FilesPicked(GlobalSubstitutions, [",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: RemoveClicked(GlobalSubstitutions, 0)",
+        "variantbuilder_app: Received event. event: Configure {",
+        "variantbuilder_app: Configured variant builder. path: '",
+    ]);
+
+    let saved = fs::read_to_string(folder.join(FILE_NAME)).unwrap();
+    assert!(
+        saved.contains("\"global_substitutions\": [\n        \"b.csv\"\n    ],"),
+        "{saved}"
+    );
+    assert!(
+        saved.contains("\"design_substitutions\": [\n        \"c.csv\"\n    ],"),
+        "{saved}"
+    );
+}
+
+/// `VBGUI-6`, `VARB-8`
+#[test]
+fn new_assembly_rules_are_created_and_chosen() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+
+    app.when_a_file_dialog_opens_answer(Some(folder.join("rules.csv")));
+    app.click_button("Assembly rules: New");
+    app.wait_for_file_dialogs();
+
+    app.wait_for_field_value("Assembly rules", "rules.csv");
+    app.wait_until_file_exists(&folder.join("rules.csv"));
+    assert_eq!(
+        fs::read_to_string(folder.join("rules.csv")).unwrap(),
+        "\"RefDes\",\"Manufacturer\",\"Mpn\"\n"
+    );
+    let saved = fs::read_to_string(folder.join(FILE_NAME)).unwrap();
+    assert!(saved.contains("\"assembly_rules\": \"rules.csv\""), "{saved}");
+
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: NewAssemblyRulesClicked",
+        "planner_gui_egui::file_picker: Picking a file to save. file_name: 'board1_default_assembly_rules.csv'",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: NewAssemblyRulesPicked(",
+        "variantbuilder_app: Received event. event: CreateAssemblyRules {",
+        "variantbuilder_app: Created assembly rules. path: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-1`, `VARB-2`, a variant builder whose file exists isn't created, and the file is kept.
+#[test]
+fn a_new_design_variant_does_not_replace_a_file() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    let path = folder.join(FILE_NAME);
     fs::write(&path, "{}").unwrap();
 
-    create_variant_builder(&mut app, &folder);
+    create_design_variant(&mut app, &folder);
 
     app.wait_for_text_containing("Variant builder exists already.");
     assert_eq!(fs::read_to_string(&path).unwrap(), "{}");
@@ -166,20 +362,21 @@ fn a_new_variant_builder_does_not_replace_a_file() {
 
 /// `VBGUI-3`, `VARB-5`, a variant builder that isn't complete says what it's missing when it's built.
 #[test]
-fn building_an_incomplete_variant_builder_says_what_is_missing() {
+fn building_an_incomplete_design_variant_says_what_is_missing() {
     let mut app = App::start();
     let folder = app.folder();
+    given_a_design(&folder);
 
-    create_variant_builder(&mut app, &folder);
-    app.wait_for_tab("job1.variant.json");
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
     app.wait_for_enabled_button("Build");
     app.click_button("Build");
 
     app.wait_for_text_containing("Variant builder incomplete.");
-    app.wait_for_text_containing("\"eda_tool\", \"placements\", \"parts\", \"part_mappings\"");
+    app.wait_for_text_containing("\"parts\", \"part_mappings\"");
     assert!(
         !folder
-            .join("job1_placements.csv")
+            .join("board1_default_placements.csv")
             .exists()
     );
 }

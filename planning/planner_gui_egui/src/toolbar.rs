@@ -17,8 +17,8 @@ pub enum ToolbarUiCommand {
     NewProcessClicked,
     OpenProcessClicked,
     OpenPartsClicked,
-    NewVariantBuilderClicked,
-    OpenVariantBuilderClicked,
+    NewDesignVariantClicked,
+    OpenDesignVariantClicked,
 }
 
 pub enum ToolbarAction {
@@ -143,19 +143,19 @@ impl UiComponent for Toolbar {
                 ui.separator();
 
                 if ui
-                    .button(tr!("toolbar-button-new-variant-builder"))
+                    .button(tr!("toolbar-button-new-design-variant"))
                     .clicked()
                 {
                     self.component
-                        .send(ToolbarUiCommand::NewVariantBuilderClicked);
+                        .send(ToolbarUiCommand::NewDesignVariantClicked);
                 }
 
                 if ui
-                    .button(tr!("toolbar-button-open-variant-builder"))
+                    .button(tr!("toolbar-button-open-design-variant"))
                     .clicked()
                 {
                     self.component
-                        .send(ToolbarUiCommand::OpenVariantBuilderClicked);
+                        .send(ToolbarUiCommand::OpenDesignVariantClicked);
                 }
 
                 ui.separator();
@@ -199,8 +199,8 @@ impl UiComponent for Toolbar {
             ToolbarUiCommand::NewProcessClicked => Some(ToolbarAction::AddNewProcessTab),
             ToolbarUiCommand::OpenProcessClicked => Some(ToolbarAction::PickProcessFile),
             ToolbarUiCommand::OpenPartsClicked => Some(ToolbarAction::AddPartsTab),
-            ToolbarUiCommand::NewVariantBuilderClicked => Some(ToolbarAction::AddNewVariantBuilderTab),
-            ToolbarUiCommand::OpenVariantBuilderClicked => Some(ToolbarAction::PickVariantBuilderFile),
+            ToolbarUiCommand::NewDesignVariantClicked => Some(ToolbarAction::AddNewVariantBuilderTab),
+            ToolbarUiCommand::OpenDesignVariantClicked => Some(ToolbarAction::PickVariantBuilderFile),
             ToolbarUiCommand::SaveClicked(tab_key) => Some(ToolbarAction::SaveTab(tab_key)),
         }
     }

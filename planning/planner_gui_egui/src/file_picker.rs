@@ -2,31 +2,84 @@ use std::fmt::Debug;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use tracing::debug;
+
+/// The files of a kind a file dialog shows, by their extensions, without the dot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileFilter {
+    pub name: String,
+    pub extensions: Vec<String>,
+}
+
+/// A file to write, which may not exist yet, as asked for with a file dialog.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SaveFile {
+    /// The folder the dialog starts in.
+    pub directory: Option<PathBuf>,
+    /// The file's name, suggested.
+    pub file_name: String,
+    pub filters: Vec<FileFilter>,
+}
+
 /// The platform's file dialogs, an interface so that tests can answer them without a user.
 ///
-/// All the methods block until there is an answer, `None` means the user cancelled.
+/// All the methods block until there is an answer, `None` means the user cancelled. A dialog given filters shows only
+/// the files they match, or all if there are none.
 pub trait FileDialogs: Debug + Send + Sync {
-    fn pick_file(&self) -> Option<PathBuf>;
-    fn pick_files(&self) -> Option<Vec<PathBuf>>;
+    fn pick_file(&self, filters: &[FileFilter]) -> Option<PathBuf>;
+    fn pick_files(&self, filters: &[FileFilter]) -> Option<Vec<PathBuf>>;
     fn pick_folder(&self) -> Option<PathBuf>;
+    fn save_file(&self, save_file: &SaveFile) -> Option<PathBuf>;
 }
 
 /// The operating system's file dialogs.
 #[derive(Debug)]
 pub struct NativeFileDialogs;
 
+impl NativeFileDialogs {
+    fn dialog(filters: &[FileFilter]) -> rfd::FileDialog {
+        filters
+            .iter()
+            .fold(rfd::FileDialog::new(), |dialog, filter| {
+                dialog.add_filter(&filter.name, &filter.extensions)
+            })
+    }
+}
+
 impl FileDialogs for NativeFileDialogs {
-    fn pick_file(&self) -> Option<PathBuf> {
-        rfd::FileDialog::new().pick_file()
+    fn pick_file(&self, filters: &[FileFilter]) -> Option<PathBuf> {
+        Self::dialog(filters).pick_file()
     }
 
-    fn pick_files(&self) -> Option<Vec<PathBuf>> {
-        rfd::FileDialog::new().pick_files()
+    fn pick_files(&self, filters: &[FileFilter]) -> Option<Vec<PathBuf>> {
+        Self::dialog(filters).pick_files()
     }
 
     fn pick_folder(&self) -> Option<PathBuf> {
         rfd::FileDialog::new().pick_folder()
     }
+
+    fn save_file(&self, save_file: &SaveFile) -> Option<PathBuf> {
+        let dialog = Self::dialog(&save_file.filters).set_file_name(&save_file.file_name);
+        match save_file.directory.as_deref() {
+            Some(directory) => dialog.set_directory(directory),
+            None => dialog,
+        }
+        .save_file()
+    }
+}
+
+/// The extensions of the filters, for the log.
+fn extensions(filters: &[FileFilter]) -> Vec<&str> {
+    filters
+        .iter()
+        .flat_map(|filter| {
+            filter
+                .extensions
+                .iter()
+                .map(String::as_str)
+        })
+        .collect()
 }
 
 /// A file picker
@@ -73,7 +126,7 @@ impl Picker {
         matches!(self.state, PickerState::Picking(_))
     }
 
-    fn prepare(&mut self, some_fn: fn(&dyn FileDialogs) -> Option<Vec<PathBuf>>) {
+    fn prepare(&mut self, some_fn: impl FnOnce(&dyn FileDialogs) -> Option<Vec<PathBuf>> + Send + 'static) {
         // initialise the boolean flag in the mutex to false, so that when the main thread continues it can see a
         // file has not been picked yet.  note that the mutex may not be locked until the picker thread starts to run
         // and lock it.
@@ -90,15 +143,41 @@ impl Picker {
     }
 
     pub fn pick_file(&mut self) {
-        self.prepare(|dialogs| {
+        self.pick_file_of(vec![]);
+    }
+
+    /// Picks a file the filters match.
+    pub fn pick_file_of(&mut self, filters: Vec<FileFilter>) {
+        debug!("Picking a file. extensions: {:?}", extensions(&filters));
+        self.prepare(move |dialogs| {
             dialogs
-                .pick_file()
+                .pick_file(&filters)
                 .map(|file| vec![file])
         });
     }
 
     pub fn pick_files(&mut self) {
-        self.prepare(|dialogs| dialogs.pick_files());
+        self.pick_files_of(vec![]);
+    }
+
+    /// Picks files the filters match.
+    pub fn pick_files_of(&mut self, filters: Vec<FileFilter>) {
+        debug!("Picking files. extensions: {:?}", extensions(&filters));
+        self.prepare(move |dialogs| dialogs.pick_files(&filters));
+    }
+
+    /// Picks a file to write, which may not exist yet.
+    pub fn save_file(&mut self, save_file: SaveFile) {
+        debug!(
+            "Picking a file to save. file_name: '{}', extensions: {:?}",
+            save_file.file_name,
+            extensions(&save_file.filters)
+        );
+        self.prepare(move |dialogs| {
+            dialogs
+                .save_file(&save_file)
+                .map(|file| vec![file])
+        });
     }
 
     pub fn pick_folder(&mut self) {

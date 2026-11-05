@@ -1,5 +1,6 @@
-//! A variant builder's tab: for a new one, first the form to name it and choose its folder, then the variant builder,
-//! whose variant is defined, and each data source chosen, then saved, and built (`VBGUI`).
+//! A design variant's tab, which shows a variant builder: for a new one, first the form to choose its EDA tool and
+//! placements file, and name its design and variant, then the variant builder, whose data sources are chosen, in
+//! groups, then saved, and built (`VBGUI`).
 
 use std::collections::BTreeMap;
 use std::mem::discriminant;
@@ -15,12 +16,15 @@ use egui_taffy::{Tui, TuiBuilderLogic, tui};
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 use validator::Validate;
-use variantbuilder_app::variant_builders::{EXTENSION, stored_path};
+use variantbuilder_app::variant_builders::{
+    DEFAULT_VARIANT_NAME, design_name, file_name, placements_extensions, stored_path,
+};
 use variantbuilder_app::{
-    EdaTool, Event, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus, VariantBuilderView,
+    EdaTool, Event, NewVariantBuilder, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus,
+    VariantBuilderView,
 };
 
-use crate::file_picker::{FileDialogs, Picker};
+use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::{Form, NamedResponse, PickerFieldAction, picker_field};
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
@@ -31,28 +35,42 @@ use crate::variant_builder_core::VariantBuilderCoreService;
 /// A field of a variant builder whose value is a file the user chooses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileField {
-    Placements,
     Parts,
     PartMappings,
-    LoadOut,
     AssemblyRules,
-    /// A list of files, to which those chosen are added.
-    Substitutions,
+}
+
+/// A field of a variant builder whose value is a list of files, to which those chosen are added.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FilesField {
+    GlobalSubstitutions,
+    DesignSubstitutions,
 }
 
 /// A field of a variant builder that's a list of ref-des, typed separated by commas.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ListField {
     RefDesList,
-    RefDesExcludeList,
-    RefDesDisableList,
+    RefDesExclusionList,
+    RefDesNoPlaceList,
+}
+
+/// What a file dialog the tab opened is choosing.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Picking {
+    /// The new variant builder's placements.
+    Placements,
+    File(FileField),
+    Files(FilesField),
+    /// A new assembly rules file, to create.
+    NewAssemblyRules,
 }
 
 /// The tab is persisted, so that it can be shown again when the application restarts.
 #[derive(Default, Deserialize, Serialize, Derivative)]
 #[derivative(Debug)]
 pub struct VariantBuilderTab {
-    /// The new variant builder's name and folder, until "Ok" creates it.
+    /// The new variant builder's EDA tool, placements, and names, until "Ok" creates it.
     fields: Value<NewVariantBuilderFields>,
 
     /// The variant builder's file, once it's created or opened.
@@ -68,9 +86,9 @@ pub struct VariantBuilderTab {
     #[serde(skip)]
     list_texts: BTreeMap<ListField, String>,
 
-    /// The field whose file is being chosen.
+    /// What the file dialog that's open is choosing.
     #[serde(skip)]
-    picking: Option<FileField>,
+    picking: Option<Picking>,
 
     #[serde(skip)]
     pub component: ComponentState<VariantBuilderTabUiCommand>,
@@ -81,17 +99,28 @@ pub struct VariantBuilderTab {
 
 #[derive(Debug, Clone)]
 pub enum VariantBuilderTabUiCommand {
-    NameChanged(String),
-    ClearDirectoryClicked,
-    PickDirectoryClicked,
-    DirectoryPicked(PathBuf),
+    EdaToolChanged(Option<EdaTool>),
+    ClearPlacementsClicked,
+    PickPlacementsClicked,
+    PlacementsPicked(PathBuf),
+    DesignNameChanged(String),
+    VariantNameChanged(String),
     Submit,
 
     Changed(VariantBuilderChange),
     ListChanged(ListField, String),
     ClearClicked(FileField),
     PickClicked(FileField),
-    FilesPicked(FileField, Vec<PathBuf>),
+    FilePicked(FileField, PathBuf),
+    AddClicked(FilesField),
+    FilesPicked(FilesField, Vec<PathBuf>),
+    RemoveClicked(FilesField, usize),
+    /// Moves the file at the index one place up the list, before the one before it.
+    MoveUpClicked(FilesField, usize),
+    /// Moves the file at the index one place down the list, after the one after it.
+    MoveDownClicked(FilesField, usize),
+    NewAssemblyRulesClicked,
+    NewAssemblyRulesPicked(PathBuf),
     SaveClicked,
     BuildClicked,
 
@@ -152,6 +181,13 @@ impl VariantBuilderTab {
         file
     }
 
+    /// The files of the field, as shown, with the changes to be saved.
+    fn shown_files(&self, variant_builders: &Value<VariantBuilderCoreService>, field: FilesField) -> Vec<PathBuf> {
+        let (view, _) = self.known(variant_builders);
+        view.map(|view| files(&self.shown(&view), field).clone())
+            .unwrap_or_default()
+    }
+
     /// Keeps the change to save, replacing any to the same field.
     fn change(&mut self, change: VariantBuilderChange) {
         self.pending
@@ -189,7 +225,7 @@ impl Tab for VariantBuilderTab {
                 path.file_name()
                     .map(|name| name.to_string_lossy().to_string())
             })
-            .unwrap_or_else(|| tr!("tab-label-new-variant-builder"));
+            .unwrap_or_else(|| tr!("tab-label-new-design-variant"));
 
         WidgetText::from(label)
     }
@@ -211,31 +247,26 @@ impl UiComponent for VariantBuilderTab {
     #[profiling::function]
     fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         let mut file_picker = self.file_picker.lock().unwrap();
-        match (&self.path, self.picking) {
-            (None, _) => {
-                if let Ok(picked) = file_picker.picked() {
-                    self.component
-                        .send(VariantBuilderTabUiCommand::DirectoryPicked(picked));
-                }
-            }
-            (Some(_), Some(FileField::Substitutions)) => {
-                if let Ok(picked) = file_picker.picked_multi() {
-                    self.component
-                        .send(VariantBuilderTabUiCommand::FilesPicked(
-                            FileField::Substitutions,
-                            picked,
-                        ));
-                }
-            }
-            (Some(_), Some(field)) => {
-                if let Ok(picked) = file_picker.picked() {
-                    self.component
-                        .send(VariantBuilderTabUiCommand::FilesPicked(field, vec![picked]));
-                }
-            }
-            (Some(_), None) => {}
-        }
+        let command = match self.picking {
+            None => None,
+            Some(Picking::Files(field)) => file_picker
+                .picked_multi()
+                .ok()
+                .map(|picked| VariantBuilderTabUiCommand::FilesPicked(field, picked)),
+            Some(picking) => file_picker
+                .picked()
+                .ok()
+                .map(|picked| match picking {
+                    Picking::Placements => VariantBuilderTabUiCommand::PlacementsPicked(picked),
+                    Picking::File(field) => VariantBuilderTabUiCommand::FilePicked(field, picked),
+                    Picking::NewAssemblyRules => VariantBuilderTabUiCommand::NewAssemblyRulesPicked(picked),
+                    Picking::Files(_) => unreachable!(),
+                }),
+        };
         drop(file_picker);
+        if let Some(command) = command {
+            self.component.send(command);
+        }
 
         match &self.path {
             None => {
@@ -258,32 +289,81 @@ impl UiComponent for VariantBuilderTab {
         // `LOG-3`
         debug!("VariantBuilderTab command. command: {:?}", command);
         match command {
-            VariantBuilderTabUiCommand::NameChanged(name) => {
-                self.fields.lock().unwrap().name = name;
+            VariantBuilderTabUiCommand::EdaToolChanged(eda_tool) => {
+                let mut fields = self.fields.lock().unwrap();
+                // `VBGUI-1`, the placements are chosen from the EDA tool's files, so they're chosen again.
+                if fields.eda_tool != eda_tool {
+                    fields.placements = None;
+                }
+                fields.eda_tool = eda_tool;
                 None
             }
-            VariantBuilderTabUiCommand::ClearDirectoryClicked => {
-                self.fields.lock().unwrap().directory = None;
+            VariantBuilderTabUiCommand::ClearPlacementsClicked => {
+                self.fields.lock().unwrap().placements = None;
                 None
             }
-            VariantBuilderTabUiCommand::PickDirectoryClicked => {
+            VariantBuilderTabUiCommand::PickPlacementsClicked => {
+                let Some(eda_tool) = self.fields.lock().unwrap().eda_tool else {
+                    // the button is disabled until there's an EDA tool.
+                    return None;
+                };
+                self.picking = Some(Picking::Placements);
                 self.file_picker
                     .lock()
                     .unwrap()
-                    .pick_folder();
+                    .pick_file_of(vec![FileFilter {
+                        name: tr!("variant-builder-filter-placements"),
+                        extensions: placements_extensions(eda_tool)
+                            .iter()
+                            .map(|extension| extension.to_string())
+                            .collect(),
+                    }]);
                 None
             }
-            VariantBuilderTabUiCommand::DirectoryPicked(directory) => {
-                self.fields.lock().unwrap().directory = Some(directory);
+            VariantBuilderTabUiCommand::PlacementsPicked(placements) => {
+                self.picking = None;
+                let mut fields = self.fields.lock().unwrap();
+                // `VBGUI-1`, the design is named after the placements, unless the user has named it.
+                let named = fields
+                    .placements
+                    .as_deref()
+                    .map(design_name)
+                    .unwrap_or_default();
+                if fields.design_name == named {
+                    fields.design_name = design_name(&placements);
+                }
+                fields.placements = Some(placements);
+                None
+            }
+            VariantBuilderTabUiCommand::DesignNameChanged(name) => {
+                self.fields.lock().unwrap().design_name = name;
+                None
+            }
+            VariantBuilderTabUiCommand::VariantNameChanged(name) => {
+                self.fields.lock().unwrap().variant_name = name;
                 None
             }
             VariantBuilderTabUiCommand::Submit => {
                 let fields = self.fields.lock().unwrap();
-                let Some(directory) = &fields.directory else {
+                let (Some(eda_tool), Some(placements)) = (fields.eda_tool, &fields.placements) else {
                     // "Ok" is disabled until the form is valid.
                     return None;
                 };
-                let path = directory.join(format!("{}{}", fields.name.trim(), EXTENSION));
+                let (design_name, variant_name) = (fields.design_name.trim(), fields.variant_name.trim());
+                // `VBGUI-1`, `VARB-2`, in the placements' folder.
+                let path = placements
+                    .parent()
+                    .map(Path::to_path_buf)
+                    .unwrap_or_default()
+                    .join(file_name(design_name, variant_name));
+                let new = NewVariantBuilder {
+                    design_name: Some(design_name.to_string()),
+                    variant_name: Some(variant_name.to_string()),
+                    changes: vec![
+                        VariantBuilderChange::EdaTool(Some(eda_tool)),
+                        VariantBuilderChange::Placements(Some(stored_path(&path, placements))),
+                    ],
+                };
                 drop(fields);
 
                 self.path = Some(path);
@@ -291,6 +371,7 @@ impl UiComponent for VariantBuilderTab {
                 self.process(&context.variant_builders, |path| Event::Create {
                     path,
                     overwrite: false,
+                    new,
                 });
                 None
             }
@@ -314,40 +395,102 @@ impl UiComponent for VariantBuilderTab {
                 self.list_texts.insert(field, text);
                 self.change(match field {
                     ListField::RefDesList => VariantBuilderChange::RefDesList(list),
-                    ListField::RefDesExcludeList => VariantBuilderChange::RefDesExcludeList(list),
-                    ListField::RefDesDisableList => VariantBuilderChange::RefDesDisableList(list),
+                    ListField::RefDesExclusionList => VariantBuilderChange::RefDesExclusionList(list),
+                    ListField::RefDesNoPlaceList => VariantBuilderChange::RefDesNoPlaceList(list),
                 });
                 None
             }
             VariantBuilderTabUiCommand::ClearClicked(field) => {
-                self.change(file_change(field, vec![]));
+                self.change(file_change(field, None));
                 None
             }
             VariantBuilderTabUiCommand::PickClicked(field) => {
-                self.picking = Some(field);
-                let mut file_picker = self.file_picker.lock().unwrap();
-                match field {
-                    FileField::Substitutions => file_picker.pick_files(),
-                    _ => file_picker.pick_file(),
-                }
+                self.picking = Some(Picking::File(field));
+                self.file_picker
+                    .lock()
+                    .unwrap()
+                    .pick_file_of(csv_filters());
+                None
+            }
+            VariantBuilderTabUiCommand::FilePicked(field, path) => {
+                self.picking = None;
+                self.change(file_change(field, Some(self.stored(&path))));
+                None
+            }
+            VariantBuilderTabUiCommand::AddClicked(field) => {
+                self.picking = Some(Picking::Files(field));
+                self.file_picker
+                    .lock()
+                    .unwrap()
+                    .pick_files_of(csv_filters());
                 None
             }
             VariantBuilderTabUiCommand::FilesPicked(field, paths) => {
                 self.picking = None;
-                let mut paths = paths
-                    .iter()
-                    .map(|path| self.stored(path))
-                    .collect::<Vec<_>>();
-                if field == FileField::Substitutions {
-                    // added to those there are.
-                    let (view, _) = self.known(&context.variant_builders);
-                    let mut substitutions = view
-                        .map(|view| self.shown(&view).substitutions)
-                        .unwrap_or_default();
-                    substitutions.append(&mut paths);
-                    paths = substitutions;
+                // added to those there are.
+                let mut files = self.shown_files(&context.variant_builders, field);
+                files.extend(
+                    paths
+                        .iter()
+                        .map(|path| self.stored(path)),
+                );
+                self.change(files_change(field, files));
+                None
+            }
+            VariantBuilderTabUiCommand::RemoveClicked(field, index) => {
+                let mut files = self.shown_files(&context.variant_builders, field);
+                if index < files.len() {
+                    files.remove(index);
                 }
-                self.change(file_change(field, paths));
+                self.change(files_change(field, files));
+                None
+            }
+            VariantBuilderTabUiCommand::MoveUpClicked(field, index) => {
+                let mut files = self.shown_files(&context.variant_builders, field);
+                if index > 0 && index < files.len() {
+                    files.swap(index - 1, index);
+                }
+                self.change(files_change(field, files));
+                None
+            }
+            VariantBuilderTabUiCommand::MoveDownClicked(field, index) => {
+                let mut files = self.shown_files(&context.variant_builders, field);
+                if index + 1 < files.len() {
+                    files.swap(index, index + 1);
+                }
+                self.change(files_change(field, files));
+                None
+            }
+            VariantBuilderTabUiCommand::NewAssemblyRulesClicked => {
+                let (Some(path), (Some(view), _)) = (&self.path, self.known(&context.variant_builders)) else {
+                    return None;
+                };
+                self.picking = Some(Picking::NewAssemblyRules);
+                // `VBGUI-6`, named after the variant builder, in its folder.
+                let file_name = format!(
+                    "{}_{}_assembly_rules.csv",
+                    view.file.design_name, view.file.variant_name
+                );
+                self.file_picker
+                    .lock()
+                    .unwrap()
+                    .save_file(SaveFile {
+                        directory: path.parent().map(Path::to_path_buf),
+                        file_name,
+                        filters: csv_filters(),
+                    });
+                None
+            }
+            VariantBuilderTabUiCommand::NewAssemblyRulesPicked(assembly_rules) => {
+                self.picking = None;
+                // `VBGUI-6`, the core sets the assembly rules, so a change to them not yet saved is replaced.
+                self.pending
+                    .retain(|change| !matches!(change, VariantBuilderChange::AssemblyRules(_)));
+                let assembly_rules = self.stored(&assembly_rules);
+                self.process(&context.variant_builders, |path| Event::CreateAssemblyRules {
+                    path,
+                    assembly_rules,
+                });
                 None
             }
             VariantBuilderTabUiCommand::SaveClicked => {
@@ -381,17 +524,37 @@ impl UiComponent for VariantBuilderTab {
     }
 }
 
-/// The change that sets the field to the files, the first, or none, for a field with one file.
-fn file_change(field: FileField, paths: Vec<PathBuf>) -> VariantBuilderChange {
-    let first = paths.first().cloned();
+/// The change that sets the field to the file, or none.
+fn file_change(field: FileField, path: Option<PathBuf>) -> VariantBuilderChange {
     match field {
-        FileField::Placements => VariantBuilderChange::Placements(first),
-        FileField::Parts => VariantBuilderChange::Parts(first),
-        FileField::PartMappings => VariantBuilderChange::PartMappings(first),
-        FileField::LoadOut => VariantBuilderChange::LoadOut(first),
-        FileField::AssemblyRules => VariantBuilderChange::AssemblyRules(first),
-        FileField::Substitutions => VariantBuilderChange::Substitutions(paths),
+        FileField::Parts => VariantBuilderChange::Parts(path),
+        FileField::PartMappings => VariantBuilderChange::PartMappings(path),
+        FileField::AssemblyRules => VariantBuilderChange::AssemblyRules(path),
     }
+}
+
+/// The change that sets the field to the files.
+fn files_change(field: FilesField, paths: Vec<PathBuf>) -> VariantBuilderChange {
+    match field {
+        FilesField::GlobalSubstitutions => VariantBuilderChange::GlobalSubstitutions(paths),
+        FilesField::DesignSubstitutions => VariantBuilderChange::DesignSubstitutions(paths),
+    }
+}
+
+/// The files of the field, as the variant builder's file says.
+fn files(file: &VariantBuilderFile, field: FilesField) -> &Vec<PathBuf> {
+    match field {
+        FilesField::GlobalSubstitutions => &file.global_substitutions,
+        FilesField::DesignSubstitutions => &file.design_substitutions,
+    }
+}
+
+/// The data sources are CSV files.
+fn csv_filters() -> Vec<FileFilter> {
+    vec![FileFilter {
+        name: tr!("variant-builder-filter-csv"),
+        extensions: vec!["csv".to_string()],
+    }]
 }
 
 impl VariantBuilderTab {
@@ -401,6 +564,13 @@ impl VariantBuilderTab {
             gap: length(2.),
             ..Default::default()
         };
+
+        let has_eda_tool = self
+            .fields
+            .lock()
+            .unwrap()
+            .eda_tool
+            .is_some();
 
         tui(ui, ui.id().with("new_variant_builder_form"))
             .reserve_available_width()
@@ -417,43 +587,86 @@ impl VariantBuilderTab {
             })
             .show(|tui| {
                 form.show_fields_vertical(tui, |form, tui| {
-                    form.add_field_ui("name", tr!("form-new-variant-builder-input-name"), tui, {
+                    form.add_field_ui("eda_tool", tr!("variant-builder-input-eda-tool"), tui, {
                         move |ui: &mut Ui, fields, sender| {
-                            let mut name = fields.name.clone();
-                            let output = TextEdit::singleline(&mut name)
-                                .desired_width(ui.available_width())
-                                .hint_text(tr!("form-new-variant-builder-input-name-placeholder"))
-                                .show(ui);
-
-                            if fields.name != name {
-                                sender
-                                    .send(VariantBuilderTabUiCommand::NameChanged(name))
-                                    .expect("sent")
-                            }
-
-                            output.response.response
+                            egui::ComboBox::from_id_salt(ui.id().with("eda_tool"))
+                                .width(ui.available_width())
+                                .selected_text(eda_tool_label(fields.eda_tool))
+                                .show_ui(ui, |ui| {
+                                    for eda_tool in [EdaTool::DipTrace, EdaTool::KiCad, EdaTool::EasyEda] {
+                                        if ui
+                                            .add(Button::selectable(
+                                                fields.eda_tool == Some(eda_tool),
+                                                eda_tool_label(Some(eda_tool)),
+                                            ))
+                                            .clicked()
+                                        {
+                                            sender
+                                                .send(VariantBuilderTabUiCommand::EdaToolChanged(Some(eda_tool)))
+                                                .expect("sent");
+                                        }
+                                    }
+                                })
+                                .response
                         }
                     });
 
-                    let directory_label = tr!("form-new-variant-builder-input-directory");
-                    form.add_field_tui("directory", directory_label.clone(), tui, {
-                        move |tui: &mut Tui, fields, sender| {
-                            let value = fields
-                                .directory
-                                .as_ref()
-                                .map_or("".to_string(), |path| path.display().to_string());
+                    // `VBGUI-1`, the placements are chosen from the EDA tool's files, so once it's chosen.
+                    if has_eda_tool {
+                        let placements_label = tr!("variant-builder-input-placements");
+                        form.add_field_tui("placements", placements_label.clone(), tui, {
+                            move |tui: &mut Tui, fields, sender| {
+                                let value = fields
+                                    .placements
+                                    .as_ref()
+                                    .map_or("".to_string(), |path| path.display().to_string());
 
-                            match picker_field(tui, &directory_label, &value) {
-                                Some(PickerFieldAction::Clear) => sender
-                                    .send(VariantBuilderTabUiCommand::ClearDirectoryClicked)
-                                    .expect("sent"),
-                                Some(PickerFieldAction::Pick) => sender
-                                    .send(VariantBuilderTabUiCommand::PickDirectoryClicked)
-                                    .expect("sent"),
-                                None => {}
+                                match picker_field(tui, &placements_label, &value) {
+                                    Some(PickerFieldAction::Clear) => sender
+                                        .send(VariantBuilderTabUiCommand::ClearPlacementsClicked)
+                                        .expect("sent"),
+                                    Some(PickerFieldAction::Pick) => sender
+                                        .send(VariantBuilderTabUiCommand::PickPlacementsClicked)
+                                        .expect("sent"),
+                                    None => {}
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
+
+                    for (field_name, label, command) in [
+                        (
+                            "design_name",
+                            tr!("variant-builder-input-design-name"),
+                            VariantBuilderTabUiCommand::DesignNameChanged as fn(String) -> VariantBuilderTabUiCommand,
+                        ),
+                        (
+                            "variant_name",
+                            tr!("variant-builder-input-variant-name"),
+                            VariantBuilderTabUiCommand::VariantNameChanged,
+                        ),
+                    ] {
+                        form.add_field_ui(field_name, label, tui, {
+                            move |ui: &mut Ui, fields, sender| {
+                                let value = match field_name {
+                                    "design_name" => &fields.design_name,
+                                    _ => &fields.variant_name,
+                                };
+                                let mut text = value.clone();
+                                let output = TextEdit::singleline(&mut text)
+                                    .desired_width(ui.available_width())
+                                    .show(ui);
+
+                                if *value != text {
+                                    sender
+                                        .send(command(text))
+                                        .expect("sent")
+                                }
+
+                                output.response.response
+                            }
+                        });
+                    }
                 });
 
                 if tui
@@ -498,12 +711,11 @@ impl VariantBuilderTab {
                 ui.separator();
 
                 let file = self.shown(&view);
-                egui::Grid::new(ui.id().with("variant_builder"))
-                    .num_columns(2)
-                    .striped(true)
-                    .show(ui, |ui| self.show_fields(ui, &file));
+                self.show_fields(ui, &file);
 
                 ui.separator();
+
+                show_substitutions_applied(ui, &file);
 
                 let unsaved = file != view.file;
                 ui.horizontal(|ui| {
@@ -534,117 +746,113 @@ impl VariantBuilderTab {
             });
     }
 
+    /// The variant builder's fields: what it's of, which can't be changed, then the rest in groups (`VBGUI-2`).
     fn show_fields(&self, ui: &mut Ui, file: &VariantBuilderFile) {
         let send = |command| self.component.send(command);
 
-        let name_label = tr!("variant-builder-input-variant-name");
-        ui.label(&name_label);
-        let mut name = file.variant.name.clone();
-        if TextEdit::singleline(&mut name)
-            .ui(ui)
-            .named(name_label)
-            .changed()
-        {
-            send(VariantBuilderTabUiCommand::Changed(VariantBuilderChange::VariantName(
-                name,
-            )));
-        }
-        ui.end_row();
-
-        self.show_list(
-            ui,
-            file,
-            ListField::RefDesList,
-            tr!("variant-builder-input-ref-des-list"),
-        );
-
-        let eda_label = tr!("variant-builder-input-eda-tool");
-        ui.label(&eda_label);
-        let eda_tool_label = |eda_tool: Option<EdaTool>| match eda_tool {
-            None => tr!("variant-builder-eda-tool-none"),
-            Some(EdaTool::DipTrace) => "DipTrace".to_string(),
-            Some(EdaTool::KiCad) => "KiCad".to_string(),
-            Some(EdaTool::EasyEda) => "EasyEDA".to_string(),
+        let grid = |ui: &mut Ui, id: &str, add_contents: &mut dyn FnMut(&mut Ui)| {
+            egui::Grid::new(ui.id().with(id))
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| add_contents(ui));
         };
-        egui::ComboBox::from_id_salt(ui.id().with("eda_tool"))
-            .selected_text(eda_tool_label(file.eda_tool))
-            .show_ui(ui, |ui| {
-                for eda_tool in [
-                    None,
-                    Some(EdaTool::DipTrace),
-                    Some(EdaTool::KiCad),
-                    Some(EdaTool::EasyEda),
-                ] {
-                    if ui
-                        .add(Button::selectable(file.eda_tool == eda_tool, eda_tool_label(eda_tool)))
-                        .clicked()
-                    {
-                        send(VariantBuilderTabUiCommand::Changed(VariantBuilderChange::EdaTool(
-                            eda_tool,
-                        )));
-                    }
-                }
-            })
-            .response
-            .named(eda_label);
-        ui.end_row();
+        let group = |ui: &mut Ui, id: &str, title: String, add_contents: &mut dyn FnMut(&mut Ui)| {
+            ui.group(|ui| {
+                ui.set_width(ui.available_width());
+                ui.strong(title);
+                grid(ui, id, add_contents);
+            });
+        };
 
-        for (field, label, value) in [
-            (
-                FileField::Placements,
-                tr!("variant-builder-input-placements"),
-                &file.placements,
-            ),
-            (FileField::Parts, tr!("variant-builder-input-parts"), &file.parts),
-            (
-                FileField::PartMappings,
-                tr!("variant-builder-input-part-mappings"),
-                &file.part_mappings,
-            ),
-            (
-                FileField::LoadOut,
-                tr!("variant-builder-input-load-out"),
-                &file.load_out,
-            ),
-            (
-                FileField::AssemblyRules,
-                tr!("variant-builder-input-assembly-rules"),
-                &file.assembly_rules,
-            ),
-        ] {
-            let value = value
+        // `VBGUI-1`, set as it's created, and kept as they are.
+        grid(ui, "variant_builder_of", &mut |ui| {
+            let placements = file
+                .placements
                 .as_ref()
                 .map_or("".to_string(), |path| path.display().to_string());
-            self.show_file(ui, field, label, value, tr!("form-common-button-choose"));
-        }
+            for (label, value) in [
+                (tr!("variant-builder-input-eda-tool"), eda_tool_label(file.eda_tool)),
+                (tr!("variant-builder-input-placements"), placements),
+                (tr!("variant-builder-input-design-name"), file.design_name.clone()),
+                (tr!("variant-builder-input-variant-name"), file.variant_name.clone()),
+            ] {
+                show_read_only(ui, label, value);
+            }
+        });
 
-        let substitutions = file
-            .substitutions
-            .iter()
-            .map(|path| path.display().to_string())
-            .collect::<Vec<_>>()
-            .join(", ");
-        self.show_file(
+        group(
             ui,
-            FileField::Substitutions,
-            tr!("variant-builder-input-substitutions"),
-            substitutions,
-            tr!("variant-builder-button-add"),
+            "part_matching",
+            tr!("variant-builder-group-part-matching"),
+            &mut |ui| {
+                for (field, label, value) in [
+                    (FileField::Parts, tr!("variant-builder-input-parts"), &file.parts),
+                    (
+                        FileField::PartMappings,
+                        tr!("variant-builder-input-part-mappings"),
+                        &file.part_mappings,
+                    ),
+                ] {
+                    self.show_file(ui, field, label, value, false);
+                }
+                self.show_files(
+                    ui,
+                    file,
+                    FilesField::GlobalSubstitutions,
+                    tr!("variant-builder-input-global-substitutions"),
+                );
+            },
         );
 
-        self.show_list(
+        group(
             ui,
-            file,
-            ListField::RefDesExcludeList,
-            tr!("variant-builder-input-ref-des-exclude-list"),
-        );
-        self.show_list(
-            ui,
-            file,
-            ListField::RefDesDisableList,
-            tr!("variant-builder-input-ref-des-disable-list"),
+            "design_specific",
+            tr!("variant-builder-group-design-specific"),
+            &mut |ui| {
+                self.show_file(
+                    ui,
+                    FileField::AssemblyRules,
+                    tr!("variant-builder-input-assembly-rules"),
+                    &file.assembly_rules,
+                    true,
+                );
+                self.show_files(
+                    ui,
+                    file,
+                    FilesField::DesignSubstitutions,
+                    tr!("variant-builder-input-design-substitutions"),
+                );
+            },
         );
 
+        group(
+            ui,
+            "reference_designators",
+            tr!("variant-builder-group-reference-designators"),
+            &mut |ui| {
+                for (field, label) in [
+                    (ListField::RefDesList, tr!("variant-builder-input-ref-des-list")),
+                    (
+                        ListField::RefDesExclusionList,
+                        tr!("variant-builder-input-ref-des-exclusion-list"),
+                    ),
+                    (
+                        ListField::RefDesNoPlaceList,
+                        tr!("variant-builder-input-ref-des-no-place-list"),
+                    ),
+                ] {
+                    self.show_list(ui, file, field, label);
+                }
+            },
+        );
+
+        group(ui, "output", tr!("variant-builder-group-output"), &mut |ui| {
+            self.show_outputs(ui, file, &send)
+        });
+    }
+
+    /// The outputs' paths, typed, relative to the variant builder's folder, or its defaults if they're empty.
+    fn show_outputs(&self, ui: &mut Ui, file: &VariantBuilderFile, send: &dyn Fn(VariantBuilderTabUiCommand)) {
         for (label, value, change) in [
             (
                 tr!("variant-builder-input-output-placements"),
@@ -674,11 +882,14 @@ impl VariantBuilderTab {
         }
     }
 
-    /// A file field: the file, or files, shown, and buttons named after the field to clear and to choose them.
-    fn show_file(&self, ui: &mut Ui, field: FileField, label: String, value: String, choose: String) {
+    /// A file field: the file shown, and buttons named after the field to clear it and to choose it, and, if `new`, to
+    /// create a new one (`VBGUI-6`).
+    fn show_file(&self, ui: &mut Ui, field: FileField, label: String, value: &Option<PathBuf>, new: bool) {
         ui.label(&label);
         ui.horizontal(|ui| {
-            let mut value = value;
+            let mut value = value
+                .as_ref()
+                .map_or("".to_string(), |path| path.display().to_string());
             TextEdit::singleline(&mut value)
                 .interactive(false)
                 .ui(ui)
@@ -693,11 +904,74 @@ impl VariantBuilderTab {
             }
             if Button::new("...")
                 .ui(ui)
-                .named(format!("{}: {}", label, choose))
+                .named(format!("{}: {}", label, tr!("form-common-button-choose")))
                 .clicked()
             {
                 self.component
                     .send(VariantBuilderTabUiCommand::PickClicked(field));
+            }
+            if new
+                && Button::new(tr!("variant-builder-button-new"))
+                    .ui(ui)
+                    .named(format!("{}: {}", label, tr!("variant-builder-button-new")))
+                    .clicked()
+            {
+                self.component
+                    .send(VariantBuilderTabUiCommand::NewAssemblyRulesClicked);
+            }
+        });
+        ui.end_row();
+    }
+
+    /// A list of files: each file, with buttons to move it up and down the list, and to remove it, named after the field
+    /// and the file, then a button to add files (`VBGUI-2`).
+    fn show_files(&self, ui: &mut Ui, file: &VariantBuilderFile, field: FilesField, label: String) {
+        ui.label(&label);
+        ui.vertical(|ui| {
+            let paths = files(file, field);
+            for (index, path) in paths.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let path = path.display().to_string();
+                    ui.label(&path);
+                    for (enabled, text, action, command) in [
+                        (
+                            index > 0,
+                            "⏶",
+                            tr!("variant-builder-button-move-up"),
+                            VariantBuilderTabUiCommand::MoveUpClicked(field, index),
+                        ),
+                        (
+                            index + 1 < paths.len(),
+                            "⏷",
+                            tr!("variant-builder-button-move-down"),
+                            VariantBuilderTabUiCommand::MoveDownClicked(field, index),
+                        ),
+                    ] {
+                        if ui
+                            .add_enabled(enabled, Button::new(text))
+                            .named(format!("{}: {} {}", label, action, path))
+                            .clicked()
+                        {
+                            self.component.send(command);
+                        }
+                    }
+                    if Button::new("x")
+                        .ui(ui)
+                        .named(format!("{}: {} {}", label, tr!("variant-builder-button-remove"), path))
+                        .clicked()
+                    {
+                        self.component
+                            .send(VariantBuilderTabUiCommand::RemoveClicked(field, index));
+                    }
+                });
+            }
+            if Button::new(tr!("variant-builder-button-add"))
+                .ui(ui)
+                .named(format!("{}: {}", label, tr!("variant-builder-button-add")))
+                .clicked()
+            {
+                self.component
+                    .send(VariantBuilderTabUiCommand::AddClicked(field));
             }
         });
         ui.end_row();
@@ -707,9 +981,9 @@ impl VariantBuilderTab {
     fn show_list(&self, ui: &mut Ui, file: &VariantBuilderFile, field: ListField, label: String) {
         ui.label(&label);
         let list = match field {
-            ListField::RefDesList => &file.variant.ref_des_list,
-            ListField::RefDesExcludeList => &file.ref_des_exclude_list,
-            ListField::RefDesDisableList => &file.ref_des_disable_list,
+            ListField::RefDesList => &file.ref_des_list,
+            ListField::RefDesExclusionList => &file.ref_des_exclusion_list,
+            ListField::RefDesNoPlaceList => &file.ref_des_no_place_list,
         };
         let mut text = self
             .list_texts
@@ -728,11 +1002,64 @@ impl VariantBuilderTab {
     }
 }
 
-#[derive(Clone, Debug, Default, Validate, Serialize, Deserialize)]
+/// The substitutions, numbered, in the order the core applies them, with the changes not yet saved, so the user sees
+/// the effect of the order of the design's and the global ones (`VBGUI-7`, `VARB-5`).
+fn show_substitutions_applied(ui: &mut Ui, file: &VariantBuilderFile) {
+    ui.strong(tr!("variant-builder-substitutions-applied"));
+    let mut substitutions = file.substitutions().peekable();
+    if substitutions.peek().is_none() {
+        ui.label(tr!("variant-builder-substitutions-applied-none"));
+    }
+    for (index, path) in substitutions.enumerate() {
+        ui.label(format!("{}. {}", index + 1, path.display()));
+    }
+    ui.separator();
+}
+
+/// A read-only field, named for assistive technology and tests.
+fn show_read_only(ui: &mut Ui, label: String, value: String) {
+    ui.label(&label);
+    let mut value = value;
+    TextEdit::singleline(&mut value)
+        .interactive(false)
+        .ui(ui)
+        .named(label);
+    ui.end_row();
+}
+
+fn eda_tool_label(eda_tool: Option<EdaTool>) -> String {
+    match eda_tool {
+        None => tr!("form-common-combo-select"),
+        Some(EdaTool::DipTrace) => "DipTrace".to_string(),
+        Some(EdaTool::KiCad) => "KiCad".to_string(),
+        Some(EdaTool::EasyEda) => "EasyEDA".to_string(),
+    }
+}
+
+/// A new design variant: the EDA tool, then its placements, then the names of the design and the variant, which name
+/// the variant builder's file (`VBGUI-1`).
+#[derive(Clone, Debug, Validate, Serialize, Deserialize)]
 struct NewVariantBuilderFields {
-    #[validate(length(min = 1, code = "form-input-error-length"))]
-    name: String,
+    #[validate(required(code = "form-option-error-required"))]
+    eda_tool: Option<EdaTool>,
 
     #[validate(required(code = "form-option-error-required"))]
-    directory: Option<PathBuf>,
+    placements: Option<PathBuf>,
+
+    #[validate(length(min = 1, code = "form-input-error-length"))]
+    design_name: String,
+
+    #[validate(length(min = 1, code = "form-input-error-length"))]
+    variant_name: String,
+}
+
+impl Default for NewVariantBuilderFields {
+    fn default() -> Self {
+        Self {
+            eda_tool: None,
+            placements: None,
+            design_name: String::new(),
+            variant_name: DEFAULT_VARIANT_NAME.to_string(),
+        }
+    }
 }

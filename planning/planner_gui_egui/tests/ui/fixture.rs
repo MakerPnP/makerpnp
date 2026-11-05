@@ -8,7 +8,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::{By, NodeT, Queryable};
 use i18n::I18nConfig;
 use planner_app::Event;
-use planner_gui_egui::file_picker::FileDialogs;
+use planner_gui_egui::file_picker::{FileDialogs, FileFilter, SaveFile};
 use planner_gui_egui::planner_app_core::PlannerCoreService;
 use planner_gui_egui::ui_app::UiApp;
 use tempfile::TempDir;
@@ -46,17 +46,22 @@ impl ScriptedFileDialogs {
     }
 }
 
+/// The filters and suggested names the dialogs are opened with are logged by the picker, for tests to check.
 impl FileDialogs for ScriptedFileDialogs {
-    fn pick_file(&self) -> Option<PathBuf> {
+    fn pick_file(&self, _filters: &[FileFilter]) -> Option<PathBuf> {
         self.next_answer()
     }
 
-    fn pick_files(&self) -> Option<Vec<PathBuf>> {
+    fn pick_files(&self, _filters: &[FileFilter]) -> Option<Vec<PathBuf>> {
         self.next_answer()
             .map(|path| vec![path])
     }
 
     fn pick_folder(&self) -> Option<PathBuf> {
+        self.next_answer()
+    }
+
+    fn save_file(&self, _save_file: &SaveFile) -> Option<PathBuf> {
         self.next_answer()
     }
 }
