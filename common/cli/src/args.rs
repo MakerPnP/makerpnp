@@ -104,7 +104,7 @@ impl From<SetOrClearOperationArg> for SetOrClearAction {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[derive(ValueEnum)]
 pub enum EdaToolArg {
     #[value(name("diptrace"))]

@@ -6,12 +6,14 @@ use clap::Parser;
 use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
-use stores_app::{Part, PartsChange, PartsView, PartsViewRendererOperation, Revision, Stores};
+use stores_app::{
+    Part, PartsChange, PartsView, PartsViewRendererOperation, Revision, Stores, TableView, TableViewRendererOperation,
+};
 
 use crate::core::Core;
 use crate::opts::{
     build_project_file_path, ModeCommand, Opts, PartArgs, PartsCommand, PartsCommandArgs, PcbCommand, ProcessCommand,
-    ProjectCommand,
+    ProjectCommand, TableCommand, TableCommandArgs,
 };
 
 mod core;
@@ -51,6 +53,9 @@ fn main() -> anyhow::Result<()> {
         ModeCommand::Parts(parts_args) => {
             return run_parts(parts_args);
         }
+        ModeCommand::Table(table_args) => {
+            return run_table(table_args);
+        }
         ModeCommand::Process(process_args) => {
             if !matches!(process_args.command, ProcessCommand::Create { .. }) {
                 let path = process_args.process_file.clone();
@@ -67,41 +72,96 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The parts mode uses the stores core, which has the data sources, not the planner's core.
-fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
-    let core: crux_core::Core<Stores> = crux_core::Core::new();
+/// The views the stores core sent while processing an event.
+#[derive(Default)]
+struct StoresViews {
+    parts: Vec<PartsView>,
+    tables: Vec<TableView>,
+}
+
+/// Processes the event with the stores core, having the stores service do each operation it asks for, and waiting for
+/// it, as the CLI does one thing at a time, and fails with the core's error, if it refuses.
+fn process_stores(core: &crux_core::Core<Stores>, event: stores_app::Event) -> anyhow::Result<StoresViews> {
     // `STORE-7`, does the store operations the core asks for, the one the planner's core uses too.
     let service = crate::core::stores_service();
 
-    // the CLI does one thing at a time, so it waits for each operation.
-    let process = |event: stores_app::Event| -> anyhow::Result<Vec<PartsView>> {
-        let mut views = vec![];
-        let mut effects: VecDeque<stores_app::Effect> = core.process_event(event).into();
-        while let Some(effect) = effects.pop_front() {
-            match effect {
-                stores_app::Effect::Render(_) => {
-                    if let Some(error) = core.view().error {
-                        bail!(error)
-                    }
-                }
-                stores_app::Effect::PartsView(request) => {
-                    let PartsViewRendererOperation::View {
-                        view,
-                    } = request.operation;
-                    views.push(view);
-                }
-                // `STORE-9`, the CLI is done before a data source could change, so it doesn't watch them.
-                stores_app::Effect::Stores(request) if request.operation.is_stream() => {}
-                stores_app::Effect::Stores(mut request) => {
-                    let output = block_on(service.perform_once(request.operation.clone())).ok_or_else(|| {
-                        anyhow!("No result from the stores service. operation: {:?}", request.operation)
-                    })?;
-                    effects.extend(core.resolve(&mut request, output)?);
+    let mut views = StoresViews::default();
+    let mut effects: VecDeque<stores_app::Effect> = core.process_event(event).into();
+    while let Some(effect) = effects.pop_front() {
+        match effect {
+            stores_app::Effect::Render(_) => {
+                if let Some(error) = core.view().error {
+                    bail!(error)
                 }
             }
+            stores_app::Effect::PartsView(request) => {
+                let PartsViewRendererOperation::View {
+                    view,
+                } = request.operation;
+                views.parts.push(view);
+            }
+            stores_app::Effect::TableView(request) => {
+                let TableViewRendererOperation::View {
+                    view,
+                } = request.operation;
+                views.tables.push(view);
+            }
+            // `STORE-9`, the CLI is done before a data source could change, so it doesn't watch them.
+            stores_app::Effect::Stores(request) if request.operation.is_stream() => {}
+            stores_app::Effect::Stores(mut request) => {
+                let output = block_on(service.perform_once(request.operation.clone()))
+                    .ok_or_else(|| anyhow!("No result from the stores service. operation: {:?}", request.operation))?;
+                effects.extend(core.resolve(&mut request, output)?);
+            }
         }
-        Ok(views)
-    };
+    }
+    Ok(views)
+}
+
+/// The table mode uses the stores core, which has the data sources, and shows a data source's records as a table
+/// (`STORE-18`).
+fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
+    let core: crux_core::Core<Stores> = crux_core::Core::new();
+    let kind = table_args
+        .kind
+        .build(table_args.eda_tool.as_ref())
+        .map_err(|error| anyhow!(error))?;
+
+    // opening sends the table's view.
+    let views = process_stores(&core, stores_app::Event::OpenTable {
+        kind,
+        source: table_args.source.clone(),
+    })?;
+
+    match table_args.command {
+        TableCommand::List => {
+            for view in views.tables.iter() {
+                write_table_csv(view, std::io::stdout())?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The table, as CSV, every value quoted, with its columns as the headers.
+fn write_table_csv(view: &TableView, writer: impl std::io::Write) -> anyhow::Result<()> {
+    let mut writer = csv::WriterBuilder::new()
+        .quote_style(csv::QuoteStyle::Always)
+        .from_writer(writer);
+
+    writer.write_record(&view.table.columns)?;
+    for row in view.table.rows.iter() {
+        writer.write_record(row)?;
+    }
+    writer.flush()?;
+
+    Ok(())
+}
+
+/// The parts mode uses the stores core, which has the data sources, not the planner's core.
+fn run_parts(parts_args: &PartsCommandArgs) -> anyhow::Result<()> {
+    let core: crux_core::Core<Stores> = crux_core::Core::new();
+    let process = |event: stores_app::Event| process_stores(&core, event).map(|views| views.parts);
 
     let source = parts_args.source.clone();
     // opening sends the parts view.

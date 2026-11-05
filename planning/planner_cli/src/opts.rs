@@ -3,10 +3,11 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_verbosity_flag::{InfoLevel, Verbosity};
 use cli::args::{
-    AddOrRemoveOperationArg, PcbSideArg, PlacementOperationArg, SetOrClearOperationArg, TaskActionArg, TaskKindArg,
+    AddOrRemoveOperationArg, EdaToolArg, PcbSideArg, PlacementOperationArg, SetOrClearOperationArg, TaskActionArg,
+    TaskKindArg,
 };
 use cli::parsers::{dimensions_decimal_parser, vector2_decimal_parser};
 use nalgebra::Vector2;
@@ -27,6 +28,7 @@ use stores::load_out::LoadOutSource;
 use stores::package_mappings::PackageMappingsSource;
 use stores::packages::PackagesSource;
 use stores::parts::PartsSource;
+use stores_app::TableKind;
 use thiserror::Error;
 
 #[derive(Parser, Debug)]
@@ -58,6 +60,68 @@ pub(crate) enum ModeCommand {
 
     /// Parts mode, to use a parts data source
     Parts(PartsCommandArgs),
+
+    /// Table mode, to show a data source's records as a table, read-only
+    Table(TableCommandArgs),
+}
+
+#[derive(Debug, Parser)]
+pub(crate) struct TableCommandArgs {
+    /// The kind of data source
+    #[arg(long, value_name = "KIND")]
+    pub(crate) kind: TableKindArg,
+
+    /// The EDA tool whose placements the data source has, for 'eda-placements'
+    #[arg(long, value_name = "EDA_TOOL", required_if_eq("kind", "eda-placements"))]
+    pub(crate) eda_tool: Option<EdaToolArg>,
+
+    /// The data source, a CSV file, e.g. 'bom.csv'
+    #[arg(long, value_name = "SOURCE")]
+    pub(crate) source: PartsSource,
+
+    #[command(subcommand)]
+    pub(crate) command: TableCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum TableCommand {
+    /// List the table, as CSV, with its columns as the headers
+    List,
+}
+
+/// The kinds of data source shown as a table.
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(crate) enum TableKindArg {
+    /// A design's placements, from an EDA tool's file, see '--eda-tool'
+    EdaPlacements,
+    /// Part mappings
+    PartMappings,
+    /// Substitutions
+    Substitutions,
+    /// Assembly rules
+    AssemblyRules,
+    /// A variant's placements, as built
+    Placements,
+    /// A variant's BOM, as built
+    Bom,
+}
+
+impl TableKindArg {
+    /// The kind of table, with the EDA tool, which only EDA placements have.
+    pub(crate) fn build(&self, eda_tool: Option<&EdaToolArg>) -> Result<TableKind, String> {
+        Ok(match self {
+            TableKindArg::EdaPlacements => TableKind::EdaPlacements {
+                eda_tool: eda_tool
+                    .ok_or_else(|| "'--eda-tool' is required for 'eda-placements'".to_string())?
+                    .build(),
+            },
+            TableKindArg::PartMappings => TableKind::PartMappings,
+            TableKindArg::Substitutions => TableKind::Substitutions,
+            TableKindArg::AssemblyRules => TableKind::AssemblyRules,
+            TableKindArg::Placements => TableKind::Placements,
+            TableKindArg::Bom => TableKind::Bom,
+        })
+    }
 }
 
 #[derive(Debug, Parser)]
@@ -410,7 +474,9 @@ mod design_sizing {
         #[error("Invalid size: {0}")]
         InvalidSize(String),
 
-        #[error("Invalid format, expected '<name>:origin=x=<x>,y=<y>:g_offset=x=<x>,y=<y>:p_offset=x=<x>,y=<y>:size=x=<x>,y=<y>'")]
+        #[error(
+            "Invalid format, expected '<name>:origin=x=<x>,y=<y>:g_offset=x=<x>,y=<y>:p_offset=x=<x>,y=<y>:size=x=<x>,y=<y>'"
+        )]
         InvalidFormat(String),
     }
 
@@ -932,7 +998,7 @@ impl TryFrom<Opts> for Event {
                 }),
                 ProjectCommand::ResetOperations {} => Ok(Event::ResetOperations {}),
             },
-            ModeCommand::Parts(_) => Err(EventError::NotAPlannerCommand),
+            ModeCommand::Parts(_) | ModeCommand::Table(_) => Err(EventError::NotAPlannerCommand),
         }
     }
 }

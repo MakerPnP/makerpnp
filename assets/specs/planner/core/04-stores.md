@@ -250,6 +250,11 @@ by its kind and its data source as it was asked for. The core logs
 "`stores_app: Table unchanged. kind: <kind>, source: '<source>', revision: '<revision>'`" at info level, and
 "`stores_app: Data source changed. source: '<source>', kind: <kind>`" for each change.
 
+**STORE-18 — Listing a table from the CLI.** *Observed.* `planner_cli table --kind <kind> --source <file> list`, with
+`--eda-tool <tool>` for EDA placements, MUST open the table (`STORE-17`) and write it to standard output as CSV, every
+value quoted, with its columns as the headers. The kinds are `eda-placements`, `part-mappings`, `substitutions`,
+`assembly-rules`, `placements` and `bom`. If the core refuses, the CLI MUST fail with the core's error.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/tables.rs`, with no files, checks opening a table identifies its data source, reads it,
@@ -260,6 +265,12 @@ by its kind and its data source as it was asked for. The core logs
 - `planning/stores_service/tests/csv_file.rs` reads a CSV file as a table, its headers in order and values as they are,
   a BOM without headers, with JLCPCB's columns, and EDA placements as a table, and checks a file that doesn't exist is
   none (`STORE-17`).
+- `planning/planner_cli/tests/tables.rs` lists a BOM, without headers, with JLCPCB's columns, and EDA placements, checks
+  the output, and checks
+  "`stores_app: Received event. event: OpenTable {`",
+  "`stores_service: Performing stores operation. operation: ReadTable {`" and
+  "`stores_app: Loaded table. kind: Bom, source: '`" are logged, in order, with no "`Event failed.`", and that a file
+  that doesn't exist fails, saying so (`STORE-18`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
   core asks to identify the data source and then read it, and sends the view, with the parts in order, the other values'

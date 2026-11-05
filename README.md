@@ -150,7 +150,10 @@ Its `parts` mode uses the stores core (`planning/stores_app`), which has the use
 `planner_cli parts --source parts.csv add --manufacturer RESCO --mpn RES1 --value LCSC=C1234` adds a part, as `set`
 sets a part's other values and `remove` removes one. A change is refused if the file has changed since it was read, or
 since the revision given with `--revision`. The stores core is pure: the CLI has the stores service
-(`planning/stores_service`) read and write the file for it, as the GUI does.
+(`planning/stores_service`) read and write the file for it, as the GUI does. Its `table` mode shows another data
+source's records as a table, read-only, for example `planner_cli table --kind bom --source board1_default_bom.csv list`
+lists a variant's BOM as CSV, and `--kind eda-placements --eda-tool diptrace` a design's placements; the kinds are
+`eda-placements`, `part-mappings`, `substitutions`, `assembly-rules`, `placements` and `bom`.
 
 Here's the current help output:
 
