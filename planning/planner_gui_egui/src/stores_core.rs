@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::StreamExt;
 use stores_app::{
-    Core, Effect, Event, PartsSource, PartsSourceStatus, PartsView, PartsViewRendererOperation, Stores,
-    StoresOperation, StoresOutput,
+    Core, Effect, Event, PartsSource, PartsSourceStatus, PartsView, PartsViewRendererOperation, Source, Stores,
+    StoresOperation, StoresOutput, TableKind, TableStatus, TableView, TableViewRendererOperation,
 };
 use stores_service::StoresService;
 use tracing::error;
@@ -40,6 +40,10 @@ pub struct StoresCoreService {
     /// The latest view of each data source's parts, from the core, shared by every tab that shows them, so that the
     /// tabs don't each keep a copy, and so that each tab shows a data source's parts as soon as they change.
     parts_views: BTreeMap<PartsSource, Arc<PartsView>>,
+
+    /// The latest view of each table, by its kind and its data source as the stores service identified it, shared as
+    /// the parts views are (`STORE-17`).
+    table_views: BTreeMap<(TableKind, Source), Arc<TableView>>,
 }
 
 /// Where the results of the store operations are sent, and how the GUI is woken to handle them.
@@ -93,6 +97,7 @@ impl StoresCoreService {
                 ui_context,
             },
             parts_views: Default::default(),
+            table_views: Default::default(),
         }
     }
 
@@ -127,6 +132,13 @@ impl StoresCoreService {
                     } = request.operation;
                     self.parts_views
                         .insert(view.source.clone(), Arc::new(view));
+                }
+                Effect::TableView(request) => {
+                    let TableViewRendererOperation::View {
+                        view,
+                    } = request.operation;
+                    self.table_views
+                        .insert((view.kind, view.source.clone()), Arc::new(view));
                 }
                 Effect::Stores(request) => self.perform(request),
             }
@@ -177,5 +189,21 @@ impl StoresCoreService {
     /// identified it (`STORE-6`).
     pub fn parts_view(&self, source: &PartsSource) -> Option<Arc<PartsView>> {
         self.parts_views.get(source).cloned()
+    }
+
+    /// What the core knows of the table, by its kind and its data source as it was asked for (`STORE-17`).
+    pub fn table_status(&self, kind: TableKind, source: &Source) -> Option<TableStatus> {
+        self.core
+            .view()
+            .table(kind, source)
+            .cloned()
+    }
+
+    /// The latest view of the table, if it's loaded, by its kind and its data source as the stores service identified
+    /// it (`STORE-6`).
+    pub fn table_view(&self, kind: TableKind, source: &Source) -> Option<Arc<TableView>> {
+        self.table_views
+            .get(&(kind, source.clone()))
+            .cloned()
     }
 }

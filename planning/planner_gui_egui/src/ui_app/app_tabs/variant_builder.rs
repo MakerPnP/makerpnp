@@ -1,35 +1,55 @@
 //! A design variant's tab, which shows a variant builder: for a new one, first the form to choose its EDA tool and
-//! placements file, and name its design and variant, then the variant builder, whose data sources are chosen, in
-//! groups, then saved, and built (`VBGUI`).
+//! placements file, and name its design and variant, then the variant builder's panels: its explorer, and its
+//! "Overview", whose data sources are chosen, in groups, then saved, and built, and a panel for each data source and
+//! output (`VBGUI`).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::mem::discriminant;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use derivative::Derivative;
 use egui::{Button, TextEdit, Ui, Widget, WidgetText};
+use egui_dock::{DockArea, Style, TabViewer};
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
+use egui_ltreeview::TreeViewState;
 use serde::{Deserialize, Serialize};
+use stores_app::{Source, TableKind};
 use tracing::debug;
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
-    DEFAULT_VARIANT_NAME, SubstitutionsSource, design_name, file_name, placements_extensions, stored_path,
+    DEFAULT_VARIANT_NAME, SubstitutionsSource, design_name, file_name, placements_extensions, source_path, stored_path,
 };
 use variantbuilder_app::{
     EdaTool, Event, NewVariantBuilder, VariantBuilderChange, VariantBuilderFile, VariantBuilderStatus,
     VariantBuilderView,
 };
 
+use crate::data_sources::parts_table::show_parts_table;
+use crate::data_sources::table::show_table;
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
 use crate::forms::{Form, NamedResponse};
+use crate::stores_core::StoresCoreService;
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::variant_builder_core::VariantBuilderCoreService;
+
+mod explorer;
+mod panels;
+
+use panels::Panels;
+pub use panels::{DataSource, Output, Panel};
+
+/// A data source the tab has asked the stores core to open, so it's asked once (`VBGUI-11`).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum Opened {
+    Parts(Source),
+    Table(TableKind, Source),
+}
 
 /// A field of a variant builder whose value is a file the user chooses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -94,6 +114,20 @@ pub struct VariantBuilderTab {
 
     #[serde(skip)]
     file_picker: Value<Picker>,
+
+    /// The variant builder's panels, kept as they're arranged, so they're shown again when the application restarts
+    /// (`VBGUI-9`).
+    #[serde(default)]
+    panels: Value<Panels>,
+
+    /// The explorer's tree, which nodes are open and selected.
+    #[serde(skip)]
+    #[derivative(Debug = "ignore")]
+    tree_view_state: Value<TreeViewState<usize>>,
+
+    /// The data sources the tab has asked the stores core to open.
+    #[serde(skip)]
+    opened: BTreeSet<Opened>,
 }
 
 #[derive(Debug, Clone)]
@@ -123,9 +157,16 @@ pub enum VariantBuilderTabUiCommand {
     SaveClicked,
     BuildClicked,
 
+    /// Shows the panel, opening it if it isn't open, as the explorer's node was double-clicked (`VBGUI-10`).
+    ShowPanel(Panel),
+
     // internal
     /// Opens the variant builder, reading its file.
     Open,
+    /// Has the stores core open a data source's parts, which a panel shows (`VBGUI-11`).
+    OpenParts(Source),
+    /// Has the stores core open a data source's table, which a panel shows (`VBGUI-11`, `VBGUI-12`).
+    OpenTable(TableKind, Source),
 }
 
 #[derive(Debug)]
@@ -137,6 +178,8 @@ pub enum VariantBuilderTabAction {
 pub struct VariantBuilderTabContext {
     pub tab_key: TabKey,
     pub variant_builders: Value<VariantBuilderCoreService>,
+    /// The stores core, which shows the data sources and outputs (`VBGUI-11`).
+    pub stores: Value<StoresCoreService>,
 }
 
 impl VariantBuilderTab {
@@ -233,6 +276,7 @@ impl Tab for VariantBuilderTab {
         let mut tab_context = VariantBuilderTabContext {
             tab_key: *tab_key,
             variant_builders: context.variant_builders.clone(),
+            stores: context.stores.clone(),
         };
         UiComponent::ui(self, ui, &mut tab_context);
     }
@@ -274,7 +318,18 @@ impl UiComponent for VariantBuilderTab {
             }
             Some(path) => {
                 let (view, status) = self.known(&context.variant_builders);
-                self.show_variant_builder(ui, path, view, status);
+                let mut viewer = PanelViewer {
+                    tab: self,
+                    path,
+                    view,
+                    status,
+                    stores: &context.stores,
+                };
+                let mut panels = self.panels.lock().unwrap();
+                DockArea::new(&mut panels.0)
+                    .id(ui.id().with("variant_builder_panels"))
+                    .style(Style::from_egui(ui.ctx().global_style().as_ref()))
+                    .show_inside(ui, &mut viewer);
             }
         }
     }
@@ -366,6 +421,11 @@ impl UiComponent for VariantBuilderTab {
                 drop(fields);
 
                 self.path = Some(path);
+                // `VBGUI-9`
+                self.panels
+                    .lock()
+                    .unwrap()
+                    .ensure_layout();
                 // `VBGUI-1`, an existing file isn't replaced.
                 self.process(&context.variant_builders, |path| Event::Create {
                     path,
@@ -375,9 +435,51 @@ impl UiComponent for VariantBuilderTab {
                 None
             }
             VariantBuilderTabUiCommand::Open => {
+                // `VBGUI-9`, those kept when the application last closed, or else the explorer and the "Overview".
+                self.panels
+                    .lock()
+                    .unwrap()
+                    .ensure_layout();
                 self.process(&context.variant_builders, |path| Event::Open {
                     path,
                 });
+                None
+            }
+            VariantBuilderTabUiCommand::ShowPanel(panel) => {
+                self.panels.lock().unwrap().show(panel);
+                None
+            }
+            VariantBuilderTabUiCommand::OpenParts(source) => {
+                // `STORE-5`, asked once, as it's loaded once, and shown by every view of it.
+                if self
+                    .opened
+                    .insert(Opened::Parts(source.clone()))
+                {
+                    context
+                        .stores
+                        .lock()
+                        .unwrap()
+                        .process(stores_app::Event::OpenParts {
+                            source,
+                        });
+                }
+                None
+            }
+            VariantBuilderTabUiCommand::OpenTable(kind, source) => {
+                // `STORE-17`, asked once, as it's loaded once, and watched.
+                if self
+                    .opened
+                    .insert(Opened::Table(kind, source.clone()))
+                {
+                    context
+                        .stores
+                        .lock()
+                        .unwrap()
+                        .process(stores_app::Event::OpenTable {
+                            kind,
+                            source,
+                        });
+                }
                 None
             }
             VariantBuilderTabUiCommand::Changed(change) => {
@@ -1039,6 +1141,220 @@ fn show_substitutions_applied(ui: &mut Ui, file: &VariantBuilderFile) {
             });
     }
     ui.separator();
+}
+
+/// Shows each of a design variant's panels (`VBGUI-9`), `view` being what the variant builder's file says, once it's
+/// read, and `status` what the core is doing with it.
+struct PanelViewer<'a> {
+    tab: &'a VariantBuilderTab,
+    path: &'a Path,
+    view: Option<VariantBuilderView>,
+    status: VariantBuilderStatus,
+    stores: &'a Value<StoresCoreService>,
+}
+
+impl TabViewer for PanelViewer<'_> {
+    type Tab = Panel;
+
+    fn id(&mut self, panel: &mut Panel) -> egui::Id {
+        egui::Id::new(("variant_builder_panel", &*panel))
+    }
+
+    fn title(&mut self, panel: &mut Panel) -> WidgetText {
+        panel.label()
+    }
+
+    /// egui_dock's tab buttons have no accessibility information, without it they can't be found by screen readers or
+    /// by the UI tests, as for the application's tabs.
+    fn on_tab_button(&mut self, panel: &mut Panel, response: &egui::Response) {
+        let title = panel.label().text().to_string();
+
+        response
+            .ctx
+            .accesskit_node_builder(response.id, |node| {
+                node.set_role(egui::accesskit::Role::Tab);
+                node.set_label(title);
+            });
+    }
+
+    /// The explorer is always shown, as the other panels are opened from it (`VBGUI-9`).
+    fn is_closeable(&self, panel: &Panel) -> bool {
+        !matches!(panel, Panel::Explorer)
+    }
+
+    /// A table scrolls itself, and takes all the panel's space (`VBGUI-11`), the others scroll down.
+    fn scroll_bars(&self, panel: &Panel) -> [bool; 2] {
+        match panel {
+            Panel::Explorer | Panel::Overview | Panel::BuildOutput => [false, true],
+            Panel::DataSource {
+                ..
+            }
+            | Panel::Output(_) => [false, false],
+        }
+    }
+
+    fn ui(&mut self, ui: &mut Ui, panel: &mut Panel) {
+        match panel {
+            Panel::Explorer => self.show_explorer(ui),
+            Panel::Overview => self
+                .tab
+                .show_variant_builder(ui, self.path, self.view.clone(), self.status.clone()),
+            Panel::DataSource {
+                source,
+                path,
+            } => self.show_data_source(ui, *source, path),
+            Panel::BuildOutput => {
+                egui::Frame::new()
+                    .inner_margin(8.0)
+                    .show(ui, |ui| {
+                        // `VBGUI-12`, the mapping results are to come.
+                        ui.label(tr!("variant-builder-build-output-to-come"));
+                    });
+            }
+            Panel::Output(output) => self.show_output(ui, *output),
+        }
+    }
+}
+
+impl PanelViewer<'_> {
+    /// The explorer, of the variant builder as the "Overview" shows it, with the changes not yet saved (`VBGUI-10`).
+    fn show_explorer(&self, ui: &mut Ui) {
+        let Some(view) = &self.view else {
+            ui.spinner();
+            return;
+        };
+        let file = self.tab.shown(view);
+        let name = self
+            .path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let mut state = self.tab.tree_view_state.lock().unwrap();
+        if let Some(panel) = explorer::show_explorer(ui, &name, &file, &mut state) {
+            self.tab
+                .component
+                .send(VariantBuilderTabUiCommand::ShowPanel(panel));
+        }
+    }
+
+    /// A data source, as a table, its path relative to the variant builder's folder (`VBGUI-11`, `VARB-9`).
+    fn show_data_source(&self, ui: &mut Ui, source: DataSource, path: &Path) {
+        let Some(view) = &self.view else {
+            ui.spinner();
+            return;
+        };
+        let data_source = Source::File(source_path(self.path, path));
+        let kind = match source {
+            DataSource::Parts => return self.show_parts(ui, data_source),
+            DataSource::Placements => match view.file.eda_tool {
+                Some(eda_tool) => TableKind::EdaPlacements {
+                    eda_tool,
+                },
+                None => {
+                    ui.label(tr!("variant-builder-no-eda-tool"));
+                    return;
+                }
+            },
+            DataSource::PartMappings => TableKind::PartMappings,
+            DataSource::GlobalSubstitutions | DataSource::DesignSubstitutions => TableKind::Substitutions,
+            DataSource::AssemblyRules => TableKind::AssemblyRules,
+        };
+        self.show_table(ui, kind, data_source);
+    }
+
+    /// The variant's placements or BOM, where building writes them, as its file says (`VBGUI-12`, `VARB-9`).
+    fn show_output(&self, ui: &mut Ui, output: Output) {
+        let Some(view) = &self.view else {
+            ui.spinner();
+            return;
+        };
+        let outputs = view.file.outputs(self.path);
+        let (kind, path) = match output {
+            Output::Placements => (TableKind::Placements, outputs.placements),
+            Output::Bom => (TableKind::Bom, outputs.bom),
+        };
+        self.show_table(ui, kind, Source::File(path));
+    }
+
+    /// The table, filling the panel, once it's loaded, and why it can't be, having the stores core open it if it hasn't
+    /// (`STORE-17`).
+    fn show_table(&self, ui: &mut Ui, kind: TableKind, source: Source) {
+        let (status, view) = {
+            let stores = self.stores.lock().unwrap();
+            let status = stores.table_status(kind, &source);
+            let view = status
+                .as_ref()
+                .and_then(|status| stores.table_view(kind, &status.source));
+            (status, view)
+        };
+        if status.is_none() {
+            self.tab
+                .component
+                .send(VariantBuilderTabUiCommand::OpenTable(kind, source.clone()));
+        }
+
+        show_source(
+            ui,
+            &source,
+            status
+                .as_ref()
+                .and_then(|status| status.error.as_ref()),
+        );
+        match view {
+            Some(view) => show_table(ui, ui.id().with("table"), view),
+            None if status
+                .as_ref()
+                .is_none_or(|status| status.reading) =>
+            {
+                ui.spinner();
+            }
+            None => {}
+        }
+    }
+
+    /// The parts, as the parts tabs show them (`STORE-2`), filling the panel.
+    fn show_parts(&self, ui: &mut Ui, source: Source) {
+        let (status, view) = {
+            let stores = self.stores.lock().unwrap();
+            let status = stores.parts_source_status(&source);
+            let view = status
+                .as_ref()
+                .and_then(|status| stores.parts_view(&status.source));
+            (status, view)
+        };
+        if status.is_none() {
+            self.tab
+                .component
+                .send(VariantBuilderTabUiCommand::OpenParts(source.clone()));
+        }
+
+        show_source(
+            ui,
+            &source,
+            status
+                .as_ref()
+                .and_then(|status| status.error.as_ref()),
+        );
+        match view {
+            Some(view) => show_parts_table(ui, view),
+            None if status
+                .as_ref()
+                .is_none_or(|status| status.reading) =>
+            {
+                ui.spinner();
+            }
+            None => {}
+        }
+    }
+}
+
+/// The data source's file, and why it can't be read, if it can't, such as a BOM not yet built (`VBGUI-11`).
+fn show_source(ui: &mut Ui, source: &Source, error: Option<&String>) {
+    ui.label(tr!("variant-builder-data-source-path", { path: source.to_string() }));
+    if let Some(error) = error {
+        ui.colored_label(ui.visuals().error_fg_color, error);
+    }
 }
 
 fn eda_tool_label(eda_tool: Option<EdaTool>) -> String {

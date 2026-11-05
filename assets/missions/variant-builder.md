@@ -91,7 +91,7 @@ a data source, with nothing to keep them in step, which matters once data source
 | 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Done |
 | 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Done |
 | 9 | A variant builder: define the variant and choose its data sources. | Done |
-| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | Next |
+| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | Done, but 10e |
 | 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
 | 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
 | 13 | Confirming BOM items. | |
@@ -138,3 +138,19 @@ create, configure and build. Each is a commit, the core first.
 | 9c. The GUI: "New variant builder" and "Open variant builder" open a tab in which the variant is defined and each data source chosen, and "Build" builds it. The explorer, and the tabs for its data sources and results, are step 10 (`VBGUI`). | Done |
 | 9d. A design variant: in the GUI, "New design variant" and "Open design variant"; a new one starts with its EDA tool and placements, and its design and variant names, which name its file and are kept as they are; the rest is shown in groups, with global and design substitutions, reordered with up and down buttons and shown in the order they're applied, and new assembly rules. The core and the CLI's options are renamed to match (`VARB-1`, `VARB-2`, `VARB-8`, `VARBCLI-1`, `VARBCLI-2`, `VARBCLI-4`, `VBGUI-1` to `VBGUI-3`, `VBGUI-6`, `VBGUI-7`). | Done |
 | 9e. A list of load-outs, one for each pick-and-place machine of a job, the variant preferring the parts already in any of them, shown in the GUI as a list of files (`VARB-1`, `VBGUI-2`, both *Target*). | Later |
+
+### Step 10, a variant builder's explorer
+
+A design variant's tab has panels, as a project's has: an explorer, whose tree has a node for each of the variant
+builder's data sources, in folders named after the "Overview" panel's groups, and its build's outputs, and the
+"Overview" panel, the form of step 9. Double-clicking a node opens its panel, or shows it if it's open. Each data
+source and output is shown by the stores core, read-only, as a table, so the panels are improved over time, and the
+data sources changed from them in step 11. Each is a commit, the core first.
+
+| What | Status |
+|---|---|
+| 10a. The stores core shows a data source's records as a table, read-only and watched, as it shows parts (`STORE-17`). | Done |
+| 10b. The CLI lists a data source's table: `planner_cli table --kind <kind> --source <file> list` (`STORE-18`). | Done |
+| 10c. The Variant Builder's core says where its variant's outputs are written, so a front end can show them (`VARB-9`). | Done |
+| 10d. The GUI: the design variant's explorer, its "Overview" panel, a panel for each data source, a "Build output" panel, a placeholder for the mapping results to come, and the variant's placements and BOM (`VBGUI-9` to `VBGUI-12`). | Done |
+| 10e. The "Build output" panel shows the mapping results. To be designed with the project's owner. | Later |

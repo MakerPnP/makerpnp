@@ -75,6 +75,39 @@ fields, filling the rest of the width, so every field is as wide as the others, 
 with the tab. A file's buttons are on the right of its field. The layout doesn't use `egui_taffy`, which is to be
 removed from the GUI, but the form helpers' `FieldGrid`, a grid of egui's own.
 
+**VBGUI-9 — Panels.** *Confirmed.* A design variant's tab, once it has a file, MUST show its panels, docked, as a
+project's are: "`Explorer`" (`VBGUI-10`), on the left, which can't be closed, and "`Overview`", beside it, which has
+the fields `VBGUI-2` to `VBGUI-8` describe, and the other panels the explorer opens. A panel that's open is shown
+rather than opened again, and a panel is opened beside the explorer, with the panels other than the explorer. The
+panels open MUST be kept, and shown again when the GUI starts again (`VBGUI-5`); with none, the tab MUST show the
+explorer and the "`Overview`".
+
+**VBGUI-10 — The explorer.** *Confirmed.* The "`Explorer`" panel MUST show a tree of the variant builder, as the
+"`Overview`" shows it, with the changes not yet saved, each node showing its panel, opening it if it isn't open, when
+it's double-clicked (`VBGUI-9`): the root, named after the variant builder's file, and an "`Overview`" node under it,
+showing the "`Overview`"; the placements, as "`Placements: <file>`"; a folder for each of the "`Overview`"'s groups,
+"`Part matching`" and "`Design specific`", named as the groups are, showing the "`Overview`", with a node for each of
+its data sources, "`<field>: <file>`", or "`<field>: (none)`" if it isn't set, which shows nothing, and a folder for
+each list of files, named after the field, showing the "`Overview`", where the list is changed, with a node for each
+file, in order, its path as in its list; and a "`Build output`" folder, showing the "`Build output`" panel, with the
+nodes "`Placements`" and "`BOM`" (`VBGUI-12`). Each folder is open to begin with.
+
+**VBGUI-11 — A data source's panel.** *Confirmed.* A data source's node MUST open a panel named "`<field>: <file>`",
+showing "`File: <file>`", and its records as a table, read-only, with the stores core (`STORE-17`), which takes all of
+the panel's space, and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it. The
+placements are read in the variant builder's EDA tool's format, and parts are shown as the parts view shows them
+(`STORE-2`). A data source is opened once, however often its panel is shown, and is watched, so its table follows its
+file (`STORE-9`). If the stores core refuses it, the panel MUST say why, such as "`Data source not found.`", with the
+table as it was last read. *Observed*: the tab's "`ShowPanel(<panel>)`", "`OpenTable(<kind>, <source>)`" and
+"`OpenParts(<source>)`" commands are logged.
+
+**VBGUI-12 — The build's output.** *Confirmed.* The "`Build output`" panel is where the mapping results are to be
+shown, and until then MUST say "`The mapping results are to come.`" (the Variant Builder mission's step 10e). Its
+"`Placements`" and "`BOM`" nodes MUST open panels named so, showing the variant's placements and BOM as tables, as
+`VBGUI-11` does, from where building writes them (`VARB-9`), as the file says, without the changes not yet saved. Until
+the variant is built, the panel says "`Data source not found.`", and once it's built it's shown, as the output is
+watched (`VBGUI-11`).
+
 ## Acceptance criteria
 
 - `tests/ui/variant_builders.rs` creates a design variant with "`New design variant`", choosing DipTrace and its
@@ -109,6 +142,29 @@ removed from the GUI, but the form helpers' `FieldGrid`, a grid of egui's own.
   "`Assembly rules: New`", checking the file and the suggested name are as `VBGUI-6` says, and the variant builder's assembly rules are set to it (`VBGUI-6`), checks a new design variant whose
   file exists isn't created, the tab says "`Variant builder exists already.`" and the file is kept (`VBGUI-1`), and
   that building one that isn't complete says what it's missing (`VBGUI-4`).
-- Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), as the GUI's tests start
-  with no saved state, and the changes kept when the core refuses them (`VBGUI-3`), as the GUI's tests can't make the
-  file unwritable between it being read and written.
+- `tests/ui/variant_builders.rs` checks a design variant has the "`Explorer`" and "`Overview`" panels, that the
+  explorer shows the variant builder's file, "`Overview`", "`Placements: board1.csv`", "`Parts: parts.csv`", chosen
+  but not yet saved, "`Part mappings: (none)`", "`Assembly rules: (none)`", "`Build output`" and "`BOM`", the
+  folders "`Part matching`", "`Global substitutions`", "`Design specific`" and "`Design substitutions`", as the
+  "`Overview`" names them, and a global substitution added but not yet saved (`VBGUI-9`, `VBGUI-10`).
+- `tests/ui/variant_builders.rs` double-clicks the part mappings, the parts and the placements, checking each panel is
+  shown, in place of the "`Overview`", with its table's columns and rows, and that double-clicking "`Overview`" and the
+  variant builder's file shows the "`Overview`" again, and checks the tab's "`ShowPanel(DataSource { source: PartMappings, `"
+  and "`OpenTable(PartMappings, `", "`stores_app: Received event. event: OpenTable { kind: PartMappings, `",
+  "`stores_service: Performing stores operation. operation: ReadTable { kind: PartMappings, `",
+  "`stores_app: Loaded table. kind: PartMappings, `", the tab's "`ShowPanel(Overview)`", "`OpenParts {`",
+  "`stores_app: Loaded parts.`" and "`stores_app: Loaded table. kind: EdaPlacements { eda_tool: DipTrace }, `" are
+  logged, in order, with no "`Event failed.`" (`VBGUI-10`, `VBGUI-11`).
+- `tests/ui/variant_builders.rs` double-clicks "`Build output`", checking it says the mapping results are to come, then
+  "`BOM`", checking it says "`Data source not found.`", then builds the variant, and checks the BOM's panel shows its
+  columns and rows, and that the tab's "`ShowPanel(BuildOutput)`" and "`ShowPanel(Output(Bom))`",
+  "`stores_app: Received event. event: OpenTable { kind: Bom, `", "`stores_app: Event failed. error: DataSourceNotFound {`",
+  the tab's "`BuildClicked`", "`variantbuilder_app: Built variant.`",
+  "`stores_app: Received event. event: TableSourceChanged { kind: Bom, `" and "`stores_app: Loaded table. kind: Bom, `"
+  are logged, in order (`VBGUI-12`).
+- `tests/ui/variant_builders.rs` checks the "`Overview`"'s fields are narrower once the window is, as it's beside the
+  explorer (`VBGUI-8`, `VBGUI-9`).
+- Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
+  (`VBGUI-9`), as the GUI's tests start with no saved state, the changes kept when the core refuses them (`VBGUI-3`),
+  as the GUI's tests can't make the file unwritable between it being read and written, and a table taking all of its
+  panel's space (`VBGUI-11`), as the tests find its cells' text, not where it ends.

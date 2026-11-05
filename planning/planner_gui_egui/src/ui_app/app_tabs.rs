@@ -176,6 +176,7 @@ impl Tab for TabKind {
                 let mut tab_context = VariantBuilderTabContext {
                     tab_key: tab_key.clone(),
                     variant_builders: context.variant_builders.clone(),
+                    stores: context.stores.clone(),
                 };
                 tab.on_close(tab_key, &mut tab_context)
             }
@@ -251,6 +252,7 @@ impl UiComponent for TabKind {
                 let mut tab_context = VariantBuilderTabContext {
                     tab_key,
                     variant_builders: context.variant_builders.clone(),
+                    stores: context.stores.clone(),
                 };
                 tab.ui(ui, &mut tab_context)
             }
@@ -393,6 +395,7 @@ impl UiComponent for TabKind {
                 let mut tab_context = VariantBuilderTabContext {
                     tab_key,
                     variant_builders: context.variant_builders.clone(),
+                    stores: context.stores.clone(),
                 };
                 tab.update(command, &mut tab_context)
                     .map(|action| TabKindAction::VariantBuilderTabAction {

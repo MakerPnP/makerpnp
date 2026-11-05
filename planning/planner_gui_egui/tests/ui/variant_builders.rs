@@ -229,6 +229,143 @@ fn open_design_variant_shows_what_its_file_says() {
     app.assert_not_logged("Event failed.");
 }
 
+/// `VBGUI-9`, `VBGUI-10`, a design variant has the explorer and the "Overview" panels, and the explorer has a node for
+/// each data source, as the "Overview" shows them, in folders named after its groups, and the build's outputs.
+#[test]
+fn a_design_variant_has_an_explorer_and_an_overview() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    app.wait_for_tab("Explorer");
+    app.wait_for_tab("Overview");
+
+    // with the changes not yet saved, as the "Overview" shows them.
+    choose(&mut app, "Parts", folder.join("parts.csv"));
+    add(&mut app, "Global substitutions", folder.join("g1.csv"));
+
+    for text in [
+        FILE_NAME,
+        "Overview",
+        "Placements: board1.csv",
+        "Parts: parts.csv",
+        "Part mappings: (none)",
+        "Assembly rules: (none)",
+        "Build output",
+        "BOM",
+    ] {
+        app.wait_for_text(text);
+    }
+    // a folder for each group, and each list, named as the "Overview" names them.
+    for text in [
+        "Part matching",
+        "Global substitutions",
+        "Design specific",
+        "Design substitutions",
+    ] {
+        app.wait_for_text_count(text, 2);
+    }
+    // in the explorer, the list, and the substitutions as they're applied.
+    app.wait_for_text_count("g1.csv", 3);
+}
+
+/// `VBGUI-10`, `VBGUI-11`, `STORE-17`, double-clicking a data source shows its table, and double-clicking the variant
+/// builder, or "Overview", shows the "Overview" again.
+#[test]
+fn double_clicking_a_data_source_shows_its_table() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(&mut app, "Parts", folder.join("parts.csv"));
+    choose(&mut app, "Part mappings", folder.join("part-mappings.csv"));
+
+    app.double_click_text("Part mappings: part-mappings.csv");
+    app.wait_for_tab("Part mappings: part-mappings.csv");
+    app.wait_for_text("Eda");
+    app.wait_for_text("RES_0402");
+    // shown in place of the "Overview", beside the explorer.
+    app.wait_until_button_is_gone("Save changes");
+
+    app.double_click_text("Overview");
+    app.wait_for_enabled_button("Save changes");
+
+    app.double_click_text("Parts: parts.csv");
+    app.wait_for_tab("Parts: parts.csv");
+    app.wait_for_text("MFR1");
+    app.wait_for_text("MPN1");
+
+    app.double_click_text("Placements: board1.csv");
+    app.wait_for_tab("Placements: board1.csv");
+    app.wait_for_text("RefDes");
+    app.wait_for_text("R1");
+
+    app.double_click_text(FILE_NAME);
+    app.wait_for_enabled_button("Save changes");
+
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(DataSource { source: PartMappings, path: \"part-mappings.csv\" })",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: OpenTable(PartMappings, ",
+        "stores_app: Received event. event: OpenTable { kind: PartMappings, source: ",
+        "stores_service: Performing stores operation. operation: ReadTable { kind: PartMappings, source: ",
+        "stores_app: Loaded table. kind: PartMappings, source: '",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(Overview)",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(DataSource { source: Parts, ",
+        "stores_app: Received event. event: OpenParts {",
+        "stores_app: Loaded parts. source: '",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(DataSource { source: Placements, ",
+        "stores_app: Loaded table. kind: EdaPlacements { eda_tool: DipTrace }, source: '",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(Overview)",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-12`, `STORE-17`, `STORE-9`, the "Build output" panel is a placeholder for the mapping results, and the BOM,
+/// which isn't there until the variant is built, is shown once it's built.
+#[test]
+fn the_bom_is_shown_once_the_variant_is_built() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(&mut app, "Parts", folder.join("parts.csv"));
+    choose(&mut app, "Part mappings", folder.join("part-mappings.csv"));
+    app.click_button("Save changes");
+    app.wait_for_enabled_button("Build");
+
+    app.double_click_text("Build output");
+    app.wait_for_tab("Build output");
+    app.wait_for_text("The mapping results are to come.");
+
+    app.double_click_text("BOM");
+    app.wait_for_tab("BOM");
+    app.wait_for_text_containing("Data source not found. source: '");
+
+    app.click_tab("Overview");
+    app.click_button("Build");
+    app.wait_for_text("Built.");
+
+    app.click_tab("BOM");
+    app.wait_for_text("Designator");
+    app.wait_for_text("MPN1 (MFR1)");
+    app.wait_for_text("R1");
+    app.wait_until_no_text_contains("Data source not found.");
+
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(BuildOutput)",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(Output(Bom))",
+        "stores_app: Received event. event: OpenTable { kind: Bom, source: ",
+        "stores_app: Event failed. error: DataSourceNotFound {",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: BuildClicked",
+        "variantbuilder_app: Built variant. path: '",
+        "stores_app: Received event. event: TableSourceChanged { kind: Bom, ",
+        "stores_app: Loaded table. kind: Bom, source: '",
+    ]);
+}
+
 /// The table of the substitutions as they're applied, its header and its rows (`VBGUI-7`).
 fn applied(app: &mut App) -> Vec<Vec<String>> {
     app.rows_below("Substitutions, in the order they're applied")
@@ -265,11 +402,14 @@ fn the_fields_fill_the_width_and_the_buttons_of_a_list_line_up() {
         assert_eq!(first.center().x, second.center().x, "{action}");
     }
 
+    // the "Overview" panel is beside the explorer, so both are narrower (`VBGUI-9`).
     app.resize_window(egui::vec2(1200.0, 1080.0));
-    let [_, narrower, _] = widths(&mut app);
-    assert_eq!(narrower.0, exclusion_list.0);
+    let [placements, narrower, output_bom] = widths(&mut app);
+    assert_eq!(placements.0, narrower.0);
+    assert_eq!(output_bom, narrower);
+    let width = |(left, right): (f32, f32)| right - left;
     assert!(
-        narrower.1 < exclusion_list.1 - 600.0,
+        width(narrower) < width(exclusion_list) - 400.0,
         "{narrower:?}, {exclusion_list:?}"
     );
 }
