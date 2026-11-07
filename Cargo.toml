@@ -114,7 +114,7 @@ egui_ltreeview = { version = "0.9.0" }
 
 #egui_deferred_table = { version = "0.4.0" }
 # requires a version after 0.4.0, whose columns can be resized (ISSUE-24)
-egui_deferred_table = { git = "https://github.com/makerpnp/egui_deferred_table", rev = "274389854a085617c7d089703653749f3b35e1e5" }
+egui_deferred_table = { git = "https://github.com/makerpnp/egui_deferred_table", rev = "496b5a9f52ff844f6a89bd9bcf01fa3116392f9d" }
 #egui_deferred_table = { path = "../../../libraries/rust/egui/egui_deferred_table" }
 
 egui_double_slider = { version = "4.0.0"}

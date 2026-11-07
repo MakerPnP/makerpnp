@@ -12,8 +12,8 @@ use egui_deferred_table::{
 };
 use egui_i18n::tr;
 use stores_app::{
-    Cell, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, RowKey, RowOrdering, TableChange,
-    TableRow, TableView,
+    Cell, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering,
+    TableChange, TableRow, TableView,
 };
 
 /// The view the stores core sent, shared with every other table showing the same data source, not a copy of it.
@@ -59,8 +59,81 @@ pub type TableEditorState = EditorState<CellEdit, EditedRow>;
 #[derive(Debug, Default)]
 pub struct TableState {
     editor: TableEditorState,
-    /// The rows `egui_deferred_table` says are selected, as it selects them, so the buttons change them.
+    /// The rows selected, by their places, which `egui_deferred_table` changes as the user selects them, and the GUI
+    /// changes after a row's added, moved or removed, so the buttons change them.
     selected_rows: BTreeSet<usize>,
+    /// The row to select once the change the row buttons made is shown.
+    after_change: Option<AfterChange>,
+    /// The row to bring into view, once, as it was added or moved.
+    scroll_to_row: Option<usize>,
+}
+
+/// The row to select once a change is shown, and the revision of the view the change was made to, so a change that
+/// wasn't made, as the view is the same, changes nothing (`VBGUI-13`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AfterChange {
+    revision: Revision,
+    select: SelectAfterChange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SelectAfterChange {
+    /// The row, as it's to be shown, a row added, or moved, nearest the place it's to be in, as other rows may be the
+    /// same as it.
+    Row { row: TableRow, place: usize },
+    /// No row, as the row selected was removed.
+    NoRow,
+}
+
+impl AfterChange {
+    /// The rows to select, now the change is shown in the view, if they change.
+    fn shown(&self, view: &TableView) -> ShownAfterChange {
+        if view.revision == self.revision {
+            return ShownAfterChange::Unchanged;
+        }
+        match &self.select {
+            SelectAfterChange::Row {
+                row,
+                place,
+            } => (0..view.table.len())
+                .filter(|&index| {
+                    view.table
+                        .row(index)
+                        .is_some_and(|shown| same_row(&shown, row))
+                })
+                .min_by_key(|index| index.abs_diff(*place))
+                .map_or(ShownAfterChange::Unchanged, ShownAfterChange::Row),
+            SelectAfterChange::NoRow => ShownAfterChange::NoRow,
+        }
+    }
+}
+
+/// Whether the rows are the same, as they're read back: a row is read with a pattern of each of the data source's
+/// fields, an empty one for a field it had none of, which isn't one, as an edit leaving it empty isn't.
+fn same_row(a: &TableRow, b: &TableRow) -> bool {
+    let (TableRow::PartMappings(a), TableRow::PartMappings(b)) = (a, b);
+    fn patterns(item: &PartMappingsViewItem) -> Vec<(&str, &str)> {
+        let mut patterns = item
+            .criteria
+            .iter()
+            .filter(|criterion| !criterion.pattern.text().is_empty())
+            .map(|criterion| (criterion.field_name.as_str(), criterion.pattern.text()))
+            .collect::<Vec<_>>();
+        patterns.sort();
+        patterns
+    }
+    a.eda_tool == b.eda_tool && a.part == b.part && patterns(a) == patterns(b)
+}
+
+/// The rows to select once a change is shown (`VBGUI-13`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ShownAfterChange {
+    /// The rows selected are kept, as the change wasn't made, or its row isn't shown.
+    Unchanged,
+    /// Only the row at the place, which is brought into view.
+    Row(usize),
+    /// No row.
+    NoRow,
 }
 
 /// A table's commands, for the tab to handle with [`update_table`] (`VBGUI-13`).
@@ -74,8 +147,14 @@ pub enum TableUiCommand {
     EditCancelled,
     /// `egui_deferred_table`'s rows selected, as the user selected them.
     RowsSelected(BTreeSet<usize>),
-    /// A change to make, from a button, or an edit finished by clicking elsewhere.
+    /// A change to make, an edit finished by clicking elsewhere.
     Change(TableChange),
+    /// A change to make, from a row button, and the row to select once it's shown.
+    ChangeRows(TableChange, AfterChange),
+    /// The change the row buttons made is shown, or wasn't made, so the rows are selected as it says.
+    ChangeShown(ShownAfterChange),
+    /// The table was asked to bring the row into view.
+    ScrolledToRow,
 }
 
 /// Handles a table's command, changing the cell edited, or the rows selected, and returns the change to make, if any
@@ -112,6 +191,31 @@ pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<T
             None
         }
         TableUiCommand::Change(change) => Some(change),
+        TableUiCommand::ChangeRows(change, after_change) => {
+            state.after_change = Some(after_change);
+            Some(change)
+        }
+        TableUiCommand::ChangeShown(shown) => {
+            state.after_change = None;
+            match shown {
+                ShownAfterChange::Unchanged => return None,
+                ShownAfterChange::Row(index) => {
+                    state.selected_rows = BTreeSet::from([index]);
+                    state.scroll_to_row = Some(index);
+                }
+                ShownAfterChange::NoRow => state.selected_rows.clear(),
+            }
+            // the cell chosen is of the row that was in its place, so a click on it chooses it, rather than editing a
+            // row that may not be the one chosen.
+            if matches!(state.editor.state, Some(CellEditState::Pivot(_))) {
+                state.editor.state = None;
+            }
+            None
+        }
+        TableUiCommand::ScrolledToRow => {
+            state.scroll_to_row = None;
+            None
+        }
     }
 }
 
@@ -301,7 +405,18 @@ pub fn show_row_buttons(
     let editing = matches!(state.editor.state, Some(CellEditState::Editing(..)));
     let row_enabled = !changing && !editing;
     let movable = view.ordering != RowOrdering::Unsupported;
-    let change = |change: TableChange| send(TableUiCommand::Change(change));
+    // each change selects the row it's of once it's shown, the row added, or moved, where it's to be, and no row once
+    // the row selected is removed.
+    let change = |change: TableChange, select: SelectAfterChange| {
+        send(TableUiCommand::ChangeRows(change, AfterChange {
+            revision: view.revision.clone(),
+            select,
+        }))
+    };
+    let select_row = |row: &TableRow, place: usize| SelectAfterChange::Row {
+        row: row.clone(),
+        place,
+    };
 
     ui.horizontal(|ui| {
         let add = Button::new(tr!("data-table-button-add-row"));
@@ -310,11 +425,14 @@ pub fn show_row_buttons(
             .clicked()
             && let Some(row) = new_row
         {
-            // FUTURE the row added is brought into view, and selected, which needs `egui_deferred_table` to let it
-            // be, `VBGUI-13`'s target.
-            change(TableChange::Add {
-                row,
-            });
+            // after the others.
+            let select = select_row(&row, row_count);
+            change(
+                TableChange::Add {
+                    row,
+                },
+                select,
+            );
         }
 
         let remove = Button::new(tr!("data-table-button-remove-row"));
@@ -323,10 +441,13 @@ pub fn show_row_buttons(
             .clicked()
             && let Some((_index, (key, row))) = selected.clone()
         {
-            change(TableChange::Remove {
-                key,
-                row,
-            });
+            change(
+                TableChange::Remove {
+                    key,
+                    row,
+                },
+                SelectAfterChange::NoRow,
+            );
         }
 
         let up = selected
@@ -338,11 +459,15 @@ pub fn show_row_buttons(
             .clicked()
             && let Some((index, (key, row))) = up
         {
-            change(TableChange::Move {
-                key,
-                row,
-                before: view.row(index - 1),
-            });
+            let select = select_row(&row, index - 1);
+            change(
+                TableChange::Move {
+                    key,
+                    row,
+                    before: view.row(index - 1),
+                },
+                select,
+            );
         }
 
         let down = selected.filter(|(index, _)| movable && index + 1 < row_count);
@@ -353,11 +478,15 @@ pub fn show_row_buttons(
             && let Some((index, (key, row))) = down
         {
             // before the row after the next, or to the end, if the next is the last.
-            change(TableChange::Move {
-                key,
-                row,
-                before: view.row(index + 2),
-            });
+            let select = select_row(&row, index + 1);
+            change(
+                TableChange::Move {
+                    key,
+                    row,
+                    before: view.row(index + 2),
+                },
+                select,
+            );
         }
     });
 }
@@ -366,6 +495,9 @@ pub fn show_row_buttons(
 pub struct TableEditing<'a> {
     pub state: &'a mut TableState,
     pub send: &'a dyn Fn(TableUiCommand),
+    /// Whether a change is being written, or the table read again after one, so the view isn't yet as the change left
+    /// it.
+    pub busy: bool,
 }
 
 impl DeferredTableDataSource for TableDataSource {
@@ -451,36 +583,38 @@ pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Opti
         column_parameters.push(last.expandable(true));
     }
 
-    super::in_space_left(ui, |ui| {
-        show_table_in(ui, id, view, editing, &column_parameters);
-    });
-}
-
-fn show_table_in(
-    ui: &mut Ui,
-    id: egui::Id,
-    view: Arc<TableView>,
-    editing: Option<TableEditing>,
-    column_parameters: &Vec<AxisParameters>,
-) {
     let mut renderer = TableRenderer {};
+    // `egui_deferred_table` takes the space left below what's above it (`ISSUE-25`).
     let table = DeferredTable::new(id)
         .min_size((100.0, 100.0).into())
-        .column_parameters(column_parameters);
+        .column_parameters(&column_parameters)
+        .select_rows_on_cell_click();
 
     // FUTURE selecting a row selects the corresponding rows of other tables, so the actions will be handled.
     match editing.filter(|_| view.table.is_changeable()) {
         Some(editing) => {
+            let send = editing.send;
+            let state = editing.state;
+            // once the change the row buttons made is shown, the rows are selected as it says, by `update_table`.
+            if let Some(after_change) = &state.after_change
+                && !editing.busy
+            {
+                send(TableUiCommand::ChangeShown(after_change.shown(&view)));
+            }
+            let mut table = table.row_selection(&mut state.selected_rows);
+            if let Some(row) = state.scroll_to_row {
+                table = table.scroll_to_row(row, None);
+                send(TableUiCommand::ScrolledToRow);
+            }
+
             let mut source = TableDataSource {
                 view,
             };
             let mut editor = TableEditor {
-                send: editing.send,
+                send,
             };
-            // FUTURE a row is selected when one of its cells is clicked, which needs `egui_deferred_table` to let it
-            // be, `VBGUI-13`'s target.
             let (_response, actions) =
-                table.show_and_edit(ui, &mut source, &mut renderer, &mut editor, &mut editing.state.editor);
+                table.show_and_edit(ui, &mut source, &mut renderer, &mut editor, &mut state.editor);
             for action in actions {
                 if let Action::RowSelectionChanged {
                     selection,
@@ -504,10 +638,14 @@ mod tests {
     use egui::Visuals;
     use egui_deferred_table::{CellEditState, CellIndex};
     use stores_app::{
-        ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, RowKey, TableChange, TableRow,
+        ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering, Source,
+        Table, TableChange, TableKind, TableRow, TableView,
     };
 
-    use super::{CellEdit, EditedRow, TableEditorState, TableState, TableUiCommand, pattern_color, update_table};
+    use super::{
+        AfterChange, CellEdit, EditedRow, SelectAfterChange, ShownAfterChange, TableEditorState, TableState,
+        TableUiCommand, pattern_color, update_table,
+    };
 
     fn row(name: &str, mpn: &str) -> TableRow {
         TableRow::PartMappings(PartMappingsViewItem {
@@ -585,8 +723,8 @@ mod tests {
         assert_eq!(edited.change(CellEdit::Pattern(Pattern::parse(""))), None);
     }
 
-    /// `VBGUI-13`, the rows `egui_deferred_table` says are selected are kept, as it says, for the buttons, and a change
-    /// is made as it's asked for, leaving them, as the table does.
+    /// `VBGUI-13`, the rows `egui_deferred_table` says are selected are kept, as it says, for the buttons, and an edit's
+    /// change is made as it's asked for, leaving them.
     #[test]
     fn the_rows_selected_are_kept_as_the_table_says() {
         let mut state = TableState::default();
@@ -595,13 +733,145 @@ mod tests {
         assert_eq!(change, None);
         assert_eq!(state.selected_rows, [0, 2].into());
 
-        let remove = TableChange::Remove {
+        let update = TableChange::Update {
             key: RowKey("0".to_string()),
-            row: row("R1", "MPN1"),
+            old: row("R1", "MPN1"),
+            new: row("R1", "MPN5"),
         };
-        let change = update_table(&mut state, TableUiCommand::Change(remove.clone()));
-        assert_eq!(change, Some(remove));
+        let change = update_table(&mut state, TableUiCommand::Change(update.clone()));
+        assert_eq!(change, Some(update));
         assert_eq!(state.selected_rows, [0, 2].into());
+        assert_eq!(state.after_change, None);
+    }
+
+    fn view(revision: &str, rows: &[TableRow]) -> TableView {
+        TableView {
+            kind: TableKind::PartMappings,
+            source: Source::File("mappings.csv".into()),
+            revision: Revision(revision.to_string()),
+            columns: vec![],
+            table: Table::PartMappings(
+                rows.iter()
+                    .map(|TableRow::PartMappings(item)| item.clone())
+                    .collect(),
+            ),
+            keys: (0..rows.len())
+                .map(|index| RowKey(index.to_string()))
+                .collect(),
+            ordering: RowOrdering::Position,
+        }
+    }
+
+    fn after_change(revision: &str, select: SelectAfterChange) -> AfterChange {
+        AfterChange {
+            revision: Revision(revision.to_string()),
+            select,
+        }
+    }
+
+    fn select_row(row: TableRow, place: usize) -> SelectAfterChange {
+        SelectAfterChange::Row {
+            row,
+            place,
+        }
+    }
+
+    /// `VBGUI-13`, once a change is shown, the row it's of is selected, the one nearest the place it's to be, as rows
+    /// can be the same, no row once the row selected was removed, and the rows selected are kept if the change wasn't
+    /// made, as the view's revision is the one it was made to, or its row isn't shown.
+    #[test]
+    fn the_row_a_change_is_of_is_selected_once_its_shown() {
+        let empty = row("", "");
+        let changed = view("2", &[
+            row("R1", "MPN1"),
+            empty.clone(),
+            row("R2", "MPN2"),
+            empty.clone(),
+        ]);
+
+        // the row added, after the others, is the last of the rows that are the same.
+        assert_eq!(
+            after_change("1", select_row(empty.clone(), 3)).shown(&changed),
+            ShownAfterChange::Row(3)
+        );
+        // the row moved up, to the second place.
+        assert_eq!(
+            after_change("1", select_row(empty.clone(), 1)).shown(&changed),
+            ShownAfterChange::Row(1)
+        );
+        assert_eq!(
+            after_change("1", SelectAfterChange::NoRow).shown(&changed),
+            ShownAfterChange::NoRow
+        );
+
+        // not made.
+        assert_eq!(
+            after_change("2", select_row(empty, 3)).shown(&changed),
+            ShownAfterChange::Unchanged
+        );
+        assert_eq!(
+            after_change("2", SelectAfterChange::NoRow).shown(&changed),
+            ShownAfterChange::Unchanged
+        );
+        // made since by someone else, without the row.
+        assert_eq!(
+            after_change("1", select_row(row("R3", "MPN3"), 3)).shown(&changed),
+            ShownAfterChange::Unchanged
+        );
+
+        // a row added with no patterns is read back with an empty pattern of each field, which isn't one.
+        let added = TableRow::PartMappings(PartMappingsViewItem {
+            eda_tool: EdaTool::DipTrace,
+            criteria: vec![],
+            part: Part::new("MFR1".to_string(), String::new()),
+        });
+        assert_eq!(
+            after_change("1", select_row(added, 3)).shown(&changed),
+            ShownAfterChange::Row(3)
+        );
+    }
+
+    /// `VBGUI-13`, a row button's change is made as it's asked for, and once it's shown, the row it's of is selected,
+    /// alone, and brought into view, once, or no row is.
+    #[test]
+    fn a_row_buttons_change_selects_its_row_once_its_shown() {
+        let mut state = TableState::default();
+        update_table(&mut state, TableUiCommand::RowsSelected([0, 2].into()));
+        state.editor.state = Some(CellEditState::Pivot(CELL));
+
+        let add = TableChange::Add {
+            row: row("", ""),
+        };
+        let after = after_change("1", select_row(row("", ""), 2));
+        let change = update_table(&mut state, TableUiCommand::ChangeRows(add.clone(), after.clone()));
+        assert_eq!(change, Some(add));
+        assert_eq!(state.after_change, Some(after));
+        // until it's shown, the rows selected, and the cell chosen, are kept.
+        assert_eq!(state.selected_rows, [0, 2].into());
+        assert!(matches!(state.editor.state, Some(CellEditState::Pivot(CELL))));
+
+        assert_eq!(
+            update_table(&mut state, TableUiCommand::ChangeShown(ShownAfterChange::Row(2))),
+            None
+        );
+        assert_eq!(state.after_change, None);
+        assert_eq!(state.selected_rows, [2].into());
+        assert_eq!(state.scroll_to_row, Some(2));
+        // the cell chosen was of the row in its place before the change, so none is.
+        assert!(state.editor.state.is_none());
+        update_table(&mut state, TableUiCommand::ScrolledToRow);
+        assert_eq!(state.scroll_to_row, None);
+
+        // kept, if it wasn't made.
+        state.editor.state = Some(CellEditState::Pivot(CELL));
+        update_table(&mut state, TableUiCommand::ChangeShown(ShownAfterChange::Unchanged));
+        assert_eq!(state.selected_rows, [2].into());
+        assert_eq!(state.scroll_to_row, None);
+        assert!(matches!(state.editor.state, Some(CellEditState::Pivot(CELL))));
+
+        update_table(&mut state, TableUiCommand::ChangeShown(ShownAfterChange::NoRow));
+        assert_eq!(state.selected_rows, [].into());
+        assert_eq!(state.scroll_to_row, None);
     }
 
     /// `VBGUI-11`, a pattern's colour says what it is, in either theme.

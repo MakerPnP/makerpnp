@@ -117,22 +117,26 @@ shown, with the stores core (`STORE-19`), each change written at once, so nothin
 place, by clicking it, then clicking it again: a pattern, a manufacturer or an MPN in a text field, a pattern's text
 coloured by what it is as it's typed, as `VBGUI-11` colours it, and the EDA tool chosen from a list. The edit is written
 once it's finished, by pressing Enter or clicking elsewhere, if the value changed; pressing Escape leaves the value as it
-was. Rows are selected as `egui_deferred_table` selects them, by clicking their numbers, one or more. Above the table,
-"`Add row`" MUST add a part mapping after the others, of the variant builder's EDA tool, with no patterns and no part,
-to be filled in; "`Remove row`" MUST remove the selected row; and "`Move up`" and "`Move down`" MUST move it before the
-row before it, or after the row after it. The row buttons are disabled unless one row is selected, so several rows
-selected are neither moved nor removed, and while a cell is being edited; "`Move up`" for the first row, "`Move down`"
-for the last, and both if the rows can't be moved (`STORE-19`); and every button while a change is being made. The
-table keeps its rows selected by their places, so after a change the rows selected are those in the same places. Each
-change is of the row as it was shown when the change was made, so a change made since, by anyone, is refused, and the
-panel MUST say why, as the core does, until a change succeeds, showing the table as it is now (`STORE-19`). Every
-panel showing the data source, in every variant builder, shows a change once it's written (`STORE-9`). The other
+was. A row MUST be selected, and only it, when any of its cells is clicked, or, with Ctrl, selected or deselected,
+keeping the others, as `egui_deferred_table` selects them; clicking a row's number selects or deselects it, keeping the
+others, so one or more rows are selected. Above the table, "`Add row`" MUST add a part mapping after the others, of the
+variant builder's EDA tool, with no patterns and no part, to be filled in; "`Remove row`" MUST remove the selected row;
+and "`Move up`" and "`Move down`" MUST move it before the row before it, or after the row after it. The row buttons are
+disabled unless one row is selected, so several rows selected are neither moved nor removed, and while a cell is being
+edited; "`Move up`" for the first row, "`Move down`" for the last, and both if the rows can't be moved (`STORE-19`); and
+every button while a change is being made. Once a row button's change is shown, the table read again after it's
+written, the row added MUST be selected, alone, and brought into view, a moved row MUST stay selected, alone, where
+it's moved to, and brought into view, and once a row is removed, no row is selected, not the one now in its place; the
+cell chosen for editing is no longer chosen, as it was of the row in its place before. A change that wasn't made, as
+the table is the same, or whose row isn't in it, leaves the rows selected as they were. An edit leaves them as they
+are. Each change is of the row as it was shown when the change was made, so a change made since, by anyone, is refused,
+and the panel MUST say why, as the core does, until a change succeeds, showing the table as it is now (`STORE-19`).
+Every panel showing the data source, in every variant builder, shows a change once it's written (`STORE-9`). The other
 tables stay read-only, with no buttons, and their cells can't be edited. *Observed*: the tab's
-"`Table(<kind>, <source>, <command>)`" commands are logged. *Target*: a row is selected when any of its cells is
-clicked; the row added is brought into view and selected; a moved row stays selected, where it's moved to, and a
-removed row's selection goes; several rows selected are removed at once. The gap: `egui_deferred_table` selects a row
-only when its number is clicked, keeps its rows selected by their places, and has no way for the GUI to select a row,
-or to bring one into view, so these need changes to it; and the stores core makes one change at a time.
+"`Table(<kind>, <source>, <command>)`" commands are logged, a row button's as "`ChangeRows(<change>, <after change>)`",
+and once it's shown, "`ChangeShown(Row(<place>))`", "`ChangeShown(NoRow)`" or "`ChangeShown(Unchanged)`", and, for a
+row brought into view, "`ScrolledToRow`". *Target*: several rows selected are removed at once. The gap: the stores core
+makes one change at a time.
 
 ## Acceptance criteria
 
@@ -198,16 +202,30 @@ or to bring one into view, so these need changes to it; and the stores core make
   columns and checks each column is as much wider as the edge was dragged; it's the regression test for `ISSUE-24`
   (`VBGUI-11`).
 - `tests/ui/variant_builders.rs` edits a part mapping's pattern in its cell, finished by clicking another row, and its
-  MPN, finished by pressing Enter, chooses its EDA tool, and checks the file after each, then adds a row, fills in its
-  pattern, selects rows by their numbers, moving one up and down, checking "`Move up`" is disabled for the first row
-  and "`Move down`" for the last, and the row buttons are disabled with two rows selected, and removes one, checking the
-  file after each, and checks the tab's "`Table(PartMappings, `",
-  "`stores_app: Received event. event: ChangeTable {`",
+  MPN, finished by pressing Enter, chooses its EDA tool, and checks the file after each, and checks the tab's
+  "`Table(PartMappings, `", "`stores_app: Received event. event: ChangeTable {`",
   "`stores_service: Performing stores operation. operation: ChangeRows {`" and
-  "`stores_app: Changed table. kind: PartMappings, `" are logged, in order, with no "`Event failed.`". It checks the
-  placements' panel has no row buttons, and its cells can't be edited (`VBGUI-13`). `data_sources::table`'s tests check
-  an edit makes the change of the row as it was, with the value as it's to be, that one leaving the value as it was, or
-  abandoned, makes none, and that the rows selected are kept as `egui_deferred_table` says (`VBGUI-13`).
+  "`stores_app: Changed table. kind: PartMappings, `" are logged, in order, with no "`Event failed.`" (`VBGUI-13`).
+- `tests/ui/variant_builders.rs`'s `a_part_mappings_rows_are_added_moved_and_removed` selects a row by clicking one of
+  its cells, adds a row, checking it's selected in its place, fills in its pattern, moves it up twice, checking it stays
+  selected where it's moved to, selects a second row by its number, checking the row buttons are disabled with two rows
+  selected, clicks a cell, checking only its row is then selected, moves it down, and removes a row in the middle,
+  checking no row is selected after, checking "`Move up`" is disabled for the first row and "`Move down`" for the last,
+  and the file after each. It checks "`ChangeRows(Add {`", "`stores_app: Received event. event: ChangeTable {`",
+  "`stores_app: Changed table. kind: PartMappings, `", "`stores_app: Loaded table. kind: PartMappings, `",
+  "`ChangeShown(Row(2))`", "`ScrolledToRow`", "`ChangeRows(Remove {`" and "`ChangeShown(NoRow)`" are logged, in
+  order, with no "`Event failed.`", and that the placements' panel has no row buttons, and its cells can't be edited
+  (`VBGUI-13`).
+- `tests/ui/variant_builders.rs`'s `a_row_added_is_brought_into_view_and_selected` adds a row to 200 part mappings, and
+  checks the row added, the 201st, is shown, above the table's horizontal scroll bar, and selected, and that
+  "`ChangeRows(Add {`", "`stores_app: Loaded table. kind: PartMappings, `", "`ChangeShown(Row(200))`" and
+  "`ScrolledToRow`" are logged, in order (`VBGUI-13`).
+- `data_sources::table`'s tests check an edit makes the change of the row as it was, with the value as it's to be, that
+  one leaving the value as it was, or abandoned, makes none, that the rows selected are kept as `egui_deferred_table`
+  says, and an edit leaves them, that once a row button's change is shown its row is selected, nearest the place it's
+  to be, the one added read back with an empty pattern of each field, or no row, after a remove, and they're kept if
+  the change wasn't made, and that the row is brought into view once, and the cell chosen is no longer chosen
+  (`VBGUI-13`).
 - `tests/ui/variant_builders.rs`'s `a_table_too_big_for_its_panel_ends_within_it` shows 200 part mappings, and 200
   parts, scrolls each table to its end, and checks its last row is shown above the table's horizontal scroll bar; it's
   the regression test for `ISSUE-25` (`VBGUI-11`).

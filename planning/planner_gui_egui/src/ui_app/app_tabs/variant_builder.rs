@@ -1350,6 +1350,10 @@ impl PanelViewer<'_> {
                 let changing = status
                     .as_ref()
                     .is_some_and(|status| status.changing);
+                // a change is written, then the table's read again, so its view shows it once neither is under way.
+                let reading = status
+                    .as_ref()
+                    .is_some_and(|status| status.reading);
                 let send = |command: TableUiCommand| {
                     self.tab
                         .component
@@ -1368,6 +1372,7 @@ impl PanelViewer<'_> {
                     Some(TableEditing {
                         state,
                         send: &send,
+                        busy: changing || reading,
                     }),
                 );
             }
