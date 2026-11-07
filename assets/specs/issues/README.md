@@ -127,7 +127,7 @@ From the CLI, in an empty folder:
 
 ## Open issues
 
-The highest ID used so far is `ISSUE-24`, so the next issue is `ISSUE-25`. A fixed issue's row is deleted with its file.
+The highest ID used so far is `ISSUE-25`, so the next issue is `ISSUE-26`. A fixed issue's row is deleted with its file.
 
 | ID | Status | Tool | Issue |
 |---|---|---|---|

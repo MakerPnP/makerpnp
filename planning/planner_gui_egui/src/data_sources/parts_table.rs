@@ -79,8 +79,10 @@ pub fn show_parts_table(ui: &mut Ui, view: Arc<PartsView>) {
     let mut renderer = PartsRenderer {};
 
     // FUTURE selecting a part selects the corresponding rows of other tables, so the actions will be handled.
-    let (_response, _actions) = DeferredTable::new(ui.make_persistent_id("parts_source_table"))
-        .min_size((400.0, 400.0).into())
-        .column_parameters(&column_parameters)
-        .show(ui, &mut source, &mut renderer);
+    super::in_space_left(ui, |ui| {
+        let (_response, _actions) = DeferredTable::new(ui.make_persistent_id("parts_source_table"))
+            .min_size((400.0, 400.0).into())
+            .column_parameters(&column_parameters)
+            .show(ui, &mut source, &mut renderer);
+    });
 }

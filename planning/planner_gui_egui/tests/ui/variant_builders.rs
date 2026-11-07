@@ -384,6 +384,217 @@ fn a_part_mappings_patterns_are_shown_and_an_invalid_one_says_why() {
     app.wait_for_text_containing("regex parse error");
 }
 
+const TWO_MAPPINGS: &str = "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
+                            \"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"\n\
+                            \"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"\n";
+
+/// Creates the design variant, with the part mappings `mappings.csv`, written with `contents`, and shows their panel.
+fn given_part_mappings_shown(app: &mut App, contents: &str) -> PathBuf {
+    let folder = app.folder();
+    given_a_design(&folder);
+    let mappings = folder.join("mappings.csv");
+    fs::write(&mappings, contents).unwrap();
+    create_design_variant(app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(app, "Part mappings", mappings.clone());
+
+    app.double_click_text("Part mappings: mappings.csv");
+    app.wait_for_tab("Part mappings: mappings.csv");
+    mappings
+}
+
+/// Waits for the file to have the rows, after the headers `TWO_MAPPINGS` has.
+fn wait_for_mappings(app: &mut App, path: &Path, rows: &[&str]) {
+    let mut expected = "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n".to_string();
+    for row in rows {
+        expected.push_str(row);
+        expected.push('\n');
+    }
+    app.wait_until(&format!("the file was {expected}"), |_app| {
+        fs::read_to_string(path).is_ok_and(|contents| contents == expected)
+    });
+}
+
+/// `VBGUI-11`, a table too big for its panel is only as tall as the space below what's above it, so its last rows can be
+/// scrolled to, rather than being drawn below the panel, where they can't be seen.
+///
+/// Regression test for `ISSUE-25`: a data source's table, too big to show every row, couldn't be scrolled to its last
+/// rows, which were under its horizontal scroll bar, or not drawn at all, unlike the table in `egui_deferred_table`'s
+/// 'docking' example's 'Spreadsheet' tab. An `egui_deferred_table` is as big as its `Ui`'s max rect, from where its next
+/// widget goes, so below the data source's file, and the row buttons, it went past the bottom of the panel, which
+/// doesn't scroll, by as much as they're tall; the example's tab scrolls, so its table can be scrolled into view. The
+/// table is now shown in a `Ui` of the space left.
+#[test]
+fn a_table_too_big_for_its_panel_ends_within_it() {
+    let mut app = App::start();
+    let mut contents = "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n".to_string();
+    for row in 0..200 {
+        contents.push_str(&format!("\"DipTrace\",\"R{row}\",\"330R\",\"MFR1\",\"ROW_MPN{row}\"\n"));
+    }
+    given_part_mappings_shown(&mut app, &contents);
+    app.wait_for_text("ROW_MPN0");
+
+    app.scroll_to_the_end_over("ROW_MPN1");
+
+    // the last row, scrolled to, is shown, within the window.
+    assert_last_row_is_shown(&mut app, "ROW_MPN199");
+
+    // as the parts are, shown as the parts view shows them.
+    let mut parts = "\"Manufacturer\",\"Mpn\"\n".to_string();
+    for row in 0..200 {
+        parts.push_str(&format!("\"MFR1\",\"PART_MPN{row}\"\n"));
+    }
+    let folder = app.folder();
+    fs::write(folder.join("many-parts.csv"), parts).unwrap();
+    app.double_click_text(FILE_NAME);
+    choose(&mut app, "Parts", folder.join("many-parts.csv"));
+    app.double_click_text("Parts: many-parts.csv");
+    app.wait_for_tab("Parts: many-parts.csv");
+    app.wait_for_text("PART_MPN0");
+    app.scroll_to_the_end_over("PART_MPN1");
+    assert_last_row_is_shown(&mut app, "PART_MPN199");
+
+    app.wait_for_logs_in_order(&[
+        "stores_app: Loaded table. kind: PartMappings, source: '",
+        "stores_app: Loaded parts. source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// The table's last row, with the text, is shown, above the table's horizontal scroll bar, within the window. Below what's
+/// above the table, the table went past the bottom, by as much as what's above it, its last row then under the scroll
+/// bar, or not drawn at all.
+fn assert_last_row_is_shown(app: &mut App, text: &str) {
+    app.wait_for_text(text);
+    let bottom = app.window_rect().max.y - app.scroll_bar_size();
+    let last = app.label_rects_starting_with(text);
+    assert!(
+        last.iter()
+            .all(|row| row.max.y <= bottom),
+        "the last row is below the table's scroll bar: {last:?}, it starts at {bottom}"
+    );
+}
+
+/// `VBGUI-13`, `STORE-19`, a part mapping's values are edited in their cells, each written once its edit is finished,
+/// by clicking another row, or by pressing Enter, and the EDA tool is chosen from a list.
+#[test]
+fn a_part_mappings_values_are_edited_in_their_cells() {
+    let mut app = App::start();
+    let mappings = given_part_mappings_shown(&mut app, TWO_MAPPINGS);
+
+    app.edit_data_table_cell("RES_0402", "Name", "/RES_.*/", "CAP_0603");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"/RES_.*/\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+    ]);
+    // shown as the file is now.
+    app.wait_for_text("/RES_.*/");
+
+    app.edit_data_table_cell_then_press_enter("CAP_0603", "Mpn", "MPN5");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"/RES_.*/\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN5\"",
+    ]);
+    app.wait_for_text("MPN5");
+
+    app.choose_in_data_table_cell_combo_box("CAP_0603", "Eda", "EasyEda", &[]);
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"/RES_.*/\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"EasyEda\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN5\"",
+    ]);
+
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Table(PartMappings, ",
+        "stores_app: Received event. event: ChangeTable { kind: PartMappings, ",
+        "stores_service: Performing stores operation. operation: ChangeRows { kind: PartMappings, ",
+        "stores_app: Changed table. kind: PartMappings, source: '",
+        "stores_app: Loaded table. kind: PartMappings, source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-13`, `STORE-19`, a row is added, filled in, moved up and down, and removed, each change written at once, the
+/// row buttons changing the row `egui_deferred_table` has selected, by its number, the moves only if one is, and the
+/// other tables, such as the placements, are read-only.
+#[test]
+fn a_part_mappings_rows_are_added_moved_and_removed() {
+    let mut app = App::start();
+    let mappings = given_part_mappings_shown(&mut app, TWO_MAPPINGS);
+    app.wait_for_text("RES_0402");
+    app.assert_button_is_disabled("Remove row");
+    app.assert_button_is_disabled("Move up");
+    app.assert_button_is_disabled("Move down");
+
+    // of the variant builder's EDA tool, to be filled in.
+    app.click_button("Add row");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+        "\"DipTrace\",\"\",\"\",\"\",\"\"",
+    ]);
+    app.edit_data_table_cell_in_row_numbered_then_press_enter(3, "Name", "/LED_.*/");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+        "\"DipTrace\",\"/LED_.*/\",\"\",\"\",\"\"",
+    ]);
+
+    // the last row can't be moved down.
+    app.click_row_number(3);
+    app.wait_for_enabled_button("Move up");
+    app.assert_button_is_disabled("Move down");
+    app.click_button("Move up");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"/LED_.*/\",\"\",\"\",\"\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+    ]);
+
+    // the table keeps the third row selected, so with the second, two are, which aren't moved, or removed.
+    app.click_row_number(2);
+    app.wait_until_button_is_disabled("Move up");
+    app.assert_button_is_disabled("Move down");
+    app.assert_button_is_disabled("Remove row");
+    app.click_row_number(3);
+    app.wait_for_enabled_button("Move up");
+    app.click_button("Move up");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"/LED_.*/\",\"\",\"\",\"\"",
+        "\"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+    ]);
+
+    // the first row can't be moved up.
+    app.click_row_number(2);
+    app.wait_until_button_is_disabled("Move down");
+    app.click_row_number(1);
+    app.wait_for_enabled_button("Move down");
+    app.assert_button_is_disabled("Move up");
+    app.click_button("Move down");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"/LED_.*/\",\"\",\"\",\"\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+    ]);
+
+    app.click_row_number(1);
+    app.wait_until_button_is_disabled("Remove row");
+    app.click_row_number(2);
+    app.wait_for_enabled_button("Remove row");
+    app.click_button("Remove row");
+    wait_for_mappings(&mut app, &mappings, &[
+        "\"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"",
+        "\"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"",
+    ]);
+    app.assert_not_logged("Event failed.");
+
+    app.double_click_text("Placements: board1.csv");
+    app.wait_for_tab("Placements: board1.csv");
+    app.wait_for_text("RefDes");
+    app.wait_until_button_is_gone("Add row");
+    app.assert_data_table_cell_is_not_editable("R1", "RefDes");
+}
+
 /// `VBGUI-12`, `STORE-17`, `STORE-9`, the "Build output" panel is a placeholder for the mapping results, and the BOM,
 /// which isn't there until the variant is built, is shown once it's built.
 #[test]

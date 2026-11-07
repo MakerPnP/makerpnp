@@ -94,7 +94,8 @@ nodes "`Placements`" and "`BOM`" (`VBGUI-12`). Each folder is open to begin with
 
 **VBGUI-11 — A data source's panel.** *Confirmed.* A data source's node MUST open a panel named "`<field>: <file>`",
 showing "`File: <file>`", and its records as a table, read-only, with the stores core (`STORE-17`), which takes all of
-the panel's space, and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it, in its
+the panel's space left below what's above it, ending at the panel's bottom, so its last rows can be scrolled to
+(`ISSUE-25`), and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it, in its
 order, a comment's last, and MUST be resizable, by dragging the edge on its right, which stays under the pointer, the last
 filling the rest of the width. Each value is shown as what it is (`STORE-17`): a pattern in blue if it's a value matched
 exactly, in green if it's a valid regular expression, and in red if it isn't, saying why when it's hovered, as it was
@@ -110,6 +111,28 @@ shown, and until then MUST say "`The mapping results are to come.`" (the Variant
 `VBGUI-11` does, from where building writes them (`VARB-9`), as the file says, without the changes not yet saved. Until
 the variant is built, the panel says "`Data source not found.`", and once it's built it's shown, as the output is
 watched (`VBGUI-11`).
+
+**VBGUI-13 — Changing part mappings.** *Confirmed.* A part mappings' panel MUST change its data source where it's
+shown, with the stores core (`STORE-19`), each change written at once, so nothing is left unsaved. A cell is edited, in
+place, by clicking it, then clicking it again: a pattern, a manufacturer or an MPN in a text field, a pattern's text
+coloured by what it is as it's typed, as `VBGUI-11` colours it, and the EDA tool chosen from a list. The edit is written
+once it's finished, by pressing Enter or clicking elsewhere, if the value changed; pressing Escape leaves the value as it
+was. Rows are selected as `egui_deferred_table` selects them, by clicking their numbers, one or more. Above the table,
+"`Add row`" MUST add a part mapping after the others, of the variant builder's EDA tool, with no patterns and no part,
+to be filled in; "`Remove row`" MUST remove the selected row; and "`Move up`" and "`Move down`" MUST move it before the
+row before it, or after the row after it. The row buttons are disabled unless one row is selected, so several rows
+selected are neither moved nor removed, and while a cell is being edited; "`Move up`" for the first row, "`Move down`"
+for the last, and both if the rows can't be moved (`STORE-19`); and every button while a change is being made. The
+table keeps its rows selected by their places, so after a change the rows selected are those in the same places. Each
+change is of the row as it was shown when the change was made, so a change made since, by anyone, is refused, and the
+panel MUST say why, as the core does, until a change succeeds, showing the table as it is now (`STORE-19`). Every
+panel showing the data source, in every variant builder, shows a change once it's written (`STORE-9`). The other
+tables stay read-only, with no buttons, and their cells can't be edited. *Observed*: the tab's
+"`Table(<kind>, <source>, <command>)`" commands are logged. *Target*: a row is selected when any of its cells is
+clicked; the row added is brought into view and selected; a moved row stays selected, where it's moved to, and a
+removed row's selection goes; several rows selected are removed at once. The gap: `egui_deferred_table` selects a row
+only when its number is clicked, keeps its rows selected by their places, and has no way for the GUI to select a row,
+or to bring one into view, so these need changes to it; and the stores core makes one change at a time.
 
 ## Acceptance criteria
 
@@ -174,7 +197,20 @@ watched (`VBGUI-11`).
 - `tests/ui/variant_builders.rs`'s `a_data_sources_columns_can_be_resized` drags the edges between part mappings'
   columns and checks each column is as much wider as the edge was dragged; it's the regression test for `ISSUE-24`
   (`VBGUI-11`).
+- `tests/ui/variant_builders.rs` edits a part mapping's pattern in its cell, finished by clicking another row, and its
+  MPN, finished by pressing Enter, chooses its EDA tool, and checks the file after each, then adds a row, fills in its
+  pattern, selects rows by their numbers, moving one up and down, checking "`Move up`" is disabled for the first row
+  and "`Move down`" for the last, and the row buttons are disabled with two rows selected, and removes one, checking the
+  file after each, and checks the tab's "`Table(PartMappings, `",
+  "`stores_app: Received event. event: ChangeTable {`",
+  "`stores_service: Performing stores operation. operation: ChangeRows {`" and
+  "`stores_app: Changed table. kind: PartMappings, `" are logged, in order, with no "`Event failed.`". It checks the
+  placements' panel has no row buttons, and its cells can't be edited (`VBGUI-13`). `data_sources::table`'s tests check
+  an edit makes the change of the row as it was, with the value as it's to be, that one leaving the value as it was, or
+  abandoned, makes none, and that the rows selected are kept as `egui_deferred_table` says (`VBGUI-13`).
+- `tests/ui/variant_builders.rs`'s `a_table_too_big_for_its_panel_ends_within_it` shows 200 part mappings, and 200
+  parts, scrolls each table to its end, and checks its last row is shown above the table's horizontal scroll bar; it's
+  the regression test for `ISSUE-25` (`VBGUI-11`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
-  (`VBGUI-9`), as the GUI's tests start with no saved state, the changes kept when the core refuses them (`VBGUI-3`),
-  as the GUI's tests can't make the file unwritable between it being read and written, and a table taking all of its
-  panel's space (`VBGUI-11`), as the tests find its cells' text, not where it ends.
+  (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
+  (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.

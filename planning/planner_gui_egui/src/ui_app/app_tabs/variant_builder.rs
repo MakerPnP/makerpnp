@@ -15,7 +15,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use egui_ltreeview::TreeViewState;
 use serde::{Deserialize, Serialize};
-use stores_app::{Source, TableKind};
+use stores_app::{Source, TableKind, TableRow};
 use tracing::debug;
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
@@ -27,7 +27,9 @@ use variantbuilder_app::{
 };
 
 use crate::data_sources::parts_table::show_parts_table;
-use crate::data_sources::table::show_table;
+use crate::data_sources::table::{
+    TableEditing, TableState, TableUiCommand, new_part_mapping, show_row_buttons, show_table, update_table,
+};
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
 use crate::forms::{Form, NamedResponse};
@@ -128,6 +130,12 @@ pub struct VariantBuilderTab {
     /// The data sources the tab has asked the stores core to open.
     #[serde(skip)]
     opened: BTreeSet<Opened>,
+
+    /// Each changeable table's cell being edited, and its rows selected, by its kind and its data source as it was asked
+    /// for (`VBGUI-13`).
+    #[serde(skip)]
+    #[derivative(Debug = "ignore")]
+    table_editors: Value<BTreeMap<(TableKind, Source), TableState>>,
 }
 
 #[derive(Debug, Clone)]
@@ -167,6 +175,8 @@ pub enum VariantBuilderTabUiCommand {
     OpenParts(Source),
     /// Has the stores core open a data source's table, which a panel shows (`VBGUI-11`, `VBGUI-12`).
     OpenTable(TableKind, Source),
+    /// A table's command, a cell edited, or a change to make, with the stores core (`VBGUI-13`).
+    Table(TableKind, Source, TableUiCommand),
 }
 
 #[derive(Debug)]
@@ -478,6 +488,28 @@ impl UiComponent for VariantBuilderTab {
                         .process(stores_app::Event::OpenTable {
                             kind,
                             source,
+                        });
+                }
+                None
+            }
+            VariantBuilderTabUiCommand::Table(kind, source, command) => {
+                let change = {
+                    let mut editors = self.table_editors.lock().unwrap();
+                    let state = editors
+                        .entry((kind, source.clone()))
+                        .or_default();
+                    update_table(state, command)
+                };
+                // `STORE-19`, written at once, so every view of the data source shows it.
+                if let Some(change) = change {
+                    context
+                        .stores
+                        .lock()
+                        .unwrap()
+                        .process(stores_app::Event::ChangeTable {
+                            kind,
+                            source,
+                            change,
                         });
                 }
                 None
@@ -1260,7 +1292,12 @@ impl PanelViewer<'_> {
             DataSource::GlobalSubstitutions | DataSource::DesignSubstitutions => TableKind::Substitutions,
             DataSource::AssemblyRules => TableKind::AssemblyRules,
         };
-        self.show_table(ui, kind, data_source);
+        // `VBGUI-13`, a part mapping added is of the variant builder's EDA tool.
+        let new_row = match kind {
+            TableKind::PartMappings => view.file.eda_tool.map(new_part_mapping),
+            _ => None,
+        };
+        self.show_table(ui, kind, data_source, new_row);
     }
 
     /// The variant's placements or BOM, where building writes them, as its file says (`VBGUI-12`, `VARB-9`).
@@ -1274,12 +1311,12 @@ impl PanelViewer<'_> {
             Output::Placements => (TableKind::Placements, outputs.placements),
             Output::Bom => (TableKind::Bom, outputs.bom),
         };
-        self.show_table(ui, kind, Source::File(path));
+        self.show_table(ui, kind, Source::File(path), None);
     }
 
     /// The table, filling the panel, once it's loaded, and why it can't be, having the stores core open it if it hasn't
-    /// (`STORE-17`).
-    fn show_table(&self, ui: &mut Ui, kind: TableKind, source: Source) {
+    /// (`STORE-17`). One whose kind can be changed is edited, with buttons above it, adding `new_row` (`VBGUI-13`).
+    fn show_table(&self, ui: &mut Ui, kind: TableKind, source: Source, new_row: Option<TableRow>) {
         let (status, view) = {
             let stores = self.stores.lock().unwrap();
             let status = stores.table_status(kind, &source);
@@ -1301,8 +1338,40 @@ impl PanelViewer<'_> {
                 .as_ref()
                 .and_then(|status| status.error.as_ref()),
         );
+        // `VBGUI-13`, why the last change was refused, until one succeeds.
+        if let Some(error) = status
+            .as_ref()
+            .and_then(|status| status.change_error.as_ref())
+        {
+            ui.colored_label(ui.visuals().error_fg_color, error);
+        }
         match view {
-            Some(view) => show_table(ui, ui.id().with("table"), view),
+            Some(view) if view.table.is_changeable() => {
+                let changing = status
+                    .as_ref()
+                    .is_some_and(|status| status.changing);
+                let send = |command: TableUiCommand| {
+                    self.tab
+                        .component
+                        .send(VariantBuilderTabUiCommand::Table(kind, source.clone(), command))
+                };
+                // the table's own state, kept across frames, as egui keeps a widget's.
+                let mut editors = self.tab.table_editors.lock().unwrap();
+                let state = editors
+                    .entry((kind, source.clone()))
+                    .or_default();
+                show_row_buttons(ui, &view, state, new_row, changing, &send);
+                show_table(
+                    ui,
+                    ui.id().with("table"),
+                    view,
+                    Some(TableEditing {
+                        state,
+                        send: &send,
+                    }),
+                );
+            }
+            Some(view) => show_table(ui, ui.id().with("table"), view, None),
             None if status
                 .as_ref()
                 .is_none_or(|status| status.reading) =>

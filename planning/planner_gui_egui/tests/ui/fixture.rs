@@ -637,6 +637,75 @@ impl App {
     pub fn edit_data_table_cell(&mut self, row_text: &str, column: &str, value: &str, then_click_row: &str) {
         let position = self.data_table_cell_position(row_text, column);
 
+        self.type_into_data_table_cell_at(position, value);
+
+        let other_position = self.data_table_cell_position(then_click_row, column);
+        self.click_at(other_position);
+    }
+
+    /// Edits a cell of a data table, as [`Self::edit_data_table_cell`] does, finishing the change by pressing Enter.
+    pub fn edit_data_table_cell_then_press_enter(&mut self, row_text: &str, column: &str, value: &str) {
+        let position = self.data_table_cell_position(row_text, column);
+
+        self.type_into_data_table_cell_at(position, value);
+        self.press_enter_in_data_table_cell_at(position);
+    }
+
+    /// Edits a cell of a data table's row, by the row's number, such as a row with no text yet, finishing the change by
+    /// pressing Enter.
+    pub fn edit_data_table_cell_in_row_numbered_then_press_enter(
+        &mut self,
+        row_number: usize,
+        column: &str,
+        value: &str,
+    ) {
+        self.wait_for_text(&row_number.to_string());
+        self.wait_for_text(column);
+        self.wait_for_the_layout();
+        let position = egui::pos2(self.text_position(column).x, self.row_number_position(row_number).y);
+
+        self.type_into_data_table_cell_at(position, value);
+        self.press_enter_in_data_table_cell_at(position);
+    }
+
+    /// Clicks a data table's row number, which selects the row, or deselects it, if it's selected, such as a row with no
+    /// text yet.
+    pub fn click_row_number(&mut self, row_number: usize) {
+        self.wait_for_text(&row_number.to_string());
+        self.wait_for_the_layout();
+        let position = self.row_number_position(row_number);
+
+        self.click_at(position);
+    }
+
+    /// Where a data table's row number is, the leftmost label with the number.
+    fn row_number_position(&self, row_number: usize) -> egui::Pos2 {
+        let number = row_number.to_string();
+        self.harness
+            .query_all(By::new().role(Role::Label))
+            .filter(|label| {
+                let node = label.accesskit_node();
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|text| text == number)
+            })
+            .map(|label| label.rect().center())
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .expect("the row has a number")
+    }
+
+    /// Presses Enter in the editor of the cell, and waits for it to close.
+    fn press_enter_in_data_table_cell_at(&mut self, position: egui::Pos2) {
+        self.harness.key_press(egui::Key::Enter);
+        self.harness.step();
+        self.wait_until("the cell's editor was closed", |app| {
+            app.data_table_cell_editor_at(position)
+                .is_none()
+        });
+    }
+
+    /// Selects the cell, starts editing it, and replaces its text, waiting for the editor to have it.
+    fn type_into_data_table_cell_at(&mut self, position: egui::Pos2, value: &str) {
         self.click_at(position);
         self.click_at(position);
         self.wait_until("the cell's editor was shown", |app| {
@@ -671,9 +740,6 @@ impl App {
                         == value
                 })
         });
-
-        let other_position = self.data_table_cell_position(then_click_row, column);
-        self.click_at(other_position);
     }
 
     /// Chooses a radio button in the editor of a cell of a data table, and finishes the change.  The first click
@@ -980,6 +1046,55 @@ impl App {
     }
 
     /// Resizes the window, and waits for the layout.
+    /// Scrolls down, with the mouse wheel, as far as it goes, over the text, such as a table's value.
+    pub fn scroll_to_the_end_over(&mut self, text: &str) {
+        let position = self.text_position(text);
+        self.harness
+            .event(egui::Event::PointerMoved(position));
+        self.harness.step();
+        for _ in 0..10 {
+            self.harness
+                .event(egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Page,
+                    delta: egui::vec2(0.0, -100.0),
+                    phase: egui::TouchPhase::Move,
+                    modifiers: egui::Modifiers::NONE,
+                });
+            self.harness.step();
+        }
+        self.harness.run_steps(10);
+    }
+
+    /// How much space a scroll bar takes, as `egui_deferred_table` leaves for one.
+    pub fn scroll_bar_size(&self) -> f32 {
+        let scroll = self
+            .harness
+            .ctx
+            .global_style()
+            .spacing
+            .scroll;
+        scroll.bar_width + scroll.bar_outer_margin + scroll.bar_inner_margin
+    }
+
+    /// The window's rect, everything shown is within it.
+    pub fn window_rect(&self) -> egui::Rect {
+        self.harness.ctx.content_rect()
+    }
+
+    /// Where each label starting with the text is, such as a table's rows' values.
+    pub fn label_rects_starting_with(&self, text: &str) -> Vec<egui::Rect> {
+        self.harness
+            .query_all(By::new().role(Role::Label))
+            .filter(|label| {
+                let node = label.accesskit_node();
+                node.label()
+                    .or_else(|| node.value())
+                    .is_some_and(|label| label.starts_with(text))
+            })
+            .map(|label| label.rect())
+            .collect()
+    }
+
     pub fn resize_window(&mut self, size: egui::Vec2) {
         self.harness.set_size(size);
         self.harness.step();
