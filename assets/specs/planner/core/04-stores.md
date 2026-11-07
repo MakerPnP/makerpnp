@@ -305,6 +305,21 @@ it, such as "`DipTrace`". The core logs
 source is changed. *Target*: a front end showing some of a table's rows, such as a page of them, and the back end
 working out the ordering values of a table ordered by a column's values.
 
+**STORE-20 — Changing a table from the CLI.** *Confirmed.* `planner_cli table --kind part-mappings --source <file>`
+`add`, `set`, `remove` and `move` MUST open the table (`STORE-17`), then change it (`STORE-19`), so the CLI can change
+a data source as the GUI does. `list --keys` MUST list each row's key, as the data source gives it, in a first column,
+"`Key`", by which the other commands name a row with `--row <KEY>`. `add` adds a row, after the others, with its EDA
+tool, `--eda <TOOL>`, its manufacturer, `--manufacturer`, and MPN, `--mpn`, and a pattern for each field named with
+`--pattern <FIELD>=<PATTERN>`, once for each field, such as "`name=/R.*/`". `set` sets the row's values named with the
+same options, keeping those not named, and needs at least one. `remove` removes the row, and `move` moves it to before
+the row named with `--before <KEY>`, or to the end with `--to-end`. The row is changed as it was just read, so a change
+made by anyone between the read and the change is refused (`STORE-19`); to refuse one made since the user saw the row,
+such as with `list`, its values as they saw them MAY be given with `--was-eda`, `--was-pattern <FIELD>=<PATTERN>`,
+`--was-manufacturer` and `--was-mpn`, and the change is checked against those. As `STORE-19` checks only the values
+an update changes, `set`'s `--was-` values are checked only for the values it sets. A row that isn't there MUST fail,
+saying "`The row doesn't exist. key: '<key>'`". If the core refuses, the CLI MUST fail with the core's error, and the
+file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11).
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/tables.rs`, with no files, checks opening a table identifies its data source, reads it,
@@ -341,6 +356,13 @@ working out the ordering values of a table ordered by a column's values.
   were, every value quoted, a column the table doesn't show untouched, and the revision the file's, and checks a
   change whose values aren't as they were, or whose row isn't there, changes nothing, the refusal saying the file's
   revision now (`STORE-19`).
+- `planning/planner_cli/tests/tables.rs` lists part mappings with their keys, then adds a row, sets a row's values,
+  moves a row before another and to the end, and removes a row, checking the file after each, every value quoted, and a
+  column the table doesn't show untouched, and checks "`stores_app: Received event. event: ChangeTable {`",
+  "`stores_service: Performing stores operation. operation: ChangeRows {`" and
+  "`stores_app: Changed table. kind: PartMappings, source: '`" are logged, in order, with no "`Event failed.`". It
+  checks a change whose `--was-` values aren't the row's, a row that isn't there, and a table that can't be changed,
+  fail, saying why, and leave the file as it was (`STORE-20`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
   core asks to identify the data source and then read it, and sends the view, with the parts in order, the other values'

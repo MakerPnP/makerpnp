@@ -61,7 +61,7 @@ pub(crate) enum ModeCommand {
     /// Parts mode, to use a parts data source
     Parts(PartsCommandArgs),
 
-    /// Table mode, to show a data source's records as a table, read-only
+    /// Table mode, to show a data source's records as a table, and change part mappings
     Table(TableCommandArgs),
 }
 
@@ -86,7 +86,118 @@ pub(crate) struct TableCommandArgs {
 #[derive(Debug, Subcommand)]
 pub(crate) enum TableCommand {
     /// List the table, as CSV, with its columns as the headers
-    List,
+    List {
+        /// List each row's key first, in a 'Key' column, by which the other commands name a row
+        #[arg(long)]
+        keys: bool,
+    },
+    /// Add a part mapping, after the others, e.g. 'add --eda diptrace --pattern name=/R.*/ --manufacturer RESCO --mpn
+    /// RES1'
+    Add {
+        #[command(flatten)]
+        values: NewPartMappingArgs,
+    },
+    /// Set a part mapping's values, keeping those not named, e.g. 'set --row 1 --mpn RES2 --was-mpn RES1'
+    Set {
+        #[command(flatten)]
+        row: RowArgs,
+        #[command(flatten)]
+        values: PartMappingArgs,
+        #[command(flatten)]
+        was: WasPartMappingArgs,
+    },
+    /// Remove a part mapping, e.g. 'remove --row 1'
+    Remove {
+        #[command(flatten)]
+        row: RowArgs,
+        #[command(flatten)]
+        was: WasPartMappingArgs,
+    },
+    /// Move a part mapping to before another, or to the end, e.g. 'move --row 2 --before 0'
+    #[command(group = clap::ArgGroup::new("to").required(true).args(["before", "to_end"]))]
+    Move {
+        #[command(flatten)]
+        row: RowArgs,
+        /// The key of the row to move it before, as 'list --keys' lists it
+        #[arg(long, value_name = "KEY")]
+        before: Option<String>,
+        /// Move it to the end
+        #[arg(long)]
+        to_end: bool,
+        #[command(flatten)]
+        was: WasPartMappingArgs,
+    },
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RowArgs {
+    /// The row's key, as 'list --keys' lists it
+    #[arg(long, value_name = "KEY")]
+    pub(crate) row: String,
+}
+
+/// A new part mapping's values.
+#[derive(Debug, Args)]
+pub(crate) struct NewPartMappingArgs {
+    /// The EDA tool whose placements it maps
+    #[arg(long, value_name = "EDA_TOOL")]
+    pub(crate) eda: EdaToolArg,
+    /// A field's pattern, a value matched exactly, or a regular expression between '/'s, e.g. 'name=/R.*/'; repeat it
+    /// for each field
+    #[arg(long = "pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
+    pub(crate) patterns: Vec<(String, String)>,
+    /// The part's manufacturer, e.g. 'RESCO'
+    #[arg(long, value_name = "MANUFACTURER")]
+    pub(crate) manufacturer: String,
+    /// The part's manufacturer part number, e.g. 'RES1'
+    #[arg(long, value_name = "MPN")]
+    pub(crate) mpn: String,
+}
+
+/// A part mapping's values to set, at least one.
+#[derive(Debug, Args)]
+#[group(required = true, multiple = true)]
+pub(crate) struct PartMappingArgs {
+    /// The EDA tool whose placements it maps
+    #[arg(long, value_name = "EDA_TOOL")]
+    pub(crate) eda: Option<EdaToolArg>,
+    /// A field's pattern, a value matched exactly, or a regular expression between '/'s, e.g. 'name=/R.*/'; repeat it
+    /// for each field
+    #[arg(long = "pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
+    pub(crate) patterns: Vec<(String, String)>,
+    /// The part's manufacturer, e.g. 'RESCO'
+    #[arg(long, value_name = "MANUFACTURER")]
+    pub(crate) manufacturer: Option<String>,
+    /// The part's manufacturer part number, e.g. 'RES1'
+    #[arg(long, value_name = "MPN")]
+    pub(crate) mpn: Option<String>,
+}
+
+/// A part mapping's values as the user saw them, such as with 'list', so the change is refused if they aren't still.
+/// Defaults to the values read before the change is made.
+#[derive(Debug, Args)]
+pub(crate) struct WasPartMappingArgs {
+    /// The EDA tool as it was
+    #[arg(long, value_name = "EDA_TOOL")]
+    pub(crate) was_eda: Option<EdaToolArg>,
+    /// A field's pattern as it was, e.g. 'name=/R.*/'; repeat it for each field
+    #[arg(long = "was-pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
+    pub(crate) was_patterns: Vec<(String, String)>,
+    /// The part's manufacturer as it was
+    #[arg(long, value_name = "MANUFACTURER")]
+    pub(crate) was_manufacturer: Option<String>,
+    /// The part's manufacturer part number as it was
+    #[arg(long, value_name = "MPN")]
+    pub(crate) was_mpn: Option<String>,
+}
+
+/// A field's pattern, as 'FIELD=PATTERN', the field's name as the EDA tool's, in lower case, such as 'name'.
+fn parse_field_pattern(value: &str) -> Result<(String, String), String> {
+    value
+        .split_once('=')
+        .map(|(field, pattern)| (field.to_lowercase(), pattern.to_string()))
+        .filter(|(field, _pattern)| !field.is_empty())
+        .ok_or_else(|| format!("Expected 'FIELD=PATTERN'. value: '{}'", value))
 }
 
 /// The kinds of data source shown as a table.

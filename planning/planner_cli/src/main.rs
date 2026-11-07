@@ -3,17 +3,19 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, bail};
 use clap::Parser;
+use cli::args::EdaToolArg;
 use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{
-    Part, PartsChange, PartsView, PartsViewRendererOperation, Revision, Stores, TableView, TableViewRendererOperation,
+    FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView, PartsViewRendererOperation, Pattern, Revision,
+    RowKey, Stores, StoresError, TableChange, TableRow, TableView, TableViewRendererOperation,
 };
 
 use crate::core::Core;
 use crate::opts::{
     build_project_file_path, ModeCommand, Opts, PartArgs, PartsCommand, PartsCommandArgs, PcbCommand, ProcessCommand,
-    ProjectCommand, TableCommand, TableCommandArgs,
+    ProjectCommand, TableCommand, TableCommandArgs, WasPartMappingArgs,
 };
 
 mod core;
@@ -119,48 +121,205 @@ fn process_stores(core: &crux_core::Core<Stores>, event: stores_app::Event) -> a
 }
 
 /// The table mode uses the stores core, which has the data sources, and shows a data source's records as a table
-/// (`STORE-18`).
+/// (`STORE-18`), and changes part mappings (`STORE-20`).
 fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
     let core: crux_core::Core<Stores> = crux_core::Core::new();
     let kind = table_args
         .kind
         .build(table_args.eda_tool.as_ref())
         .map_err(|error| anyhow!(error))?;
+    let source = table_args.source.clone();
 
     // opening sends the table's view.
     let views = process_stores(&core, stores_app::Event::OpenTable {
         kind,
-        source: table_args.source.clone(),
+        source: source.clone(),
     })?;
 
-    match table_args.command {
-        TableCommand::List => {
-            for view in views.tables.iter() {
-                write_table_csv(view, std::io::stdout())?;
+    if let TableCommand::List {
+        keys,
+    } = table_args.command
+    {
+        for view in views.tables.iter() {
+            write_table_csv(view, keys, std::io::stdout())?;
+        }
+        return Ok(());
+    }
+
+    let view = views
+        .tables
+        .last()
+        .ok_or_else(|| anyhow!("No table view. source: '{}'", source))?;
+
+    // `STORE-20`, each row changed as it was just read, or as the user saw it, so a change made since is refused.
+    let change = match &table_args.command {
+        TableCommand::List {
+            ..
+        } => unreachable!("listed above"),
+        TableCommand::Add {
+            values,
+        } => {
+            let mut item = PartMappingsViewItem {
+                eda_tool: values.eda.build(),
+                criteria: vec![],
+                part: Part::new(values.manufacturer.clone(), values.mpn.clone()),
+            };
+            set_patterns(&mut item, &values.patterns);
+            TableChange::Add {
+                row: TableRow::PartMappings(item),
             }
         }
-    }
+        TableCommand::Set {
+            row,
+            values,
+            was,
+        } => {
+            let (key, old) = row_as_it_was(view, &row.row, was)?;
+            let mut new = old.clone();
+            let TableRow::PartMappings(item) = &mut new;
+            set_part_mapping(
+                item,
+                values.eda.as_ref(),
+                &values.patterns,
+                values.manufacturer.as_ref(),
+                values.mpn.as_ref(),
+            );
+            TableChange::Update {
+                key,
+                old,
+                new,
+            }
+        }
+        TableCommand::Remove {
+            row,
+            was,
+        } => {
+            let (key, row) = row_as_it_was(view, &row.row, was)?;
+            TableChange::Remove {
+                key,
+                row,
+            }
+        }
+        TableCommand::Move {
+            row,
+            before,
+            to_end: _,
+            was,
+        } => {
+            let (key, row) = row_as_it_was(view, &row.row, was)?;
+            let before = before
+                .as_ref()
+                .map(|before| table_row(view, before))
+                .transpose()?;
+            TableChange::Move {
+                key,
+                row,
+                before,
+            }
+        }
+    };
+
+    process_stores(&core, stores_app::Event::ChangeTable {
+        kind,
+        source,
+        change,
+    })?;
+
     Ok(())
 }
 
+/// The row with the key, as it was read, failing if it isn't there, or the table can't be changed.
+fn table_row(view: &TableView, key: &str) -> anyhow::Result<(RowKey, TableRow)> {
+    let index = view
+        .keys
+        .iter()
+        .position(|row_key| row_key.0 == key)
+        .ok_or_else(|| anyhow!("The row doesn't exist. key: '{}'", key))?;
+    view.row(index).ok_or_else(|| {
+        anyhow!(StoresError::TableNotChangeable {
+            kind: view.kind,
+            data_source: view.source.clone(),
+        })
+    })
+}
+
+/// The row with the key, with the values the user gave as they saw them in place of those read.
+fn row_as_it_was(view: &TableView, key: &str, was: &WasPartMappingArgs) -> anyhow::Result<(RowKey, TableRow)> {
+    let (key, mut row) = table_row(view, key)?;
+    let TableRow::PartMappings(item) = &mut row;
+    set_part_mapping(
+        item,
+        was.was_eda.as_ref(),
+        &was.was_patterns,
+        was.was_manufacturer.as_ref(),
+        was.was_mpn.as_ref(),
+    );
+    Ok((key, row))
+}
+
+/// Sets the part mapping's values given, keeping the others.
+fn set_part_mapping(
+    item: &mut PartMappingsViewItem,
+    eda: Option<&EdaToolArg>,
+    patterns: &[(String, String)],
+    manufacturer: Option<&String>,
+    mpn: Option<&String>,
+) {
+    if let Some(eda) = eda {
+        item.eda_tool = eda.build();
+    }
+    set_patterns(item, patterns);
+    if let Some(manufacturer) = manufacturer {
+        item.part.manufacturer = manufacturer.clone();
+    }
+    if let Some(mpn) = mpn {
+        item.part.mpn = mpn.clone();
+    }
+}
+
+/// Sets each field's pattern, adding a field the part mapping has no pattern of.
+fn set_patterns(item: &mut PartMappingsViewItem, patterns: &[(String, String)]) {
+    for (field_name, pattern) in patterns {
+        let pattern = Pattern::parse(pattern);
+        match item
+            .criteria
+            .iter_mut()
+            .find(|criterion| criterion.field_name == *field_name)
+        {
+            Some(criterion) => criterion.pattern = pattern,
+            None => item.criteria.push(FieldPattern {
+                field_name: field_name.clone(),
+                pattern,
+            }),
+        }
+    }
+}
+
 /// The table, as CSV, every value quoted, with its columns' names as the headers, and each value as its column shows
-/// it, a pattern as the data source has it.
-fn write_table_csv(view: &TableView, writer: impl std::io::Write) -> anyhow::Result<()> {
+/// it, a pattern as the data source has it, and each row's key first, in a `Key` column, if asked (`STORE-20`).
+fn write_table_csv(view: &TableView, keys: bool, writer: impl std::io::Write) -> anyhow::Result<()> {
     let mut writer = csv::WriterBuilder::new()
         .quote_style(csv::QuoteStyle::Always)
         .from_writer(writer);
 
+    let key_header = keys.then_some("Key");
     writer.write_record(
-        view.columns
-            .iter()
-            .map(|column| column.name.as_str()),
+        key_header.into_iter().chain(
+            view.columns
+                .iter()
+                .map(|column| column.name.as_str()),
+        ),
     )?;
     for row in 0..view.table.len() {
-        writer.write_record(view.columns.iter().map(|column| {
-            view.table
-                .cell(row, &column.value)
-                .to_string()
-        }))?;
+        let key = keys.then(|| view.keys[row].0.clone());
+        writer.write_record(
+            key.into_iter()
+                .chain(view.columns.iter().map(|column| {
+                    view.table
+                        .cell(row, &column.value)
+                        .to_string()
+                })),
+        )?;
     }
     writer.flush()?;
 

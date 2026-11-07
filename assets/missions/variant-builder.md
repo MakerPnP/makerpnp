@@ -179,7 +179,7 @@ tools write them. Each is a commit, the core first.
 | What | Status |
 |---|---|
 | 11a. The stores core changes a table's rows, updating, adding, removing and moving them, by their keys and their columns' references, each checked against the values the change was based on, part mappings first, and the stores service changes only those (`STORE-19`). | Done |
-| 11b. The CLI changes part mappings: `planner_cli table --kind part-mappings --source <file> add`, `set`, `remove` and `move` (`STORE-20`). | |
+| 11b. The CLI changes part mappings: `planner_cli table --kind part-mappings --source <file> add`, `set`, `remove` and `move`, each naming a row by its key, as `list --keys` lists it (`STORE-20`). | Done |
 | 11c. The GUI: a part mappings panel's values are edited in their cells, a pattern shown as what it is as it's typed, and its rows added, removed and moved (`VBGUI-13`). | |
 | 11d. Substitutions, as part mappings are: the core and the service, the CLI, then the GUI. | |
 | 11e. Assembly rules, as part mappings are. | |
