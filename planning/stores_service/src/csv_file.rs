@@ -12,9 +12,10 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use stores_protocol::{
-    AssemblyRulesViewItem, BomViewItem, EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern,
-    Part, PartMappingsViewItem, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, PlacementsViewItem,
-    Records, RecordsKind, RecordsOf, RefDes, Revision, Source, StoresOutput, SubstitutionsViewItem, Table, TableKind,
+    AssemblyRulesViewItem, BomViewItem, ColumnRef, ColumnValue, EdaPlacementsViewItem,
+    EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, FieldValue, Part, PartMappingsViewItem, Parts,
+    PartsSource, PartsViewItem, PartsWriteError, Pattern, PlacementsViewItem, Records, RecordsKind, RecordsOf, RefDes,
+    Revision, RowOrdering, RowRef, RowsChange, Source, StoresOutput, SubstitutionsViewItem, Table, TableKind,
     TableRecords,
 };
 use tracing::{info, warn};
@@ -206,10 +207,19 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
     let table = read_table_of(kind, contents.as_slice())
         .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
 
-    Ok(Some(TableRecords {
-        revision,
-        table,
-    }))
+    let mut records = TableRecords::read_only(revision, table);
+    // `STORE-19`, part mappings can be changed: a row's key is its place in the file, as it was read, a column's
+    // reference its header, and the rows are ordered by their place.
+    if kind == TableKind::PartMappings {
+        let headers = stores::csv::read_headers(contents.as_slice())
+            .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+        for column in records.columns.iter_mut() {
+            column.reference = part_mapping_reference(&column.value, &headers);
+        }
+        records.ordering = RowOrdering::Position;
+    }
+
+    Ok(Some(records))
 }
 
 /// The records, of the kind, as view items.
@@ -315,6 +325,23 @@ fn part_mapping_view_item(row: &BTreeMap<String, String>) -> anyhow::Result<Part
             mpn: field(row, "Mpn")?.clone(),
         },
     })
+}
+
+/// The header a part mapping's column's values are in, as [`part_mapping_view_item`] finds them, if the file has it.
+fn part_mapping_reference(value: &ColumnValue, headers: &[String]) -> Option<ColumnRef> {
+    let found = |matches: &dyn Fn(&String) -> bool| {
+        headers
+            .iter()
+            .find(|header| matches(header))
+            .map(|header| ColumnRef(header.clone()))
+    };
+    match value {
+        ColumnValue::Eda => found(&|header| header == "Eda"),
+        ColumnValue::Manufacturer => found(&|header| header == "Manufacturer"),
+        ColumnValue::Mpn => found(&|header| header == "Mpn"),
+        ColumnValue::Pattern(field_name) => found(&|header| header.to_lowercase() == *field_name),
+        _ => None,
+    }
 }
 
 /// A substitution, with a pattern and a value for each of its EDA tool's fields, as the Variant Builder reads it.
@@ -428,6 +455,127 @@ pub async fn write_parts(
         .collect();
     let mut contents = vec![];
     stores::parts::write_parts(&mut contents, &headers, &parts).map_err(|error| failed(format!("{:#}", error)))?;
+
+    std::fs::write(path, &contents).map_err(|error| failed(error.to_string()))?;
+
+    Ok(self::revision(&contents))
+}
+
+/// Changes the file's rows, by their keys, their places in the file when they were read, and their columns' headers,
+/// only if each value is as it was, and returns the file's revision once it's written (`STORE-19`).
+///
+/// Only the columns named are changed, so a column the table doesn't show is left as it was. A row whose values aren't
+/// as they were, or that isn't there, has changed since it was read, as when a row before it was added or removed, so
+/// the change is refused, saying the file's revision now.
+pub async fn change_rows(kind: TableKind, source: &Source, change: &RowsChange) -> Result<Revision, PartsWriteError> {
+    let Source::File(path) = source else {
+        return Err(PartsWriteError::Failed {
+            cause: format!("Unsupported source. source: {:?}", source),
+        });
+    };
+    let failed = |cause: String| PartsWriteError::Failed {
+        cause: format!("Unable to change the table. source: '{}', cause: '{}'", source, cause),
+    };
+    if kind != TableKind::PartMappings {
+        return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
+    }
+
+    info!("Changing {}. source: '{}'", table_name(kind), source);
+    let current = match std::fs::read(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Err(PartsWriteError::Changed {
+                revision: None,
+            });
+        }
+        Err(error) => return Err(failed(error.to_string())),
+    };
+    let changed = || PartsWriteError::Changed {
+        revision: Some(self::revision(&current)),
+    };
+
+    let (headers, mut records) =
+        stores::csv::read_records(current.as_slice()).map_err(|error| failed(format!("{:#}", error)))?;
+    let column = |reference: &ColumnRef| {
+        headers
+            .iter()
+            .position(|header| *header == reference.0)
+            .ok_or_else(|| failed(format!("The column doesn't exist. column: '{}'", reference)))
+    };
+    // the row's place, if it's there, and its values are those expected, so it's the row the change was made to.
+    let row = |records: &[Vec<String>], row: &RowRef| -> Result<usize, PartsWriteError> {
+        let index = row
+            .key
+            .0
+            .parse::<usize>()
+            .map_err(|_| failed(format!("Unknown row. key: '{}'", row.key)))?;
+        let record = records.get(index).ok_or_else(changed)?;
+        for expected in row.expected.iter() {
+            if record[column(&expected.column)?] != expected.value {
+                return Err(changed());
+            }
+        }
+        Ok(index)
+    };
+
+    match change {
+        RowsChange::Update {
+            key,
+            changes,
+        } => {
+            let expected = changes
+                .iter()
+                .map(|change| FieldValue {
+                    column: change.column.clone(),
+                    value: change.old.clone(),
+                })
+                .collect();
+            let index = row(&records, &RowRef {
+                key: key.clone(),
+                expected,
+            })?;
+            for change in changes.iter() {
+                let column = column(&change.column)?;
+                records[index][column] = change.new.clone();
+            }
+        }
+        RowsChange::Add {
+            values,
+        } => {
+            let mut record = vec![String::new(); headers.len()];
+            for value in values.iter() {
+                record[column(&value.column)?] = value.value.clone();
+            }
+            records.push(record);
+        }
+        RowsChange::Remove {
+            row: removed,
+        } => {
+            let index = row(&records, removed)?;
+            records.remove(index);
+        }
+        RowsChange::Move {
+            row: moved,
+            before,
+        } => {
+            let from = row(&records, moved)?;
+            let before = before
+                .as_ref()
+                .map(|before| row(&records, before))
+                .transpose()?;
+            let record = records.remove(from);
+            let to = match before {
+                // the row before which it's moved is a place nearer, as the row moved was before it.
+                Some(before) if before > from => before - 1,
+                Some(before) => before,
+                None => records.len(),
+            };
+            records.insert(to, record);
+        }
+    }
+
+    let mut contents = vec![];
+    stores::csv::write_records(&mut contents, &headers, &records).map_err(|error| failed(format!("{:#}", error)))?;
 
     std::fs::write(path, &contents).map_err(|error| failed(error.to_string()))?;
 

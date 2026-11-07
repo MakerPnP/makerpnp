@@ -30,6 +30,55 @@ pub fn read_rows(reader: impl std::io::Read) -> anyhow::Result<Vec<std::collecti
     Ok(rows)
 }
 
+/// The CSV's headers, in order, so its records can be written with their columns in the same order (`STORE-19`).
+pub fn read_headers(reader: impl std::io::Read) -> anyhow::Result<Vec<String>> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
+    Ok(csv_reader
+        .headers()?
+        .iter()
+        .map(str::to_string)
+        .collect())
+}
+
+/// The CSV's headers, and its records' values, in the order of the headers, so a record's values can be changed by
+/// their headers, and written as they were, with [`write_records`] (`STORE-19`).
+pub fn read_records(reader: impl std::io::Read) -> anyhow::Result<(Vec<String>, Vec<Vec<String>>)> {
+    let mut csv_reader = csv::ReaderBuilder::new().from_reader(reader);
+    let headers = csv_reader
+        .headers()?
+        .iter()
+        .map(str::to_string)
+        .collect();
+    let records = csv_reader
+        .records()
+        .map(|record| {
+            record
+                .map(|record| {
+                    record
+                        .iter()
+                        .map(str::to_string)
+                        .collect()
+                })
+                .map_err(anyhow::Error::from)
+        })
+        .collect::<anyhow::Result<_>>()?;
+    Ok((headers, records))
+}
+
+/// Writes the headers and the records' values, every value quoted (`STORE-19`).
+pub fn write_records(writer: impl std::io::Write, headers: &[String], records: &[Vec<String>]) -> anyhow::Result<()> {
+    let mut writer = csv::WriterBuilder::new()
+        .quote_style(csv::QuoteStyle::Always)
+        .from_writer(writer);
+    writer.write_record(headers)?;
+    for record in records {
+        writer.write_record(record)?;
+    }
+    writer.flush()?;
+
+    Ok(())
+}
+
 /// The column an EDA tool's field's value is in, such as `Name` for `name`.
 pub fn field_column_name(field_name: &str) -> String {
     // Note: heck's UpperCamelCase appears to be the same as serde's PascalCase

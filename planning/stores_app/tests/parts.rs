@@ -197,6 +197,9 @@ fn service(
         }
         | StoresOperation::ReadTable {
             ..
+        }
+        | StoresOperation::ChangeRows {
+            ..
         }) => panic!("unexpected operation: {:?}", operation),
     }
 }

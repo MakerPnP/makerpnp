@@ -270,6 +270,41 @@ value quoted, with its columns' names as the headers, and each value as its colu
 source has it. The kinds are `eda-placements`, `part-mappings`, `substitutions`,
 `assembly-rules`, `placements` and `bom`. If the core refuses, the CLI MUST fail with the core's error.
 
+**STORE-19 — Changing a table.** *Confirmed.* The core MUST change a table's rows when asked (`ChangeTable`), so the
+user changes a data source where it's shown: update a row's values, add a row, after the others, remove a row, or move a
+row to before another, or to the end. As a data source may later be a database, or a web API, whose queries may return
+some of a table's columns, or columns from many tables (the Variant Builder mission's "Architecture"), a change MUST name
+rows and columns as the data source does, not by their places in the view: a table's view MUST have each row's key,
+made by the back end, and each column's reference, as the data source names it, and say how its rows are ordered, not
+at all, by their place in the data source, or by a column's values. A front end changes a row as it's shown, giving
+the row as it was and as it's to be, and the core MUST make the change the back end makes: the row's key, and, for each
+of its columns whose value changed, the column's reference, its value as it was, and its value as it's to be, each as
+the data source has it, such as a pattern's text. The back end MUST change only those columns, and only if each value
+is still as it was, so a column the table doesn't show is never touched, and a change to one row doesn't refuse a change
+to another. Removing or moving a row MUST check each of its values, and moving one before another the other's too, so
+the rows are still those the user saw. A change whose values aren't as they were, or whose row isn't there, MUST be
+refused, saying "`The table has changed since the change was made.`", with its kind, its data source and its revision
+now, or none, and the core MUST then read the table again, so every view shows it as it is now, which the change can be
+made to again. A change MUST NOT be checked against the table's revision, which says whether a view is out of date.
+Once the back end has changed the data source, the core MUST read the table again, and send its view, so every view of
+it shows the change, with the keys the back end gives it now. A change MUST be refused, and nothing changed, if the
+table isn't loaded, if another change to it is being made, if its kind can't be changed, saying
+"`The table can't be changed.`", if a value is in a column the data source doesn't have, saying
+"`The column doesn't exist.`", or if a row is moved and the table's rows aren't ordered, saying
+"`The rows can't be moved.`". A change that can't be made MUST say why, and keep the table as it was. The table's
+status MUST say whether a change is being made, and why its last change was refused, until one succeeds. Part mappings
+can be changed; the other kinds are to come (the Variant Builder mission's step 11). A pattern that isn't a valid
+regular expression is written as it is, as it's the user's, and it's shown as it is (`STORE-17`). *Observed*: the
+operation is `ChangeRows`, logged as the service's others are (`STORE-7`). The `csv_file` back end's key of a row is its
+place in the file, counted from 0, when it was read, so it's checked with the row's values, its references are the
+file's headers, as they're written, and its rows are ordered by their place. It reads the file, checks the change's
+values, makes the change, and writes the file, every value quoted, its columns as they were, logging
+"`Changing part mappings. source: '<source>'`" at info level. A part mapping's EDA tool is written as `STORE-17` names
+it, such as "`DipTrace`". The core logs
+"`stores_app: Changed table. kind: <kind>, source: '<source>', revision: '<revision>'`" at info level once the data
+source is changed. *Target*: a front end showing some of a table's rows, such as a page of them, and the back end
+working out the ordering values of a table ordered by a column's values.
+
 ## Acceptance criteria
 
 - `planning/stores_app/tests/tables.rs`, with no files, checks opening a table identifies its data source, reads it,
@@ -293,6 +328,19 @@ source has it. The kinds are `eda-placements`, `part-mappings`, `substitutions`,
   "`stores_service: Performing stores operation. operation: ReadTable {`" and
   "`stores_app: Loaded table. kind: Bom, source: '`" are logged, in order, with no "`Event failed.`", and that a file
   that doesn't exist fails, saying so (`STORE-18`).
+- `planning/stores_app/tests/tables.rs` checks a table's view has its rows' keys, its columns' references and its
+  ordering, that a change to part mappings has the service update a row's changed columns only, by its key and their
+  references, with their values as they were and are to be, add a row's values, remove a row, and move a row before
+  another, or to the end, checking their values, then reads the table again and sends its view, that the status says
+  a change is being made, that a table that isn't loaded, a table of a kind that can't be changed, a column the data
+  source doesn't have, and moving a row of a table that isn't ordered, are refused, changing nothing, that one the
+  service refuses, as the table changed, reads it again, and keeps the change's error until a change succeeds, that one
+  that can't be made says why and keeps the table, and that a change while another is made is refused (`STORE-19`).
+- `planning/stores_service/tests/csv_file.rs` reads part mappings' keys, references and ordering, then updates a row,
+  adds a row, removes a row and moves a row, before another and to the end, checking the file, its columns as they
+  were, every value quoted, a column the table doesn't show untouched, and the revision the file's, and checks a
+  change whose values aren't as they were, or whose row isn't there, changes nothing, the refusal saying the file's
+  revision now (`STORE-19`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
   core asks to identify the data source and then read it, and sends the view, with the parts in order, the other values'

@@ -132,6 +132,112 @@ pub enum StoresOperation {
     /// The records of a data source of the kind, as a table, if there is one (`STORE-17`). Answered with
     /// [`StoresOutput::TableRead`].
     ReadTable { kind: TableKind, source: Source },
+
+    /// Changes the rows of a data source of the kind, by their keys and their columns' references, only if their values
+    /// are still as they were (`STORE-19`). Answered with [`StoresOutput::RowsChanged`].
+    ChangeRows {
+        kind: TableKind,
+        source: Source,
+        change: RowsChange,
+    },
+}
+
+/// A row, as the back end that read it names it, such as a database's primary key, or a CSV file's row's place when it
+/// was read (`STORE-19`). Only the back end knows what it means.
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord
+)]
+pub struct RowKey(pub String);
+
+impl Display for RowKey {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A column, as the data source names it, such as a CSV file's header, or a query result's field (`STORE-19`).
+#[derive(
+    serde::Serialize,
+    serde::Deserialize,
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord
+)]
+pub struct ColumnRef(pub String);
+
+impl Display for ColumnRef {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// How a table's rows are ordered, so whether they can be moved (`STORE-19`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum RowOrdering {
+    /// They're not, so they can't be moved, as a database table without an ordering column's.
+    Unsupported,
+    /// By their place in the data source, as a CSV file's lines are.
+    Position,
+    /// By the values of a column, which a database or a web API would have.
+    Field(ColumnRef),
+}
+
+/// A column's value, as the data source has it, such as a pattern's text.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct FieldValue {
+    pub column: ColumnRef,
+    pub value: String,
+}
+
+/// A column's value as it was, which it must still be, and as it's to be.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct FieldChange {
+    pub column: ColumnRef,
+    pub old: String,
+    pub new: String,
+}
+
+/// A row, by its key, and the values it must still have, so it's the row the user saw.
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub struct RowRef {
+    pub key: RowKey,
+    pub expected: Vec<FieldValue>,
+}
+
+/// A change to a data source's rows, as the back end makes it, by their keys and their columns' references, refused if
+/// a value isn't as it was (`STORE-19`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum RowsChange {
+    /// Changes the row's columns that are named, only those.
+    Update {
+        key: RowKey,
+        changes: Vec<FieldChange>,
+    },
+    /// Adds a row, after the others, with the values named, and the data source's default, such as an empty value, of
+    /// each other column.
+    Add {
+        values: Vec<FieldValue>,
+    },
+    Remove {
+        row: RowRef,
+    },
+    /// Moves the row to before another, or, if there's none, to the end.
+    Move {
+        row: RowRef,
+        before: Option<RowRef>,
+    },
 }
 
 /// The kinds of data source shown as a table, read-only, each with a format the service knows (`STORE-17`).
@@ -172,6 +278,33 @@ pub enum Table {
     AssemblyRules(Vec<AssemblyRulesViewItem>),
     Placements(Vec<PlacementsViewItem>),
     Bom(Vec<BomViewItem>),
+}
+
+/// A row of a table whose kind can be changed, as a front end shows it, and changes it (`STORE-19`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum TableRow {
+    PartMappings(PartMappingsViewItem),
+}
+
+impl TableRow {
+    /// The row's values, by the column that shows each, as the data source has them, such as a pattern's text. Only
+    /// those it has, so a part mapping has no value of another EDA tool's field.
+    pub fn values(&self) -> Vec<(ColumnValue, String)> {
+        match self {
+            TableRow::PartMappings(item) => {
+                let mut values = vec![(ColumnValue::Eda, EdaToolName(item.eda_tool).to_string())];
+                values.extend(item.criteria.iter().map(|criterion| {
+                    (
+                        ColumnValue::Pattern(criterion.field_name.clone()),
+                        criterion.pattern.text().to_string(),
+                    )
+                }));
+                values.push((ColumnValue::Manufacturer, item.part.manufacturer.clone()));
+                values.push((ColumnValue::Mpn, item.part.mpn.clone()));
+                values
+            }
+        }
+    }
 }
 
 /// A design's placement, as its EDA tool's file has it.
@@ -224,11 +357,13 @@ pub struct BomViewItem {
     pub comment: String,
 }
 
-/// A column of a table: its name, as the data source names it, and which of a view item's values it shows.
+/// A column of a table: its name, as the data source names it, which of a view item's values it shows, and, if its
+/// values can be changed, its reference, as the data source names it, by which a change names it (`STORE-19`).
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct TableColumn {
     pub name: String,
     pub value: ColumnValue,
+    pub reference: Option<ColumnRef>,
 }
 
 impl TableColumn {
@@ -236,12 +371,13 @@ impl TableColumn {
         Self {
             name: name.into(),
             value,
+            reference: None,
         }
     }
 }
 
 /// Which of a view item's values a column shows.
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ColumnValue {
     RefDes,
     Place,
@@ -296,6 +432,22 @@ impl Table {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// Whether the table's kind can be changed (`STORE-19`), part mappings for now.
+    pub fn is_changeable(&self) -> bool {
+        matches!(self, Table::PartMappings(_))
+    }
+
+    /// The row, if the table's kind can be changed, and it's there, for a front end to change and set (`STORE-19`).
+    pub fn row(&self, index: usize) -> Option<TableRow> {
+        match self {
+            Table::PartMappings(items) => items
+                .get(index)
+                .cloned()
+                .map(TableRow::PartMappings),
+            _ => None,
+        }
     }
 
     /// The table's columns, in order, named as the data source names them, a comment's last, as there's one at most,
@@ -512,11 +664,33 @@ impl Display for EdaToolName {
     }
 }
 
-/// A data source's table, and the revision it was read from (`STORE-8`).
+/// A data source's table, and the revision it was read from (`STORE-8`), with what a change needs to name its rows and
+/// columns as the data source does (`STORE-19`).
 #[derive(serde::Serialize, serde::Deserialize, Clone, PartialEq)]
 pub struct TableRecords {
     pub revision: Revision,
     pub table: Table,
+    /// Its columns, in order, each with its reference, if its values can be changed.
+    pub columns: Vec<TableColumn>,
+    /// Each row's key, in the order of the rows.
+    pub keys: Vec<RowKey>,
+    pub ordering: RowOrdering,
+}
+
+impl TableRecords {
+    /// A table that can't be changed: its columns have no references, its rows' keys are their places, and they can't
+    /// be moved.
+    pub fn read_only(revision: Revision, table: Table) -> Self {
+        Self {
+            revision,
+            columns: table.columns(),
+            keys: (0..table.len())
+                .map(|index| RowKey(index.to_string()))
+                .collect(),
+            ordering: RowOrdering::Unsupported,
+            table,
+        }
+    }
 }
 
 /// Says how many rows there are, not what they are, as they're logged.
@@ -531,7 +705,7 @@ impl Debug for TableRecords {
     }
 }
 
-/// Why parts weren't written (`STORE-15`).
+/// Why parts, or a table, weren't written (`STORE-15`, `STORE-19`).
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum PartsWriteError {
     /// The data source has changed since the revision the change was based on, to this revision, or `None` if it no
@@ -724,6 +898,16 @@ impl Debug for StoresOperation {
                 .field("kind", kind)
                 .field("source", source)
                 .finish(),
+            StoresOperation::ChangeRows {
+                kind,
+                source,
+                change,
+            } => f
+                .debug_struct("ChangeRows")
+                .field("kind", kind)
+                .field("source", source)
+                .field("change", change)
+                .finish(),
         }
     }
 }
@@ -765,6 +949,9 @@ pub enum StoresOutput {
 
     /// The table, or `None` if there's no data source, for example no file, or why it couldn't be read.
     TableRead(Result<Option<TableRecords>, String>),
+
+    /// The revision of the data source once its rows were changed, or why they weren't (`STORE-19`).
+    RowsChanged(Result<Revision, PartsWriteError>),
 }
 
 impl Operation for StoresOperation {
@@ -793,6 +980,7 @@ impl Debug for StoresOutput {
             StoresOutput::RecordsWritten(result) => write!(f, "RecordsWritten({:?})", result),
             StoresOutput::PartsWritten(result) => write!(f, "PartsWritten({:?})", result),
             StoresOutput::TableRead(result) => write!(f, "TableRead({:?})", result),
+            StoresOutput::RowsChanged(result) => write!(f, "RowsChanged({:?})", result),
         }
     }
 }

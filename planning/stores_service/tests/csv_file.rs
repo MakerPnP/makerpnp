@@ -1,4 +1,5 @@
-//! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6` to `STORE-8`, `STORE-15`).
+//! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6` to `STORE-8`, `STORE-15`, `STORE-17`,
+//! `STORE-19`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -6,8 +7,9 @@ use std::path::Path;
 
 use futures::executor::block_on;
 use stores_protocol::{
-    EdaTool, FieldPattern, Part, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, RefDes, Revision, Source,
-    StoresOperation, StoresOutput, Table, TableKind, TableRecords,
+    ColumnRef, EdaTool, FieldChange, FieldPattern, FieldValue, Part, Parts, PartsSource, PartsViewItem,
+    PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source, StoresOperation,
+    StoresOutput, Table, TableKind, TableRecords,
 };
 use stores_service::StoresService;
 
@@ -574,4 +576,241 @@ fn refuses_to_write_a_file_removed_since() {
         })
     );
     assert!(!path.exists());
+}
+
+fn change_rows(source: &Source, change: RowsChange) -> Result<Revision, PartsWriteError> {
+    match block_on(StoresService::new().perform_once(StoresOperation::ChangeRows {
+        kind: TableKind::PartMappings,
+        source: source.clone(),
+        change,
+    })) {
+        Some(StoresOutput::RowsChanged(result)) => result,
+        output => panic!("unexpected output: {:?}", output),
+    }
+}
+
+fn contents(source: &Source) -> String {
+    let Source::File(path) = source else { unreachable!() };
+    fs::read_to_string(path).unwrap()
+}
+
+fn value(column: &str, value: &str) -> FieldValue {
+    FieldValue {
+        column: ColumnRef(column.to_string()),
+        value: value.to_string(),
+    }
+}
+
+/// A row, by its key, expected to have the values, by column.
+fn row_ref(key: &str, expected: &[(&str, &str)]) -> RowRef {
+    RowRef {
+        key: RowKey(key.to_string()),
+        expected: expected
+            .iter()
+            .map(|(column, text)| value(column, text))
+            .collect(),
+    }
+}
+
+/// Part mappings with a column the table doesn't show, `Notes`, a KiCad row whose DipTrace fields' columns it doesn't
+/// show either, and columns in an order of their own.
+const MAPPINGS: &str = "\"Mpn\",\"Name\",\"Eda\",\"Notes\",\"Manufacturer\",\"Value\",\"Package\"\n\
+                        \"MPN1\",\"RES_0402\",\"DipTrace\",\"keep me\",\"MFR1\",\"/330R?/\",\"\"\n\
+                        \"MPN2\",\"n\",\"KiCad\",\"\",\"MFR2\",\"v\",\"R_0402\"\n\
+                        \"MPN3\",\"CAP_0603\",\"DipTrace\",\"\",\"MFR3\",\"10u\",\"\"\n";
+
+/// `STORE-19`, part mappings' rows' keys are their places in the file, their columns' references the file's headers,
+/// as they're written, and their rows are ordered by their place.
+#[test]
+fn reads_part_mappings_keys_references_and_ordering() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "part-mappings.csv", MAPPINGS);
+
+    let records = read_table(TableKind::PartMappings, &source)
+        .unwrap()
+        .expect("a table");
+
+    assert_eq!(records.keys, vec![
+        RowKey("0".to_string()),
+        RowKey("1".to_string()),
+        RowKey("2".to_string())
+    ]);
+    assert_eq!(records.ordering, RowOrdering::Position);
+    assert_eq!(
+        records
+            .columns
+            .iter()
+            .map(|column| (
+                column.name.as_str(),
+                column
+                    .reference
+                    .as_ref()
+                    .map(|reference| reference.0.as_str())
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("Eda", Some("Eda")),
+            ("Name", Some("Name")),
+            ("Value", Some("Value")),
+            ("Package", Some("Package")),
+            ("Manufacturer", Some("Manufacturer")),
+            ("Mpn", Some("Mpn")),
+        ]
+    );
+
+    // a table that can't be changed has no references, and its rows can't be moved.
+    let bom = csv_file(folder.path(), "bom.csv", "\"330R\",\"R1\",\"RES_0402\",\"\",\"1\"\n");
+    let records = read_table(TableKind::Bom, &bom)
+        .unwrap()
+        .expect("a table");
+    assert!(records
+        .columns
+        .iter()
+        .all(|column| column.reference.is_none()));
+    assert_eq!(records.ordering, RowOrdering::Unsupported);
+}
+
+/// `STORE-19`, updating a row changes only the columns named, so the columns the table doesn't show are as they were,
+/// every value quoted, and the revision is the file's.
+#[test]
+fn updates_only_the_columns_named() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "part-mappings.csv", MAPPINGS);
+
+    let revision = change_rows(&source, RowsChange::Update {
+        key: RowKey("1".to_string()),
+        changes: vec![
+            FieldChange {
+                column: ColumnRef("Package".to_string()),
+                old: "R_0402".to_string(),
+                new: "/R_0[46]0[23]/".to_string(),
+            },
+            FieldChange {
+                column: ColumnRef("Mpn".to_string()),
+                old: "MPN2".to_string(),
+                new: "MPN4".to_string(),
+            },
+        ],
+    })
+    .unwrap();
+
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"Name\",\"Eda\",\"Notes\",\"Manufacturer\",\"Value\",\"Package\"\n\
+         \"MPN1\",\"RES_0402\",\"DipTrace\",\"keep me\",\"MFR1\",\"/330R?/\",\"\"\n\
+         \"MPN4\",\"n\",\"KiCad\",\"\",\"MFR2\",\"v\",\"/R_0[46]0[23]/\"\n\
+         \"MPN3\",\"CAP_0603\",\"DipTrace\",\"\",\"MFR3\",\"10u\",\"\"\n"
+    );
+    assert_eq!(revision, self::revision(&source));
+}
+
+/// `STORE-19`, a row is added after the others, with an empty value of each column not named, and a row is removed.
+#[test]
+fn adds_and_removes_rows() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "part-mappings.csv", MAPPINGS);
+
+    change_rows(&source, RowsChange::Add {
+        values: vec![
+            value("Eda", "DipTrace"),
+            value("Name", "/LED_.*/"),
+            value("Value", "/R[/"),
+            value("Manufacturer", "MFR4"),
+            value("Mpn", "MPN4"),
+        ],
+    })
+    .unwrap();
+    change_rows(&source, RowsChange::Remove {
+        row: row_ref("1", &[("Eda", "KiCad"), ("Package", "R_0402"), ("Mpn", "MPN2")]),
+    })
+    .unwrap();
+
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"Name\",\"Eda\",\"Notes\",\"Manufacturer\",\"Value\",\"Package\"\n\
+         \"MPN1\",\"RES_0402\",\"DipTrace\",\"keep me\",\"MFR1\",\"/330R?/\",\"\"\n\
+         \"MPN3\",\"CAP_0603\",\"DipTrace\",\"\",\"MFR3\",\"10u\",\"\"\n\
+         \"MPN4\",\"/LED_.*/\",\"DipTrace\",\"\",\"MFR4\",\"/R[/\",\"\"\n"
+    );
+}
+
+/// `STORE-19`, a row is moved to before another, whether it's before or after it, or to the end.
+#[test]
+fn moves_rows() {
+    let mpns = |source: &Source| -> Vec<String> {
+        let Table::PartMappings(items) = table_of(TableKind::PartMappings, source) else {
+            panic!("part mappings")
+        };
+        items
+            .into_iter()
+            .map(|item| item.part.mpn)
+            .collect()
+    };
+    let folder = tempfile::tempdir().unwrap();
+    let mpn = |key: &str, mpn: &str| row_ref(key, &[("Mpn", mpn)]);
+    let cases = [
+        (mpn("2", "MPN3"), Some(mpn("0", "MPN1")), ["MPN3", "MPN1", "MPN2"]),
+        (mpn("0", "MPN1"), Some(mpn("2", "MPN3")), ["MPN2", "MPN1", "MPN3"]),
+        (mpn("0", "MPN1"), None, ["MPN2", "MPN3", "MPN1"]),
+    ];
+
+    for (row, before, expected) in cases {
+        let source = csv_file(folder.path(), "part-mappings.csv", MAPPINGS);
+
+        change_rows(&source, RowsChange::Move {
+            row: row.clone(),
+            before: before.clone(),
+        })
+        .unwrap();
+
+        assert_eq!(mpns(&source), strings(&expected), "{:?} before {:?}", row, before);
+    }
+    // the columns the table doesn't show move with their rows.
+    let source = csv_file(folder.path(), "part-mappings.csv", MAPPINGS);
+    change_rows(&source, RowsChange::Move {
+        row: mpn("0", "MPN1"),
+        before: None,
+    })
+    .unwrap();
+    assert!(contents(&source).ends_with("\"MPN1\",\"RES_0402\",\"DipTrace\",\"keep me\",\"MFR1\",\"/330R?/\",\"\"\n"));
+}
+
+/// `STORE-19`, a change whose values aren't as they were, or whose row isn't there, changes nothing, and the refusal
+/// says the file's revision now, as the file has changed since the change was made.
+#[test]
+fn refuses_a_change_whose_values_are_not_as_they_were() {
+    let folder = tempfile::tempdir().unwrap();
+    let changes = [
+        RowsChange::Update {
+            key: RowKey("1".to_string()),
+            changes: vec![FieldChange {
+                column: ColumnRef("Mpn".to_string()),
+                old: "MPN1".to_string(),
+                new: "MPN4".to_string(),
+            }],
+        },
+        RowsChange::Remove {
+            row: row_ref("3", &[("Mpn", "MPN4")]),
+        },
+        RowsChange::Move {
+            row: row_ref("0", &[("Mpn", "MPN1")]),
+            before: Some(row_ref("2", &[("Mpn", "MPN2")])),
+        },
+    ];
+
+    for change in changes {
+        let source = csv_file(folder.path(), "part-mappings.csv", MAPPINGS);
+
+        let result = change_rows(&source, change.clone());
+
+        assert_eq!(
+            result,
+            Err(PartsWriteError::Changed {
+                revision: Some(revision(&source)),
+            }),
+            "{:?}",
+            change
+        );
+        assert_eq!(contents(&source), MAPPINGS, "{:?}", change);
+    }
 }

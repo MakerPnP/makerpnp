@@ -20,10 +20,11 @@ use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
 pub use stores_protocol::{
-    AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnValue, EdaPlacement, EdaPlacementsViewItem,
-    EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem, Parts, PartsSource,
-    PartsViewItem, PartsWriteError, Pattern, Placement, PlacementsViewItem, RefDes, Revision, Source, StoresOperation,
-    StoresOutput, SubstitutionsViewItem, Table, TableColumn, TableKind, TableRecords,
+    AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnRef, ColumnValue, EdaPlacement,
+    EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem, EdaTool, FieldChange, FieldPattern, FieldValue, Part,
+    PartMappingsViewItem, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, Placement, PlacementsViewItem,
+    RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source, StoresOperation, StoresOutput,
+    SubstitutionsViewItem, Table, TableColumn, TableKind, TableRecords, TableRow,
 };
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -52,14 +53,18 @@ pub struct Model {
 /// A data source shown as a table, read as parts are, see [`PartsSourceState`] (`STORE-17`).
 #[derive(Default)]
 struct TableState {
-    /// The table loaded, kept when a later load is refused.
-    table: Option<Table>,
-    revision: Option<Revision>,
+    /// The table loaded, with its revision, its rows' keys and its columns' references, kept when a later load is
+    /// refused.
+    table: Option<TableRecords>,
     reading: bool,
     changed_while_reading: bool,
     watching: bool,
     /// Why the last load was refused, until one succeeds.
     error: Option<String>,
+    /// Whether a change to the table is being written (`STORE-19`).
+    changing: bool,
+    /// Why the last change was refused, until one succeeds.
+    change_error: Option<String>,
 }
 
 #[derive(Default)]
@@ -120,6 +125,10 @@ pub struct TableStatus {
     pub reading: bool,
     /// Why the last load was refused, until one succeeds. The table loaded before, if any, is kept.
     pub error: Option<String>,
+    /// Whether a change to the table is being written, until which another is refused (`STORE-19`).
+    pub changing: bool,
+    /// Why the last change was refused, until one succeeds, even once the table is read again (`STORE-19`).
+    pub change_error: Option<String>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug, Clone)]
@@ -171,7 +180,21 @@ pub enum Event {
     /// sends its view (`STORE-17`).
     OpenTable { kind: TableKind, source: Source },
 
+    /// Changes the table's rows, by their keys and their columns' references, if their values are still those of the
+    /// rows the change was made to, then reads the table again, and sends its view (`STORE-19`).
+    ChangeTable {
+        kind: TableKind,
+        source: Source,
+        change: TableChange,
+    },
+
     // internal, the results of the store operations the core asked for.
+    /// The rows of the table's data source, as the stores service identified it, were changed, or why not.
+    RowsChanged {
+        kind: TableKind,
+        source: Source,
+        output: StoresOutput,
+    },
     /// The table's data source, as the stores service identified it.
     TableSourceResolved {
         kind: TableKind,
@@ -228,6 +251,32 @@ pub enum PartsChange {
     Remove { part: Part },
 }
 
+/// A change to a table's rows, as a front end makes it, to the rows as they're shown: each row named by its key, as the
+/// view has it, and given as it was, so the change is refused if it isn't still, and as it's to be (`STORE-19`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum TableChange {
+    /// Changes the row's values that differ from those it had.
+    Update {
+        key: RowKey,
+        old: TableRow,
+        new: TableRow,
+    },
+    /// Adds the row, after the others.
+    Add {
+        row: TableRow,
+    },
+    Remove {
+        key: RowKey,
+        row: TableRow,
+    },
+    /// Moves the row to before another, or, if there's none, to the end.
+    Move {
+        key: RowKey,
+        row: TableRow,
+        before: Option<(RowKey, TableRow)>,
+    },
+}
+
 /// What the data source was resolved for.
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, Copy, PartialEq)]
 pub enum Intent {
@@ -265,9 +314,24 @@ pub struct TableView {
     pub source: Source,
     /// The revision of the data source the table was read from (`STORE-8`).
     pub revision: Revision,
-    /// Its columns, in order, worked out once, as the table's read, so a front end can show it each frame.
+    /// Its columns, in order, worked out once, as the table's read, so a front end can show it each frame, each with its
+    /// reference, if its values can be changed (`STORE-19`).
     pub columns: Vec<TableColumn>,
     pub table: Table,
+    /// Each row's key, in the order of the rows, by which a change names it (`STORE-19`).
+    pub keys: Vec<RowKey>,
+    /// How the rows are ordered, so whether they can be moved (`STORE-19`).
+    pub ordering: RowOrdering,
+}
+
+impl TableView {
+    /// The row, with its key, if the table's kind can be changed, for a front end to change (`STORE-19`).
+    pub fn row(&self, index: usize) -> Option<(RowKey, TableRow)> {
+        self.keys
+            .get(index)
+            .cloned()
+            .zip(self.table.row(index))
+    }
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
@@ -332,6 +396,40 @@ pub enum StoresError {
 
     #[error("The table is not loaded. kind: {kind:?}, source: '{data_source}'")]
     TableNotLoaded { kind: TableKind, data_source: Source },
+
+    /// A row's values aren't those the change was made to, or the row isn't there, so the change would lose another's.
+    #[error(
+        "The table has changed since the change was made. kind: {kind:?}, source: '{data_source}', current_revision: {}",
+        current_revision.as_ref().map_or("none".to_string(), |revision| format!("'{}'", revision))
+    )]
+    TableChanged {
+        kind: TableKind,
+        data_source: Source,
+        current_revision: Option<Revision>,
+    },
+
+    #[error("The table is being changed. kind: {kind:?}, source: '{data_source}'")]
+    TableBeingChanged { kind: TableKind, data_source: Source },
+
+    #[error("The table can't be changed. kind: {kind:?}, source: '{data_source}'")]
+    TableNotChangeable { kind: TableKind, data_source: Source },
+
+    #[error("The column doesn't exist. kind: {kind:?}, source: '{data_source}', column: {column:?}")]
+    ColumnNotFound {
+        kind: TableKind,
+        data_source: Source,
+        column: ColumnValue,
+    },
+
+    #[error("The rows can't be moved. kind: {kind:?}, source: '{data_source}'")]
+    RowsNotOrdered { kind: TableKind, data_source: Source },
+
+    #[error("Unable to change the table. kind: {kind:?}, source: '{data_source}', cause: {cause}")]
+    UnableToChangeTable {
+        kind: TableKind,
+        data_source: Source,
+        cause: String,
+    },
 
     /// The shell gave the result of a different operation, which is a fault in the shell.
     #[error("Unexpected stores output. output: {output}")]
@@ -404,9 +502,14 @@ impl App for Stores {
                         asked: asked.clone(),
                         source: source.clone(),
                         loaded: state.table.is_some(),
-                        revision: state.revision.clone(),
+                        revision: state
+                            .table
+                            .as_ref()
+                            .map(|records| records.revision.clone()),
                         reading: state.reading,
                         error: state.error.clone(),
+                        changing: state.changing,
+                        change_error: state.change_error.clone(),
                     })
             })
             .collect();
@@ -530,6 +633,29 @@ impl Stores {
                 source,
                 output,
             } => Self::table_read(model, kind, source, output),
+            Event::ChangeTable {
+                kind,
+                source,
+                change,
+            } => {
+                let resolved = model
+                    .table_aliases
+                    .get(&(kind, source.clone()))
+                    .cloned()
+                    .unwrap_or(source);
+                let result = Self::change_table(model, kind, &resolved, change);
+                Self::keep_table_change_error(model, kind, &resolved, &result);
+                result
+            }
+            Event::RowsChanged {
+                kind,
+                source,
+                output,
+            } => {
+                let result = Self::rows_changed(model, kind, &source, output);
+                Self::keep_table_change_error(model, kind, &source, &result);
+                result
+            }
             Event::OpenParts {
                 source,
             } => {
@@ -741,16 +867,17 @@ impl Stores {
         state.reading = false;
 
         let error = match output {
-            StoresOutput::TableRead(Ok(Some(TableRecords {
-                revision,
-                table,
-            }))) => {
+            StoresOutput::TableRead(Ok(Some(records))) => {
                 state.error = None;
 
-                if state.table.is_some() && state.revision.as_ref() == Some(&revision) {
+                if state
+                    .table
+                    .as_ref()
+                    .is_some_and(|loaded| loaded.revision == records.revision)
+                {
                     info!(
                         "Table unchanged. kind: {:?}, source: '{}', revision: '{}'",
-                        kind, source, revision
+                        kind, source, records.revision
                     );
                     return Ok(render::render());
                 }
@@ -759,11 +886,10 @@ impl Stores {
                     "Loaded table. kind: {:?}, source: '{}', row_count: {}, revision: '{}'",
                     kind,
                     source,
-                    table.len(),
-                    revision
+                    records.table.len(),
+                    records.revision
                 );
-                state.table = Some(table);
-                state.revision = Some(revision);
+                state.table = Some(records);
 
                 return Ok(render::render().and(Self::table_view(model, kind, source)?));
             }
@@ -830,16 +956,10 @@ impl Stores {
     }
 
     fn table_view(model: &Model, kind: TableKind, source: Source) -> Result<Command<Effect, Event>, StoresError> {
-        let state = model
+        let records = model
             .tables
-            .get(&(kind, source.clone()));
-        let (table, revision) = state
-            .and_then(|state| {
-                state
-                    .table
-                    .as_ref()
-                    .zip(state.revision.as_ref())
-            })
+            .get(&(kind, source.clone()))
+            .and_then(|state| state.table.as_ref())
             .ok_or_else(|| StoresError::TableNotLoaded {
                 kind,
                 data_source: source.clone(),
@@ -848,15 +968,253 @@ impl Stores {
         let view = TableView {
             kind,
             source,
-            revision: revision.clone(),
-            columns: table.columns(),
-            table: table.clone(),
+            revision: records.revision.clone(),
+            columns: records.columns.clone(),
+            table: records.table.clone(),
+            keys: records.keys.clone(),
+            ordering: records.ordering.clone(),
         };
 
         Ok(Command::notify_shell(TableViewRendererOperation::View {
             view,
         })
         .into())
+    }
+
+    /// Has the service make the change, by the rows' keys and their columns' references, if the table is loaded, its
+    /// kind can be changed, and no other change is being made (`STORE-19`). The change isn't checked against the
+    /// table's revision: the service checks the values the change was made to are still those of its rows.
+    fn change_table(
+        model: &mut Model,
+        kind: TableKind,
+        source: &Source,
+        change: TableChange,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .tables
+            .get_mut(&(kind, source.clone()))
+            .filter(|state| state.table.is_some())
+            .ok_or_else(|| StoresError::TableNotLoaded {
+                kind,
+                data_source: source.clone(),
+            })?;
+
+        if state.changing {
+            return Err(StoresError::TableBeingChanged {
+                kind,
+                data_source: source.clone(),
+            }
+            .into());
+        }
+
+        let records = state
+            .table
+            .as_ref()
+            .ok_or_else(|| StoresError::TableNotLoaded {
+                kind,
+                data_source: source.clone(),
+            })?;
+        let change = Self::rows_change(kind, source, records, change)?;
+
+        state.changing = true;
+        Ok(render::render().and(Self::change_rows(kind, source.clone(), change)))
+    }
+
+    /// The change, as the back end makes it: the rows by their keys, and their values by their columns' references, as
+    /// the data source has them, if the table's kind can be changed, each value's column has a reference, and a row
+    /// moved can be.
+    fn rows_change(
+        kind: TableKind,
+        source: &Source,
+        records: &TableRecords,
+        change: TableChange,
+    ) -> Result<RowsChange, StoresError> {
+        if !records.table.is_changeable() {
+            return Err(StoresError::TableNotChangeable {
+                kind,
+                data_source: source.clone(),
+            });
+        }
+        let reference = |value: &ColumnValue| -> Result<ColumnRef, StoresError> {
+            records
+                .columns
+                .iter()
+                .find(|column| column.value == *value)
+                .and_then(|column| column.reference.clone())
+                .ok_or_else(|| StoresError::ColumnNotFound {
+                    kind,
+                    data_source: source.clone(),
+                    column: value.clone(),
+                })
+        };
+        let values = |row: &TableRow| -> Result<Vec<FieldValue>, StoresError> {
+            row.values()
+                .into_iter()
+                .map(|(value, text)| {
+                    Ok(FieldValue {
+                        column: reference(&value)?,
+                        value: text,
+                    })
+                })
+                .collect()
+        };
+        let row_ref = |key: RowKey, row: &TableRow| -> Result<RowRef, StoresError> {
+            Ok(RowRef {
+                key,
+                expected: values(row)?,
+            })
+        };
+
+        Ok(match change {
+            TableChange::Update {
+                key,
+                old,
+                new,
+            } => {
+                let old: BTreeMap<ColumnValue, String> = old.values().into_iter().collect();
+                // only the values that changed, so a change to another of the row's values isn't refused.
+                let changes = new
+                    .values()
+                    .into_iter()
+                    .filter(|(value, text)| old.get(value) != Some(text))
+                    .map(|(value, text)| {
+                        Ok(FieldChange {
+                            column: reference(&value)?,
+                            old: old
+                                .get(&value)
+                                .cloned()
+                                .unwrap_or_default(),
+                            new: text,
+                        })
+                    })
+                    .collect::<Result<_, StoresError>>()?;
+                RowsChange::Update {
+                    key,
+                    changes,
+                }
+            }
+            TableChange::Add {
+                row,
+            } => RowsChange::Add {
+                values: values(&row)?,
+            },
+            TableChange::Remove {
+                key,
+                row,
+            } => RowsChange::Remove {
+                row: row_ref(key, &row)?,
+            },
+            TableChange::Move {
+                key,
+                row,
+                before,
+            } => {
+                if records.ordering == RowOrdering::Unsupported {
+                    return Err(StoresError::RowsNotOrdered {
+                        kind,
+                        data_source: source.clone(),
+                    });
+                }
+                RowsChange::Move {
+                    row: row_ref(key, &row)?,
+                    before: before
+                        .map(|(key, row)| row_ref(key, &row))
+                        .transpose()?,
+                }
+            }
+        })
+    }
+
+    /// Reads the table again, once its rows were changed, so every view shows them, with the keys the back end gives
+    /// them now, or, if they had changed since the change was made, so every view shows them as they are now, which
+    /// the change can be made to again (`STORE-19`).
+    fn rows_changed(
+        model: &mut Model,
+        kind: TableKind,
+        source: &Source,
+        output: StoresOutput,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .tables
+            .entry((kind, source.clone()))
+            .or_default();
+        state.changing = false;
+
+        let mut read_again = || match state.reading {
+            // `STORE-9`, the read under way may be from before the change, so it's read again once it's done.
+            true => {
+                state.changed_while_reading = true;
+                Command::done()
+            }
+            false => {
+                state.reading = true;
+                Self::read_table(kind, source.clone())
+            }
+        };
+
+        match output {
+            StoresOutput::RowsChanged(Ok(revision)) => {
+                info!(
+                    "Changed table. kind: {:?}, source: '{}', revision: '{}'",
+                    kind, source, revision
+                );
+                Ok(render::render().and(read_again()))
+            }
+            StoresOutput::RowsChanged(Err(PartsWriteError::Changed {
+                revision: current_revision,
+            })) => Err(Refused {
+                error: StoresError::TableChanged {
+                    kind,
+                    data_source: source.clone(),
+                    current_revision,
+                },
+                then: read_again(),
+            }),
+            // the table is kept as it was, as it wasn't changed.
+            StoresOutput::RowsChanged(Err(PartsWriteError::Failed {
+                cause,
+            })) => Err(StoresError::UnableToChangeTable {
+                kind,
+                data_source: source.clone(),
+                cause,
+            }
+            .into()),
+            output => Err(StoresError::UnexpectedOutput {
+                output: format!("{:?}", output),
+            }
+            .into()),
+        }
+    }
+
+    /// Keeps why the table's last change was refused, until one succeeds, as [`Self::keep_change_error`] does.
+    fn keep_table_change_error(
+        model: &mut Model,
+        kind: TableKind,
+        source: &Source,
+        result: &Result<Command<Effect, Event>, Refused>,
+    ) {
+        if let Some(state) = model
+            .tables
+            .get_mut(&(kind, source.clone()))
+        {
+            state.change_error = result
+                .as_ref()
+                .err()
+                .map(|refused| refused.error.to_string());
+        }
+    }
+
+    fn change_rows(kind: TableKind, source: Source, change: RowsChange) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::ChangeRows {
+            kind,
+            source: source.clone(),
+            change,
+        })
+        .then_send(move |output| Event::RowsChanged {
+            kind,
+            source: source.clone(),
+            output,
+        })
     }
 
     fn is_loaded(model: &Model, source: &PartsSource) -> bool {

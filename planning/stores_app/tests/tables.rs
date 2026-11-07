@@ -1,4 +1,4 @@
-//! The stores core's tables: a data source's records shown read-only (`STORE-17`).
+//! The stores core's tables: a data source's records shown (`STORE-17`), and changed (`STORE-19`).
 //!
 //! The core is pure, so these tests answer the store operations it asks for themselves, with no files (`STORE-7`). The
 //! stores service's tests check the operations are done (`planning/stores_service/tests/`).
@@ -8,8 +8,10 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    BomViewItem, Cell, ColumnValue, Effect, Event, RefDes, Revision, Source, Stores, StoresOperation, StoresOutput,
-    Table, TableKind, TableRecords, TableView, TableViewRendererOperation,
+    BomViewItem, Cell, ColumnRef, ColumnValue, EdaTool, Effect, Event, FieldChange, FieldPattern, FieldValue, Part,
+    PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source,
+    Stores, StoresOperation, StoresOutput, Table, TableChange, TableKind, TableRecords, TableRow, TableView,
+    TableViewRendererOperation,
 };
 
 fn source(path: &str) -> Source {
@@ -34,12 +36,18 @@ fn table(rows: &[&[&str]]) -> Table {
     )
 }
 
-/// A read of a data source with the table, whose revision, as a file's, is the same only if its contents are.
+/// A read of a data source with the table, whose revision, as a file's, is the same only if its contents are, and whose
+/// rows' keys are their places. Part mappings can be changed, as a CSV file's: each column's reference is its name, and
+/// the rows are ordered by their place (`STORE-19`).
 fn read(table: Table) -> TableRecords {
-    TableRecords {
-        revision: Revision(format!("{:?}", table)),
-        table,
+    let mut records = TableRecords::read_only(Revision(format!("{:?}", table)), table);
+    if records.table.is_changeable() {
+        for column in records.columns.iter_mut() {
+            column.reference = Some(ColumnRef(column.name.clone()));
+        }
+        records.ordering = RowOrdering::Position;
     }
+    records
 }
 
 /// A shell, which answers each store operation the core asks for, keeps the table views the core sends, and keeps the
@@ -68,6 +76,35 @@ impl Shell {
         answer: impl FnMut(&StoresOperation) -> StoresOutput,
     ) -> (Vec<TableView>, Option<String>) {
         let effects = self.core.process_event(event);
+        self.run(effects, answer)
+    }
+
+    /// Processes the event, and keeps the one operation it asks for, unanswered, as the service would while it's done.
+    fn process_unanswered(&mut self, event: Event) -> crux_core::Request<StoresOperation> {
+        let mut requests: Vec<_> = self
+            .core
+            .process_event(event)
+            .into_iter()
+            .filter_map(|effect| match effect {
+                Effect::Stores(request) => Some(request),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(requests.len(), 1);
+        requests.remove(0)
+    }
+
+    /// Answers an operation kept by [`Self::process_unanswered`], and every operation it leads to.
+    fn answer(
+        &mut self,
+        mut request: crux_core::Request<StoresOperation>,
+        output: StoresOutput,
+        answer: impl FnMut(&StoresOperation) -> StoresOutput,
+    ) -> (Vec<TableView>, Option<String>) {
+        let effects = self
+            .core
+            .resolve(&mut request, output)
+            .unwrap();
         self.run(effects, answer)
     }
 
@@ -230,6 +267,9 @@ fn opening_a_table_reads_it_watches_it_and_sends_its_view() {
         revision: read(rows.clone()).revision,
         columns: rows.columns(),
         table: rows.clone(),
+        // `STORE-19`, each row's key, as the back end made it, and a BOM's rows can't be moved.
+        keys: vec![RowKey("0".to_string()), RowKey("1".to_string())],
+        ordering: RowOrdering::Unsupported,
     }]);
     // the columns are named as the data source names them, the comment last.
     let view = &views[0];
@@ -412,4 +452,526 @@ fn the_result_of_a_different_operation_is_refused() {
         "error: {:?}",
         error
     );
+}
+
+const MAPPINGS: TableKind = TableKind::PartMappings;
+
+/// A DipTrace part mapping, matching a placement's name with the pattern, to `MFR1`'s part.
+fn mapping(name: &str, mpn: &str) -> PartMappingsViewItem {
+    PartMappingsViewItem {
+        eda_tool: EdaTool::DipTrace,
+        criteria: vec![FieldPattern {
+            field_name: "name".to_string(),
+            pattern: Pattern::parse(name),
+        }],
+        part: Part {
+            manufacturer: "MFR1".to_string(),
+            mpn: mpn.to_string(),
+        },
+    }
+}
+
+fn mappings(rows: &[(&str, &str)]) -> Table {
+    Table::PartMappings(
+        rows.iter()
+            .map(|(name, mpn)| mapping(name, mpn))
+            .collect(),
+    )
+}
+
+fn row(name: &str, mpn: &str) -> TableRow {
+    TableRow::PartMappings(mapping(name, mpn))
+}
+
+fn key(key: &str) -> RowKey {
+    RowKey(key.to_string())
+}
+
+fn value(column: &str, value: &str) -> FieldValue {
+    FieldValue {
+        column: ColumnRef(column.to_string()),
+        value: value.to_string(),
+    }
+}
+
+/// The values the data source has of a part mapping made by [`mapping`], by their columns' references.
+fn values(name: &str, mpn: &str) -> Vec<FieldValue> {
+    vec![
+        value("Eda", "DipTrace"),
+        value("Name", name),
+        value("Manufacturer", "MFR1"),
+        value("Mpn", mpn),
+    ]
+}
+
+fn row_ref(key_: &str, name: &str, mpn: &str) -> RowRef {
+    RowRef {
+        key: key(key_),
+        expected: values(name, mpn),
+    }
+}
+
+const CHANGED: &str = "changed";
+
+/// A stores service that changes the rows, the data source's revision then `changed`, and then reads the table as
+/// `after`.
+fn changes_then_reads(resolved: &Source, after: Table) -> impl FnMut(&StoresOperation) -> StoresOutput {
+    let resolved = resolved.clone();
+    move |operation| match operation {
+        StoresOperation::ChangeRows {
+            source, ..
+        } => {
+            assert_eq!(*source, resolved);
+            StoresOutput::RowsChanged(Ok(Revision(CHANGED.to_string())))
+        }
+        StoresOperation::ReadTable {
+            source, ..
+        } => {
+            assert_eq!(*source, resolved);
+            StoresOutput::TableRead(Ok(Some(read(after.clone()))))
+        }
+        operation => panic!("unexpected operation: {:?}", operation),
+    }
+}
+
+/// Opens part mappings, `mappings.csv`, identified as `/folder/mappings.csv`, with the rows `R1`, `R2` and `R3`, and
+/// takes the operations. Returns the data source as asked for, as identified, and the view sent.
+fn given_open_part_mappings(shell: &mut Shell) -> (Source, Source, TableView) {
+    let as_asked = source("mappings.csv");
+    let resolved = source("/folder/mappings.csv");
+    let rows = mappings(&[("R1", "MPN1"), ("R2", "MPN2"), ("R3", "MPN3")]);
+    let (mut views, error) = shell.process(
+        Event::OpenTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(rows))),
+    );
+    assert_eq!(error, None);
+    shell.take_operations();
+    (as_asked, resolved, views.remove(0))
+}
+
+/// `STORE-19`, a table's view has each row's key, each column's reference, and how its rows are ordered, and a row, with
+/// its key, can be had from it for a front end to change.
+#[test]
+fn a_tables_view_has_its_rows_keys_its_columns_references_and_its_ordering() {
+    let mut shell = Shell::new();
+    let (_as_asked, _resolved, view) = given_open_part_mappings(&mut shell);
+
+    assert_eq!(view.keys, vec![key("0"), key("1"), key("2")]);
+    assert_eq!(view.ordering, RowOrdering::Position);
+    assert_eq!(
+        view.columns
+            .iter()
+            .map(|column| column.reference.clone())
+            .collect::<Vec<_>>(),
+        ["Eda", "Name", "Manufacturer", "Mpn"]
+            .map(|reference| Some(ColumnRef(reference.to_string())))
+            .to_vec()
+    );
+    assert_eq!(view.row(1), Some((key("1"), row("R2", "MPN2"))));
+    assert_eq!(view.row(3), None);
+}
+
+/// `STORE-19`, a change has the service change the rows by their keys and their columns' references, updating only a
+/// row's values that changed, with their values as they were, adding a row's values, and removing or moving a row,
+/// checking its values, and the other's it's moved before, then reads the table again, and sends its view.
+#[test]
+fn a_change_has_the_service_change_the_rows_then_reads_the_table_again() {
+    let cases = [
+        (
+            TableChange::Update {
+                key: key("1"),
+                old: row("R2", "MPN2"),
+                new: row("/R[/", "MPN5"),
+            },
+            RowsChange::Update {
+                key: key("1"),
+                changes: vec![
+                    FieldChange {
+                        column: ColumnRef("Name".to_string()),
+                        old: "R2".to_string(),
+                        new: "/R[/".to_string(),
+                    },
+                    FieldChange {
+                        column: ColumnRef("Mpn".to_string()),
+                        old: "MPN2".to_string(),
+                        new: "MPN5".to_string(),
+                    },
+                ],
+            },
+        ),
+        (
+            TableChange::Add {
+                row: row("/C.*/", "MPN4"),
+            },
+            RowsChange::Add {
+                values: values("/C.*/", "MPN4"),
+            },
+        ),
+        (
+            TableChange::Remove {
+                key: key("0"),
+                row: row("R1", "MPN1"),
+            },
+            RowsChange::Remove {
+                row: row_ref("0", "R1", "MPN1"),
+            },
+        ),
+        (
+            TableChange::Move {
+                key: key("2"),
+                row: row("R3", "MPN3"),
+                before: Some((key("0"), row("R1", "MPN1"))),
+            },
+            RowsChange::Move {
+                row: row_ref("2", "R3", "MPN3"),
+                before: Some(row_ref("0", "R1", "MPN1")),
+            },
+        ),
+        (
+            TableChange::Move {
+                key: key("0"),
+                row: row("R1", "MPN1"),
+                before: None,
+            },
+            RowsChange::Move {
+                row: row_ref("0", "R1", "MPN1"),
+                before: None,
+            },
+        ),
+    ];
+
+    for (change, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved, _view) = given_open_part_mappings(&mut shell);
+        let after = mappings(&[("R1", "MPN1"), ("R9", "MPN9")]);
+
+        let (views, error) = shell.process(
+            Event::ChangeTable {
+                kind: MAPPINGS,
+                source: as_asked.clone(),
+                change: change.clone(),
+            },
+            changes_then_reads(&resolved, after.clone()),
+        );
+
+        assert_eq!(error, None, "{:?}", change);
+        assert_eq!(
+            shell.take_operations(),
+            vec![
+                StoresOperation::ChangeRows {
+                    kind: MAPPINGS,
+                    source: resolved.clone(),
+                    change: expected,
+                },
+                StoresOperation::ReadTable {
+                    kind: MAPPINGS,
+                    source: resolved.clone(),
+                },
+            ],
+            "{:?}",
+            change
+        );
+        // every view shows the change, with the keys the back end gives the rows now.
+        assert_eq!(views.len(), 1, "{:?}", change);
+        assert_eq!(views[0].table, after, "{:?}", change);
+        assert_eq!(views[0].keys, vec![key("0"), key("1")], "{:?}", change);
+        let view_model = shell.core.view();
+        let status = view_model
+            .table(MAPPINGS, &as_asked)
+            .unwrap();
+        assert!(!status.changing);
+        assert_eq!(status.change_error, None);
+    }
+}
+
+/// `STORE-19`, the status says a change is being made, until which another is refused.
+#[test]
+fn a_change_while_another_is_made_is_refused() {
+    let mut shell = Shell::new();
+    let (as_asked, resolved, _view) = given_open_part_mappings(&mut shell);
+    let remove = |key_: &str, name: &str, mpn: &str| Event::ChangeTable {
+        kind: MAPPINGS,
+        source: as_asked.clone(),
+        change: TableChange::Remove {
+            key: key(key_),
+            row: row(name, mpn),
+        },
+    };
+
+    let change = shell.process_unanswered(remove("0", "R1", "MPN1"));
+    assert!(
+        shell
+            .core
+            .view()
+            .table(MAPPINGS, &as_asked)
+            .unwrap()
+            .changing
+    );
+
+    let (views, error) = shell.process(remove("1", "R2", "MPN2"), no_operations);
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        error,
+        Some("The table is being changed. kind: PartMappings, source: '/folder/mappings.csv'".to_string())
+    );
+
+    let after = mappings(&[("R2", "MPN2"), ("R3", "MPN3")]);
+    let (views, error) = shell.answer(
+        change,
+        StoresOutput::RowsChanged(Ok(Revision(CHANGED.to_string()))),
+        changes_then_reads(&resolved, after.clone()),
+    );
+    assert_eq!(error, None);
+    assert_eq!(views[0].table, after);
+    assert!(
+        !shell
+            .core
+            .view()
+            .table(MAPPINGS, &as_asked)
+            .unwrap()
+            .changing
+    );
+}
+
+/// `STORE-19`, a change to a table that isn't loaded, of a kind that can't be changed yet, such as a BOM, which the
+/// Variant Builder writes, with a value in a column the data source doesn't have, or moving a row of a table whose rows
+/// aren't ordered, is refused, changing nothing.
+#[test]
+fn a_change_the_table_can_not_take_is_refused() {
+    // not loaded.
+    let mut shell = Shell::new();
+    let (views, error) = shell.process(
+        Event::ChangeTable {
+            kind: MAPPINGS,
+            source: source("mappings.csv"),
+            change: TableChange::Add {
+                row: row("R4", "MPN4"),
+            },
+        },
+        no_operations,
+    );
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        error,
+        Some("The table is not loaded. kind: PartMappings, source: 'mappings.csv'".to_string())
+    );
+
+    // a BOM.
+    let mut shell = Shell::new();
+    let (as_asked, _resolved) = given_an_open_table(&mut shell);
+    let (_views, error) = shell.process(
+        Event::ChangeTable {
+            kind: KIND,
+            source: as_asked,
+            change: TableChange::Add {
+                row: row("R4", "MPN4"),
+            },
+        },
+        no_operations,
+    );
+    assert_eq!(
+        error,
+        Some("The table can't be changed. kind: Bom, source: '/folder/bom.csv'".to_string())
+    );
+
+    // a pattern of a field whose column the data source doesn't have, such as a placement's value.
+    let mut shell = Shell::new();
+    let (as_asked, _resolved, _view) = given_open_part_mappings(&mut shell);
+    let mut with_a_value = mapping("R4", "MPN4");
+    with_a_value
+        .criteria
+        .push(FieldPattern {
+            field_name: "value".to_string(),
+            pattern: Pattern::parse("330R"),
+        });
+    let (_views, error) = shell.process(
+        Event::ChangeTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+            change: TableChange::Add {
+                row: TableRow::PartMappings(with_a_value),
+            },
+        },
+        no_operations,
+    );
+    assert_eq!(
+        error,
+        Some(
+            "The column doesn't exist. kind: PartMappings, source: '/folder/mappings.csv', column: Pattern(\"value\")"
+                .to_string()
+        )
+    );
+    assert_eq!(
+        shell
+            .core
+            .view()
+            .table(MAPPINGS, &as_asked)
+            .unwrap()
+            .change_error,
+        error
+    );
+
+    // rows that aren't ordered, as a database table's without an ordering column.
+    let mut shell = Shell::new();
+    let as_asked = source("mappings.csv");
+    let resolved = source("/folder/mappings.csv");
+    let (_views, error) = shell.process(
+        Event::OpenTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+        },
+        |operation| match operation {
+            StoresOperation::ResolveSource {
+                ..
+            } => StoresOutput::SourceResolved {
+                source: resolved.clone(),
+            },
+            StoresOperation::ReadTable {
+                ..
+            } => {
+                let mut records = read(mappings(&[("R1", "MPN1"), ("R2", "MPN2")]));
+                records.ordering = RowOrdering::Unsupported;
+                StoresOutput::TableRead(Ok(Some(records)))
+            }
+            operation => panic!("unexpected operation: {:?}", operation),
+        },
+    );
+    assert_eq!(error, None);
+    let (_views, error) = shell.process(
+        Event::ChangeTable {
+            kind: MAPPINGS,
+            source: as_asked,
+            change: TableChange::Move {
+                key: key("1"),
+                row: row("R2", "MPN2"),
+                before: None,
+            },
+        },
+        no_operations,
+    );
+    assert_eq!(
+        error,
+        Some("The rows can't be moved. kind: PartMappings, source: '/folder/mappings.csv'".to_string())
+    );
+}
+
+/// `STORE-19`, a change the service refuses, as a row's values aren't those the change was made to, reads the table
+/// again, sends its view, and keeps the change's error until a change succeeds.
+#[test]
+fn a_change_the_service_refuses_reads_the_table_again() {
+    let mut shell = Shell::new();
+    let (as_asked, resolved, _view) = given_open_part_mappings(&mut shell);
+    let changed_by_another = mappings(&[("R1", "MPN1"), ("R2", "MPN7"), ("R3", "MPN3")]);
+    let current_revision = read(changed_by_another.clone()).revision;
+    let mut service = service(&as_asked, &resolved, Ok(Some(changed_by_another.clone())));
+
+    let (views, error) = shell.process(
+        Event::ChangeTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+            change: TableChange::Update {
+                key: key("1"),
+                old: row("R2", "MPN2"),
+                new: row("R2", "MPN5"),
+            },
+        },
+        |operation| match operation {
+            StoresOperation::ChangeRows {
+                ..
+            } => StoresOutput::RowsChanged(Err(PartsWriteError::Changed {
+                revision: Some(current_revision.clone()),
+            })),
+            operation => service(operation),
+        },
+    );
+
+    // the read after the refusal succeeds, so it's the table's status that says why the change was refused.
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations()[1..], [StoresOperation::ReadTable {
+        kind: MAPPINGS,
+        source: resolved.clone(),
+    }]);
+    // every view shows the table as it is now, which the change can be made to again.
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].table, changed_by_another);
+    let expected_error = format!(
+        "The table has changed since the change was made. kind: PartMappings, source: '/folder/mappings.csv', current_revision: '{}'",
+        current_revision
+    );
+    let view_model = shell.core.view();
+    let status = view_model
+        .table(MAPPINGS, &as_asked)
+        .unwrap();
+    assert_eq!(status.change_error, Some(expected_error));
+    assert_eq!(status.revision, Some(current_revision));
+
+    // a change that succeeds clears it.
+    let (_views, error) = shell.process(
+        Event::ChangeTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+            change: TableChange::Update {
+                key: key("1"),
+                old: row("R2", "MPN7"),
+                new: row("R2", "MPN5"),
+            },
+        },
+        changes_then_reads(&resolved, mappings(&[("R1", "MPN1"), ("R2", "MPN5"), ("R3", "MPN3")])),
+    );
+    assert_eq!(error, None);
+    assert_eq!(
+        shell
+            .core
+            .view()
+            .table(MAPPINGS, &as_asked)
+            .unwrap()
+            .change_error,
+        None
+    );
+}
+
+/// `STORE-19`, a change that can't be made says why, and keeps the table as it was, reading nothing.
+#[test]
+fn a_change_that_can_not_be_made_says_why_and_keeps_the_table() {
+    let mut shell = Shell::new();
+    let (as_asked, _resolved, view) = given_open_part_mappings(&mut shell);
+
+    let (views, error) = shell.process(
+        Event::ChangeTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+            change: TableChange::Remove {
+                key: key("0"),
+                row: row("R1", "MPN1"),
+            },
+        },
+        |operation| match operation {
+            StoresOperation::ChangeRows {
+                ..
+            } => StoresOutput::RowsChanged(Err(PartsWriteError::Failed {
+                cause: "Read-only.".to_string(),
+            })),
+            operation => panic!("unexpected operation: {:?}", operation),
+        },
+    );
+
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        error,
+        Some(
+            "Unable to change the table. kind: PartMappings, source: '/folder/mappings.csv', cause: Read-only."
+                .to_string()
+        )
+    );
+    let (views, _error) = shell.process(
+        Event::OpenTable {
+            kind: MAPPINGS,
+            source: as_asked,
+        },
+        no_operations,
+    );
+    assert_eq!(views[0], view);
 }

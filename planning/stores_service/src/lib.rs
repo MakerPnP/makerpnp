@@ -93,6 +93,14 @@ impl StoresService {
             } => {
                 stream::once(async move { StoresOutput::TableRead(csv_file::read_table(kind, &source).await) }).boxed()
             }
+            StoresOperation::ChangeRows {
+                kind,
+                source,
+                change,
+            } => stream::once(
+                async move { StoresOutput::RowsChanged(csv_file::change_rows(kind, &source, &change).await) },
+            )
+            .boxed(),
         }
     }
 

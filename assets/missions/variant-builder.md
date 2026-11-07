@@ -74,6 +74,18 @@ a data source, with nothing to keep them in step, which matters once data source
   makes every core and view using it ask again.
 - **Changes from other processes are noticed.** Each core asks the service to watch the data sources it uses, and is
   told when one changes, whoever changed it, for example the CLI, or an editor, and reads it again (`STORE-9`).
+- **Changes name columns and rows, not places.** Decided on 2026-11-07, as a data source may later be a database, whose
+  queries may return some of a table's columns, or columns from many tables, or a web API. A table's view has each
+  row's key, made by the back end, such as a database's primary key, or, for a CSV file, the row's place when it was
+  read, and each column's reference, as the data source names it, such as a CSV file's header, or a query result's
+  field. A change says which row, by its key, and which columns, by their references, with each value as it was and as
+  it's to be, and the back end changes only those, refusing the change if a value isn't as it was, as an SQL
+  `UPDATE ... WHERE COL_A = OLD_VALUE_A` would. So a column the table doesn't show is never touched, and a change to
+  one row doesn't refuse a change to another. The revision says whether a view is out of date, and isn't checked by a
+  change. A table says how its rows are ordered: not at all, so they can't be moved, by their place, as a CSV file's
+  lines are, or by a column's values, which a database or a web API would have. A row is moved to before another, or
+  to the end, named by their keys, so a front end showing some of the rows, such as a page of them, can move one, and
+  the back end works out the ordering values.
 - **No shared process for now.** Each process has its own service; the file or database is the record of what's
   stored, and the revision checks keep changes safe across processes. A stores server, shared by many processes, may
   come later, using the same service.
@@ -92,7 +104,7 @@ a data source, with nothing to keep them in step, which matters once data source
 | 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Done |
 | 9 | A variant builder: define the variant and choose its data sources. | Done |
 | 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | Done, but 10e |
-| 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | |
+| 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | Started |
 | 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
 | 13 | Confirming BOM items. | |
 
@@ -154,3 +166,21 @@ data sources changed from them in step 11. Each is a commit, the core first.
 | 10c. The Variant Builder's core says where its variant's outputs are written, so a front end can show them (`VARB-9`). | Done |
 | 10d. The GUI: the design variant's explorer, its "Overview" panel, a panel for each data source, a "Build output" panel, a placeholder for the mapping results to come, and the variant's placements and BOM (`VBGUI-9` to `VBGUI-12`). | Done |
 | 10e. The "Build output" panel shows the mapping results. To be designed with the project's owner. | Later |
+
+### Step 11, changing a data source from the UI
+
+Decided with the project's owner on 2026-11-07: a data source's table is changed in place, a value edited in its cell,
+and rows added, removed and moved, each change written at once, checked against the values shown, so nothing is left
+unsaved, and no one's change is lost, and every view of the data source, in every variant builder, shows it. Part
+mappings first, as they're what the build's cycle changes most, then substitutions, assembly rules, and parts' other
+values, left over from step 8. A design's EDA placements, and a variant's placements and BOM, stay read-only, as other
+tools write them. Each is a commit, the core first.
+
+| What | Status |
+|---|---|
+| 11a. The stores core changes a table's rows, updating, adding, removing and moving them, by their keys and their columns' references, each checked against the values the change was based on, part mappings first, and the stores service changes only those (`STORE-19`). | Done |
+| 11b. The CLI changes part mappings: `planner_cli table --kind part-mappings --source <file> add`, `set`, `remove` and `move` (`STORE-20`). | |
+| 11c. The GUI: a part mappings panel's values are edited in their cells, a pattern shown as what it is as it's typed, and its rows added, removed and moved (`VBGUI-13`). | |
+| 11d. Substitutions, as part mappings are: the core and the service, the CLI, then the GUI. | |
+| 11e. Assembly rules, as part mappings are. | |
+| 11f. A parts tab's other values, edited in their cells (`PARTSRC`). | |
