@@ -148,7 +148,6 @@ The highest ID used so far is `ISSUE-24`, so the next issue is `ISSUE-25`. A fix
 | [`ISSUE-20`](ISSUE-20-renamed-process-tab-shows-a-spinner.md) | Open | Planner: GUI | A process's tab shows a spinner after a refresh renames the process |
 | [`ISSUE-21`](ISSUE-21-cli-help-gives-the-wrong-file-reference-format.md) | Open | Planner: CLI | The CLI's help gives the wrong format for a file reference |
 | [`ISSUE-22`](ISSUE-22-cli-absolute-paths-keep-their-prefix.md) | Open | Planner: CLI | A file given to the CLI as `absolute=` keeps the prefix in its path |
-| [`ISSUE-24`](ISSUE-24-table-columns-cannot-be-resized.md) | Open | Planner: GUI | A data table's columns can't be resized |
 
 ## Contributing
 

@@ -1714,8 +1714,7 @@ dependencies = [
 [[package]]
 name = "egui_deferred_table"
 version = "0.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c5fb6f72c7cd43db78a109987e820b8808577ee32deab90cc7b8578b98855520"
+source = "git+https://github.com/makerpnp/egui_deferred_table?rev=274389854a085617c7d089703653749f3b35e1e5#274389854a085617c7d089703653749f3b35e1e5"
 dependencies = [
  "egui",
  "log",

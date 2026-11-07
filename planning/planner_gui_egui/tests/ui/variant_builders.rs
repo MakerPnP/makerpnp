@@ -323,8 +323,12 @@ fn double_clicking_a_data_source_shows_its_table() {
 }
 
 /// `VBGUI-11`, each of a data source's columns can be resized, by dragging the edge on its right.
+///
+/// Regression test for `ISSUE-24`: dragging the edge between two column headers dragged the header, as if to reorder
+/// the columns, rather than resizing the column on its left, in every `egui_deferred_table` table. The header cell
+/// sensed drags over its resize handle and, made after it, won egui's hit test; the header's interactive area now
+/// leaves out the handles, in `egui_deferred_table`.
 #[test]
-#[ignore = "ISSUE-24: the header cell's drag, to reorder columns, takes the resize handle's, in egui_deferred_table"]
 fn a_data_sources_columns_can_be_resized() {
     let mut app = App::start();
     let folder = app.folder();
