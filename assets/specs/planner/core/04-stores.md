@@ -330,10 +330,13 @@ value for each field named with `--value <FIELD>=<VALUE>`, such as "`name=RES_04
 same options, keeping those not named, and needs at least one. `remove` removes the row, and `move` moves it to before
 the row named with `--before <KEY>`, or to the end with `--to-end`. The row is changed as it was just read, so a change
 made by anyone between the read and the change is refused (`STORE-19`); to refuse one made since the user saw the row,
-such as with `list`, its values as they saw them MAY be given with `--was-eda`, `--was-pattern <FIELD>=<PATTERN>`,
-`--was-manufacturer` and `--was-mpn`, or, for a substitution, `--was-value <FIELD>=<VALUE>` and `--was-comment`,
-and the change is checked against those. As `STORE-19` checks only the values
-an update changes, `set`'s `--was-` values are checked only for the values it sets. A row that isn't there MUST fail,
+such as with `list`, as a row is named by its key, its place in the file, which another row may have now, the values
+the row has, as the user saw them, MAY be given with `--where-eda`, `--where-pattern <FIELD>=<PATTERN>`,
+`--where-manufacturer` and `--where-mpn`, or, for a substitution, `--where-value <FIELD>=<VALUE>` and
+`--where-comment`, as an SQL `UPDATE`'s `WHERE` does, and the change is refused if the row doesn't have them now.
+They check the row named with `--row`; they don't choose it. *Target*: rows chosen by their `--where-` values alone,
+with no `--row`, several at once. As `STORE-19` checks only the values an update changes, `set`'s `--where-` values
+are checked only for the values it sets. A row that isn't there MUST fail,
 saying "`The row doesn't exist. key: '<key>'`". If the core refuses, the CLI MUST fail with the core's error, and the
 file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11), and are
 refused, as the core refuses them.
@@ -445,7 +448,7 @@ at info level once they're added. Part mappings' and substitutions' columns can 
   column the table doesn't show untouched, and checks "`stores_app: Received event. event: ChangeTable {`",
   "`stores_service: Performing stores operation. operation: ChangeRows {`" and
   "`stores_app: Changed table. kind: PartMappings, source: '`" are logged, in order, with no "`Event failed.`". It
-  checks a change whose `--was-` values aren't the row's, a row that isn't there, and a table that can't be changed,
+  checks a change whose `--where-` values aren't the row's, a row that isn't there, and a table that can't be changed,
   fail, saying why, and leave the file as it was (`STORE-20`).
 - `planning/planner_cli/tests/tables.rs` adds EasyEDA's columns to DipTrace's part mappings, only "`Device`", as
   "`Value`" is there, after "`Value`", the last pattern's column, saying so, then adds an EasyEDA row, checks DipTrace's need none, and adds
@@ -489,7 +492,7 @@ at info level once they're added. Part mappings' and substitutions' columns can 
   tool's columns for substitutions are its fields' patterns' and values' columns the table doesn't have, the patterns'
   first, where the data source puts them, `EdaToolColumns` (`STORE-19`, `STORE-21`).
 - `planning/planner_cli/tests/tables.rs` lists substitutions with their keys, then adds a row with `--pattern`,
-  `--value` and `--comment`, sets its values, checked with `--was-value` and `--was-comment`, moves and removes a row,
+  `--value` and `--comment`, sets its values, checked with `--where-value` and `--where-comment`, moves and removes a row,
   adds KiCad's columns, then a KiCad row, checking the file after each, every value quoted, and checks
   "`stores_app: Changed table. kind: Substitutions, source: '`" and
   "`stores_app: Added table columns. kind: Substitutions, source: '`" are logged, in order, with no "`Event failed.`".

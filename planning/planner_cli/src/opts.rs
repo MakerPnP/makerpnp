@@ -97,21 +97,21 @@ pub(crate) enum TableCommand {
         #[command(flatten)]
         values: NewRowArgs,
     },
-    /// Set a row's values, keeping those not named, e.g. 'set --row 1 --mpn RES2 --was-mpn RES1'
+    /// Set a row's values, keeping those not named, e.g. 'set --row 1 --mpn RES2 --where-mpn RES1'
     Set {
         #[command(flatten)]
         row: RowArgs,
         #[command(flatten)]
         values: RowValuesArgs,
         #[command(flatten)]
-        was: WasRowArgs,
+        check: WhereRowArgs,
     },
     /// Remove a row, e.g. 'remove --row 1'
     Remove {
         #[command(flatten)]
         row: RowArgs,
         #[command(flatten)]
-        was: WasRowArgs,
+        check: WhereRowArgs,
     },
     /// Move a row to before another, or to the end, e.g. 'move --row 2 --before 0'
     #[command(group = clap::ArgGroup::new("to").required(true).args(["before", "to_end"]))]
@@ -125,7 +125,7 @@ pub(crate) enum TableCommand {
         #[arg(long)]
         to_end: bool,
         #[command(flatten)]
-        was: WasRowArgs,
+        check: WhereRowArgs,
     },
     /// Add columns to the table, those an EDA tool's rows need that it doesn't have, e.g. 'add-columns --eda kicad', or
     /// named, with where they go, e.g. 'add-columns --column Notes --last'
@@ -210,28 +210,29 @@ pub(crate) struct RowValuesArgs {
     pub(crate) comment: Option<String>,
 }
 
-/// A row's values as the user saw them, such as with 'list', so the change is refused if they aren't still.
-/// Defaults to the values read before the change is made.
+/// The values the row named with '--row' has, as the user saw them, such as with 'list', so the change is refused if
+/// it doesn't have them now, as another row may be in its place. They check the row; they don't choose it. Defaults to
+/// the values read before the change is made.
 #[derive(Debug, Args)]
-pub(crate) struct WasRowArgs {
-    /// The EDA tool as it was
+pub(crate) struct WhereRowArgs {
+    /// Change the row only where its EDA tool is this
     #[arg(long, value_name = "EDA_TOOL")]
-    pub(crate) was_eda: Option<EdaToolArg>,
-    /// A field's pattern as it was, e.g. 'name=/R.*/'; repeat it for each field
-    #[arg(long = "was-pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
-    pub(crate) was_patterns: Vec<(String, String)>,
-    /// A part mapping's part's manufacturer as it was
+    pub(crate) where_eda: Option<EdaToolArg>,
+    /// Change the row only where a field's pattern is this, e.g. 'name=/R.*/'; repeat it for each field
+    #[arg(long = "where-pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
+    pub(crate) where_patterns: Vec<(String, String)>,
+    /// Change a part mapping only where its part's manufacturer is this
     #[arg(long, value_name = "MANUFACTURER")]
-    pub(crate) was_manufacturer: Option<String>,
-    /// A part mapping's part's manufacturer part number as it was
+    pub(crate) where_manufacturer: Option<String>,
+    /// Change a part mapping only where its part's manufacturer part number is this
     #[arg(long, value_name = "MPN")]
-    pub(crate) was_mpn: Option<String>,
-    /// A substitution's value for a field as it was, e.g. 'name=RES_0402'; repeat it for each field
-    #[arg(long = "was-value", value_name = "FIELD=VALUE", value_parser = parse_field_value)]
-    pub(crate) was_values: Vec<(String, String)>,
-    /// A substitution's comment as it was
+    pub(crate) where_mpn: Option<String>,
+    /// Change a substitution only where a field's value is this, e.g. 'name=RES_0402'; repeat it for each field
+    #[arg(long = "where-value", value_name = "FIELD=VALUE", value_parser = parse_field_value)]
+    pub(crate) where_values: Vec<(String, String)>,
+    /// Change a substitution only where its comment is this
     #[arg(long, value_name = "COMMENT")]
-    pub(crate) was_comment: Option<String>,
+    pub(crate) where_comment: Option<String>,
 }
 
 /// A field's pattern, as 'FIELD=PATTERN', the field's name as the EDA tool's, in lower case, such as 'name'.

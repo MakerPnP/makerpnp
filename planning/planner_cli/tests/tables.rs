@@ -214,7 +214,7 @@ fn adds_sets_moves_and_removes_part_mappings() -> Result<(), anyhow::Error> {
         "value=10K",
         "--mpn",
         "MPN5",
-        "--was-mpn",
+        "--where-mpn",
         "MPN2",
     ])?;
     assert_eq!(read_to_string(&mappings_path)?, indoc! {r#"
@@ -244,7 +244,7 @@ fn adds_sets_moves_and_removes_part_mappings() -> Result<(), anyhow::Error> {
         "remove",
         "--row",
         "0",
-        "--was-pattern",
+        "--where-pattern",
         "name=/C.*/",
     ])?;
     assert_eq!(read_to_string(&mappings_path)?, indoc! {r#"
@@ -256,7 +256,7 @@ fn adds_sets_moves_and_removes_part_mappings() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-/// `STORE-20`, a change whose `--was-` values aren't the row's, a row that isn't there, and a change to a table that
+/// `STORE-20`, a change whose `--where-` values aren't the row's, a row that isn't there, and a change to a table that
 /// can't be changed, such as a BOM, fail, saying why, and leave the file as it was.
 #[test]
 fn a_change_that_is_refused_fails_and_leaves_the_file() -> Result<(), anyhow::Error> {
@@ -274,11 +274,11 @@ fn a_change_that_is_refused_fails_and_leaves_the_file() -> Result<(), anyhow::Er
 
     let cases: [(&[&str], &str); 3] = [
         (
-            &["set", "--row", "1", "--mpn", "MPN5", "--was-mpn", "MPN7"],
+            &["set", "--row", "1", "--mpn", "MPN5", "--where-mpn", "MPN7"],
             "The table has changed since the change was made. kind: PartMappings, source: '",
         ),
         (
-            &["remove", "--row", "0", "--was-manufacturer", "MFR7"],
+            &["remove", "--row", "0", "--where-manufacturer", "MFR7"],
             "The table has changed since the change was made. kind: PartMappings, source: '",
         ),
         (&["move", "--row", "5", "--to-end"], "The row doesn't exist. key: '5'"),
@@ -590,9 +590,9 @@ fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
         "value=100R",
         "--comment",
         "comment 1b",
-        "--was-value",
+        "--where-value",
         "value=",
-        "--was-comment",
+        "--where-comment",
         "comment 1",
     ])?;
     assert_eq!(read_to_string(&substitutions_path)?, indoc! {r#"
@@ -609,7 +609,7 @@ fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
         "remove",
         "--row",
         "2",
-        "--was-value",
+        "--where-value",
         "name=CAP_0402",
     ])?;
     assert_eq!(read_to_string(&substitutions_path)?, indoc! {r#"
@@ -657,7 +657,7 @@ fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
 }
 
 /// `STORE-20`, a part's options for a substitution, a substitution's for a part mapping, a part mapping without its
-/// part, and a substitution whose `--was-` values aren't the row's, fail, saying why, and leave the file as it was.
+/// part, and a substitution whose `--where-` values aren't the row's, fail, saying why, and leave the file as it was.
 #[test]
 fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyhow::Error> {
     let temp_dir = tempdir()?;
@@ -698,8 +698,8 @@ fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyho
             "substitutions",
             &substitutions_path,
             SUBSTITUTIONS,
-            &["remove", "--row", "0", "--was-manufacturer", "MFR1"],
-            "Option not for the table's kind. option: '--was-manufacturer', kind: Substitutions",
+            &["remove", "--row", "0", "--where-manufacturer", "MFR1"],
+            "Option not for the table's kind. option: '--where-manufacturer', kind: Substitutions",
         ),
         (
             "substitutions",
@@ -711,7 +711,7 @@ fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyho
                 "0",
                 "--comment",
                 "comment 2",
-                "--was-comment",
+                "--where-comment",
                 "comment 7",
             ],
             "The table has changed since the change was made. kind: Substitutions, source: '",
@@ -737,8 +737,8 @@ fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyho
             "part-mappings",
             &mappings_path,
             MAPPINGS,
-            &["set", "--row", "0", "--mpn", "MPN2", "--was-comment", "comment 1"],
-            "Option not for the table's kind. option: '--was-comment', kind: PartMappings",
+            &["set", "--row", "0", "--mpn", "MPN2", "--where-comment", "comment 1"],
+            "Option not for the table's kind. option: '--where-comment', kind: PartMappings",
         ),
         (
             "part-mappings",

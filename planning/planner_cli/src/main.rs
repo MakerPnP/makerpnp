@@ -17,7 +17,7 @@ use stores_app::{
 use crate::core::Core;
 use crate::opts::{
     build_project_file_path, ModeCommand, Opts, PartArgs, PartsCommand, PartsCommandArgs, PcbCommand, ProcessCommand,
-    ProjectCommand, TableCommand, TableCommandArgs, WasRowArgs,
+    ProjectCommand, TableCommand, TableCommandArgs, WhereRowArgs,
 };
 
 mod core;
@@ -180,7 +180,8 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         return add_columns(&core, view, kind, source, to_add);
     }
 
-    // `STORE-20`, each row changed as it was just read, or as the user saw it, so a change made since is refused.
+    // `STORE-20`, each row changed as it was just read, or where it has the values the user saw, so a change made since
+    // is refused.
     let change = match &table_args.command {
         TableCommand::List {
             ..
@@ -233,9 +234,9 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         TableCommand::Set {
             row,
             values,
-            was,
+            check: seen,
         } => {
-            let (key, old) = row_as_it_was(view, &row.row, was)?;
+            let (key, old) = row_as_seen(view, &row.row, seen)?;
             let mut new = old.clone();
             set_row(view, &mut new, &RowValues {
                 options: "--",
@@ -254,9 +255,9 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         }
         TableCommand::Remove {
             row,
-            was,
+            check: seen,
         } => {
-            let (key, row) = row_as_it_was(view, &row.row, was)?;
+            let (key, row) = row_as_seen(view, &row.row, seen)?;
             TableChange::Remove {
                 key,
                 row,
@@ -266,9 +267,9 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
             row,
             before,
             to_end: _,
-            was,
+            check: seen,
         } => {
-            let (key, row) = row_as_it_was(view, &row.row, was)?;
+            let (key, row) = row_as_seen(view, &row.row, seen)?;
             let before = before
                 .as_ref()
                 .map(|before| table_row(view, before))
@@ -359,24 +360,25 @@ fn not_changeable(view: &TableView) -> StoresError {
     }
 }
 
-/// The row with the key, with the values the user gave as they saw them in place of those read.
-fn row_as_it_was(view: &TableView, key: &str, was: &WasRowArgs) -> anyhow::Result<(RowKey, TableRow)> {
+/// The row with the key, with the `--where-` values the user gave, as they saw them, in place of those read, so the
+/// change is refused if the row doesn't have them now.
+fn row_as_seen(view: &TableView, key: &str, seen: &WhereRowArgs) -> anyhow::Result<(RowKey, TableRow)> {
     let (key, mut row) = table_row(view, key)?;
     set_row(view, &mut row, &RowValues {
-        options: "--was-",
-        eda: was.was_eda.as_ref(),
-        patterns: &was.was_patterns,
-        manufacturer: was.was_manufacturer.as_ref(),
-        mpn: was.was_mpn.as_ref(),
-        values: &was.was_values,
-        comment: was.was_comment.as_ref(),
+        options: "--where-",
+        eda: seen.where_eda.as_ref(),
+        patterns: &seen.where_patterns,
+        manufacturer: seen.where_manufacturer.as_ref(),
+        mpn: seen.where_mpn.as_ref(),
+        values: &seen.where_values,
+        comment: seen.where_comment.as_ref(),
     })?;
     Ok((key, row))
 }
 
 /// A row's values, as given with the options, a part mapping's or a substitution's.
 struct RowValues<'a> {
-    /// What the options' names start with, such as "`--was-`", to say which was refused.
+    /// What the options' names start with, such as "`--where-`", to say which was refused.
     options: &'static str,
     eda: Option<&'a EdaToolArg>,
     patterns: &'a [(String, String)],
