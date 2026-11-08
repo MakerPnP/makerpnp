@@ -142,10 +142,19 @@ if it's still as it was; "`Add row`" likewise adds the variant builder's EDA too
 the row, which is selected once it's shown, as a row added is. The row buttons are disabled until the row's change is
 made. If adding the columns is refused, the panel says why (`STORE-21`), and the row is left as it was. Changing a
 row's tool keeps its patterns for the other tools' fields, as they're the user's. Every pattern's cell is shown, and
-editable, whichever tool the row has, and its background says whether the row's tool matches the field: faint green if
-it does, and faint red if it doesn't, so its pattern is ignored, saying so when the cell is hovered, even with no
-pattern, "`Matched by <tool>.`" or "`Not matched by <tool>.`", so the colour isn't the only sign, with why an invalid
-regular expression isn't valid below it. The cell's editor, shown over it, isn't coloured. *Observed*: the tab's
+editable, whichever tool the row has, and its background, faint, so the pattern's own colour can still be read, says
+how the row's tool uses it, the first of these that's so:
+
+- **Blue**: the row's tool doesn't match the field, so its pattern is ignored, saying "`Not matched by <tool>.`".
+- **Red**: the tool matches the field, and its pattern is a regular expression that isn't valid, saying
+  "`Matched by <tool>.`", and why the expression isn't valid below it.
+- **Orange**: the tool matches the field, and every one of the tool's fields' patterns in the row is empty, or the data
+  source has no column for it, so the row has nothing to match with, saying
+  "`Matched by <tool>. None of its fields has a pattern.`".
+- **Green**: otherwise, the tool matches the field, saying "`Matched by <tool>.`".
+
+The cell says so when it's hovered, even with no pattern, so the colour isn't the only sign. The cell's editor, shown
+over it, isn't coloured. *Observed*: the tab's
 "`ChangeAfterColumns(<pending change>)`" command is logged, then the core's "`AddTableColumns`" event, and once the
 columns are shown, "`ColumnsShown(Some((<change>, <after change>)))`", before the row's "`ChangeTable`", or
 "`ColumnsShown(None)`" if the columns weren't added, or the row isn't as it was. *Target*: several rows selected are
@@ -209,7 +218,8 @@ removed at once. The gap: the stores core makes one change at a time.
   explorer (`VBGUI-8`, `VBGUI-9`).
 - `tests/ui/variant_builders.rs` opens part mappings with an exact pattern, a valid regular expression and one that
   isn't, checks each is shown, as the data source has it, its columns in order, and that hovering the one that isn't
-  valid says "`regex parse error`", and checks a BOM's comment is its last column. `data_sources::table`'s tests check
+  valid says "`Matched by DipTrace.`", as its cell is red, and "`regex parse error`" (`VBGUI-13`), and checks a BOM's
+  comment is its last column. `data_sources::table`'s tests check
   a pattern's colour, in the dark and light themes, as the GUI's tests can't see colours (`VBGUI-11`).
 - `tests/ui/variant_builders.rs`'s `a_data_sources_columns_can_be_resized` drags the edges between part mappings'
   columns and checks each column is as much wider as the edge was dragged; it's the regression test for `ISSUE-24`
@@ -244,13 +254,17 @@ removed at once. The gap: the stores core makes one change at a time.
   them to be added, the change of its tool pending, and one whose columns it has is made at once, that once the columns
   are shown the pending change is made of the row as it's shown then, keeping its patterns, or not if the row changed
   or is gone, that a row added is added and selected once it's shown, that nothing is made if the columns weren't
-  added, and that a pattern's cell is faint green if the row's tool matches its field, a field shared by tools matched
-  by each, and faint red if not, in either theme (`VBGUI-13`).
+  added, and that a pattern's cell is blue if the row's tool doesn't match its field, whatever its pattern, red if it
+  does and its pattern is a regular expression that isn't valid, orange if it does and every one of the tool's fields'
+  patterns in the row is empty or missing, and green otherwise, a field shared by tools matched by each, each faint,
+  and each colour told apart from the others, in either theme (`VBGUI-13`).
 - `tests/ui/variant_builders.rs`'s `choosing_a_rows_eda_tool_adds_its_columns_first` chooses KiCad for a row of
   DipTrace's part mappings, checking "`Package`" and "`Val`" are added before "`Manufacturer`", then the row's tool is
   changed, keeping its patterns, then EasyEDA, checking only "`Device`" is added, then KiCad again, whose columns are
-  there, checking the file after each, and hovers pattern cells, checking "`Not matched by KiCad.`",
-  "`Matched by KiCad.`" and "`Not matched by DipTrace.`" are shown. It checks "`ChangeAfterColumns(`",
+  there, checking the file after each, and hovers pattern cells, checking "`Not matched by KiCad.`" and
+  "`Not matched by DipTrace.`" for fields the row's tool doesn't match, "`Matched by KiCad. None of its fields has a
+  pattern.`" for the KiCad row, whose KiCad patterns are empty, and "`Matched by DipTrace.`" for a DipTrace row's
+  pattern are shown. It checks "`ChangeAfterColumns(`",
   "`stores_app: Received event. event: AddTableColumns {`", the core's "`Added table columns.`",
   "`stores_app: Loaded table. kind: PartMappings, `", "`ColumnsShown(Some((Update {`",
   "`stores_app: Received event. event: ChangeTable {`" and "`stores_app: Changed table. kind: PartMappings, `" are

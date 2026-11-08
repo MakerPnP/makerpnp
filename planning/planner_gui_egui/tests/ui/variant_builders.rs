@@ -380,8 +380,10 @@ fn a_part_mappings_patterns_are_shown_and_an_invalid_one_says_why() {
     let headers = ["Eda", "Name", "Value", "Manufacturer", "Mpn"].map(|header| app.text_position(header).x);
     assert!(headers.is_sorted(), "{headers:?}");
 
+    // red, as DipTrace matches its field, saying why it isn't valid (`VBGUI-13`).
     app.hover_text("/330R[/");
     app.wait_for_text_containing("regex parse error");
+    app.wait_for_text_containing("Matched by DipTrace.");
 }
 
 const TWO_MAPPINGS: &str = "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
@@ -710,13 +712,18 @@ fn choosing_a_rows_eda_tool_adds_its_columns_first() {
          \"KiCad\",\"CAP_0603\",\"10u\",\"\",\"\",\"\",\"MFR2\",\"MPN2\"\n",
     );
 
-    // every pattern's cell is shown, whichever tool the row has, saying whether the tool matches its field.
+    // every pattern's cell is shown, whichever tool the row has, saying how the tool uses it: blue, not matched.
     app.hover_data_table_cell("CAP_0603", "Name");
     app.wait_for_text_containing("Not matched by KiCad.");
-    app.hover_data_table_cell("CAP_0603", "Package");
-    app.wait_for_text_containing("Matched by KiCad.");
     app.hover_data_table_cell("RES_0402", "Device");
     app.wait_for_text_containing("Not matched by DipTrace.");
+    // orange, as KiCad's fields have no patterns in the row.
+    app.hover_data_table_cell("CAP_0603", "Package");
+    app.wait_for_text_containing("Matched by KiCad. None of its fields has a pattern.");
+    // green, not orange, as the row's DipTrace fields have patterns.
+    app.hover_data_table_cell("RES_0402", "Value");
+    app.wait_for_text_containing("Matched by DipTrace.");
+    app.wait_until_no_text_contains("None of its fields has a pattern.");
     app.assert_not_logged("Event failed.");
 }
 

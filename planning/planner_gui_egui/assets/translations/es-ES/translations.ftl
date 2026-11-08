@@ -207,6 +207,7 @@ data-table-button-move-up = Subir
 data-table-button-move-down = Bajar
 data-table-pattern-matched = Coincide con { $tool }.
 data-table-pattern-not-matched = No coincide con { $tool }.
+data-table-pattern-no-patterns = Coincide con { $tool }. Ninguno de sus campos tiene un patrón.
 table-parts-source-column-manufacturer = Fabricante
 table-parts-source-column-mpn = MPN
 process-editor-operation = Operación

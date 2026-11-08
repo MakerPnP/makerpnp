@@ -672,11 +672,11 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
         else {
             return;
         };
-        // `VBGUI-13`, a pattern's cell of a row whose kind can be changed says whether the row's EDA tool matches its
-        // field, even with no pattern.
+        // `VBGUI-13`, a pattern's cell of a row whose kind can be changed says how the row's EDA tool uses it, even with
+        // no pattern.
         let matched = match (&column.value, source.view.table.row(cell_index.row)) {
             (ColumnValue::Pattern(field_name), Some(TableRow::PartMappings(item))) => {
-                Some(PatternMatch::of(item.eda_tool, field_name))
+                Some(PatternMatch::of(&item, field_name))
             }
             _ => None,
         };
@@ -712,44 +712,74 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
     }
 }
 
-/// Whether a row's EDA tool matches a field, so its pattern is used, or ignored (`VBGUI-13`).
+/// How a row's EDA tool uses a field's pattern, the first of these that's so (`VBGUI-13`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum PatternMatch {
-    Matched(EdaTool),
+    /// The tool doesn't match the field, so its pattern is ignored.
     NotMatched(EdaTool),
+    /// The tool matches the field, and its pattern is a regular expression that isn't valid.
+    Invalid(EdaTool),
+    /// The tool matches the field, and none of its fields has a pattern in the row, empty or with no column, so the row
+    /// has nothing to match with.
+    NoPatterns(EdaTool),
+    /// The tool matches the field.
+    Matched(EdaTool),
 }
 
 impl PatternMatch {
-    fn of(eda_tool: EdaTool, field_name: &str) -> Self {
-        match eda_tool
-            .field_names()
-            .contains(&field_name)
+    fn of(item: &PartMappingsViewItem, field_name: &str) -> Self {
+        let eda_tool = item.eda_tool;
+        let pattern = |field_name: &str| {
+            item.criteria
+                .iter()
+                .find(|criterion| criterion.field_name == field_name)
+                .map(|criterion| &criterion.pattern)
+        };
+        let fields = eda_tool.field_names();
+        if !fields.contains(&field_name) {
+            return PatternMatch::NotMatched(eda_tool);
+        }
+        if let Some(Pattern::Regex {
+            regex: Err(_), ..
+        }) = pattern(field_name)
         {
-            true => PatternMatch::Matched(eda_tool),
-            false => PatternMatch::NotMatched(eda_tool),
+            return PatternMatch::Invalid(eda_tool);
+        }
+        let none = fields
+            .iter()
+            .all(|&field_name| pattern(field_name).is_none_or(|pattern| pattern.text().is_empty()));
+        match none {
+            true => PatternMatch::NoPatterns(eda_tool),
+            false => PatternMatch::Matched(eda_tool),
         }
     }
 
-    /// Faint green, or faint red, so the pattern's own colour can still be read, in either theme.
+    /// Faint blue, red, orange or green, so the pattern's own colour can still be read, in either theme.
     fn background(self, visuals: &Visuals) -> Color32 {
         let alpha = match visuals.dark_mode {
             true => 40,
             false => 32,
         };
-        match self {
-            PatternMatch::Matched(_) => Color32::from_rgba_unmultiplied(0, 200, 0, alpha),
-            PatternMatch::NotMatched(_) => Color32::from_rgba_unmultiplied(230, 0, 0, alpha),
-        }
+        let (r, g, b) = match self {
+            PatternMatch::NotMatched(_) => (0, 100, 255),
+            PatternMatch::Invalid(_) => (230, 0, 0),
+            PatternMatch::NoPatterns(_) => (255, 140, 0),
+            PatternMatch::Matched(_) => (0, 200, 0),
+        };
+        Color32::from_rgba_unmultiplied(r, g, b, alpha)
     }
 
-    /// Said when it's hovered, so the colour isn't the only sign.
+    /// Said when it's hovered, so the colour isn't the only sign; an invalid expression's cell says why, too.
     fn text(self) -> String {
         match self {
-            PatternMatch::Matched(eda_tool) => {
-                tr!("data-table-pattern-matched", { tool: eda_tool_name(eda_tool) })
-            }
             PatternMatch::NotMatched(eda_tool) => {
                 tr!("data-table-pattern-not-matched", { tool: eda_tool_name(eda_tool) })
+            }
+            PatternMatch::NoPatterns(eda_tool) => {
+                tr!("data-table-pattern-no-patterns", { tool: eda_tool_name(eda_tool) })
+            }
+            PatternMatch::Invalid(eda_tool) | PatternMatch::Matched(eda_tool) => {
+                tr!("data-table-pattern-matched", { tool: eda_tool_name(eda_tool) })
             }
         }
     }
@@ -1224,34 +1254,77 @@ mod tests {
         after_change(revision, select_row(row, place))
     }
 
-    /// `VBGUI-13`, a pattern's cell says whether the row's EDA tool matches its field, a field shared by tools matched by
-    /// each, in either theme, faint green if it is, and faint red if not.
-    #[test]
-    fn a_patterns_cell_says_whether_the_rows_tool_matches_its_field() {
-        assert_eq!(
-            PatternMatch::of(EdaTool::DipTrace, "name"),
-            PatternMatch::Matched(EdaTool::DipTrace)
-        );
-        assert_eq!(
-            PatternMatch::of(EdaTool::EasyEda, "value"),
-            PatternMatch::Matched(EdaTool::EasyEda)
-        );
-        assert_eq!(
-            PatternMatch::of(EdaTool::KiCad, "value"),
-            PatternMatch::NotMatched(EdaTool::KiCad)
-        );
+    /// A part mapping of the EDA tool, with the fields' patterns.
+    fn mapping_with(eda_tool: EdaTool, patterns: &[(&str, &str)]) -> PartMappingsViewItem {
+        PartMappingsViewItem {
+            eda_tool,
+            criteria: patterns
+                .iter()
+                .map(|(field_name, pattern)| FieldPattern {
+                    field_name: field_name.to_string(),
+                    pattern: Pattern::parse(pattern),
+                })
+                .collect(),
+            part: Part::new("MFR1".to_string(), "MPN1".to_string()),
+        }
+    }
 
+    /// `VBGUI-13`, a pattern's cell says how the row's EDA tool uses it, the first that's so: blue if the tool doesn't
+    /// match its field, whatever its pattern, red if it does and its pattern is a regular expression that isn't valid,
+    /// orange if it does and none of the tool's fields has a pattern in the row, empty or with no column, and green
+    /// otherwise, a field shared by tools matched by each.
+    #[test]
+    fn a_patterns_cell_says_how_the_rows_tool_uses_it() {
+        use EdaTool::*;
+        use PatternMatch::*;
+
+        let dip_trace = mapping_with(DipTrace, &[
+            ("name", "RES_0402"),
+            ("value", ""),
+            ("package", "/R_[/"),
+            ("val", ""),
+        ]);
+        assert_eq!(PatternMatch::of(&dip_trace, "name"), Matched(DipTrace));
+        // empty, but another of the tool's fields has a pattern.
+        assert_eq!(PatternMatch::of(&dip_trace, "value"), Matched(DipTrace));
+        // not the tool's, even if it isn't valid, or is empty, or has no column.
+        assert_eq!(PatternMatch::of(&dip_trace, "package"), NotMatched(DipTrace));
+        assert_eq!(PatternMatch::of(&dip_trace, "val"), NotMatched(DipTrace));
+        assert_eq!(PatternMatch::of(&dip_trace, "device"), NotMatched(DipTrace));
+
+        let invalid = mapping_with(EasyEda, &[("device", ""), ("value", "/10[/")]);
+        assert_eq!(PatternMatch::of(&invalid, "value"), Invalid(EasyEda));
+        // the other field, empty, as the invalid one is a pattern, if not a valid one.
+        assert_eq!(PatternMatch::of(&invalid, "device"), Matched(EasyEda));
+
+        // every one of KiCad's empty, or with no column, `val`, whatever the other tools' fields have.
+        let none = mapping_with(KiCad, &[("name", "RES_0402"), ("package", "")]);
+        assert_eq!(PatternMatch::of(&none, "package"), NoPatterns(KiCad));
+        assert_eq!(PatternMatch::of(&none, "val"), NoPatterns(KiCad));
+        assert_eq!(PatternMatch::of(&none, "name"), NotMatched(KiCad));
+    }
+
+    /// `VBGUI-13`, each of a pattern cell's backgrounds is faint, and its colour, blue, red, orange or green, in either
+    /// theme.
+    #[test]
+    fn a_patterns_cells_backgrounds_are_faint_and_told_apart() {
         for visuals in [Visuals::dark(), Visuals::light()] {
-            let matched = PatternMatch::Matched(EdaTool::KiCad).background(&visuals);
-            let not_matched = PatternMatch::NotMatched(EdaTool::KiCad).background(&visuals);
+            let colour = |matched: PatternMatch| matched.background(&visuals);
+            let blue = colour(PatternMatch::NotMatched(EdaTool::KiCad));
+            let red = colour(PatternMatch::Invalid(EdaTool::KiCad));
+            let orange = colour(PatternMatch::NoPatterns(EdaTool::KiCad));
+            let green = colour(PatternMatch::Matched(EdaTool::KiCad));
+
+            for background in [blue, red, orange, green] {
+                assert!(background.a() < 64, "faint: {background:?}");
+            }
+            assert!(blue.b() > blue.r() && blue.b() > blue.g(), "blue: {blue:?}");
+            assert!(red.r() > red.g() && red.r() > red.b() && red.g() == 0, "red: {red:?}");
             assert!(
-                matched.g() > matched.r() && matched.a() < 64,
-                "faint green: {matched:?}"
+                orange.r() > orange.g() && orange.g() > orange.b() && orange.g() > 0,
+                "orange: {orange:?}"
             );
-            assert!(
-                not_matched.r() > not_matched.g() && not_matched.a() < 64,
-                "faint red: {not_matched:?}"
-            );
+            assert!(green.g() > green.r() && green.g() > green.b(), "green: {green:?}");
         }
     }
 
