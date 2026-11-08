@@ -92,9 +92,10 @@ edited in its cell, and parts added, removed and moved with "`Add row`", "`Remov
   error, and that the first tab showing the data source shows the error and the parts loaded before
   (`PARTSRC-3`, `PARTSRC-5`, `STORE-3`).
 - `tests/ui/parts_sources.rs`'s `parts_are_changed_in_the_parts_tab` checks there are no "`Manufacturer`" and "`MPN`"
-  fields, nor "`Add part`", adds a row, checks its cells are red and its status names each empty one, fills its
-  manufacturer, MPN and other values in their cells, checking the file after each, and its status then says
-  "`No problems.`", moves it up and removes it, checking the file is then as it was, and that
+  fields, nor "`Add part`", edits parts' manufacturer, MPN and other values in their cells, checking the file after
+  each, an other value emptied too, a part's status saying "`No problems.`" with an empty other value, adds a row,
+  checks its status says "`Empty Manufacturer.`" and "`Empty Mpn.`", and nothing of its other values, moves it up and
+  removes it, checking the file is then as it was, and that
   "`PartsTab command. command: Panel(`", "`stores_app: Received event. event: ChangeTable { kind: Parts`",
   "`stores_service: Performing stores operation. operation: ChangeRows {`" and
   "`stores_app: Changed table. kind: Parts, source: '`" are logged, in order, with no "`Event failed.`" (`PARTSRC-6`,

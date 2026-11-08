@@ -215,7 +215,6 @@ data-table-problem-changes-nothing = Los patrones y valores coincidentes no tien
 data-table-problem-empty-ref-des = RefDes vacío.
 data-table-problem-empty-manufacturer = Manufacturer vacío.
 data-table-problem-empty-mpn = Mpn vacío.
-data-table-problem-empty-field = { $column } vacío.
 process-editor-operation = Operación
 process-editor-task = tarea
 process-editor-button-move-up = Subir

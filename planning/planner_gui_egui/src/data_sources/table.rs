@@ -1082,25 +1082,15 @@ impl Background {
         Some(Self::of_needed_value(value))
     }
 
-    /// A part's value's, its manufacturer's, MPN's or other value's, none for a column it has no value of
-    /// (`VBGUI-16`).
+    /// A part's manufacturer's or MPN's, as they name it, none for its other values, which may be empty, such as a
+    /// comment (`VBGUI-16`).
     fn of_part(item: &PartsViewItem, column: &ColumnValue) -> Option<Self> {
-        part_value(item, column).map(Self::of_needed_value)
-    }
-}
-
-/// A part's value the column shows, its manufacturer, MPN, or other value, empty if it has none of that name, or none if
-/// the column isn't a part's.
-fn part_value<'a>(item: &'a PartsViewItem, column: &ColumnValue) -> Option<&'a str> {
-    match column {
-        ColumnValue::Manufacturer => Some(&item.part.manufacturer),
-        ColumnValue::Mpn => Some(&item.part.mpn),
-        ColumnValue::Field(name) => Some(
-            item.fields
-                .get(name)
-                .map_or("", String::as_str),
-        ),
-        _ => None,
+        let value = match column {
+            ColumnValue::Manufacturer => &item.part.manufacturer,
+            ColumnValue::Mpn => &item.part.mpn,
+            _ => return None,
+        };
+        Some(Self::of_needed_value(value))
     }
 }
 
@@ -1114,8 +1104,6 @@ enum Problem {
     EmptyManufacturer,
     /// An assembly rule's, or a part's, MPN is empty.
     EmptyMpn,
-    /// A part's other value is empty, by its column's name.
-    EmptyField(String),
     /// One of its patterns, of any field, is a regular expression that isn't valid.
     InvalidPattern,
     /// The data source has no column for one of its EDA tool's fields, a substitution's pattern's or value's.
@@ -1140,7 +1128,7 @@ impl Problem {
             TableRow::PartMappings(item) => (item.eda_tool, &item.criteria),
             TableRow::Substitutions(item) => (item.eda_tool, &item.criteria),
             TableRow::AssemblyRules(item) => return Self::of_assembly_rule(item),
-            TableRow::Parts(item) => return Self::of_parts_item(view, item),
+            TableRow::Parts(item) => return Self::of_parts_item(item),
         };
         let mut problems = vec![];
         if criteria.iter().any(|criterion| {
@@ -1187,18 +1175,17 @@ impl Problem {
         .collect()
     }
 
-    /// A part's empty values, in the columns' order, its other values named as the table names them, as every value is
-    /// needed (`VBGUI-16`).
-    fn of_parts_item(view: &TableView, item: &PartsViewItem) -> Vec<Problem> {
-        view.columns
-            .iter()
-            .filter(|column| part_value(item, &column.value).is_some_and(str::is_empty))
-            .map(|column| match &column.value {
-                ColumnValue::Manufacturer => Problem::EmptyManufacturer,
-                ColumnValue::Mpn => Problem::EmptyMpn,
-                _ => Problem::EmptyField(column.name.clone()),
-            })
-            .collect()
+    /// A part's empty manufacturer and MPN, in that order, as they name it; its other values may be empty, such as a
+    /// comment (`VBGUI-16`).
+    fn of_parts_item(item: &PartsViewItem) -> Vec<Problem> {
+        [
+            (&item.part.manufacturer, Problem::EmptyManufacturer),
+            (&item.part.mpn, Problem::EmptyMpn),
+        ]
+        .into_iter()
+        .filter(|(value, _problem)| value.is_empty())
+        .map(|(_value, problem)| problem)
+        .collect()
     }
 
     /// Whether every one of the substitution's EDA tool's fields' patterns, empty if it has none, is a value matched
@@ -1250,7 +1237,6 @@ impl Problem {
             Problem::EmptyRefDes => tr!("data-table-problem-empty-ref-des"),
             Problem::EmptyManufacturer => tr!("data-table-problem-empty-manufacturer"),
             Problem::EmptyMpn => tr!("data-table-problem-empty-mpn"),
-            Problem::EmptyField(ref column) => tr!("data-table-problem-empty-field", { column: column }),
             Problem::InvalidPattern => tr!("data-table-problem-invalid-pattern"),
             Problem::MissingFieldColumns(eda_tool) => {
                 tr!("data-table-problem-missing-field-columns", { tool: eda_tool_name(eda_tool) })
@@ -2301,8 +2287,8 @@ mod tests {
         Problem::of(&view, &TableRow::Parts(item.clone()))
     }
 
-    /// `VBGUI-16`, a part's problems are each of its values that's empty, its other values too, a missing one being
-    /// empty, in the columns' order, named as the table names them, and none if it has none.
+    /// `VBGUI-16`, a part's problems are an empty manufacturer and an empty MPN, in that order, an empty other value, or
+    /// a missing one, not being one, and none if it has none.
     #[test]
     fn a_parts_problems_are_each_found() {
         use Problem::*;
@@ -2312,36 +2298,27 @@ mod tests {
             vec![]
         );
         assert_eq!(
-            part_problems(&part("MFR1", "", &[("LCSC", ""), ("Package", "0402")])),
-            vec![EmptyMpn, EmptyField("LCSC".to_string())]
+            part_problems(&part("MFR1", "MPN1", &[("LCSC", ""), ("Package", "0402")])),
+            vec![]
         );
-        assert_eq!(part_problems(&part("", "", &[])), vec![
-            EmptyManufacturer,
-            EmptyMpn,
-            EmptyField("Package".to_string()),
-            EmptyField("LCSC".to_string()),
-        ]);
+        assert_eq!(
+            part_problems(&part("MFR1", "", &[("LCSC", ""), ("Package", "0402")])),
+            vec![EmptyMpn]
+        );
+        assert_eq!(part_problems(&part("", "", &[])), vec![EmptyManufacturer, EmptyMpn]);
     }
 
-    /// `VBGUI-16`, each of a part's cells, its other values' too, is red if it's empty, and green if not.
+    /// `VBGUI-16`, a part's manufacturer's and MPN's cells are red if empty, and green if not, and its other values'
+    /// have no colour, empty or not.
     #[test]
     fn a_parts_table_cells_are_red_if_empty_and_green_if_not() {
         let item = part("MFR1", "", &[("LCSC", "C1"), ("Package", "")]);
         let background = |column: ColumnValue| Background::of_part(&item, &column);
         assert_eq!(background(ColumnValue::Manufacturer), Some(Background::Green));
         assert_eq!(background(ColumnValue::Mpn), Some(Background::Red));
-        assert_eq!(
-            background(ColumnValue::Field("LCSC".to_string())),
-            Some(Background::Green)
-        );
-        assert_eq!(
-            background(ColumnValue::Field("Package".to_string())),
-            Some(Background::Red)
-        );
-        assert_eq!(
-            background(ColumnValue::Field("Notes".to_string())),
-            Some(Background::Red)
-        );
+        for name in ["LCSC", "Package", "Notes"] {
+            assert_eq!(background(ColumnValue::Field(name.to_string())), None, "{name}");
+        }
         assert_eq!(background(ColumnValue::Eda), None);
     }
 

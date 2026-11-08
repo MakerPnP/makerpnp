@@ -251,10 +251,10 @@ change its data source as an assembly rules' panel does (`VBGUI-15`): its cells 
 removed and moved, each change written at once, and the table's first column its rows' status. A part's manufacturer,
 its MPN and each of its other values are edited in a text field, a part being renamed by editing its manufacturer or
 MPN, and "`Add row`" adds a part with every value empty, whether or not the variant builder has an EDA tool; a part
-has no EDA tool, so no columns are added for one (`STORE-21`). Each of a row's cells is red if it's empty, and green
-if not. A row's status is green, saying "`No problems.`", if none of its cells is empty, and red if any is, saying
-"`Empty <column>.`" for each, in the columns' order, such as "`Empty Manufacturer.`", "`Empty Mpn.`" and
-"`Empty LCSC.`", the column named as the table names it. *Target*: two parts of the same manufacturer and MPN are a
+has no EDA tool, so no columns are added for one (`STORE-21`). Only a part's manufacturer and MPN are checked, as
+they name it: each is red if it's empty, and green if not. Its other values, such as a comment, may be empty, so
+their cells have no colour. A row's status is green, saying "`No problems.`", if neither its manufacturer nor its MPN
+is empty, and red if either is, saying "`Empty Manufacturer.`", "`Empty Mpn.`", or both, in that order. *Target*: two parts of the same manufacturer and MPN are a
 problem, as one names the other. The gap: each is shown, and changed, as it is. *Observed*: the tab's commands are
 logged as `VBGUI-13` says, with the kind "`Parts`".
 
@@ -417,15 +417,17 @@ logged as `VBGUI-13` says, with the kind "`Parts`".
   are each found, in the columns' order, and none if it has none, that a new row is an empty rule, and that the status
   column is first of assembly rules too (`VBGUI-15`).
 - `tests/ui/variant_builders.rs`'s `a_variant_builders_parts_are_changed_in_its_panel` edits a part's manufacturer,
-  MPN and other value in their cells in a variant builder's "`Parts`" panel, adds a row, checking its status says
-  "`Empty Manufacturer.`", "`Empty Mpn.`" and "`Empty <column>.`" for each other value, in order, moves and removes it,
+  MPN and other value in their cells in a variant builder's "`Parts`" panel, checks a part with an empty other value
+  has "`No problems.`", adds a row, checking its status says "`Empty Manufacturer.`" and "`Empty Mpn.`", in order, and
+  nothing of its other values, moves and removes it,
   checking the file after each, clicks "`Reload`", and checks "`Panel(Table(Parts, `",
   "`stores_app: Received event. event: ChangeTable { kind: Parts, `", "`stores_app: Changed table. kind: Parts, `",
   "`Panel(Reload(Parts, `" and "`stores_app: Table unchanged. kind: Parts, `" are logged, in order, with no
   "`Event failed.`" (`VBGUI-11`, `VBGUI-16`).
-- `data_sources::table`'s tests check a part's cells, its other values' too, are red if empty and green if not, that
-  its problems are each found, in the columns' order, named as the table names them, and none if it has none, that a
-  new row is a part with every value empty, and that the status column is first of parts too (`VBGUI-16`).
+- `data_sources::table`'s tests check a part's manufacturer's and MPN's cells are red if empty and green if not, and
+  its other values' have no colour, empty or not, that an empty manufacturer and an empty MPN are each found, in that
+  order, an empty other value not being a problem, and none if it has none, that a new row is a part with every value
+  empty, and that the status column is first of parts too (`VBGUI-16`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
   (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.

@@ -315,7 +315,7 @@ fn wait_for_parts(app: &mut App, path: &Path, rows: &[&str]) {
 /// `PARTSRC-6`, `VBGUI-16`, `STORE-19`, a parts tab changes its parts with the data source panel, as a variant builder's
 /// "Parts" panel does, with no fields above the table: a part's manufacturer, MPN and other values edited in their
 /// cells, an empty one too, and its rows added, moved and removed, each written at once, and a part's status saying
-/// which of its values are empty.
+/// whether its manufacturer or MPN is empty, its other values not being checked.
 #[test]
 fn parts_are_changed_in_the_parts_tab() {
     let mut app = App::start();
@@ -329,10 +329,10 @@ fn parts_are_changed_in_the_parts_tab() {
     assert!(!app.is_button_shown("Add part"));
     assert!(!app.is_button_shown("Remove part"));
 
-    app.hover_data_table_cell("RESCO", "◑");
-    app.wait_for_text_containing("No problems.");
+    // only a part's manufacturer and MPN are checked, so an empty LCSC isn't a problem.
     app.hover_data_table_cell("CAPCO", "◑");
-    app.wait_for_text_containing("Empty LCSC.");
+    app.wait_for_text_containing("No problems.");
+    app.wait_until_no_text_contains("Empty");
 
     app.edit_data_table_cell_then_press_enter("RESCO", "Manufacturer", "RESCO2");
     wait_for_parts(&mut app, &parts, &[
@@ -353,9 +353,7 @@ fn parts_are_changed_in_the_parts_tab() {
         "\"CAPCO\",\"CAP1\",\"0603\",\"C9\"",
     ]);
     app.wait_for_text("C9");
-    app.hover_data_table_cell("CAPCO", "◑");
-    app.wait_for_text_containing("No problems.");
-    // emptied.
+    // emptied, which isn't a problem either.
     app.edit_data_table_cell_then_press_enter("CAPCO", "Package", "");
     wait_for_parts(&mut app, &parts, &[
         "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
@@ -363,7 +361,8 @@ fn parts_are_changed_in_the_parts_tab() {
     ]);
     app.wait_until_text_is_gone("0603");
     app.hover_data_table_cell("CAPCO", "◑");
-    app.wait_for_text_containing("Empty Package.");
+    app.wait_for_text_containing("No problems.");
+    app.wait_until_no_text_contains("Empty");
 
     // with every value empty, selected once it's shown, so it's moved.
     app.click_button("Add row");
@@ -373,9 +372,10 @@ fn parts_are_changed_in_the_parts_tab() {
         "\"\",\"\",\"\",\"\"",
     ]);
     app.hover_data_table_cell_in_row_numbered(3, "◑");
-    for text in ["Empty Manufacturer.", "Empty Mpn.", "Empty Package.", "Empty LCSC."] {
-        app.wait_for_text_containing(text);
-    }
+    app.wait_for_text_containing("Empty Manufacturer.");
+    app.wait_for_text_containing("Empty Mpn.");
+    app.wait_until_no_text_contains("Empty Package.");
+    app.wait_until_no_text_contains("Empty LCSC.");
     app.wait_for_enabled_button("Move up");
     app.click_button("Move up");
     wait_for_parts(&mut app, &parts, &[

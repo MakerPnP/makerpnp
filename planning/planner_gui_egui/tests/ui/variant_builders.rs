@@ -1150,7 +1150,7 @@ fn wait_for_parts(app: &mut App, path: &Path, rows: &[&str]) {
 
 /// `VBGUI-11`, `VBGUI-16`, `STORE-19`, a variant builder's parts are changed in their panel, as a parts tab changes them:
 /// a part's manufacturer, MPN and other value edited in their cells, and its rows added, moved and removed, each written
-/// at once, a part's status saying which of its values are empty, and "Reload" reads them again.
+/// at once, a part's status saying whether its manufacturer or MPN is empty, and "Reload" reads them again.
 #[test]
 fn a_variant_builders_parts_are_changed_in_its_panel() {
     let mut app = App::start();
@@ -1173,10 +1173,10 @@ fn a_variant_builders_parts_are_changed_in_its_panel() {
     let headers = ["◑", "Manufacturer", "Mpn", "LCSC"].map(|header| app.text_position(header).x);
     assert!(headers.is_sorted(), "{headers:?}");
 
-    app.hover_data_table_cell("RESCO", "◑");
-    app.wait_for_text_containing("No problems.");
+    // only a part's manufacturer and MPN are checked, so an empty LCSC isn't a problem.
     app.hover_data_table_cell("CAPCO", "◑");
-    app.wait_for_text_containing("Empty LCSC.");
+    app.wait_for_text_containing("No problems.");
+    app.wait_until_no_text_contains("Empty");
 
     app.edit_data_table_cell_then_press_enter("RESCO", "Manufacturer", "RESCO2");
     wait_for_parts(&mut app, &parts, &[
@@ -1207,7 +1207,7 @@ fn a_variant_builders_parts_are_changed_in_its_panel() {
     app.hover_data_table_cell_in_row_numbered(3, "◑");
     app.wait_for_text_containing("Empty Manufacturer.");
     app.wait_for_text_containing("Empty Mpn.");
-    app.wait_for_text_containing("Empty LCSC.");
+    app.wait_until_no_text_contains("Empty LCSC.");
     app.wait_for_enabled_button("Move up");
     app.click_button("Move up");
     wait_for_parts(&mut app, &parts, &[

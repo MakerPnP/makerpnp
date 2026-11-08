@@ -215,7 +215,6 @@ data-table-problem-changes-nothing = Matching patterns and values have no effect
 data-table-problem-empty-ref-des = Empty RefDes.
 data-table-problem-empty-manufacturer = Empty Manufacturer.
 data-table-problem-empty-mpn = Empty Mpn.
-data-table-problem-empty-field = Empty { $column }.
 process-editor-operation = Operation
 process-editor-task = task
 process-editor-button-move-up = Move up
