@@ -181,6 +181,10 @@ tools write them. Each is a commit, the core first.
 | 11a. The stores core changes a table's rows, updating, adding, removing and moving them, by their keys and their columns' references, each checked against the values the change was based on, part mappings first, and the stores service changes only those (`STORE-19`). | Done |
 | 11b. The CLI changes part mappings: `planner_cli table --kind part-mappings --source <file> add`, `set`, `remove` and `move`, each naming a row by its key, as `list --keys` lists it (`STORE-20`). | Done |
 | 11c. The GUI: a part mappings panel's values are edited in their cells, a pattern shown as what it is as it's typed, and its rows added, removed and moved (`VBGUI-13`), a row selected by clicking a cell, and the selection following a row button's change, with changes to `egui_deferred_table`. | Done |
+| 11c.1. The domain: the EDA tools' fields are the domain's, shared by the cores, the stores service and the readers, and a part mapping has a pattern for each EDA tool's field the data source has, whichever tool it has (`STORE-17`). | |
+| 11c.2. The stores core and service add a table's columns, named, with where they go, or those an EDA tool needs, as the core works them out (`STORE-21`). | |
+| 11c.3. The CLI adds a table's columns: `planner_cli table --kind part-mappings --source <file> add-columns`, with `--eda <TOOL>`, or `--column <NAME>` and where they go (`STORE-20`). | |
+| 11c.4. The GUI: choosing a row's EDA tool, or adding a row, adds the tool's columns first, if they're needed, and each pattern's cell is faint green if the row's tool matches its field, and faint red if not (`VBGUI-13`). | |
 | 11d. Substitutions, as part mappings are: the core and the service, the CLI, then the GUI. | |
 | 11e. Assembly rules, as part mappings are. | |
 | 11f. A parts tab's other values, edited in their cells (`PARTSRC`). | |

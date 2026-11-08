@@ -262,7 +262,13 @@ by its kind and its data source as it was asked for. The core logs
 "`stores_app: Loaded table. kind: <kind>, source: '<source>', row_count: <count>, revision: '<revision>'`",
 "`stores_app: Table already loaded. kind: <kind>, source: '<source>'`" and
 "`stores_app: Table unchanged. kind: <kind>, source: '<source>', revision: '<revision>'`" at info level, and
-"`stores_app: Data source changed. source: '<source>', kind: <kind>`" for each change.
+"`stores_app: Data source changed. source: '<source>', kind: <kind>`" for each change. *Target*: a part mapping has a
+`Pattern` for each field of any EDA tool the data source has a column for, not only its own tool's, in the EDA tools'
+order, so every value is shown, and can be changed, whichever tool the row has, as a row's tool may be changed (`VBGUI-13`);
+matching, by the Planner and the Variant Builder, still uses only the row's tool's fields. The EDA tools' fields are the
+domain's, so the cores, the stores service and the readers share them: DipTrace's "`name`" and "`value`", KiCad's
+"`package`" and "`val`", and EasyEDA's "`device`" and "`value`". The gap: a part mapping has only its own tool's
+fields' patterns, and the fields are in `stores::csv`.
 
 **STORE-18 — Listing a table from the CLI.** *Observed.* `planner_cli table --kind <kind> --source <file> list`, with
 `--eda-tool <tool>` for EDA placements, MUST open the table (`STORE-17`) and write it to standard output as CSV, every
@@ -318,7 +324,46 @@ such as with `list`, its values as they saw them MAY be given with `--was-eda`, 
 `--was-manufacturer` and `--was-mpn`, and the change is checked against those. As `STORE-19` checks only the values
 an update changes, `set`'s `--was-` values are checked only for the values it sets. A row that isn't there MUST fail,
 saying "`The row doesn't exist. key: '<key>'`". If the core refuses, the CLI MUST fail with the core's error, and the
-file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11).
+file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11). *Target*:
+`add-columns` MUST add columns to the table (`STORE-21`): `--eda <TOOL>` the columns the EDA tool needs that the data
+source doesn't have, as the core works them out, or `--column <NAME>`, once for each column, with where they go,
+`--first`, `--last`, `--before <COLUMN>` or `--after <COLUMN>`, a column named as `list` names it. Each says which
+columns were added, or that none were needed. A row's EDA tool is changed, or a row of another tool added, with `set`
+or `add` after its tool's columns are added; a pattern for a field the data source has no column for fails, as
+`STORE-19` says. The gap: there's no `add-columns`.
+
+**STORE-21 — Adding a table's columns.** *Target*. The core MUST add columns to a table when asked
+(`AddTableColumns`), so a user can give a row values the data source has no columns for, such as a part mapping's
+patterns for another EDA tool's fields. It's its own change, not part of a change to rows (`STORE-19`), so each back
+end has one change of each kind to make, as there are no transactions: a front end that needs both adds the columns,
+then, once the table's read again, changes the rows. A column added that's then not used is kept, as a column no row
+uses is (`VBGUI-13`). A front end MUST be able to ask for columns in either of two ways:
+
+- **Named columns**: each column's name, as the data source is to name it, such as a CSV file's header, and where the
+  columns go: first, last, before a column, or after a column, the column named as the data source names it, as the
+  table's columns' references do (`STORE-19`), so the core never needs to know a data source's names. The columns are
+  added in the order given, together. A column has no kind yet; each back end adds it as its plainest, a CSV file's
+  text.
+- **An EDA tool's columns**: the core MUST work out which of the tool's fields' columns the data source doesn't have,
+  so a column shared by tools, such as DipTrace's and EasyEDA's "`value`", is added once, and used by both, and add
+  those: for part mappings, each named as the field, in upper camel case, such as "`Package`", before the data source's
+  "`Manufacturer`" column, as it names it, so every pattern's column is before the part's columns. Substitutions'
+  are to come with them (the Variant Builder mission's step 11d): each field's "`<Field>Pattern`" and "`<Field>`" before
+  "`Comment`". If none are needed, nothing is changed, and the core logs
+  "`stores_app: Table columns already there. kind: <kind>, source: '<source>', eda_tool: <tool>`" at info level.
+
+The back end MUST add the columns where they're asked to go, with an empty value for each row, leaving every other
+column, value and row as it was, so the rows' keys are as they were. Adding columns MUST be refused, and nothing
+changed, if the table isn't loaded, if a change to it is being made (`STORE-19`), if its kind can't be changed (`STORE-19`), if a
+column to add is already there, saying "`The column already exists. column: '<column>'`", if a column is to go before
+or after one the data source doesn't have, saying "`The column doesn't exist.`", or if the back end can't add columns,
+saying why. A refusal is kept, and shown, as a change's is, until a change succeeds (`STORE-19`). Once the columns are
+added, the core MUST read the table again, and send its view, so every view of it shows them. *Observed*: the
+operation is `AddColumns`, logged as the service's others are (`STORE-7`). The `csv_file` back end reads the file,
+checks the columns, inserts each header where it's to go, with an empty value in each row, and writes the file, every
+value quoted, logging "`Adding columns. source: '<source>', columns: [<column>, ...]`" at info level. The core logs
+"`stores_app: Added table columns. kind: <kind>, source: '<source>', columns: [<column>, ...], revision: '<revision>'`"
+at info level once they're added. The gap: none of it is done yet.
 
 ## Acceptance criteria
 

@@ -136,7 +136,17 @@ tables stay read-only, with no buttons, and their cells can't be edited. *Observ
 "`Table(<kind>, <source>, <command>)`" commands are logged, a row button's as "`ChangeRows(<change>, <after change>)`",
 and once it's shown, "`ChangeShown(Row(<place>))`", "`ChangeShown(NoRow)`" or "`ChangeShown(Unchanged)`", and, for a
 row brought into view, "`ScrolledToRow`". *Target*: several rows selected are removed at once. The gap: the stores core
-makes one change at a time.
+makes one change at a time. *Target*: a row of any EDA tool can be given its patterns, whichever tools' columns the
+data source has. Choosing a row's EDA tool whose columns the data source doesn't have MUST first add them, as the core
+works them out (`STORE-21`), then, once the table's read again, change the row's tool, as the row is shown then; "`Add
+row`" likewise adds the variant builder's EDA tool's columns, if they're needed, then the row. If adding the columns is
+refused, the panel says why (`STORE-21`), and the row is left as it was. Changing a row's tool keeps its patterns for
+the other tools' fields, as they're the user's. Every pattern's cell is shown, and editable, whichever tool the row
+has, and its background says whether the row's tool matches the field: faint green if it does, and faint red if it
+doesn't, so its pattern is ignored, saying so when it's hovered, "`Matched by <tool>.`" or
+"`Not matched by <tool>.`", so the colour isn't the only sign. *Observed*: the core's "`AddTableColumns`" event is logged
+before the row's "`ChangeTable`". The gap: a row's patterns are only its tool's (`STORE-17`), and the core can't add
+columns (`STORE-21`).
 
 ## Acceptance criteria
 
