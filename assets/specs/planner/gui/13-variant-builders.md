@@ -179,6 +179,27 @@ columns are shown, "`ColumnsShown(Some((<change>, <after change>)))`", before th
 "`ColumnsShown(None)`" if the columns weren't added, or the row isn't as it was. *Target*: several rows selected are
 removed at once. The gap: the stores core makes one change at a time.
 
+**VBGUI-14 — Changing substitutions.** *Confirmed.* A substitutions' panel, design or global, MUST change its data
+source as a part mappings' panel does (`VBGUI-13`): its cells edited in place, its rows added, removed and moved, a
+row's EDA tool chosen, its columns added first if they're needed (`STORE-21`), each change written at once, and the
+table's first column its rows' status. A pattern, a value a field is substituted with, and the comment are edited in a
+text field, and "`Add row`" adds a substitution of the variant builder's EDA tool, with no patterns, values or comment.
+Changing a row's tool keeps its patterns and values for the other tools' fields. A pattern's cell is coloured, and says
+so when it's hovered, as a part mapping's is (`VBGUI-13`). A value's cell is blue if the row's tool doesn't substitute
+its field, saying "`Not substituted by <tool>.`", and green if it does, saying "`Substituted by <tool>.`", an empty
+value being one, as a field can be substituted with nothing. The comment isn't coloured. A row's status is red if it
+has any of these problems, in this order, and green, saying "`No problems.`", if not:
+
+- "`A pattern isn't valid.`": one of the row's patterns, of any field, is a regular expression that isn't valid.
+- "`The data source has no column for one of <tool>'s fields.`": the table lacks a pattern's or a value's column of one
+  of the row's tool's fields, so the Variant Builder's build refuses it (`STORE-17`).
+- "`None of <tool>'s fields has a pattern.`": every one of the tool's fields' patterns in the row is empty, or the data
+  source has no column for it, so it matches only placements whose fields are all empty.
+- "`It changes nothing.`": every one of the tool's fields' patterns is a value matched exactly, the same as the value
+  it's substituted with, so it never changes a placement.
+
+*Observed*: the tab's commands are logged as `VBGUI-13` says, with the kind "`Substitutions`".
+
 ## Acceptance criteria
 
 - `tests/ui/variant_builders.rs` creates a design variant with "`New design variant`", choosing DipTrace and its
@@ -304,6 +325,18 @@ removed at once. The gap: the stores core makes one change at a time.
 - `tests/ui/variant_builders.rs`'s `a_table_too_big_for_its_panel_ends_within_it` shows 200 part mappings, and 200
   parts, scrolls each table to its end, and checks its last row is shown above the table's horizontal scroll bar; it's
   the regression test for `ISSUE-25` (`VBGUI-11`).
+- `tests/ui/variant_builders.rs` edits a design substitution's pattern, value and comment in their cells, adds, moves
+  and removes rows, chooses a row's EDA tool, KiCad, whose columns are added first, and checks the file after each,
+  hovers a value's cell of a field the row's tool substitutes, and of one it doesn't, checking
+  "`Substituted by DipTrace.`" and "`Not substituted by KiCad.`", and hovers rows' statuses, checking
+  "`No problems.`", "`A pattern isn't valid.`", "`None of DipTrace's fields has a pattern.`" and
+  "`It changes nothing.`", and checks "`Table(Substitutions, `",
+  "`stores_app: Received event. event: ChangeTable { kind: Substitutions, `" and
+  "`stores_app: Changed table. kind: Substitutions, source: '`" are logged, in order, with no "`Event failed.`", and
+  that a global substitutions' panel can be changed too (`VBGUI-14`).
+- `data_sources::table`'s tests check a substitution's value's cell is blue if the row's tool doesn't substitute its
+  field and green if it does, an empty value too, and that a substitution's problems are each found, in order, and
+  none if it has none (`VBGUI-14`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
   (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.
