@@ -257,7 +257,7 @@ impl PartMappingRecord {
             }),
         }?;
 
-        let fields_names = eda_fields_names(&eda);
+        let fields_names = eda.field_names();
 
         let matched_fields = build_matched_fields(fields, fields_names);
 
@@ -366,7 +366,7 @@ impl SubstitutionRecord {
             eda: eda.clone(),
         })?;
 
-        let fields_names = eda_fields_names(&eda);
+        let fields_names = eda.field_names();
 
         let mut criteria: Vec<Box<dyn FieldCriterion>> = vec![];
         let mut transforms: Vec<EdaSubstitutionRuleTransformItem> = vec![];
@@ -450,15 +450,6 @@ impl SubstitutionRecord {
             transforms,
             classifications,
         })
-    }
-}
-
-/// The names of the EDA tool's fields that part mappings and substitutions match, in order.
-pub fn eda_fields_names(eda: &EdaTool) -> &'static [&'static str] {
-    match eda {
-        EdaTool::DipTrace => &["name", "value"],
-        EdaTool::KiCad => &["package", "val"],
-        EdaTool::EasyEda => &["device", "value"],
     }
 }
 

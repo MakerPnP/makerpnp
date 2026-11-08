@@ -157,6 +157,72 @@ fn reads_part_mappings_with_their_patterns() {
     );
 }
 
+/// `STORE-17`, a part mapping has a pattern for each field of any EDA tool the file has a column for, not only its own
+/// tool's, in the EDA tools' order, whatever the columns' order, so every value is shown whichever tool the row has.
+#[test]
+fn reads_part_mappings_with_every_eda_tools_fields_the_file_has() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "part-mappings.csv",
+        "\"Eda\",\"Package\",\"Val\",\"Name\",\"Value\",\"Device\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"R_0402\",\"330R\",\"RES_0402\",\"330\",\"\",\"MFR1\",\"MPN1\"\n\
+         \"KiCad\",\"C_0402\",\"100nF\",\"\",\"\",\"\",\"MFR2\",\"MPN2\"\n\
+         \"EasyEda\",\"\",\"\",\"\",\"10k\",\"RES\",\"MFR3\",\"MPN3\"\n",
+    );
+
+    let records = read_table(TableKind::PartMappings, &source)
+        .unwrap()
+        .expect("a table");
+
+    let Table::PartMappings(items) = &records.table else {
+        panic!("part mappings");
+    };
+    let fields = |index: usize| -> Vec<(String, Pattern)> {
+        items[index]
+            .criteria
+            .iter()
+            .map(|criterion| (criterion.field_name.clone(), criterion.pattern.clone()))
+            .collect()
+    };
+    let exact = |name: &str, value: &str| (name.to_string(), Pattern::Exact(value.to_string()));
+    assert_eq!(fields(0), vec![
+        exact("name", "RES_0402"),
+        exact("value", "330"),
+        exact("package", "R_0402"),
+        exact("val", "330R"),
+        exact("device", ""),
+    ]);
+    assert_eq!(fields(1), vec![
+        exact("name", ""),
+        exact("value", ""),
+        exact("package", "C_0402"),
+        exact("val", "100nF"),
+        exact("device", ""),
+    ]);
+    assert_eq!(items[2].eda_tool, EdaTool::EasyEda);
+    assert_eq!(fields(2)[1], exact("value", "10k"));
+    assert_eq!(fields(2)[4], exact("device", "RES"));
+
+    assert_eq!(
+        names(&records.table),
+        strings(&[
+            "Eda",
+            "Name",
+            "Value",
+            "Package",
+            "Val",
+            "Device",
+            "Manufacturer",
+            "Mpn"
+        ])
+    );
+    assert_eq!(
+        rows(&records.table)[1],
+        strings(&["KiCad", "", "", "C_0402", "100nF", "", "MFR2", "MPN2"])
+    );
+}
+
 /// `STORE-17`, a part mapping whose EDA tool isn't known is refused, saying why.
 #[test]
 fn part_mappings_with_an_unknown_eda_tool_are_refused() {

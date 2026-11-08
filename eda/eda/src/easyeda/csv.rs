@@ -6,7 +6,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use thiserror::Error;
 
-use crate::placement::{EdaPlacement, EdaPlacementField};
+use crate::placement::EdaPlacement;
+use crate::EdaTool;
 
 #[derive(Error, Debug)]
 pub enum EasyEdaPlacementRecordError {
@@ -63,16 +64,7 @@ impl EasyEdaPlacementRecord {
         Ok(EdaPlacement {
             ref_des: self.ref_des.to_string(),
             place: true,
-            fields: vec![
-                EdaPlacementField {
-                    name: "device".to_string(),
-                    value: self.device.to_string(),
-                },
-                EdaPlacementField {
-                    name: "value".to_string(),
-                    value: self.value.to_string(),
-                },
-            ],
+            fields: EdaTool::EasyEda.placement_fields(&[&self.device, &self.value]),
             pcb_side: PcbSide::from(&self.side),
             x,
             y,

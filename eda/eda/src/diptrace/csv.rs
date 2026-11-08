@@ -5,7 +5,8 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use thiserror::Error;
 
-use crate::placement::{EdaPlacement, EdaPlacementField};
+use crate::placement::EdaPlacement;
+use crate::EdaTool;
 
 // TODO add tests for aliases
 
@@ -53,16 +54,7 @@ impl DiptracePlacementRecord {
         Ok(EdaPlacement {
             ref_des: self.ref_des.to_string(),
             place: true,
-            fields: vec![
-                EdaPlacementField {
-                    name: "name".to_string(),
-                    value: self.name.to_string(),
-                },
-                EdaPlacementField {
-                    name: "value".to_string(),
-                    value: self.value.to_string(),
-                },
-            ],
+            fields: EdaTool::DipTrace.placement_fields(&[&self.name, &self.value]),
             pcb_side: PcbSide::from(&self.side),
             x: self.x,
             y: self.y,

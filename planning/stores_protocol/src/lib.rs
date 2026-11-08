@@ -317,7 +317,9 @@ pub struct EdaPlacementsViewItem {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct PartMappingsViewItem {
     pub eda_tool: EdaTool,
-    /// Of the EDA tool's fields the data source has, in the EDA tool's order, such as `name` then `value`.
+    /// Of every EDA tool's fields the data source has, not only this tool's, in the EDA tools' order (see
+    /// [`EdaTool::all_field_names`]), such as `name`, `value`, then `package`, so every value is shown whichever tool
+    /// the row has. Matching uses only the tool's own fields (see [`EdaTool::field_names`]).
     pub criteria: Vec<FieldPattern>,
     pub part: Part,
 }

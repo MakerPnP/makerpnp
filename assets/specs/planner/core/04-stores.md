@@ -231,8 +231,9 @@ left as it was.
 (`OpenTable`), so a front end can show any data source before it can change it: its kind, its columns, in order, and
 its rows, a view item for each record, in the order the data source has them. A view item has the domain's types, as a
 parts view's has a part (`STORE-2`), so each value is shown as what it is: a design's EDA placements are
-`EdaPlacement`s, in the EDA tool's format, part mappings an EDA tool, a `Pattern` for each of its fields the data source
-has, in the EDA tool's order, and a `Part`, substitutions an EDA tool, a `Pattern` and a value for each of its fields,
+`EdaPlacement`s, in the EDA tool's format, part mappings an EDA tool, a `Pattern` for each field of any EDA tool the
+data source has a column for, not only its own tool's, in the EDA tools' order, so every value is shown, and can be
+changed, whichever tool the row has, as a row's tool may be changed (`VBGUI-13`), and a `Part`, substitutions an EDA tool, a `Pattern` and a value for each of its fields,
 and a comment, assembly rules `AssemblyRule`s, and a variant's placements and BOM, as built (`STORE-14`), `Placement`s,
 and each part's designators, as `RefDes`es, footprint, JLCPCB part, quantity and comment. A parts data source has its
 parts view (`STORE-2`). A pattern is a regular expression if it starts and ends with "`/`", the expression being
@@ -262,13 +263,10 @@ by its kind and its data source as it was asked for. The core logs
 "`stores_app: Loaded table. kind: <kind>, source: '<source>', row_count: <count>, revision: '<revision>'`",
 "`stores_app: Table already loaded. kind: <kind>, source: '<source>'`" and
 "`stores_app: Table unchanged. kind: <kind>, source: '<source>', revision: '<revision>'`" at info level, and
-"`stores_app: Data source changed. source: '<source>', kind: <kind>`" for each change. *Target*: a part mapping has a
-`Pattern` for each field of any EDA tool the data source has a column for, not only its own tool's, in the EDA tools'
-order, so every value is shown, and can be changed, whichever tool the row has, as a row's tool may be changed (`VBGUI-13`);
-matching, by the Planner and the Variant Builder, still uses only the row's tool's fields. The EDA tools' fields are the
-domain's, so the cores, the stores service and the readers share them: DipTrace's "`name`" and "`value`", KiCad's
-"`package`" and "`val`", and EasyEDA's "`device`" and "`value`". The gap: a part mapping has only its own tool's
-fields' patterns, and the fields are in `stores::csv`.
+"`stores_app: Data source changed. source: '<source>', kind: <kind>`" for each change. Matching, by the Planner and
+the Variant Builder, uses only the row's tool's fields. The EDA tools' fields are the domain's, so the cores, the
+stores service and the readers share them: DipTrace's "`name`" and "`value`", KiCad's "`package`" and "`val`", and
+EasyEDA's "`device`" and "`value`", in that order, a field shared by tools, such as "`value`", being one field.
 
 **STORE-18 — Listing a table from the CLI.** *Observed.* `planner_cli table --kind <kind> --source <file> list`, with
 `--eda-tool <tool>` for EDA placements, MUST open the table (`STORE-17`) and write it to standard output as CSV, every
@@ -374,7 +372,9 @@ at info level once they're added. The gap: none of it is done yet.
   data source that doesn't exist says so, and is shown once a change finds it, that the view model says each table's
   status, and that the result of a different operation is refused (`STORE-17`).
 - `planning/stores_service/tests/csv_file.rs` reads part mappings, with an exact pattern, a valid regular expression,
-  parsed, and one that isn't, kept, refuses part mappings whose EDA tool isn't known, reads substitutions, with their
+  parsed, and one that isn't, kept, reads part mappings with a pattern for each field of every EDA tool the file has a
+  column for, in the EDA tools' order, whatever the columns' order and the row's tool, refuses part mappings whose EDA
+  tool isn't known, reads substitutions, with their
   comment last, assembly rules, a variant's placements, a BOM without headers, with its designators, and its comment
   last, and EDA placements, checking each table's columns and values, in order, and checks a file that doesn't exist is
   none (`STORE-17`).

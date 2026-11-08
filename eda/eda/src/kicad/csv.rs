@@ -2,7 +2,8 @@ use pnp::pcb::PcbSide;
 use rust_decimal::Decimal;
 use thiserror::Error;
 
-use crate::placement::{EdaPlacement, EdaPlacementField};
+use crate::placement::EdaPlacement;
+use crate::EdaTool;
 
 #[derive(Error, Debug)]
 pub enum KiCadPlacementRecordError {
@@ -51,16 +52,7 @@ impl KiCadPlacementRecord {
         Ok(EdaPlacement {
             ref_des: self.ref_des.to_string(),
             place: true,
-            fields: vec![
-                EdaPlacementField {
-                    name: "package".to_string(),
-                    value: self.package.to_string(),
-                },
-                EdaPlacementField {
-                    name: "val".to_string(),
-                    value: self.val.to_string(),
-                },
-            ],
+            fields: EdaTool::KiCad.placement_fields(&[&self.package, &self.val]),
             pcb_side: PcbSide::from(&self.side),
             x: self.x,
             y: self.y,

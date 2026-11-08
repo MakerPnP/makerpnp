@@ -302,12 +302,14 @@ fn field<'a>(row: &'a BTreeMap<String, String>, name: &str) -> anyhow::Result<&'
         .ok_or_else(|| anyhow!("Missing field. field: {:?}", name))
 }
 
-/// A part mapping, its EDA tool's fields' patterns found as the Planner's part mapper finds them, by name, in any case.
+/// A part mapping, with a pattern for each field of any EDA tool the file has a column for, not only its own tool's, in
+/// the EDA tools' order, found as the Planner's part mapper finds them, by name, in any case, so every value is shown
+/// whichever tool the row has.
 fn part_mapping_view_item(row: &BTreeMap<String, String>) -> anyhow::Result<PartMappingsViewItem> {
     let eda_tool = eda_tool(row)?;
-    let criteria = stores::csv::eda_fields_names(&eda_tool)
-        .iter()
-        .filter_map(|&field_name| {
+    let criteria = EdaTool::all_field_names()
+        .into_iter()
+        .filter_map(|field_name| {
             row.iter()
                 .find(|(key, _)| key.to_lowercase() == field_name)
                 .map(|(_, value)| FieldPattern {
@@ -349,7 +351,7 @@ fn substitution_view_item(row: &BTreeMap<String, String>) -> anyhow::Result<Subs
     let eda_tool = eda_tool(row)?;
     let mut criteria = vec![];
     let mut transforms = vec![];
-    for &field_name in stores::csv::eda_fields_names(&eda_tool) {
+    for &field_name in eda_tool.field_names() {
         let pattern = field(row, &stores::csv::pattern_column_name(field_name))?;
         let value = field(row, &stores::csv::field_column_name(field_name))?;
         criteria.push(FieldPattern {

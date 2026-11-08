@@ -145,8 +145,8 @@ the other tools' fields, as they're the user's. Every pattern's cell is shown, a
 has, and its background says whether the row's tool matches the field: faint green if it does, and faint red if it
 doesn't, so its pattern is ignored, saying so when it's hovered, "`Matched by <tool>.`" or
 "`Not matched by <tool>.`", so the colour isn't the only sign. *Observed*: the core's "`AddTableColumns`" event is logged
-before the row's "`ChangeTable`". The gap: a row's patterns are only its tool's (`STORE-17`), and the core can't add
-columns (`STORE-21`).
+before the row's "`ChangeTable`". The gap: the core can't add columns (`STORE-21`), and the
+cells aren't coloured.
 
 ## Acceptance criteria
 
