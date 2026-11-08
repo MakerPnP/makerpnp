@@ -257,7 +257,9 @@ pattern's column, or no value's column, is read, without it, so the row can be s
 pattern's column for each EDA tool's field it has a column for, in the EDA tools' order, so they're there even with no
 rows, and substitutions' likewise, a pattern's column for each field it has a pattern's column for, and a value's for
 each it has a value's column for, every pattern's before every value's, each group in the EDA tools' order, whatever
-their order in the file, and a comment's last, if it has one. A BOM is
+their order in the file, and a comment's last, if it has one. Assembly rules' columns are "`RefDes`",
+"`Manufacturer`" and "`Mpn`", their references the file's headers, as they're written, as the Variant Builder reads
+them, and a file without one of them is refused, saying which, as the Variant Builder refuses it. A BOM is
 written without headers, as JLCPCB's are, so every row is read, by
 the order of its values, with the columns "`Designator`", "`Footprint`", "`JLCPCB Part`", "`Quantity`" and
 "`Comment`", its designators joined by "`, `", and a quantity as a number. Part mappings' columns are "`Eda`", each
@@ -304,46 +306,56 @@ table isn't loaded, if another change to it is being made, if its kind can't be 
 "`The table can't be changed.`", if a value is in a column the data source doesn't have, saying
 "`The column doesn't exist.`", or if a row is moved and the table's rows aren't ordered, saying
 "`The rows can't be moved.`". A change that can't be made MUST say why, and keep the table as it was. The table's
-status MUST say whether a change is being made, and why its last change was refused, until one succeeds. Part mappings
-and substitutions can be changed, a substitution's values being its EDA tool, its patterns, the values its fields are
-substituted with, and its comment, empty if it has none; the other kinds are to come (the Variant Builder mission's
-step 11). A pattern that isn't a valid
+status MUST say whether a change is being made, and why its last change was refused, until one succeeds. Part
+mappings, substitutions and assembly rules can be changed, a substitution's values being its EDA tool, its patterns,
+the values its fields are substituted with, and its comment, empty if it has none, and an assembly rule's its
+designator, its manufacturer and its MPN; the other kinds are to come (the Variant Builder mission's step 11). A pattern that isn't a valid
 regular expression is written as it is, as it's the user's, and it's shown as it is (`STORE-17`). *Observed*: the
 operation is `ChangeRows`, logged as the service's others are (`STORE-7`). The `csv_file` back end's key of a row is its
 place in the file, counted from 0, when it was read, so it's checked with the row's values, its references are the
 file's headers, as they're written, and its rows are ordered by their place. It reads the file, checks the change's
 values, makes the change, and writes the file, every value quoted, its columns as they were, logging
-"`Changing part mappings. source: '<source>'`", or "`Changing eda substitutions. source: '<source>'`", at info level.
+"`Changing part mappings. source: '<source>'`", "`Changing eda substitutions. source: '<source>'`", or
+"`Changing assembly rules. source: '<source>'`", at info level.
 A row's EDA tool is written as `STORE-17` names it, such as "`DipTrace`". The core logs
 "`stores_app: Changed table. kind: <kind>, source: '<source>', revision: '<revision>'`" at info level once the data
 source is changed. *Target*: a front end showing some of a table's rows, such as a page of them, and the back end
 working out the ordering values of a table ordered by a column's values.
 
 **STORE-20 — Changing a table from the CLI.** *Confirmed.* `planner_cli table --kind part-mappings --source <file>`,
-and `--kind substitutions`, `add`, `set`, `remove` and `move` MUST open the table (`STORE-17`), then change it (`STORE-19`), so the CLI can change
+`--kind substitutions` and `--kind assembly-rules`, `add`, `set`, `remove` and `move` MUST open the table
+(`STORE-17`), then change it (`STORE-19`), so the CLI can change
 a data source as the GUI does. `list --keys` MUST list each row's key, as the data source gives it, in a first column,
 "`Key`", by which the other commands name a row with `--row <KEY>`. `add` adds a row, after the others, with its EDA
 tool, `--eda <TOOL>`, its manufacturer, `--manufacturer`, and MPN, `--mpn`, and a pattern for each field named with
 `--pattern <FIELD>=<PATTERN>`, once for each field, such as "`name=/R.*/`"; a substitution, instead of a part, has a
 value for each field named with `--value <FIELD>=<VALUE>`, such as "`name=RES_0402`", and a comment, `--comment`, and
-`--manufacturer` and `--mpn` are refused for it, as `--value` and `--comment` are for a part mapping. `set` sets the row's values named with the
+`--manufacturer` and `--mpn` are refused for it, as `--value` and `--comment` are for a part mapping. An assembly rule
+has a designator, `--ref-des`, such as "`R1`", a manufacturer, `--manufacturer`, and an MPN, `--mpn`, each needed to add
+one, and no EDA tool, so `--eda`, `--pattern`, `--value` and `--comment` are refused for it, as `--ref-des` is for the
+other kinds; `--eda` is needed to add a part mapping or a substitution. An option refused for the table's kind MUST
+fail, saying "`Option not for the table's kind. option: '<option>', kind: <kind>`", and one needed that isn't given
+"`Option needed for the table's kind. option: '<option>', kind: <kind>`", the file left as it was. `set` sets the
+row's values named with the
 same options, keeping those not named, and needs at least one. `remove` removes the row, and `move` moves it to before
 the row named with `--before <KEY>`, or to the end with `--to-end`. The row is changed as it was just read, so a change
 made by anyone between the read and the change is refused (`STORE-19`); to refuse one made since the user saw the row,
 such as with `list`, as a row is named by its key, its place in the file, which another row may have now, the values
 the row has, as the user saw them, MAY be given with `--where-eda`, `--where-pattern <FIELD>=<PATTERN>`,
 `--where-manufacturer` and `--where-mpn`, or, for a substitution, `--where-value <FIELD>=<VALUE>` and
-`--where-comment`, as an SQL `UPDATE`'s `WHERE` does, and the change is refused if the row doesn't have them now.
-They check the row named with `--row`; they don't choose it. *Target*: rows chosen by their `--where-` values alone,
-with no `--row`, several at once. As `STORE-19` checks only the values an update changes, `set`'s `--where-` values
-are checked only for the values it sets. A row that isn't there MUST fail,
+`--where-comment`, and for an assembly rule `--where-ref-des`, `--where-manufacturer` and `--where-mpn`, as an SQL
+`UPDATE`'s `WHERE` does, and the change is refused if the row doesn't have them now. They check the row named with
+`--row`; they don't choose it. *Target*: rows chosen by their `--where-` values alone, with no `--row`, several at
+once. As `STORE-19` checks only the values an update changes, `set`'s `--where-` values are checked only for the
+values it sets. A row that isn't there MUST fail,
 saying "`The row doesn't exist. key: '<key>'`". If the core refuses, the CLI MUST fail with the core's error, and the
 file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11), and are
 refused, as the core refuses them.
 `add-columns` MUST add columns to the table (`STORE-21`): `--eda <TOOL>` the columns the EDA tool needs that the data
 source doesn't have, as the core works them out, or `--column <NAME>`, once for each column, with where they go,
 `--first`, `--last`, `--before <COLUMN>` or `--after <COLUMN>`, a column named as the data source names it, which
-`list` shows for the columns it lists; named columns need where they go, and an EDA tool's take none. Each says which
+`list` shows for the columns it lists; named columns need where they go, and an EDA tool's take none, and assembly
+rules, which have no EDA tool, take only named columns, the core refusing an EDA tool's (`STORE-21`). Each says which
 columns were added, "`Added columns. columns: ['<column>', ...]`", an EDA tool's being those the table shows once
 they're added that it didn't, or that none were needed, "`No columns needed.`", on standard output. A row's EDA tool
 is changed, or a row of another tool added, with `set` or `add` after its tool's columns are added; a pattern, or a
@@ -385,7 +397,9 @@ uses is (`VBGUI-13`). A front end MUST be able to ask for columns in either of t
 
 The back end MUST add the columns where they're asked to go, with an empty value for each row, leaving every other
 column, value and row as it was, so the rows' keys are as they were. Adding columns MUST be refused, and nothing
-changed, if the table isn't loaded, if a change to it is being made (`STORE-19`), if its kind can't be changed (`STORE-19`), if a
+changed, if the table isn't loaded, if a change to it is being made (`STORE-19`), if its kind can't be changed (`STORE-19`),
+if an EDA tool's columns are asked for a table whose rows have no EDA tool, such as assembly rules, saying
+"`The table has no EDA tool's columns.`", with its kind and its data source, if a
 column to add is already there, saying "`The column already exists. column: '<column>'`", if a column is to go before
 or after one the data source doesn't have, saying "`The column doesn't exist.`", or if the back end can't add columns,
 saying why. Whether a column is there is the back end's to say, as only it knows every column the data source has,
@@ -402,8 +416,8 @@ the part's "`Manufacturer`" and "`Mpn`" as they're written, and a substitution's
 and its value's "`<Field>`", for an EDA tool's field, as they're written, as the Variant Builder reads them, inserts each header where it's to go, with an empty value in each row, and writes the file, every value
 quoted, logging "`Adding columns. source: '<source>', columns: ['<column>', ...]`" at info level. The core logs
 "`stores_app: Added table columns. kind: <kind>, source: '<source>', columns: ['<column>', ...], revision: '<revision>'`"
-at info level once they're added. Part mappings' and substitutions' columns can be added; the other kinds are to come with their changes
-(the Variant Builder mission's step 11).
+at info level once they're added. Part mappings', substitutions' and assembly rules' columns can be added, assembly
+rules' only named; the other kinds are to come with their changes (the Variant Builder mission's step 11).
 
 ## Acceptance criteria
 
@@ -498,6 +512,21 @@ at info level once they're added. Part mappings' and substitutions' columns can 
   "`stores_app: Added table columns. kind: Substitutions, source: '`" are logged, in order, with no "`Event failed.`".
   It checks `--manufacturer` for a substitution, and `--value` for a part mapping, fail, saying why, and leave the
   file as it was (`STORE-20`, `STORE-21`).
+- `planning/stores_service/tests/csv_file.rs` reads assembly rules' keys, references, as their headers are written,
+  and ordering, refuses a file without one of their columns, saying which, then updates a row, adds, removes and
+  moves a row, checking the file after each, every value quoted, a column the table doesn't show untouched, and adds
+  named columns to assembly rules (`STORE-17`, `STORE-19`, `STORE-21`).
+- `planning/stores_app/tests/tables.rs` checks a change to assembly rules has the service update a row's changed
+  columns, its designator, manufacturer and MPN, by their references, add, remove and move a row, and that an EDA
+  tool's columns asked for assembly rules are refused, saying "`The table has no EDA tool's columns.`", nothing asked
+  of the service (`STORE-19`, `STORE-21`).
+- `planning/planner_cli/tests/tables.rs` lists assembly rules with their keys, then adds a row with `--ref-des`,
+  `--manufacturer` and `--mpn`, sets its values, checked with `--where-ref-des`, moves and removes a row, and adds a named
+  column, checking the file after each, every value quoted, and checks
+  "`stores_app: Changed table. kind: AssemblyRules, source: '`" is logged, with no "`Event failed.`". It checks
+  `--eda`, `--pattern`, `--value` and `--comment` for an assembly rule, `--ref-des` for a part mapping and a
+  substitution, an assembly rule added without `--ref-des`, a part mapping without `--eda`, and `add-columns --eda`
+  for assembly rules, fail, saying why, and leave the file as it was (`STORE-20`, `STORE-21`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
   core asks to identify the data source and then read it, and sends the view, with the parts in order, the other values'

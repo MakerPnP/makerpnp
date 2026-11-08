@@ -170,6 +170,11 @@ what each problem is, in this order, or "`No problems.`":
 - "`The data source has no manufacturer's column, or no MPN's.`".
 - "`The manufacturer, or the MPN, is empty.`": said only if the data source has both columns.
 
+*Target*: a value of only whitespace, or other characters that aren't printed, such as one or more spaces, is a
+problem, as an empty one is, in every changeable table's status and cells, part mappings', substitutions'
+(`VBGUI-14`) and assembly rules' (`VBGUI-15`), as it's of no use to MakerPnP or the user. The gap: such a value is
+valid now, as any other that isn't empty is.
+
 A row's status's text, and its EDA tool's, MUST NOT be selectable, as they're shown, or chosen, not typed, so dragging
 across them doesn't select them; the other cells' text can be selected, to be copied, as a read-only table's can.
 The circles are glyphs of egui's own fonts, tinted, as they have no colour emoji, nor a traffic light. *Target*: colour
@@ -215,6 +220,23 @@ The table's columns are its rows' EDA tool, then every pattern's column, then ev
 EDA tools' order, then the comment, as the core shows them (`STORE-17`), whatever their order in the data source.
 
 *Observed*: the tab's commands are logged as `VBGUI-13` says, with the kind "`Substitutions`".
+
+**VBGUI-15 — Changing assembly rules.** *Confirmed.* An assembly rules' panel MUST change its data source as a part
+mappings' panel does (`VBGUI-13`): its cells edited in place, its rows added, removed and moved, each change written at
+once, and the table's first column its rows' status. A designator, a manufacturer and an MPN are edited in a text
+field. An assembly rule has no EDA tool, so it has no EDA tool's cell, and no columns are added for one, and
+"`Add row`" adds a rule with no designator, manufacturer or MPN, whether or not the variant builder has an EDA tool.
+Each of a row's cells is red if it's empty, and green if not, as every assembly rule needs all three. A row's status
+is green, saying "`No problems.`", if none of its cells is empty, and red if any is, saying, for each, in the columns'
+order:
+
+- "`Empty RefDes.`"
+- "`Empty Manufacturer.`"
+- "`Empty Mpn.`"
+
+So an empty row, such as one just added, says all three. A row's status's text MUST NOT be selectable, as a part
+mapping's isn't (`VBGUI-13`). *Observed*: the tab's commands are logged as `VBGUI-13` says, with the kind
+"`AssemblyRules`".
 
 ## Acceptance criteria
 
@@ -363,6 +385,16 @@ EDA tools' order, then the comment, as the core shows them (`STORE-17`), whateve
   substitution's pattern, value and comment are edited, one
   left empty not being one the row didn't have, and that a substitution's problems are each found, in order, and
   none if it has none (`VBGUI-14`).
+- `tests/ui/variant_builders.rs` edits an assembly rule's designator, manufacturer and MPN in their cells, adds,
+  moves and removes rows, checking the file after each, hovers rows' statuses, checking "`No problems.`" for a row
+  with none, "`Empty Mpn.`" for a row with no MPN, and "`Empty RefDes.`", "`Empty Manufacturer.`" and "`Empty Mpn.`"
+  for the row added, and that a status can't be selected, and checks "`Table(AssemblyRules, `",
+  "`stores_app: Received event. event: ChangeTable { kind: AssemblyRules, `" and
+  "`stores_app: Changed table. kind: AssemblyRules, source: '`" are logged, in order, with no "`Event failed.`"
+  (`VBGUI-15`).
+- `data_sources::table`'s tests check an assembly rule's cells are red if empty and green if not, that its problems
+  are each found, in the columns' order, and none if it has none, that a new row is an empty rule, and that the status
+  column is first of assembly rules too (`VBGUI-15`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
   (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.
