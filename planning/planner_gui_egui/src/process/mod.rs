@@ -16,6 +16,7 @@ use crate::planner_app_core::{PlannerAction, PlannerCoreService, PlannerError};
 use crate::process::editor::{ProcessEditorUi, ProcessEditorUiAction, ProcessEditorUiCommand, ProcessEditorUiContext};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::ui_components::errors::{Errors, ErrorsUiCommand};
 
 pub mod editor;
 
@@ -46,6 +47,9 @@ pub struct Process {
     definition: Option<ProcessDefinition>,
     /// the last error, shown until the user's next change is applied.
     error: Option<String>,
+    /// The errors the tab has dismissed, its own and its editor's, until the user next does something in it
+    /// (`FORM-13`).
+    errors: Errors,
 
     editor: ProcessEditorUi,
 
@@ -75,6 +79,16 @@ pub enum ProcessUiCommand {
     RequestView,
 
     EditorCommand(ProcessEditorUiCommand),
+    /// An error's command, such as "Dismiss" clicked (`FORM-13`).
+    Errors(ErrorsUiCommand),
+}
+
+impl ProcessUiCommand {
+    /// Whether the user did it, a change to the process in its editor, or saving it, so the tab shows its dismissed
+    /// errors again, as it may have caused them again, rather than the core, or the tab itself (`FORM-13`).
+    fn is_users(&self) -> bool {
+        matches!(self, ProcessUiCommand::EditorCommand(_) | ProcessUiCommand::Save)
+    }
 }
 
 impl Process {
@@ -113,6 +127,7 @@ impl Process {
             modified_generation: 0,
             definition: None,
             error: None,
+            errors: Errors::default(),
             editor,
             component,
         };
@@ -142,20 +157,29 @@ impl UiComponent for Process {
     type UiAction = ProcessAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
+        let key = context.key;
+        let send_errors = |command: ErrorsUiCommand| {
+            self.component
+                .send((key, ProcessUiCommand::Errors(command)))
+        };
         egui::Frame::new()
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.label(tr!("process-detail-path", { path: self.path.display().to_string() }));
 
+                // in the tab's error frame, which the user can dismiss (`FORM-12`, `FORM-13`).
                 if let Some(error) = &self.error {
-                    ui.colored_label(ui.visuals().error_fg_color, error);
+                    self.errors
+                        .show(ui, "process", error, &send_errors);
                 }
 
                 ui.separator();
 
                 self.editor
-                    .ui(ui, &mut ProcessEditorUiContext::default());
+                    .ui(ui, &mut ProcessEditorUiContext {
+                        errors: Some((&self.errors, &send_errors)),
+                    });
             });
     }
 
@@ -168,6 +192,9 @@ impl UiComponent for Process {
         // `LOG-3`
         debug!("Process command. command: {:?}", command);
         let (key, command) = command;
+        if command.is_users() {
+            self.errors.clear();
+        }
 
         match command {
             ProcessUiCommand::None => None,
@@ -207,6 +234,10 @@ impl UiComponent for Process {
                 )
             }
             ProcessUiCommand::Saved => None,
+            ProcessUiCommand::Errors(command) => {
+                self.errors.update(command);
+                None
+            }
             ProcessUiCommand::Error(error) => {
                 let (PlannerError::CoreError((_, message)) | PlannerError::Other((_, message))) = error;
                 self.error = Some(message);

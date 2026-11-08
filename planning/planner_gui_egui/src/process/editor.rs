@@ -18,6 +18,7 @@ use validator::Validate;
 use crate::forms::{Form, NamedResponse};
 use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::ui_components::errors::{Errors, ErrorsUiCommand};
 
 #[derive(Derivative)]
 #[derivative(Debug)]
@@ -525,16 +526,20 @@ pub enum ProcessEditorUiAction {
     Apply(ProcessDefinition),
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct ProcessEditorUiContext {}
+#[derive(Clone, Copy, Default)]
+pub struct ProcessEditorUiContext<'context> {
+    /// The process tab's errors, which show why the definition isn't valid, and the tab's command to dismiss it
+    /// (`FORM-12`, `FORM-13`).
+    pub errors: Option<(&'context Errors, &'context dyn Fn(ErrorsUiCommand))>,
+}
 
 impl UiComponent for ProcessEditorUi {
-    type UiContext<'context> = ProcessEditorUiContext;
+    type UiContext<'context> = ProcessEditorUiContext<'context>;
     type UiCommand = ProcessEditorUiCommand;
     type UiAction = ProcessEditorUiAction;
 
     #[profiling::function]
-    fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
+    fn ui<'context>(&self, ui: &mut Ui, context: &mut Self::UiContext<'context>) {
         ui.ctx().global_style_mut(|style| {
             // if this is not done, text in labels/checkboxes/etc wraps
             style.wrap_mode = Some(egui::TextWrapMode::Extend);
@@ -563,8 +568,11 @@ impl UiComponent for ProcessEditorUi {
                 .unwrap()
                 .build_definition();
 
-            if let Err(error) = &definition {
-                ui.colored_label(ui.visuals().error_fg_color, error);
+            // `PROC-3`, why it isn't valid, in the tab's error frame (`FORM-12`, `FORM-13`).
+            if let Err(error) = &definition
+                && let Some((errors, send)) = context.errors
+            {
+                errors.show(ui, "process definition", &error.to_string(), send);
             }
 
             let is_changed = definition
