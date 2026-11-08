@@ -13,6 +13,7 @@ use crate::data_sources::table::{
 };
 use crate::stores_core::StoresCoreService;
 use crate::sync::Value;
+use crate::ui_components::errors::{Errors, ErrorsUiCommand};
 
 /// The panel's state, kept by the tab showing it, for each table it shows, across frames, and the tables it has had
 /// the stores core open.
@@ -33,6 +34,19 @@ pub enum DataSourcePanelUiCommand {
     Reload(TableKind, Source),
     /// The table's command, such as a cell edited (`VBGUI-13`).
     Table(TableKind, Source, TableUiCommand),
+}
+
+impl DataSourcePanelUiCommand {
+    /// Whether the user did it, such as clicking "Reload", or editing a cell, so the tab shows its dismissed errors
+    /// again, as it may have caused them again, rather than the panel itself, such as opening the table, or selecting
+    /// the rows a change made once it's shown (`FORM-13`).
+    pub fn is_users(&self) -> bool {
+        match self {
+            DataSourcePanelUiCommand::Open(..) => false,
+            DataSourcePanelUiCommand::Reload(..) => true,
+            DataSourcePanelUiCommand::Table(_, _, command) => command.is_users(),
+        }
+    }
 }
 
 impl DataSourcePanel {
@@ -96,7 +110,9 @@ impl DataSourcePanel {
         kind: TableKind,
         source: &Source,
         new_row: Option<TableRow>,
+        errors: &Errors,
         send: &dyn Fn(DataSourcePanelUiCommand),
+        send_errors: &dyn Fn(ErrorsUiCommand),
     ) {
         // the latest view, whichever tab or panel loaded it, shared, not copied (`PARTSRC-5`).
         let (status, view) = {
@@ -124,19 +140,20 @@ impl DataSourcePanel {
                 send(DataSourcePanelUiCommand::Reload(kind, source.clone()));
             }
         });
-        // the data source's, so shown by every view of it, each with the table loaded before, if any (`VBGUI-11`).
+        // the data source's, so shown by every view of it, each with the table loaded before, if any (`VBGUI-11`), each
+        // error in the tab's error frame, which the user can dismiss (`FORM-12`, `FORM-13`).
         if let Some(error) = status
             .as_ref()
             .and_then(|status| status.error.as_ref())
         {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            errors.show(ui, &format!("{kind:?} {source}"), error, send_errors);
         }
         // `VBGUI-13`, why the last change was refused, until one succeeds.
         if let Some(error) = status
             .as_ref()
             .and_then(|status| status.change_error.as_ref())
         {
-            ui.colored_label(ui.visuals().error_fg_color, error);
+            errors.show(ui, &format!("{kind:?} {source} change"), error, send_errors);
         }
 
         match view {

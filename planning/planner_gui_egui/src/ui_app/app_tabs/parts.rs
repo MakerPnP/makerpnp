@@ -24,6 +24,7 @@ use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::ui_components::errors::{Errors, ErrorsUiCommand};
 
 /// The kinds of data source the user can choose from.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,6 +56,10 @@ pub struct PartsTab {
     #[serde(skip)]
     #[derivative(Debug = "ignore")]
     data_source_panel: DataSourcePanel,
+
+    /// The errors the tab has dismissed, until the user next does something in it (`FORM-13`).
+    #[serde(skip)]
+    errors: Errors,
 }
 
 #[derive(Debug, Clone)]
@@ -66,10 +71,24 @@ pub enum PartsTabUiCommand {
     Submit,
     /// The data source panel's command, such as "Reload", or a part's value edited (`PARTSRC-6`).
     Panel(DataSourcePanelUiCommand),
+    /// An error's command, such as "Dismiss" clicked (`FORM-13`).
+    Errors(ErrorsUiCommand),
 
     // internal
     /// Opens the data source, using its parts if they're loaded already, as when another tab shows them.
     Open,
+}
+
+impl PartsTabUiCommand {
+    /// Whether the user did it, so the tab shows its dismissed errors again, as it may have caused them again
+    /// (`FORM-13`).
+    fn is_users(&self) -> bool {
+        match self {
+            PartsTabUiCommand::Panel(command) => command.is_users(),
+            PartsTabUiCommand::Errors(_) | PartsTabUiCommand::Open => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -157,6 +176,9 @@ impl UiComponent for PartsTab {
     ) -> Option<Self::UiAction> {
         // `LOG-3`
         debug!("PartsTab command. command: {:?}", command);
+        if command.is_users() {
+            self.errors.clear();
+        }
         match command {
             PartsTabUiCommand::SourceKindChanged(kind) => {
                 self.fields.lock().unwrap().kind = kind;
@@ -202,6 +224,10 @@ impl UiComponent for PartsTab {
             PartsTabUiCommand::Panel(command) => {
                 self.data_source_panel
                     .update(command, &context.stores);
+                None
+            }
+            PartsTabUiCommand::Errors(command) => {
+                self.errors.update(command);
                 None
             }
         }
@@ -306,6 +332,10 @@ impl PartsTab {
             self.component
                 .send(PartsTabUiCommand::Panel(command))
         };
+        let send_errors = |command: ErrorsUiCommand| {
+            self.component
+                .send(PartsTabUiCommand::Errors(command))
+        };
         egui::Frame::new()
             .inner_margin(8.0)
             .show(ui, |ui| {
@@ -315,7 +345,9 @@ impl PartsTab {
                     TableKind::Parts,
                     source,
                     new_row(TableKind::Parts, None),
+                    &self.errors,
                     &send,
+                    &send_errors,
                 );
             });
     }

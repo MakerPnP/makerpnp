@@ -36,6 +36,7 @@ use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::ui_components::errors::{Errors, ErrorsUiCommand};
 use crate::variant_builder_core::VariantBuilderCoreService;
 
 mod explorer;
@@ -123,6 +124,11 @@ pub struct VariantBuilderTab {
     #[serde(skip)]
     #[derivative(Debug = "ignore")]
     data_source_panel: DataSourcePanel,
+
+    /// The errors the tab has dismissed, its own and its panels', until the user next does something in it
+    /// (`FORM-13`).
+    #[serde(skip)]
+    errors: Errors,
 }
 
 #[derive(Debug, Clone)]
@@ -154,12 +160,26 @@ pub enum VariantBuilderTabUiCommand {
 
     /// Shows the panel, opening it if it isn't open, as the explorer's node was double-clicked (`VBGUI-10`).
     ShowPanel(Panel),
+    /// An error's command, such as "Dismiss" clicked (`FORM-13`).
+    Errors(ErrorsUiCommand),
 
     // internal
     /// Opens the variant builder, reading its file.
     Open,
     /// A data source panel's command, such as opening its table, or a cell edited (`VBGUI-11`, `VBGUI-13`).
     Panel(DataSourcePanelUiCommand),
+}
+
+impl VariantBuilderTabUiCommand {
+    /// Whether the user did it, so the tab shows its dismissed errors again, as it may have caused them again
+    /// (`FORM-13`).
+    fn is_users(&self) -> bool {
+        match self {
+            VariantBuilderTabUiCommand::Panel(command) => command.is_users(),
+            VariantBuilderTabUiCommand::Errors(_) | VariantBuilderTabUiCommand::Open => false,
+            _ => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -335,6 +355,9 @@ impl UiComponent for VariantBuilderTab {
     ) -> Option<Self::UiAction> {
         // `LOG-3`
         debug!("VariantBuilderTab command. command: {:?}", command);
+        if command.is_users() {
+            self.errors.clear();
+        }
         match command {
             VariantBuilderTabUiCommand::EdaToolChanged(eda_tool) => {
                 let mut fields = self.fields.lock().unwrap();
@@ -445,6 +468,10 @@ impl UiComponent for VariantBuilderTab {
             VariantBuilderTabUiCommand::Panel(command) => {
                 self.data_source_panel
                     .update(command, &context.stores);
+                None
+            }
+            VariantBuilderTabUiCommand::Errors(command) => {
+                self.errors.update(command);
                 None
             }
             VariantBuilderTabUiCommand::Changed(change) => {
@@ -733,8 +760,13 @@ impl VariantBuilderTab {
             .show(ui, |ui| {
                 ui.label(tr!("variant-builder-path", { path: path.display().to_string() }));
 
+                // in the tab's error frame, which the user can dismiss (`FORM-12`, `FORM-13`).
                 if let Some(error) = &status.error {
-                    ui.colored_label(ui.visuals().error_fg_color, error);
+                    self.errors
+                        .show(ui, "variant builder", error, &|command| {
+                            self.component
+                                .send(VariantBuilderTabUiCommand::Errors(command))
+                        });
                 }
 
                 let Some(view) = view else {
@@ -1253,9 +1285,21 @@ impl PanelViewer<'_> {
                 .component
                 .send(VariantBuilderTabUiCommand::Panel(command))
         };
-        self.tab
-            .data_source_panel
-            .show(ui, self.stores, kind, &source, new_row, &send);
+        let send_errors = |command: ErrorsUiCommand| {
+            self.tab
+                .component
+                .send(VariantBuilderTabUiCommand::Errors(command))
+        };
+        self.tab.data_source_panel.show(
+            ui,
+            self.stores,
+            kind,
+            &source,
+            new_row,
+            &self.tab.errors,
+            &send,
+            &send_errors,
+        );
     }
 }
 

@@ -58,6 +58,27 @@ If the number of rows changes, rows MUST return to their original order, so that
 **FORM-11 — Editing a cell.** *Observed.* In the Parts, Placements and load-out tables, clicking an editable cell MUST select it, and
 clicking it again MUST start editing it. Clicking any other cell MUST finish the edit and apply the change. See `ISSUE-9`.
 
+## Errors
+
+**FORM-12 — Showing an error.** *Confirmed.* An error a tab shows, such as why a data source can't be read, or why a
+change to it was refused (`VBGUI-11`, `VBGUI-13`), why a variant builder's file can't be read (`VARB-7`), or why a
+process's change was refused, or why its definition isn't valid (`PROC-3`), MUST be shown in an error frame, by one
+component used for every error, so that errors look the same everywhere: a high saturation red border, a faint red
+background, an error icon, an exclamation mark in a circle, before the message, and the message wrapped. The frame is
+as wide as the space it's in, so as wide as a table below it, which fills that space, and never wider, so that it
+doesn't make the tab scroll sideways to be read.
+
+**FORM-13 — Dismissing an error.** *Confirmed.* An error frame MUST have a button to dismiss it, top right, named
+"`Dismiss`" for assistive technology and tests (`FORM-4`). A dismissed error MUST stay hidden while it's still the tab's
+error, though the tab is drawn again, and though it's caused again by something the user didn't do, such as a change to
+the file noticed by its watch (`STORE-9`). An error is identified by where it's shown and what it says, so a different
+error, there or elsewhere, MUST be shown. Once the user next does something in the tab, such as clicking a button,
+typing, choosing a file or editing a cell, every error it dismissed MUST be shown again, if it's still the tab's error,
+even with the same message, as the user's action may have caused it again. What the tab does itself, such as opening a
+data source, or selecting the row a change added once it's shown, doesn't count. Dismissing is the tab's: another tab
+showing the same error MUST keep showing it. *Observed*: dismissing is logged as the tab's command, such as
+"`PartsTab command. command: Errors(Dismissed(`".
+
 ## Acceptance criteria
 
 - `tests/ui/tables.rs` checks a click on unit 4 of the Unit mapping table does nothing, drags the table's handle, and
@@ -79,3 +100,12 @@ clicking it again MUST start editing it. Clicking any other cell MUST finish the
 - `FORM-1` is about appearance, so no test checks it.
 - Reducing and then increasing a value keeps what was entered (`FORM-5`), covered for a PCB's units (`PCBCFG-5`). Other
   fields, rows and elements created on the fly have not been checked yet.
+- `ui_components::errors`'s test checks a dismissed error stays dismissed while it's the same, that one with a
+  different message, or in a different place, isn't, and that clearing shows it again (`FORM-13`).
+- `tests/ui/parts_sources.rs`'s `an_error_is_dismissed_until_the_user_next_does_something` opens a file without the
+  "`Manufacturer`" header, clicks "`Dismiss`", and checks the error is hidden, and
+  "`PartsTab command. command: Errors(Dismissed(`" logged, then changes the file, checks it's read again with the same
+  error, which stays hidden, changes it again, checks the different error is shown, and dismisses it, then opens the
+  file in another tab, which shows it, checks it's still hidden in the first, and clicks "`Reload`" there, checking it's
+  shown again (`FORM-13`). The other errors use the same component, and their tests check their messages are shown.
+  Not covered yet: dismissing them, and how an error frame looks, its colours, icon, wrapping and width (`FORM-12`).

@@ -146,6 +146,7 @@ form-open-parts-input-csv-file = Archivo
 
 data-source-panel-path = Archivo: { $path }
 data-source-panel-button-reload = Recargar
+error-button-dismiss = Descartar
 
 variant-builder-path = Variante de diseño: { $path }
 variant-builder-loading = Cargando la variante de diseño...

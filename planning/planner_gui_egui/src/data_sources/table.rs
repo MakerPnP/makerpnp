@@ -350,6 +350,23 @@ pub enum TableUiCommand {
     ColumnsShown(Option<(TableChange, Option<AfterChange>)>),
 }
 
+impl TableUiCommand {
+    /// Whether the user did it, such as editing a cell, selecting rows or clicking a row button, rather than the table,
+    /// once what the user did is shown (`FORM-13`).
+    pub fn is_users(&self) -> bool {
+        match self {
+            TableUiCommand::CellEdited(..)
+            | TableUiCommand::EditSubmitted
+            | TableUiCommand::EditCancelled
+            | TableUiCommand::RowsSelected(_)
+            | TableUiCommand::Change(_)
+            | TableUiCommand::ChangeRows(..)
+            | TableUiCommand::ChangeAfterColumns(_) => true,
+            TableUiCommand::ChangeShown(_) | TableUiCommand::ScrolledToRow | TableUiCommand::ColumnsShown(_) => false,
+        }
+    }
+}
+
 /// Handles a table's command, changing the cell edited, or the rows selected, and returns what to have the stores core
 /// do, if anything (`VBGUI-13`).
 pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<TableRequest> {

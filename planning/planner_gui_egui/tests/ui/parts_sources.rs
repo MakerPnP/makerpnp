@@ -181,6 +181,53 @@ fn a_part_can_be_added_to_a_file_with_no_parts() {
     app.assert_not_logged("Event failed.");
 }
 
+/// `FORM-12`, `FORM-13`, `PARTSRC-3`, an error is dismissed, and stays hidden while it's the same, though the file is
+/// read again once it changes, a different one being shown, and another tab showing it, until the user next does
+/// something in the tab, when it's shown again, with the same message.
+#[test]
+fn an_error_is_dismissed_until_the_user_next_does_something() {
+    let mut app = App::start();
+    let parts = given_a_parts_file(&app.folder(), "parts.csv", "\"Maker\",\"Mpn\"\n");
+
+    choose_csv_file(&mut app, &parts);
+    app.click_button("Ok");
+    app.wait_for_text_containing("Missing header. header: 'Manufacturer'");
+    app.click_button("Dismiss");
+    app.wait_until_no_text_contains("Missing header.");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Errors(Dismissed(",
+    ]);
+
+    // read again, with the same error, which stays hidden.
+    fs::write(&parts, "\"Maker\",\"Mpn\"\n\"RESCO\",\"RES1\"\n").unwrap();
+    app.wait_for_logs_in_order(&[
+        "stores_app: Data source changed. source: '",
+        "stores_app: Event failed. error: UnableToLoadTable {",
+    ]);
+    app.wait_until_no_text_contains("Missing header.");
+
+    // a different error is shown.
+    fs::write(&parts, "\"Manufacturer\",\"Part\"\n").unwrap();
+    app.wait_for_text_containing("Missing header. header: 'Mpn'");
+    app.click_button("Dismiss");
+    app.wait_until_no_text_contains("Missing header.");
+
+    // another tab, showing the same data source, shows the error.
+    choose_csv_file(&mut app, &parts);
+    app.click_button("Ok");
+    app.wait_for_text_containing("Missing header. header: 'Mpn'");
+    app.click_nth_tab_containing("parts.csv", 0);
+    app.wait_until_no_text_contains("Missing header.");
+
+    // the user's "Reload" shows it again, though it says the same.
+    app.click_button("Reload");
+    app.wait_for_text_containing("Missing header. header: 'Mpn'");
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Panel(Reload(Parts, ",
+        "stores_app: Event failed. error: UnableToLoadTable {",
+    ]);
+}
+
 /// `PARTSRC-5`, `STORE-5`, `STORE-6`, `STORE-9`, a data source shown in two tabs is loaded once, even when its path is
 /// written differently, and a change to its file, by anyone, is shown in both, without "Reload".
 #[test]
