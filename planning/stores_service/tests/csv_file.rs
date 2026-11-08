@@ -272,6 +272,105 @@ fn reads_substitutions_with_their_patterns_and_comment_last() {
     ])]);
 }
 
+/// `STORE-17`, a substitution has a pattern and a value for each field of any EDA tool the file has a column for, not
+/// only its own tool's, in the EDA tools' order, whatever the columns' order, and one whose tool's field has no column
+/// is read without it, so it can be shown, and given the column.
+#[test]
+fn reads_substitutions_with_every_eda_tools_fields_the_file_has() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "substitutions.csv",
+        "\"Eda\",\"Comment\",\"PackagePattern\",\"Name\",\"NamePattern\",\"Package\",\"ValuePattern\",\"Value\"\n\
+         \"DipTrace\",\"c1\",\"\",\"RES\",\"R1\",\"\",\"/1.*/\",\"10k\"\n\
+         \"KiCad\",\"\",\"R_0402\",\"\",\"\",\"R_0603\",\"\",\"\"\n",
+    );
+
+    let records = read_table(TableKind::Substitutions, &source)
+        .unwrap()
+        .expect("a table");
+
+    let Table::Substitutions(items) = &records.table else {
+        panic!("substitutions");
+    };
+    let patterns = |index: usize| -> Vec<(&str, &str)> {
+        items[index]
+            .criteria
+            .iter()
+            .map(|criterion| (criterion.field_name.as_str(), criterion.pattern.text()))
+            .collect()
+    };
+    let values = |index: usize| -> Vec<(&str, &str)> {
+        items[index]
+            .transforms
+            .iter()
+            .map(|transform| (transform.field_name.as_str(), transform.field_value.as_str()))
+            .collect()
+    };
+    // the file has neither of `val`'s columns, so no row has it, KiCad's included, nor `device`'s.
+    assert_eq!(patterns(0), vec![("name", "R1"), ("value", "/1.*/"), ("package", "")]);
+    assert_eq!(values(0), vec![("name", "RES"), ("value", "10k"), ("package", "")]);
+    assert_eq!(items[0].comment.as_deref(), Some("c1"));
+    assert_eq!(items[1].eda_tool, EdaTool::KiCad);
+    assert_eq!(patterns(1), vec![("name", ""), ("value", ""), ("package", "R_0402")]);
+    assert_eq!(values(1), vec![("name", ""), ("value", ""), ("package", "R_0603")]);
+    // an empty comment is one, as the file has its column.
+    assert_eq!(items[1].comment.as_deref(), Some(""));
+
+    // `STORE-19`, their keys, references, the headers as they're written, and their ordering.
+    assert_eq!(records.keys, vec![RowKey("0".to_string()), RowKey("1".to_string())]);
+    assert_eq!(records.ordering, RowOrdering::Position);
+    assert_eq!(references(&records), vec![
+        ("Eda", Some("Eda")),
+        ("NamePattern", Some("NamePattern")),
+        ("Name", Some("Name")),
+        ("ValuePattern", Some("ValuePattern")),
+        ("Value", Some("Value")),
+        ("PackagePattern", Some("PackagePattern")),
+        ("Package", Some("Package")),
+        ("Comment", Some("Comment")),
+    ]);
+}
+
+/// `STORE-17`, `STORE-21`, substitutions have a pattern's and a value's column for each field the file has a column
+/// for, even with no rows, only those it has, and no comment's column if it has none.
+#[test]
+fn substitutions_with_no_rows_have_their_fields_columns() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "substitutions.csv",
+        "\"Eda\",\"ValPattern\",\"Package\",\"Notes\"\n",
+    );
+
+    let records = read_table(TableKind::Substitutions, &source)
+        .unwrap()
+        .expect("a table");
+
+    assert_eq!(references(&records), vec![
+        ("Eda", Some("Eda")),
+        ("Package", Some("Package")),
+        ("ValPattern", Some("ValPattern")),
+    ]);
+}
+
+/// The table's columns' names and references, in order.
+fn references(records: &TableRecords) -> Vec<(&str, Option<&str>)> {
+    records
+        .columns
+        .iter()
+        .map(|column| {
+            (
+                column.name.as_str(),
+                column
+                    .reference
+                    .as_ref()
+                    .map(|reference| reference.0.as_str()),
+            )
+        })
+        .collect()
+}
+
 /// `STORE-17`, assembly rules and a variant's placements are read as the Variant Builder writes them.
 #[test]
 fn reads_assembly_rules_and_placements() {
@@ -645,8 +744,12 @@ fn refuses_to_write_a_file_removed_since() {
 }
 
 fn change_rows(source: &Source, change: RowsChange) -> Result<Revision, PartsWriteError> {
+    change_rows_of(TableKind::PartMappings, source, change)
+}
+
+fn change_rows_of(kind: TableKind, source: &Source, change: RowsChange) -> Result<Revision, PartsWriteError> {
     match block_on(StoresService::new().perform_once(StoresOperation::ChangeRows {
-        kind: TableKind::PartMappings,
+        kind,
         source: source.clone(),
         change,
     })) {
@@ -881,9 +984,142 @@ fn refuses_a_change_whose_values_are_not_as_they_were() {
     }
 }
 
+/// Substitutions with a column the table doesn't show, `Notes`, in pairs, each field's pattern's then its value's.
+const SUBSTITUTIONS: &str = "\"Eda\",\"NamePattern\",\"Name\",\"ValuePattern\",\"Value\",\"Notes\",\"Comment\"\n\
+                             \"DipTrace\",\"R1\",\"RES\",\"/1.*/\",\"10k\",\"keep me\",\"c1\"\n\
+                             \"DipTrace\",\"C1\",\"CAP\",\"\",\"\",\"\",\"\"\n";
+
+/// `STORE-19`, a substitution's tool, pattern, value and comment are updated, and rows added, removed and moved, as
+/// part mappings' are, the columns the table doesn't show as they were.
+#[test]
+fn changes_substitutions() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "substitutions.csv", SUBSTITUTIONS);
+    let change = |change: RowsChange| change_rows_of(TableKind::Substitutions, &source, change).unwrap();
+    let field = |column: &str, old: &str, new: &str| FieldChange {
+        column: ColumnRef(column.to_string()),
+        old: old.to_string(),
+        new: new.to_string(),
+    };
+
+    change(RowsChange::Update {
+        key: RowKey("1".to_string()),
+        changes: vec![
+            field("Eda", "DipTrace", "EasyEda"),
+            field("ValuePattern", "", "/10[un]/"),
+            field("Value", "", "10u"),
+            field("Comment", "", "derate 16V"),
+        ],
+    });
+    change(RowsChange::Add {
+        values: vec![
+            value("Eda", "DipTrace"),
+            value("NamePattern", "L1"),
+            value("Name", "IND"),
+        ],
+    });
+    change(RowsChange::Move {
+        row: row_ref("2", &[("NamePattern", "L1")]),
+        before: Some(row_ref("0", &[("NamePattern", "R1")])),
+    });
+    change(RowsChange::Remove {
+        row: row_ref("2", &[("Name", "CAP"), ("Comment", "derate 16V")]),
+    });
+
+    assert_eq!(
+        contents(&source),
+        "\"Eda\",\"NamePattern\",\"Name\",\"ValuePattern\",\"Value\",\"Notes\",\"Comment\"\n\
+         \"DipTrace\",\"L1\",\"IND\",\"\",\"\",\"\",\"\"\n\
+         \"DipTrace\",\"R1\",\"RES\",\"/1.*/\",\"10k\",\"keep me\",\"c1\"\n"
+    );
+}
+
+/// `STORE-21`, an EDA tool's columns are added to a substitutions file in two groups: its patterns' after the last
+/// pattern's column, and its values' after the last value's column, whatever columns are among them, or, with no
+/// pattern's column, before the first value's column, with no value's column, after the last pattern's column, and,
+/// with neither, before its comment's column, or, if it has none, after its last column.
+#[test]
+fn adds_an_eda_tools_substitutions_columns_after_the_last_of_their_group() {
+    let columns = ["PackagePattern", "ValPattern", "Package", "Val"];
+    let cases = [
+        // in pairs, as the Variant Builder's files are.
+        (
+            "\"Eda\",\"NamePattern\",\"Name\",\"ValuePattern\",\"Value\",\"Comment\"",
+            "\"Eda\",\"NamePattern\",\"Name\",\"ValuePattern\",\"PackagePattern\",\"ValPattern\",\"Value\",\"Package\",\"Val\",\"Comment\"",
+        ),
+        // in two groups, with columns of the user's among them.
+        (
+            "\"Eda\",\"NamePattern\",\"Notes\",\"ValuePattern\",\"Comment\",\"Name\",\"Value\",\"Owner\"",
+            "\"Eda\",\"NamePattern\",\"Notes\",\"ValuePattern\",\"PackagePattern\",\"ValPattern\",\"Comment\",\"Name\",\"Value\",\"Package\",\"Val\",\"Owner\"",
+        ),
+        // the values' group first.
+        (
+            "\"Eda\",\"Name\",\"Value\",\"NamePattern\",\"ValuePattern\"",
+            "\"Eda\",\"Name\",\"Value\",\"Package\",\"Val\",\"NamePattern\",\"ValuePattern\",\"PackagePattern\",\"ValPattern\"",
+        ),
+        // no pattern's column.
+        (
+            "\"Eda\",\"Notes\",\"Name\",\"Value\",\"Comment\"",
+            "\"Eda\",\"Notes\",\"PackagePattern\",\"ValPattern\",\"Name\",\"Value\",\"Package\",\"Val\",\"Comment\"",
+        ),
+        // no value's column.
+        (
+            "\"Eda\",\"NamePattern\",\"ValuePattern\",\"Notes\"",
+            "\"Eda\",\"NamePattern\",\"ValuePattern\",\"PackagePattern\",\"ValPattern\",\"Package\",\"Val\",\"Notes\"",
+        ),
+        // neither, with a comment's column.
+        (
+            "\"Eda\",\"Comment\",\"Notes\"",
+            "\"Eda\",\"PackagePattern\",\"ValPattern\",\"Package\",\"Val\",\"Comment\",\"Notes\"",
+        ),
+        // neither, and no comment's column.
+        (
+            "\"Eda\",\"Notes\"",
+            "\"Eda\",\"Notes\",\"PackagePattern\",\"ValPattern\",\"Package\",\"Val\"",
+        ),
+    ];
+
+    for (headers, expected) in cases {
+        let folder = tempfile::tempdir().unwrap();
+        let source = csv_file(folder.path(), "substitutions.csv", &format!("{headers}\n"));
+
+        add_columns_of(
+            TableKind::Substitutions,
+            &source,
+            &columns,
+            ColumnPosition::EdaToolColumns,
+        )
+        .unwrap();
+
+        assert_eq!(contents(&source), format!("{expected}\n"), "{headers}");
+    }
+
+    // each row has an empty value of each.
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "substitutions.csv", SUBSTITUTIONS);
+    add_columns_of(
+        TableKind::Substitutions,
+        &source,
+        &columns,
+        ColumnPosition::EdaToolColumns,
+    )
+    .unwrap();
+    assert!(contents(&source)
+        .contains("\"DipTrace\",\"R1\",\"RES\",\"/1.*/\",\"\",\"\",\"10k\",\"\",\"\",\"keep me\",\"c1\"\n"));
+}
+
 fn add_columns(source: &Source, columns: &[&str], position: ColumnPosition) -> Result<Revision, AddColumnsError> {
+    add_columns_of(TableKind::PartMappings, source, columns, position)
+}
+
+fn add_columns_of(
+    kind: TableKind,
+    source: &Source,
+    columns: &[&str],
+    position: ColumnPosition,
+) -> Result<Revision, AddColumnsError> {
     match block_on(StoresService::new().perform_once(StoresOperation::AddColumns {
-        kind: TableKind::PartMappings,
+        kind,
         source: source.clone(),
         columns: strings(columns),
         position,

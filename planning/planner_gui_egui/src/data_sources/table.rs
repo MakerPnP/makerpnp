@@ -13,7 +13,7 @@ use egui_deferred_table::{
 use egui_i18n::tr;
 use stores_app::{
     Cell, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering,
-    TableChange, TableColumn, TableRow, TableView,
+    Table, TableChange, TableColumn, TableRow, TableView,
 };
 
 /// The view the stores core sent, shared with every other table showing the same data source, not a copy of it.
@@ -31,7 +31,12 @@ impl TableDataSource {
 /// Whether the table has a status column, first, shown only by the GUI, as its rows' kind can be changed, so each can
 /// have problems (`VBGUI-13`).
 fn has_status(view: &TableView) -> bool {
-    view.table.is_changeable()
+    is_changed_here(view)
+}
+
+/// Whether the GUI changes the table: part mappings, as substitutions aren't yet (`VBGUI-14`).
+pub fn is_changed_here(view: &TableView) -> bool {
+    matches!(view.table, Table::PartMappings(_))
 }
 
 /// The view's column the table's column shows, after the status column if there's one.
@@ -83,8 +88,7 @@ impl EditedRow {
                     .tools_without_columns
                     .contains(&eda_tool) =>
             {
-                let TableRow::PartMappings(item) = &self.row;
-                (item.eda_tool != eda_tool).then(|| {
+                (self.row.eda_tool() != eda_tool).then(|| {
                     TableUiCommand::ChangeAfterColumns(PendingChange {
                         eda_tool,
                         change: PendingRowChange::Tool {
@@ -147,7 +151,9 @@ impl PendingChange {
                     .row(index)
                     .filter(|(_key, shown)| same_row(shown, &row))?;
                 let mut new = old.clone();
-                let TableRow::PartMappings(item) = &mut new;
+                let TableRow::PartMappings(item) = &mut new else {
+                    return None;
+                };
                 item.eda_tool = self.eda_tool;
                 Some((
                     TableChange::Update {
@@ -249,7 +255,9 @@ impl AfterChange {
 /// Whether the rows are the same, as they're read back: a row is read with a pattern of each of the data source's
 /// fields, an empty one for a field it had none of, which isn't one, as an edit leaving it empty isn't.
 fn same_row(a: &TableRow, b: &TableRow) -> bool {
-    let (TableRow::PartMappings(a), TableRow::PartMappings(b)) = (a, b);
+    let (TableRow::PartMappings(a), TableRow::PartMappings(b)) = (a, b) else {
+        return a == b;
+    };
     fn patterns(item: &PartMappingsViewItem) -> Vec<(&str, &str)> {
         let mut patterns = item
             .criteria
@@ -377,7 +385,9 @@ pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<T
 
 /// The edit of the row's value in the column, as it is, if it can be edited.
 fn cell_edit(row: &TableRow, column: &ColumnValue) -> Option<CellEdit> {
-    let TableRow::PartMappings(item) = row;
+    let TableRow::PartMappings(item) = row else {
+        return None;
+    };
     match column {
         ColumnValue::Eda => Some(CellEdit::Eda(item.eda_tool)),
         ColumnValue::Pattern(field_name) => Some(CellEdit::Pattern(
@@ -396,7 +406,9 @@ fn cell_edit(row: &TableRow, column: &ColumnValue) -> Option<CellEdit> {
 /// The row with the edit of its value in the column.
 fn with_edit(row: &TableRow, column: &ColumnValue, edit: CellEdit) -> TableRow {
     let mut row = row.clone();
-    let TableRow::PartMappings(item) = &mut row;
+    let TableRow::PartMappings(item) = &mut row else {
+        return row;
+    };
     match (column, edit) {
         (ColumnValue::Eda, CellEdit::Eda(eda_tool)) => item.eda_tool = eda_tool,
         (ColumnValue::Pattern(field_name), CellEdit::Pattern(pattern)) => {
@@ -582,8 +594,7 @@ pub fn show_row_buttons(
             .clicked()
             && let Some(row) = new_row
         {
-            let TableRow::PartMappings(item) = &row;
-            let eda_tool = item.eda_tool;
+            let eda_tool = row.eda_tool();
             match has_columns(view, eda_tool) {
                 true => {
                     // after the others.
@@ -992,7 +1003,7 @@ pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Opti
         .select_rows_on_cell_click();
 
     // FUTURE selecting a row selects the corresponding rows of other tables, so the actions will be handled.
-    match editing.filter(|_| view.table.is_changeable()) {
+    match editing.filter(|_| is_changed_here(&view)) {
         Some(editing) => {
             let send = editing.send;
             let state = editing.state;
@@ -1166,7 +1177,12 @@ mod tests {
             columns: vec![],
             table: Table::PartMappings(
                 rows.iter()
-                    .map(|TableRow::PartMappings(item)| item.clone())
+                    .map(|row| {
+                        let TableRow::PartMappings(item) = row else {
+                            unreachable!("part mappings")
+                        };
+                        item.clone()
+                    })
                     .collect(),
             ),
             keys: (0..rows.len())
@@ -1289,7 +1305,9 @@ mod tests {
     }
 
     fn with_tool(row: TableRow, eda_tool: EdaTool) -> TableRow {
-        let TableRow::PartMappings(mut item) = row;
+        let TableRow::PartMappings(mut item) = row else {
+            unreachable!("part mappings")
+        };
         item.eda_tool = eda_tool;
         TableRow::PartMappings(item)
     }
@@ -1352,7 +1370,9 @@ mod tests {
         };
         // read back with an empty pattern of each field, as the columns were added.
         let mut shown = row("R2", "MPN2");
-        let TableRow::PartMappings(item) = &mut shown;
+        let TableRow::PartMappings(item) = &mut shown else {
+            unreachable!("part mappings")
+        };
         item.criteria.push(FieldPattern {
             field_name: "package".to_string(),
             pattern: Pattern::parse(""),

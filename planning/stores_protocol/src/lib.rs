@@ -328,25 +328,57 @@ pub enum Table {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub enum TableRow {
     PartMappings(PartMappingsViewItem),
+    Substitutions(SubstitutionsViewItem),
 }
 
 impl TableRow {
     /// The row's values, by the column that shows each, as the data source has them, such as a pattern's text. Only
-    /// those it has, so a part mapping has no value of another EDA tool's field.
+    /// those it has, so a part mapping has no value of another EDA tool's field, and a substitution no comment if the
+    /// data source has no comment's column.
     pub fn values(&self) -> Vec<(ColumnValue, String)> {
-        match self {
-            TableRow::PartMappings(item) => {
-                let mut values = vec![(ColumnValue::Eda, EdaToolName(item.eda_tool).to_string())];
-                values.extend(item.criteria.iter().map(|criterion| {
+        let patterns = |criteria: &[FieldPattern]| {
+            criteria
+                .iter()
+                .map(|criterion| {
                     (
                         ColumnValue::Pattern(criterion.field_name.clone()),
                         criterion.pattern.text().to_string(),
                     )
-                }));
+                })
+                .collect::<Vec<_>>()
+        };
+        match self {
+            TableRow::PartMappings(item) => {
+                let mut values = vec![(ColumnValue::Eda, EdaToolName(item.eda_tool).to_string())];
+                values.extend(patterns(&item.criteria));
                 values.push((ColumnValue::Manufacturer, item.part.manufacturer.clone()));
                 values.push((ColumnValue::Mpn, item.part.mpn.clone()));
                 values
             }
+            TableRow::Substitutions(item) => {
+                let mut values = vec![(ColumnValue::Eda, EdaToolName(item.eda_tool).to_string())];
+                values.extend(patterns(&item.criteria));
+                values.extend(item.transforms.iter().map(|transform| {
+                    (
+                        ColumnValue::Substitute(transform.field_name.clone()),
+                        transform.field_value.clone(),
+                    )
+                }));
+                values.extend(
+                    item.comment
+                        .iter()
+                        .map(|comment| (ColumnValue::Comment, comment.clone())),
+                );
+                values
+            }
+        }
+    }
+
+    /// The row's EDA tool.
+    pub fn eda_tool(&self) -> EdaTool {
+        match self {
+            TableRow::PartMappings(item) => item.eda_tool,
+            TableRow::Substitutions(item) => item.eda_tool,
         }
     }
 }
@@ -373,10 +405,13 @@ pub struct PartMappingsViewItem {
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
 pub struct SubstitutionsViewItem {
     pub eda_tool: EdaTool,
-    /// Of the EDA tool's fields, in its order, such as `name` then `value`.
+    /// Of every EDA tool's fields the data source has a pattern's column for, not only this tool's, in the EDA tools'
+    /// order (see [`EdaTool::all_field_names`]), so every value is shown whichever tool the row has (`STORE-17`).
+    /// Substituting uses only the tool's own fields (see [`EdaTool::field_names`]).
     pub criteria: Vec<FieldPattern>,
-    /// A value for each of the criteria's fields.
+    /// Of every EDA tool's fields the data source has a value's column for, in the same order.
     pub transforms: Vec<EdaSubstitutionRuleTransformItem>,
+    /// If the data source has a comment's column, even if it's empty.
     pub comment: Option<String>,
 }
 
@@ -431,6 +466,44 @@ impl TableColumn {
     /// The name of a part mappings' column of a field's patterns, the field in upper camel case, such as "`Package`",
     /// as a column added for it is named (`STORE-17`, `STORE-21`).
     pub fn part_mappings_pattern_name(field_name: &str) -> String {
+        field_name.to_upper_camel_case()
+    }
+
+    /// Substitutions' columns, in the EDA tools' order (see [`EdaTool::all_field_names`]), with a pattern's column for
+    /// each of the patterns' fields, before a value's column for it, if it's one of the values' fields, and a comment's,
+    /// last, if they have one, each named as `STORE-17` names them, such as "`NamePattern`" and "`Name`", and no
+    /// references.
+    pub fn substitutions(pattern_fields: &[&str], value_fields: &[&str], comment: bool) -> Vec<TableColumn> {
+        let mut columns = vec![TableColumn::new("Eda", ColumnValue::Eda)];
+        for field_name in EdaTool::all_field_names() {
+            if pattern_fields.contains(&field_name) {
+                columns.push(TableColumn::new(
+                    Self::substitutions_pattern_name(field_name),
+                    ColumnValue::Pattern(field_name.to_string()),
+                ));
+            }
+            if value_fields.contains(&field_name) {
+                columns.push(TableColumn::new(
+                    Self::substitutions_value_name(field_name),
+                    ColumnValue::Substitute(field_name.to_string()),
+                ));
+            }
+        }
+        if comment {
+            columns.push(TableColumn::new("Comment", ColumnValue::Comment));
+        }
+        columns
+    }
+
+    /// The name of a substitutions' column of a field's patterns, such as "`NamePattern`", as the Variant Builder names
+    /// it (`STORE-17`, `STORE-21`).
+    pub fn substitutions_pattern_name(field_name: &str) -> String {
+        format!("{}_pattern", field_name).to_upper_camel_case()
+    }
+
+    /// The name of a substitutions' column of the values a field is substituted with, such as "`Name`", as the Variant
+    /// Builder names it (`STORE-17`, `STORE-21`).
+    pub fn substitutions_value_name(field_name: &str) -> String {
         field_name.to_upper_camel_case()
     }
 
@@ -501,9 +574,9 @@ impl Table {
         self.len() == 0
     }
 
-    /// Whether the table's kind can be changed (`STORE-19`), part mappings for now.
+    /// Whether the table's kind can be changed (`STORE-19`), part mappings and substitutions for now.
     pub fn is_changeable(&self) -> bool {
-        matches!(self, Table::PartMappings(_))
+        matches!(self, Table::PartMappings(_) | Table::Substitutions(_))
     }
 
     /// The row, if the table's kind can be changed, and it's there, for a front end to change and set (`STORE-19`).
@@ -513,6 +586,10 @@ impl Table {
                 .get(index)
                 .cloned()
                 .map(TableRow::PartMappings),
+            Table::Substitutions(items) => items
+                .get(index)
+                .cloned()
+                .map(TableRow::Substitutions),
             _ => None,
         }
     }
@@ -554,22 +631,31 @@ impl Table {
                 TableColumn::part_mappings(names.iter().map(String::as_str))
             }
             Table::Substitutions(items) => {
-                let mut columns = vec![TableColumn::new("Eda", Eda)];
-                let names = first_found(
+                let patterns = first_found(
                     items
                         .iter()
                         .flat_map(|item| item.criteria.iter())
                         .map(|criterion| &criterion.field_name),
                 );
-                for name in names {
-                    columns.push(TableColumn::new(
-                        format!("{}_pattern", name).to_upper_camel_case(),
-                        Pattern(name.clone()),
-                    ));
-                    columns.push(TableColumn::new(name.to_upper_camel_case(), Substitute(name)));
+                let values = first_found(
+                    items
+                        .iter()
+                        .flat_map(|item| item.transforms.iter())
+                        .map(|transform| &transform.field_name),
+                );
+                fn names(names: &[String]) -> Vec<&str> {
+                    names
+                        .iter()
+                        .map(String::as_str)
+                        .collect()
                 }
-                columns.push(TableColumn::new("Comment", Comment));
-                columns
+                TableColumn::substitutions(
+                    &names(&patterns),
+                    &names(&values),
+                    items
+                        .iter()
+                        .any(|item| item.comment.is_some()),
+                )
             }
             Table::AssemblyRules(_) => vec![
                 TableColumn::new("RefDes", RefDes),

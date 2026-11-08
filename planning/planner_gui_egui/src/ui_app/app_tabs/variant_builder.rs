@@ -28,8 +28,8 @@ use variantbuilder_app::{
 
 use crate::data_sources::parts_table::show_parts_table;
 use crate::data_sources::table::{
-    TableEditing, TableRequest, TableState, TableUiCommand, new_part_mapping, show_row_buttons, show_table,
-    update_table,
+    TableEditing, TableRequest, TableState, TableUiCommand, is_changed_here, new_part_mapping, show_row_buttons,
+    show_table, update_table,
 };
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
@@ -1357,7 +1357,7 @@ impl PanelViewer<'_> {
             ui.colored_label(ui.visuals().error_fg_color, error);
         }
         match view {
-            Some(view) if view.table.is_changeable() => {
+            Some(view) if is_changed_here(&view) => {
                 let changing = status
                     .as_ref()
                     .is_some_and(|status| status.changing);

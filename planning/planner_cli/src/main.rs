@@ -207,7 +207,9 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         } => {
             let (key, old) = row_as_it_was(view, &row.row, was)?;
             let mut new = old.clone();
-            let TableRow::PartMappings(item) = &mut new;
+            let TableRow::PartMappings(item) = &mut new else {
+                bail!(not_changeable(view));
+            };
             set_part_mapping(
                 item,
                 values.eda.as_ref(),
@@ -316,18 +318,24 @@ fn table_row(view: &TableView, key: &str) -> anyhow::Result<(RowKey, TableRow)> 
         .iter()
         .position(|row_key| row_key.0 == key)
         .ok_or_else(|| anyhow!("The row doesn't exist. key: '{}'", key))?;
-    view.row(index).ok_or_else(|| {
-        anyhow!(StoresError::TableNotChangeable {
-            kind: view.kind,
-            data_source: view.source.clone(),
-        })
-    })
+    view.row(index)
+        .ok_or_else(|| anyhow!(not_changeable(view)))
+}
+
+/// The table can't be changed, as the core says (`STORE-19`), or not yet by the CLI.
+fn not_changeable(view: &TableView) -> StoresError {
+    StoresError::TableNotChangeable {
+        kind: view.kind,
+        data_source: view.source.clone(),
+    }
 }
 
 /// The row with the key, with the values the user gave as they saw them in place of those read.
 fn row_as_it_was(view: &TableView, key: &str, was: &WasPartMappingArgs) -> anyhow::Result<(RowKey, TableRow)> {
     let (key, mut row) = table_row(view, key)?;
-    let TableRow::PartMappings(item) = &mut row;
+    let TableRow::PartMappings(item) = &mut row else {
+        bail!(not_changeable(view));
+    };
     set_part_mapping(
         item,
         was.was_eda.as_ref(),

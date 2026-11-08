@@ -8,10 +8,11 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    AddColumnsError, BomViewItem, Cell, ColumnPosition, ColumnRef, ColumnValue, ColumnsToAdd, EdaTool, Effect, Event,
-    FieldChange, FieldPattern, FieldValue, Part, PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision,
-    RowKey, RowOrdering, RowRef, RowsChange, Source, Stores, StoresOperation, StoresOutput, Table, TableChange,
-    TableKind, TableRecords, TableRow, TableView, TableViewRendererOperation,
+    AddColumnsError, BomViewItem, Cell, ColumnPosition, ColumnRef, ColumnValue, ColumnsToAdd,
+    EdaSubstitutionRuleTransformItem, EdaTool, Effect, Event, FieldChange, FieldPattern, FieldValue, Part,
+    PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source,
+    Stores, StoresOperation, StoresOutput, SubstitutionsViewItem, Table, TableChange, TableKind, TableRecords,
+    TableRow, TableView, TableViewRendererOperation,
 };
 
 fn source(path: &str) -> Source {
@@ -1331,4 +1332,225 @@ fn columns_the_service_refuses_to_add_say_why() {
         kind: MAPPINGS,
         source: resolved.clone(),
     }]);
+}
+
+const SUBSTITUTIONS: TableKind = TableKind::Substitutions;
+
+/// A DipTrace substitution, of the fields' patterns and values, with the comment.
+fn substitution(fields: &[(&str, &str, &str)], comment: &str) -> SubstitutionsViewItem {
+    SubstitutionsViewItem {
+        eda_tool: EdaTool::DipTrace,
+        criteria: fields
+            .iter()
+            .map(|(field_name, pattern, _)| FieldPattern {
+                field_name: field_name.to_string(),
+                pattern: Pattern::parse(pattern),
+            })
+            .collect(),
+        transforms: fields
+            .iter()
+            .map(|(field_name, _, value)| EdaSubstitutionRuleTransformItem {
+                field_name: field_name.to_string(),
+                field_value: value.to_string(),
+            })
+            .collect(),
+        comment: Some(comment.to_string()),
+    }
+}
+
+/// Opens substitutions, `substitutions.csv`, identified as `/folder/substitutions.csv`, with the rows, and takes the
+/// operations.
+fn given_open_substitutions(shell: &mut Shell, rows: &[SubstitutionsViewItem]) -> (Source, Source) {
+    let as_asked = source("substitutions.csv");
+    let resolved = source("/folder/substitutions.csv");
+    let (_views, error) = shell.process(
+        Event::OpenTable {
+            kind: SUBSTITUTIONS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::Substitutions(rows.to_vec())))),
+    );
+    assert_eq!(error, None);
+    shell.take_operations();
+    (as_asked, resolved)
+}
+
+/// `STORE-19`, a change to substitutions has the service change the rows by their keys and their columns' references,
+/// updating only a row's values that changed, its tool, a pattern, a value and its comment, adding a row's values, and
+/// removing or moving a row, checking its values, as part mappings' are.
+#[test]
+fn a_change_to_substitutions_has_the_service_change_their_rows() {
+    let r1 = substitution(&[("name", "R1", "RES")], "c1");
+    let r2 = substitution(&[("name", "R2", "RES")], "");
+    let mut changed = r2.clone();
+    changed.eda_tool = EdaTool::EasyEda;
+    changed.criteria[0].pattern = Pattern::parse("/R.*/");
+    changed.transforms[0].field_value = "RES_0402".to_string();
+    changed.comment = Some("derate 16V".to_string());
+    let expected = |name_pattern: &str, name: &str, comment: &str| {
+        vec![
+            value("Eda", "DipTrace"),
+            value("NamePattern", name_pattern),
+            value("Name", name),
+            value("Comment", comment),
+        ]
+    };
+    let field = |column: &str, old: &str, new: &str| FieldChange {
+        column: ColumnRef(column.to_string()),
+        old: old.to_string(),
+        new: new.to_string(),
+    };
+    let cases = [
+        (
+            TableChange::Update {
+                key: key("1"),
+                old: TableRow::Substitutions(r2.clone()),
+                new: TableRow::Substitutions(changed),
+            },
+            RowsChange::Update {
+                key: key("1"),
+                changes: vec![
+                    field("Eda", "DipTrace", "EasyEda"),
+                    field("NamePattern", "R2", "/R.*/"),
+                    field("Name", "RES", "RES_0402"),
+                    field("Comment", "", "derate 16V"),
+                ],
+            },
+        ),
+        (
+            TableChange::Add {
+                row: TableRow::Substitutions(substitution(&[("name", "L1", "IND")], "")),
+            },
+            RowsChange::Add {
+                values: expected("L1", "IND", ""),
+            },
+        ),
+        (
+            TableChange::Remove {
+                key: key("0"),
+                row: TableRow::Substitutions(r1.clone()),
+            },
+            RowsChange::Remove {
+                row: RowRef {
+                    key: key("0"),
+                    expected: expected("R1", "RES", "c1"),
+                },
+            },
+        ),
+        (
+            TableChange::Move {
+                key: key("1"),
+                row: TableRow::Substitutions(r2.clone()),
+                before: Some((key("0"), TableRow::Substitutions(r1.clone()))),
+            },
+            RowsChange::Move {
+                row: RowRef {
+                    key: key("1"),
+                    expected: expected("R2", "RES", ""),
+                },
+                before: Some(RowRef {
+                    key: key("0"),
+                    expected: expected("R1", "RES", "c1"),
+                }),
+            },
+        ),
+    ];
+
+    for (change, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved) = given_open_substitutions(&mut shell, &[r1.clone(), r2.clone()]);
+
+        let (views, error) = shell.process(
+            Event::ChangeTable {
+                kind: SUBSTITUTIONS,
+                source: as_asked.clone(),
+                change: change.clone(),
+            },
+            changes_then_reads(&resolved, Table::Substitutions(vec![r1.clone()])),
+        );
+
+        assert_eq!(error, None, "{:?}", change);
+        assert_eq!(
+            shell.take_operations()[0],
+            StoresOperation::ChangeRows {
+                kind: SUBSTITUTIONS,
+                source: resolved.clone(),
+                change: expected,
+            },
+            "{:?}",
+            change
+        );
+        assert_eq!(views.len(), 1, "{:?}", change);
+    }
+}
+
+/// `STORE-21`, an EDA tool's columns for substitutions are its fields' patterns' and values' columns the table doesn't
+/// have, whichever tool's they are, the patterns' first, each in the tool's order, where the data source puts them.
+#[test]
+fn an_eda_tools_substitutions_columns_are_its_fields_patterns_and_values() {
+    let cases: [(&[(&str, &str, &str)], EdaTool, &[&str]); 3] = [
+        (&[("name", "", "")], EdaTool::KiCad, &[
+            "PackagePattern",
+            "ValPattern",
+            "Package",
+            "Val",
+        ]),
+        // `value` is DipTrace's too.
+        (&[("name", "", ""), ("value", "", "")], EdaTool::EasyEda, &[
+            "DevicePattern",
+            "Device",
+        ]),
+        (&[("name", "", "")], EdaTool::DipTrace, &["ValuePattern", "Value"]),
+    ];
+
+    for (fields, eda_tool, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved) = given_open_substitutions(&mut shell, &[substitution(fields, "")]);
+
+        let (_views, error) = shell.process(
+            Event::AddTableColumns {
+                kind: SUBSTITUTIONS,
+                source: as_asked.clone(),
+                columns: ColumnsToAdd::EdaTool {
+                    eda_tool,
+                },
+            },
+            adds_columns_then_reads(&resolved, Table::Substitutions(vec![substitution(fields, "")])),
+        );
+
+        assert_eq!(error, None, "{:?}", eda_tool);
+        assert_eq!(
+            shell.take_operations()[0],
+            StoresOperation::AddColumns {
+                kind: SUBSTITUTIONS,
+                source: resolved.clone(),
+                columns: strings(expected),
+                position: ColumnPosition::EdaToolColumns,
+            },
+            "{:?}",
+            eda_tool
+        );
+    }
+
+    // a value's column without its pattern's, or a pattern's without its value's, has only the other added.
+    let mut item = substitution(&[("name", "", "")], "");
+    item.criteria.clear();
+    let mut shell = Shell::new();
+    let (as_asked, resolved) = given_open_substitutions(&mut shell, &[item.clone()]);
+    shell.process(
+        Event::AddTableColumns {
+            kind: SUBSTITUTIONS,
+            source: as_asked,
+            columns: ColumnsToAdd::EdaTool {
+                eda_tool: EdaTool::DipTrace,
+            },
+        },
+        adds_columns_then_reads(&resolved, Table::Substitutions(vec![item])),
+    );
+    assert_eq!(shell.take_operations()[0], StoresOperation::AddColumns {
+        kind: SUBSTITUTIONS,
+        source: resolved,
+        columns: strings(&["NamePattern", "ValuePattern", "Value"]),
+        position: ColumnPosition::EdaToolColumns,
+    });
 }

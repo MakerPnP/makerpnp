@@ -229,6 +229,30 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
         }
         records.ordering = RowOrdering::Position;
     }
+    // `STORE-19`, substitutions likewise, with a pattern's and a value's column for each EDA tool's field the file has
+    // either for, and a comment's if it has one (`STORE-17`, `STORE-21`).
+    if kind == TableKind::Substitutions {
+        let headers = stores::csv::read_headers(contents.as_slice())
+            .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+        let has = |name: String| headers.contains(&name);
+        let field_names = EdaTool::all_field_names();
+        let fields = |name: fn(&str) -> String| -> Vec<&str> {
+            field_names
+                .iter()
+                .copied()
+                .filter(|field_name| has(name(field_name)))
+                .collect()
+        };
+        records.columns = TableColumn::substitutions(
+            &fields(TableColumn::substitutions_pattern_name),
+            &fields(TableColumn::substitutions_value_name),
+            has("Comment".to_string()),
+        );
+        for column in records.columns.iter_mut() {
+            column.reference = substitution_reference(&column.value, &headers);
+        }
+        records.ordering = RowOrdering::Position;
+    }
 
     Ok(Some(records))
 }
@@ -357,33 +381,54 @@ fn part_mapping_reference(value: &ColumnValue, headers: &[String]) -> Option<Col
     }
 }
 
-/// A substitution, with a pattern and a value for each of its EDA tool's fields, as the Variant Builder reads it.
+/// A substitution, with a pattern for each field of any EDA tool the file has a pattern's column for, and a value for
+/// each it has a value's column for, not only its own tool's, in the EDA tools' order, found by their names as the
+/// Variant Builder names them, so every value is shown whichever tool the row has. One whose tool's field has no column
+/// is read without it, so it can be shown, and given the column, though the Variant Builder refuses it (`STORE-17`).
 fn substitution_view_item(row: &BTreeMap<String, String>) -> anyhow::Result<SubstitutionsViewItem> {
     let eda_tool = eda_tool(row)?;
-    let mut criteria = vec![];
-    let mut transforms = vec![];
-    for &field_name in eda_tool.field_names() {
-        let pattern = field(row, &stores::csv::pattern_column_name(field_name))?;
-        let value = field(row, &stores::csv::field_column_name(field_name))?;
-        criteria.push(FieldPattern {
-            field_name: field_name.to_string(),
-            pattern: Pattern::parse(pattern),
-        });
-        transforms.push(EdaSubstitutionRuleTransformItem {
-            field_name: field_name.to_string(),
-            field_value: value.clone(),
-        });
-    }
+    let field_names = EdaTool::all_field_names();
+    let criteria = field_names
+        .iter()
+        .filter_map(|&field_name| {
+            row.get(&TableColumn::substitutions_pattern_name(field_name))
+                .map(|pattern| FieldPattern {
+                    field_name: field_name.to_string(),
+                    pattern: Pattern::parse(pattern),
+                })
+        })
+        .collect();
+    let transforms = field_names
+        .iter()
+        .filter_map(|&field_name| {
+            row.get(&TableColumn::substitutions_value_name(field_name))
+                .map(|value| EdaSubstitutionRuleTransformItem {
+                    field_name: field_name.to_string(),
+                    field_value: value.clone(),
+                })
+        })
+        .collect();
 
     Ok(SubstitutionsViewItem {
         eda_tool,
         criteria,
         transforms,
-        comment: row
-            .get("Comment")
-            .filter(|comment| !comment.is_empty())
-            .cloned(),
+        comment: row.get("Comment").cloned(),
     })
+}
+
+/// The header a substitution's column's values are in, as [`substitution_view_item`] finds them, if the file has it.
+fn substitution_reference(value: &ColumnValue, headers: &[String]) -> Option<ColumnRef> {
+    let name = match value {
+        ColumnValue::Eda => "Eda".to_string(),
+        ColumnValue::Pattern(field_name) => TableColumn::substitutions_pattern_name(field_name),
+        ColumnValue::Substitute(field_name) => TableColumn::substitutions_value_name(field_name),
+        ColumnValue::Comment => "Comment".to_string(),
+        _ => return None,
+    };
+    headers
+        .contains(&name)
+        .then(|| ColumnRef(name))
 }
 
 /// What a table's records are called in the logs, as other records are.
@@ -489,7 +534,7 @@ pub async fn change_rows(kind: TableKind, source: &Source, change: &RowsChange) 
     let failed = |cause: String| PartsWriteError::Failed {
         cause: format!("Unable to change the table. source: '{}', cause: '{}'", source, cause),
     };
-    if kind != TableKind::PartMappings {
+    if !matches!(kind, TableKind::PartMappings | TableKind::Substitutions) {
         return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
     }
 
@@ -615,7 +660,7 @@ pub async fn add_columns(
     let failed = |cause: String| AddColumnsError::Failed {
         cause: format!("Unable to add the columns. source: '{}', cause: '{}'", source, cause),
     };
-    if kind != TableKind::PartMappings {
+    if !matches!(kind, TableKind::PartMappings | TableKind::Substitutions) {
         return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
     }
 
@@ -648,17 +693,34 @@ pub async fn add_columns(
                 column: column.clone(),
             })
     };
-    let at = match position {
-        ColumnPosition::First => 0,
-        ColumnPosition::Last => headers.len(),
-        ColumnPosition::Before(column) => place(column)?,
-        ColumnPosition::After(column) => place(column)? + 1,
-        ColumnPosition::EdaToolColumns => eda_tool_columns_place(&headers),
+    // each column's place, the header it's inserted before, as the file has them.
+    let places: Vec<usize> = match position {
+        ColumnPosition::EdaToolColumns if kind == TableKind::Substitutions => {
+            substitutions_eda_tool_columns_places(&headers, columns)
+        }
+        position => {
+            let at = match position {
+                ColumnPosition::First => 0,
+                ColumnPosition::Last => headers.len(),
+                ColumnPosition::Before(column) => place(column)?,
+                ColumnPosition::After(column) => place(column)? + 1,
+                ColumnPosition::EdaToolColumns => part_mappings_eda_tool_columns_place(&headers),
+            };
+            vec![at; columns.len()]
+        }
     };
 
-    headers.splice(at..at, columns.iter().cloned());
-    for record in records.iter_mut() {
-        record.splice(at..at, columns.iter().map(|_| String::new()));
+    // the last place first, so the places before it are as they were, those at the same place in the order given.
+    let mut inserts: Vec<(usize, &String)> = places
+        .into_iter()
+        .zip(columns.iter())
+        .collect();
+    inserts.sort_by_key(|(place, _)| *place);
+    for (place, column) in inserts.into_iter().rev() {
+        headers.insert(place, column.clone());
+        for record in records.iter_mut() {
+            record.insert(place, String::new());
+        }
     }
 
     let mut contents = vec![];
@@ -672,7 +734,7 @@ pub async fn add_columns(
 /// Where an EDA tool's columns go in a part mappings file (`STORE-21`): after its last pattern's column, if it has a
 /// manufacturer's or an MPN's column, and every pattern's column is before them, so before them if it has no pattern's
 /// column, or else after its last column.
-fn eda_tool_columns_place(headers: &[String]) -> usize {
+fn part_mappings_eda_tool_columns_place(headers: &[String]) -> usize {
     let field_names = EdaTool::all_field_names();
     let places = |matches: &dyn Fn(&String) -> bool| -> Vec<usize> {
         headers
@@ -690,6 +752,55 @@ fn eda_tool_columns_place(headers: &[String]) -> usize {
         (Some(&part), None) => part,
         _ => headers.len(),
     }
+}
+
+/// Where each of an EDA tool's columns goes in a substitutions file (`STORE-21`), the header it's inserted before,
+/// whose patterns' columns, and values' columns, are each a group: a pattern's after the last pattern's column, and a
+/// value's after the last value's column; if it has no pattern's column, before the first value's column, and if it
+/// has no value's column, after the last pattern's column; and if it has neither, before its comment's column, or, if
+/// it has none, after its last column. A column is a pattern's or a value's as the Variant Builder names them.
+fn substitutions_eda_tool_columns_places(headers: &[String], columns: &[String]) -> Vec<usize> {
+    let field_names = EdaTool::all_field_names();
+    let is_pattern = |header: &String| {
+        field_names
+            .iter()
+            .any(|field_name| *header == TableColumn::substitutions_pattern_name(field_name))
+    };
+    let is_value = |header: &String| {
+        field_names
+            .iter()
+            .any(|field_name| *header == TableColumn::substitutions_value_name(field_name))
+    };
+    let places = |matches: &dyn Fn(&String) -> bool| -> Vec<usize> {
+        headers
+            .iter()
+            .enumerate()
+            .filter(|(_, header)| matches(header))
+            .map(|(place, _)| place)
+            .collect()
+    };
+    let patterns = places(&is_pattern);
+    let values = places(&is_value);
+    let neither = headers
+        .iter()
+        .position(|header| header == "Comment")
+        .unwrap_or(headers.len());
+    let after_patterns = patterns.last().map(|last| last + 1);
+    let after_values = values.last().map(|last| last + 1);
+
+    let pattern_place = after_patterns
+        .or(values.first().copied())
+        .unwrap_or(neither);
+    let value_place = after_values
+        .or(after_patterns)
+        .unwrap_or(neither);
+    columns
+        .iter()
+        .map(|column| match is_pattern(column) {
+            true => pattern_place,
+            false => value_place,
+        })
+        .collect()
 }
 
 /// What the records are called in the logs, as they were when the core read them itself.

@@ -1322,21 +1322,33 @@ impl Stores {
         Ok(render::render().and(Self::add_columns(kind, source.clone(), columns, position)))
     }
 
-    /// The columns of the EDA tool's fields that part mappings don't have, a field's column found whatever tool's it
-    /// is, so one shared by tools isn't added again, each named as `STORE-17` names it, where the data source puts an EDA
-    /// tool's columns, or `None` if there are none to add (`STORE-21`).
+    /// The columns of the EDA tool's fields that the table doesn't have, a field's column found whatever tool's it is,
+    /// so one shared by tools isn't added again, each named as `STORE-17` names it: part mappings' patterns', and
+    /// substitutions' patterns', then their values', where the data source puts an EDA tool's columns, or `None` if
+    /// there are none to add (`STORE-21`).
     fn eda_tool_columns(records: &TableRecords, eda_tool: EdaTool) -> Option<(Vec<String>, ColumnPosition)> {
-        let has_column = |field_name: &str| {
-            records.columns.iter().any(|column| {
-                column.reference.is_some() && column.value == ColumnValue::Pattern(field_name.to_string())
-            })
+        let has_column = |value: ColumnValue| {
+            records
+                .columns
+                .iter()
+                .any(|column| column.reference.is_some() && column.value == value)
         };
-        let columns: Vec<String> = eda_tool
-            .field_names()
-            .iter()
-            .filter(|&&field_name| !has_column(field_name))
-            .map(|field_name| TableColumn::part_mappings_pattern_name(field_name))
-            .collect();
+        let missing = |value: fn(String) -> ColumnValue, name: fn(&str) -> String| {
+            eda_tool
+                .field_names()
+                .iter()
+                .filter(|&&field_name| !has_column(value(field_name.to_string())))
+                .map(|field_name| name(field_name))
+                .collect::<Vec<String>>()
+        };
+        let columns: Vec<String> = match records.table {
+            Table::Substitutions(_) => {
+                let mut columns = missing(ColumnValue::Pattern, TableColumn::substitutions_pattern_name);
+                columns.extend(missing(ColumnValue::Substitute, TableColumn::substitutions_value_name));
+                columns
+            }
+            _ => missing(ColumnValue::Pattern, TableColumn::part_mappings_pattern_name),
+        };
         // where they go is the back end's to say, as only it knows the order of the data source's columns.
         (!columns.is_empty()).then_some((columns, ColumnPosition::EdaToolColumns))
     }
