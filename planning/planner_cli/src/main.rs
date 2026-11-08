@@ -8,15 +8,16 @@ use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{
-    quoted_list, ColumnPosition, ColumnsToAdd, FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView,
-    PartsViewRendererOperation, Pattern, Revision, RowKey, Source, Stores, StoresError, TableChange, TableKind,
-    TableRow, TableView, TableViewRendererOperation,
+    quoted_list, ColumnPosition, ColumnsToAdd, EdaSubstitutionRuleTransformItem, FieldPattern, Part,
+    PartMappingsViewItem, PartsChange, PartsView, PartsViewRendererOperation, Pattern, Revision, RowKey, Source,
+    Stores, StoresError, SubstitutionsViewItem, TableChange, TableKind, TableRow, TableView,
+    TableViewRendererOperation,
 };
 
 use crate::core::Core;
 use crate::opts::{
     build_project_file_path, ModeCommand, Opts, PartArgs, PartsCommand, PartsCommandArgs, PcbCommand, ProcessCommand,
-    ProjectCommand, TableCommand, TableCommandArgs, WasPartMappingArgs,
+    ProjectCommand, TableCommand, TableCommandArgs, WasRowArgs,
 };
 
 mod core;
@@ -122,7 +123,7 @@ fn process_stores(core: &crux_core::Core<Stores>, event: stores_app::Event) -> a
 }
 
 /// The table mode uses the stores core, which has the data sources, and shows a data source's records as a table
-/// (`STORE-18`), and changes part mappings (`STORE-20`).
+/// (`STORE-18`), and changes part mappings and substitutions (`STORE-20`).
 fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
     let core: crux_core::Core<Stores> = crux_core::Core::new();
     let kind = table_args
@@ -190,14 +191,43 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         TableCommand::Add {
             values,
         } => {
-            let mut item = PartMappingsViewItem {
-                eda_tool: values.eda.build(),
-                criteria: vec![],
-                part: Part::new(values.manufacturer.clone(), values.mpn.clone()),
+            let eda_tool = values.eda.build();
+            let mut row = match view.kind {
+                TableKind::PartMappings => {
+                    for (option, value) in [("--manufacturer", &values.manufacturer), ("--mpn", &values.mpn)] {
+                        if value.is_none() {
+                            bail!(
+                                "Option needed for the table's kind. option: '{}', kind: {:?}",
+                                option,
+                                view.kind
+                            );
+                        }
+                    }
+                    TableRow::PartMappings(PartMappingsViewItem {
+                        eda_tool,
+                        criteria: vec![],
+                        part: Part::new(String::new(), String::new()),
+                    })
+                }
+                TableKind::Substitutions => TableRow::Substitutions(SubstitutionsViewItem {
+                    eda_tool,
+                    criteria: vec![],
+                    transforms: vec![],
+                    comment: None,
+                }),
+                _ => bail!(not_changeable(view)),
             };
-            set_patterns(&mut item, &values.patterns);
+            set_row(view, &mut row, &RowValues {
+                options: "--",
+                eda: None,
+                patterns: &values.patterns,
+                manufacturer: values.manufacturer.as_ref(),
+                mpn: values.mpn.as_ref(),
+                values: &values.values,
+                comment: values.comment.as_ref(),
+            })?;
             TableChange::Add {
-                row: TableRow::PartMappings(item),
+                row,
             }
         }
         TableCommand::Set {
@@ -207,16 +237,15 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         } => {
             let (key, old) = row_as_it_was(view, &row.row, was)?;
             let mut new = old.clone();
-            let TableRow::PartMappings(item) = &mut new else {
-                bail!(not_changeable(view));
-            };
-            set_part_mapping(
-                item,
-                values.eda.as_ref(),
-                &values.patterns,
-                values.manufacturer.as_ref(),
-                values.mpn.as_ref(),
-            );
+            set_row(view, &mut new, &RowValues {
+                options: "--",
+                eda: values.eda.as_ref(),
+                patterns: &values.patterns,
+                manufacturer: values.manufacturer.as_ref(),
+                mpn: values.mpn.as_ref(),
+                values: &values.values,
+                comment: values.comment.as_ref(),
+            })?;
             TableChange::Update {
                 key,
                 old,
@@ -331,54 +360,112 @@ fn not_changeable(view: &TableView) -> StoresError {
 }
 
 /// The row with the key, with the values the user gave as they saw them in place of those read.
-fn row_as_it_was(view: &TableView, key: &str, was: &WasPartMappingArgs) -> anyhow::Result<(RowKey, TableRow)> {
+fn row_as_it_was(view: &TableView, key: &str, was: &WasRowArgs) -> anyhow::Result<(RowKey, TableRow)> {
     let (key, mut row) = table_row(view, key)?;
-    let TableRow::PartMappings(item) = &mut row else {
-        bail!(not_changeable(view));
-    };
-    set_part_mapping(
-        item,
-        was.was_eda.as_ref(),
-        &was.was_patterns,
-        was.was_manufacturer.as_ref(),
-        was.was_mpn.as_ref(),
-    );
+    set_row(view, &mut row, &RowValues {
+        options: "--was-",
+        eda: was.was_eda.as_ref(),
+        patterns: &was.was_patterns,
+        manufacturer: was.was_manufacturer.as_ref(),
+        mpn: was.was_mpn.as_ref(),
+        values: &was.was_values,
+        comment: was.was_comment.as_ref(),
+    })?;
     Ok((key, row))
 }
 
-/// Sets the part mapping's values given, keeping the others.
-fn set_part_mapping(
-    item: &mut PartMappingsViewItem,
-    eda: Option<&EdaToolArg>,
-    patterns: &[(String, String)],
-    manufacturer: Option<&String>,
-    mpn: Option<&String>,
-) {
-    if let Some(eda) = eda {
-        item.eda_tool = eda.build();
-    }
-    set_patterns(item, patterns);
-    if let Some(manufacturer) = manufacturer {
-        item.part.manufacturer = manufacturer.clone();
-    }
-    if let Some(mpn) = mpn {
-        item.part.mpn = mpn.clone();
-    }
+/// A row's values, as given with the options, a part mapping's or a substitution's.
+struct RowValues<'a> {
+    /// What the options' names start with, such as "`--was-`", to say which was refused.
+    options: &'static str,
+    eda: Option<&'a EdaToolArg>,
+    patterns: &'a [(String, String)],
+    manufacturer: Option<&'a String>,
+    mpn: Option<&'a String>,
+    values: &'a [(String, String)],
+    comment: Option<&'a String>,
 }
 
-/// Sets each field's pattern, adding a field the part mapping has no pattern of.
-fn set_patterns(item: &mut PartMappingsViewItem, patterns: &[(String, String)]) {
+/// Sets the row's values given, keeping the others, refusing those its kind doesn't have, such as a substitution's
+/// manufacturer, so the file is left as it was (`STORE-20`).
+fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::Result<()> {
+    let refuse = |given: &[(&str, bool)]| -> anyhow::Result<()> {
+        match given
+            .iter()
+            .find(|(_option, given)| *given)
+        {
+            Some((option, _given)) => bail!(
+                "Option not for the table's kind. option: '{}{}', kind: {:?}",
+                values.options,
+                option,
+                view.kind
+            ),
+            None => Ok(()),
+        }
+    };
+    match row {
+        TableRow::PartMappings(item) => {
+            refuse(&[
+                ("value", !values.values.is_empty()),
+                ("comment", values.comment.is_some()),
+            ])?;
+            if let Some(eda) = values.eda {
+                item.eda_tool = eda.build();
+            }
+            set_patterns(&mut item.criteria, values.patterns);
+            if let Some(manufacturer) = values.manufacturer {
+                item.part.manufacturer = manufacturer.clone();
+            }
+            if let Some(mpn) = values.mpn {
+                item.part.mpn = mpn.clone();
+            }
+        }
+        TableRow::Substitutions(item) => {
+            refuse(&[
+                ("manufacturer", values.manufacturer.is_some()),
+                ("mpn", values.mpn.is_some()),
+            ])?;
+            if let Some(eda) = values.eda {
+                item.eda_tool = eda.build();
+            }
+            set_patterns(&mut item.criteria, values.patterns);
+            set_values(&mut item.transforms, values.values);
+            if let Some(comment) = values.comment {
+                item.comment = Some(comment.clone());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Sets each field's pattern, adding a field the row has no pattern of.
+fn set_patterns(criteria: &mut Vec<FieldPattern>, patterns: &[(String, String)]) {
     for (field_name, pattern) in patterns {
         let pattern = Pattern::parse(pattern);
-        match item
-            .criteria
+        match criteria
             .iter_mut()
             .find(|criterion| criterion.field_name == *field_name)
         {
             Some(criterion) => criterion.pattern = pattern,
-            None => item.criteria.push(FieldPattern {
+            None => criteria.push(FieldPattern {
                 field_name: field_name.clone(),
                 pattern,
+            }),
+        }
+    }
+}
+
+/// Sets each field's value, adding a field the substitution has no value of.
+fn set_values(transforms: &mut Vec<EdaSubstitutionRuleTransformItem>, values: &[(String, String)]) {
+    for (field_name, value) in values {
+        match transforms
+            .iter_mut()
+            .find(|transform| transform.field_name == *field_name)
+        {
+            Some(transform) => transform.field_value = value.clone(),
+            None => transforms.push(EdaSubstitutionRuleTransformItem {
+                field_name: field_name.clone(),
+                field_value: value.clone(),
             }),
         }
     }

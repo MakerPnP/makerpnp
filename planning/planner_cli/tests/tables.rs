@@ -512,3 +512,252 @@ fn adding_columns_that_can_not_be_added_fails() -> Result<(), anyhow::Error> {
 
     Ok(())
 }
+
+/// Substitutions, DipTrace's, with a comment.
+const SUBSTITUTIONS: &str = indoc! {r#"
+    "Eda","NamePattern","ValuePattern","Name","Value","Comment"
+    "DipTrace","R0402","","RES_0402","","comment 1"
+    "DipTrace","/C.*/","100nF","CAP_0402","","DERATE 50V"
+"#};
+
+/// Runs `planner_cli table --kind substitutions --source <file>` with the arguments, failing if it does, and returns
+/// what it wrote to standard output.
+fn change_substitutions(substitutions_path: &Path, trace_path: &Path, args: &[&str]) -> Result<String, anyhow::Error> {
+    let mut all_args = vec![
+        "--kind",
+        "substitutions",
+        "--source",
+        substitutions_path.to_str().unwrap(),
+    ];
+    all_args.extend_from_slice(args);
+    let output = table(trace_path, &all_args)?;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// `STORE-20`, `STORE-21`, substitutions are listed with their keys, then a row is added with its patterns, values and
+/// comment, has its values set, as the user saw them, is moved and removed, and KiCad's columns are added, then a KiCad
+/// row.
+#[test]
+fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let substitutions_path = temp_dir
+        .path()
+        .join("substitutions.csv");
+    write(&substitutions_path, SUBSTITUTIONS)?;
+    let trace_path = temp_dir.path().join("trace.log");
+
+    let listed = change_substitutions(&substitutions_path, &trace_path, &["list", "--keys"])?;
+    assert_eq!(listed, indoc! {r#"
+        "Key","Eda","NamePattern","Name","ValuePattern","Value","Comment"
+        "0","DipTrace","R0402","RES_0402","","","comment 1"
+        "1","DipTrace","/C.*/","CAP_0402","100nF","","DERATE 50V"
+    "#});
+
+    change_substitutions(&substitutions_path, &trace_path, &[
+        "add",
+        "--eda",
+        "diptrace",
+        "--pattern",
+        "name=R0603",
+        "--value",
+        "Name=RES_0603",
+        "--comment",
+        "comment 3",
+    ])?;
+    assert_eq!(read_to_string(&substitutions_path)?, indoc! {r#"
+        "Eda","NamePattern","ValuePattern","Name","Value","Comment"
+        "DipTrace","R0402","","RES_0402","","comment 1"
+        "DipTrace","/C.*/","100nF","CAP_0402","","DERATE 50V"
+        "DipTrace","R0603","","RES_0603","","comment 3"
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: ChangeTable {",
+        "stores_service: Performing stores operation. operation: ChangeRows {",
+        "Changing eda substitutions. source: '",
+        "stores_app: Changed table. kind: Substitutions, source: '",
+        "stores_service: Performing stores operation. operation: ReadTable {",
+    ]);
+    assert!(!trace.contains("Event failed."));
+
+    // as the user saw it, so it's set only if it's still that.
+    change_substitutions(&substitutions_path, &trace_path, &[
+        "set",
+        "--row",
+        "0",
+        "--value",
+        "value=100R",
+        "--comment",
+        "comment 1b",
+        "--was-value",
+        "value=",
+        "--was-comment",
+        "comment 1",
+    ])?;
+    assert_eq!(read_to_string(&substitutions_path)?, indoc! {r#"
+        "Eda","NamePattern","ValuePattern","Name","Value","Comment"
+        "DipTrace","R0402","","RES_0402","100R","comment 1b"
+        "DipTrace","/C.*/","100nF","CAP_0402","","DERATE 50V"
+        "DipTrace","R0603","","RES_0603","","comment 3"
+    "#});
+
+    change_substitutions(&substitutions_path, &trace_path, &[
+        "move", "--row", "2", "--before", "0",
+    ])?;
+    change_substitutions(&substitutions_path, &trace_path, &[
+        "remove",
+        "--row",
+        "2",
+        "--was-value",
+        "name=CAP_0402",
+    ])?;
+    assert_eq!(read_to_string(&substitutions_path)?, indoc! {r#"
+        "Eda","NamePattern","ValuePattern","Name","Value","Comment"
+        "DipTrace","R0603","","RES_0603","","comment 3"
+        "DipTrace","R0402","","RES_0402","100R","comment 1b"
+    "#});
+
+    let said = change_substitutions(&substitutions_path, &trace_path, &["add-columns", "--eda", "kicad"])?;
+    assert_eq!(
+        said,
+        "Added columns. columns: ['PackagePattern', 'Package', 'ValPattern', 'Val']\n"
+    );
+    change_substitutions(&substitutions_path, &trace_path, &[
+        "add",
+        "--eda",
+        "kicad",
+        "--pattern",
+        "package=R_0402",
+        "--pattern",
+        "val=",
+        "--value",
+        "package=RES_0402",
+        "--value",
+        "val=10K",
+    ])?;
+    assert_eq!(read_to_string(&substitutions_path)?, indoc! {r#"
+        "Eda","NamePattern","ValuePattern","PackagePattern","ValPattern","Name","Value","Package","Val","Comment"
+        "DipTrace","R0603","","","","RES_0603","","","","comment 3"
+        "DipTrace","R0402","","","","RES_0402","100R","","","comment 1b"
+        "KiCad","","","R_0402","","","","RES_0402","10K",""
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: AddTableColumns {",
+        "stores_service: Performing stores operation. operation: AddColumns {",
+        "position: EdaToolColumns",
+        "stores_app: Added table columns. kind: Substitutions, source: '",
+        "stores_app: Received event. event: ChangeTable {",
+        "stores_app: Changed table. kind: Substitutions, source: '",
+    ]);
+    assert!(!trace.contains("Event failed."));
+
+    Ok(())
+}
+
+/// `STORE-20`, a part's options for a substitution, a substitution's for a part mapping, a part mapping without its
+/// part, and a substitution whose `--was-` values aren't the row's, fail, saying why, and leave the file as it was.
+#[test]
+fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let substitutions_path = temp_dir
+        .path()
+        .join("substitutions.csv");
+    write(&substitutions_path, SUBSTITUTIONS)?;
+    let mappings_path = temp_dir
+        .path()
+        .join("part-mappings.csv");
+    write(&mappings_path, MAPPINGS)?;
+    let trace_path = temp_dir.path().join("trace.log");
+
+    let cases: [(&str, &Path, &str, &[&str], &str); 7] = [
+        (
+            "substitutions",
+            &substitutions_path,
+            SUBSTITUTIONS,
+            &[
+                "add",
+                "--eda",
+                "diptrace",
+                "--pattern",
+                "name=R1",
+                "--manufacturer",
+                "MFR1",
+            ],
+            "Option not for the table's kind. option: '--manufacturer', kind: Substitutions",
+        ),
+        (
+            "substitutions",
+            &substitutions_path,
+            SUBSTITUTIONS,
+            &["set", "--row", "0", "--mpn", "MPN1"],
+            "Option not for the table's kind. option: '--mpn', kind: Substitutions",
+        ),
+        (
+            "substitutions",
+            &substitutions_path,
+            SUBSTITUTIONS,
+            &["remove", "--row", "0", "--was-manufacturer", "MFR1"],
+            "Option not for the table's kind. option: '--was-manufacturer', kind: Substitutions",
+        ),
+        (
+            "substitutions",
+            &substitutions_path,
+            SUBSTITUTIONS,
+            &[
+                "set",
+                "--row",
+                "0",
+                "--comment",
+                "comment 2",
+                "--was-comment",
+                "comment 7",
+            ],
+            "The table has changed since the change was made. kind: Substitutions, source: '",
+        ),
+        (
+            "part-mappings",
+            &mappings_path,
+            MAPPINGS,
+            &[
+                "add",
+                "--eda",
+                "diptrace",
+                "--manufacturer",
+                "MFR1",
+                "--mpn",
+                "MPN1",
+                "--value",
+                "name=R1",
+            ],
+            "Option not for the table's kind. option: '--value', kind: PartMappings",
+        ),
+        (
+            "part-mappings",
+            &mappings_path,
+            MAPPINGS,
+            &["set", "--row", "0", "--mpn", "MPN2", "--was-comment", "comment 1"],
+            "Option not for the table's kind. option: '--was-comment', kind: PartMappings",
+        ),
+        (
+            "part-mappings",
+            &mappings_path,
+            MAPPINGS,
+            &["add", "--eda", "diptrace", "--mpn", "MPN1"],
+            "Option needed for the table's kind. option: '--manufacturer', kind: PartMappings",
+        ),
+    ];
+    for (kind, path, contents, args, expected) in cases {
+        let mut all_args = vec!["--kind", kind, "--source", path.to_str().unwrap()];
+        all_args.extend_from_slice(args);
+        let output = table(&trace_path, &all_args)?;
+
+        assert!(!output.status.success(), "{:?}", args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(expected), "{:?}: {}", args, stderr);
+        assert_eq!(read_to_string(path)?, contents, "{:?}", args);
+    }
+
+    Ok(())
+}

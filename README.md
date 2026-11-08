@@ -151,9 +151,12 @@ Its `parts` mode uses the stores core (`planning/stores_app`), which has the use
 sets a part's other values and `remove` removes one. A change is refused if the file has changed since it was read, or
 since the revision given with `--revision`. The stores core is pure: the CLI has the stores service
 (`planning/stores_service`) read and write the file for it, as the GUI does. Its `table` mode shows another data
-source's records as a table, read-only, for example `planner_cli table --kind bom --source board1_default_bom.csv list`
+source's records as a table, for example `planner_cli table --kind bom --source board1_default_bom.csv list`
 lists a variant's BOM as CSV, and `--kind eda-placements --eda-tool diptrace` a design's placements; the kinds are
-`eda-placements`, `part-mappings`, `substitutions`, `assembly-rules`, `placements` and `bom`.
+`eda-placements`, `part-mappings`, `substitutions`, `assembly-rules`, `placements` and `bom`. Part mappings and
+substitutions can be changed too, for example
+`planner_cli table --kind substitutions --source substitutions.csv add --eda diptrace --pattern name=R0402 --value name=RES_0402`
+adds a substitution; `set`, `remove` and `move` change one, and `add-columns --eda kicad` adds an EDA tool's columns.
 
 Here's the current help output:
 
