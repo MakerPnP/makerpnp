@@ -61,8 +61,8 @@ pub(crate) enum ModeCommand {
     /// Parts mode, to use a parts data source
     Parts(PartsCommandArgs),
 
-    /// Table mode, to show a data source's records as a table, and change part mappings, substitutions and assembly
-    /// rules
+    /// Table mode, to show a data source's records as a table, and change part mappings, substitutions, assembly rules
+    /// and parts
     Table(TableCommandArgs),
 }
 
@@ -93,8 +93,9 @@ pub(crate) enum TableCommand {
         keys: bool,
     },
     /// Add a row, after the others, a part mapping, e.g. 'add --eda diptrace --pattern name=/R.*/ --manufacturer RESCO
-    /// --mpn RES1', a substitution, e.g. 'add --eda diptrace --pattern name=R0402 --value name=RES_0402', or an assembly
-    /// rule, e.g. 'add --ref-des R1 --manufacturer RESCO --mpn RES1'
+    /// --mpn RES1', a substitution, e.g. 'add --eda diptrace --pattern name=R0402 --value name=RES_0402', an assembly
+    /// rule, e.g. 'add --ref-des R1 --manufacturer RESCO --mpn RES1', or a part, e.g. 'add --manufacturer RESCO --mpn
+    /// RES1 --value LCSC=C1234'
     Add {
         #[command(flatten)]
         values: NewRowArgs,
@@ -163,7 +164,7 @@ pub(crate) struct RowArgs {
     pub(crate) row: String,
 }
 
-/// A new row's values: a part mapping's, a substitution's, or an assembly rule's.
+/// A new row's values: a part mapping's, a substitution's, an assembly rule's, or a part's.
 #[derive(Debug, Args)]
 pub(crate) struct NewRowArgs {
     /// The EDA tool whose placements it maps, or substitutes, needed for a part mapping and a substitution
@@ -176,13 +177,14 @@ pub(crate) struct NewRowArgs {
     /// An assembly rule's designator, e.g. 'R1', needed for an assembly rule
     #[arg(long, value_name = "REF_DES")]
     pub(crate) ref_des: Option<String>,
-    /// A part mapping's, or an assembly rule's, part's manufacturer, e.g. 'RESCO', needed for both
+    /// A part mapping's, an assembly rule's, or a part's manufacturer, e.g. 'RESCO', needed for each
     #[arg(long, value_name = "MANUFACTURER")]
     pub(crate) manufacturer: Option<String>,
-    /// A part mapping's, or an assembly rule's, part's manufacturer part number, e.g. 'RES1', needed for both
+    /// A part mapping's, an assembly rule's, or a part's manufacturer part number, e.g. 'RES1', needed for each
     #[arg(long, value_name = "MPN")]
     pub(crate) mpn: Option<String>,
-    /// A substitution's value for a field, e.g. 'name=RES_0402'; repeat it for each field
+    /// A substitution's value for a field, e.g. 'name=RES_0402', or a part's other value, by its name, e.g.
+    /// 'LCSC=C1234'; repeat it for each
     #[arg(long = "value", value_name = "FIELD=VALUE", value_parser = parse_field_value)]
     pub(crate) values: Vec<(String, String)>,
     /// A substitution's comment
@@ -190,7 +192,7 @@ pub(crate) struct NewRowArgs {
     pub(crate) comment: Option<String>,
 }
 
-/// A row's values to set, at least one: a part mapping's, a substitution's, or an assembly rule's.
+/// A row's values to set, at least one: a part mapping's, a substitution's, an assembly rule's, or a part's.
 #[derive(Debug, Args)]
 #[group(required = true, multiple = true)]
 pub(crate) struct RowValuesArgs {
@@ -204,13 +206,14 @@ pub(crate) struct RowValuesArgs {
     /// An assembly rule's designator, e.g. 'R1'
     #[arg(long, value_name = "REF_DES")]
     pub(crate) ref_des: Option<String>,
-    /// A part mapping's, or an assembly rule's, part's manufacturer, e.g. 'RESCO'
+    /// A part mapping's, an assembly rule's, or a part's manufacturer, e.g. 'RESCO'
     #[arg(long, value_name = "MANUFACTURER")]
     pub(crate) manufacturer: Option<String>,
-    /// A part mapping's, or an assembly rule's, part's manufacturer part number, e.g. 'RES1'
+    /// A part mapping's, an assembly rule's, or a part's manufacturer part number, e.g. 'RES1'
     #[arg(long, value_name = "MPN")]
     pub(crate) mpn: Option<String>,
-    /// A substitution's value for a field, e.g. 'name=RES_0402'; repeat it for each field
+    /// A substitution's value for a field, e.g. 'name=RES_0402', or a part's other value, by its name, e.g.
+    /// 'LCSC=C1234'; repeat it for each
     #[arg(long = "value", value_name = "FIELD=VALUE", value_parser = parse_field_value)]
     pub(crate) values: Vec<(String, String)>,
     /// A substitution's comment
@@ -232,13 +235,14 @@ pub(crate) struct WhereRowArgs {
     /// Change an assembly rule only where its designator is this
     #[arg(long, value_name = "REF_DES")]
     pub(crate) where_ref_des: Option<String>,
-    /// Change a part mapping, or an assembly rule, only where its part's manufacturer is this
+    /// Change a part mapping, an assembly rule, or a part, only where its manufacturer is this
     #[arg(long, value_name = "MANUFACTURER")]
     pub(crate) where_manufacturer: Option<String>,
-    /// Change a part mapping, or an assembly rule, only where its part's manufacturer part number is this
+    /// Change a part mapping, an assembly rule, or a part, only where its manufacturer part number is this
     #[arg(long, value_name = "MPN")]
     pub(crate) where_mpn: Option<String>,
-    /// Change a substitution only where a field's value is this, e.g. 'name=RES_0402'; repeat it for each field
+    /// Change a substitution only where a field's value is this, e.g. 'name=RES_0402', or a part where its other value
+    /// is, e.g. 'LCSC=C1234'; repeat it for each
     #[arg(long = "where-value", value_name = "FIELD=VALUE", value_parser = parse_field_value)]
     pub(crate) where_values: Vec<(String, String)>,
     /// Change a substitution only where its comment is this
@@ -246,12 +250,14 @@ pub(crate) struct WhereRowArgs {
     pub(crate) where_comment: Option<String>,
 }
 
-/// A field's pattern, as 'FIELD=PATTERN', the field's name as the EDA tool's, in lower case, such as 'name'.
+/// A field's pattern, as 'FIELD=PATTERN', the field's name as it's written; an EDA tool's is used in lower case, such as
+/// 'name'.
 fn parse_field_pattern(value: &str) -> Result<(String, String), String> {
     parse_field(value, "FIELD=PATTERN")
 }
 
-/// A field's value, as 'FIELD=VALUE', the field's name as the EDA tool's, in lower case, such as 'name'.
+/// A field's value, as 'FIELD=VALUE', the field's name as it's written, as a part's other value's name is matched in
+/// any case with the data source's; an EDA tool's is used in lower case, such as 'name' (`STORE-20`).
 fn parse_field_value(value: &str) -> Result<(String, String), String> {
     parse_field(value, "FIELD=VALUE")
 }
@@ -259,7 +265,7 @@ fn parse_field_value(value: &str) -> Result<(String, String), String> {
 fn parse_field(value: &str, expected: &str) -> Result<(String, String), String> {
     value
         .split_once('=')
-        .map(|(field, value)| (field.to_lowercase(), value.to_string()))
+        .map(|(field, value)| (field.to_string(), value.to_string()))
         .filter(|(field, _value)| !field.is_empty())
         .ok_or_else(|| format!("Expected '{}'. value: '{}'", expected, value))
 }
@@ -275,6 +281,8 @@ pub(crate) enum TableKindArg {
     Substitutions,
     /// Assembly rules
     AssemblyRules,
+    /// Parts, each with its other values
+    Parts,
     /// A variant's placements, as built
     Placements,
     /// A variant's BOM, as built
@@ -293,6 +301,7 @@ impl TableKindArg {
             TableKindArg::PartMappings => TableKind::PartMappings,
             TableKindArg::Substitutions => TableKind::Substitutions,
             TableKindArg::AssemblyRules => TableKind::AssemblyRules,
+            TableKindArg::Parts => TableKind::Parts,
             TableKindArg::Placements => TableKind::Placements,
             TableKindArg::Bom => TableKind::Bom,
         })

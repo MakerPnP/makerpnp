@@ -8,10 +8,10 @@ use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{
-    quoted_list, AssemblyRule, AssemblyRulesViewItem, ColumnPosition, ColumnsToAdd, EdaSubstitutionRuleTransformItem,
-    FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView, PartsViewRendererOperation, Pattern, Revision,
-    RowKey, Source, Stores, StoresError, SubstitutionsViewItem, TableChange, TableKind, TableRow, TableView,
-    TableViewRendererOperation,
+    quoted_list, AssemblyRule, AssemblyRulesViewItem, ColumnPosition, ColumnValue, ColumnsToAdd,
+    EdaSubstitutionRuleTransformItem, FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView, PartsViewItem,
+    PartsViewRendererOperation, Pattern, Revision, RowKey, Source, Stores, StoresError, SubstitutionsViewItem,
+    TableChange, TableKind, TableRow, TableView, TableViewRendererOperation,
 };
 
 use crate::core::Core;
@@ -248,6 +248,16 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
                             manufacturer: String::new(),
                             mpn: String::new(),
                         },
+                    })
+                }
+                TableKind::Parts => {
+                    needed(&[
+                        ("--manufacturer", values.manufacturer.is_some()),
+                        ("--mpn", values.mpn.is_some()),
+                    ])?;
+                    TableRow::Parts(PartsViewItem {
+                        part: Part::new(String::new(), String::new()),
+                        fields: BTreeMap::new(),
                     })
                 }
                 _ => bail!(not_changeable(view)),
@@ -494,15 +504,44 @@ fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::
                 item.rule.mpn = mpn.clone();
             }
         }
-        // FUTURE `STORE-20`, the CLI's next step.
-        TableRow::Parts(_) => bail!(not_changeable(view)),
+        TableRow::Parts(item) => {
+            refuse(&[
+                ("eda", values.eda.is_some()),
+                ("pattern", !values.patterns.is_empty()),
+                ("ref-des", values.ref_des.is_some()),
+                ("comment", values.comment.is_some()),
+            ])?;
+            if let Some(manufacturer) = values.manufacturer {
+                item.part.manufacturer = manufacturer.clone();
+            }
+            if let Some(mpn) = values.mpn {
+                item.part.mpn = mpn.clone();
+            }
+            for (name, value) in values.values {
+                item.fields
+                    .insert(part_value_name(view, name), value.clone());
+            }
+        }
     }
     Ok(())
 }
 
-/// Sets each field's pattern, adding a field the row has no pattern of.
+/// A part's other value's name, as the data source names it, matched in any case, or as it's written if the data source
+/// has no such column, so the core refuses it (`STORE-20`).
+fn part_value_name(view: &TableView, name: &str) -> String {
+    view.columns
+        .iter()
+        .find_map(|column| match &column.value {
+            ColumnValue::Field(field) if field.to_lowercase() == name.to_lowercase() => Some(field.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| name.to_string())
+}
+
+/// Sets each field's pattern, adding a field the row has no pattern of, the field's name the EDA tool's, in lower case.
 fn set_patterns(criteria: &mut Vec<FieldPattern>, patterns: &[(String, String)]) {
     for (field_name, pattern) in patterns {
+        let field_name = &field_name.to_lowercase();
         let pattern = Pattern::parse(pattern);
         match criteria
             .iter_mut()
@@ -517,9 +556,11 @@ fn set_patterns(criteria: &mut Vec<FieldPattern>, patterns: &[(String, String)])
     }
 }
 
-/// Sets each field's value, adding a field the substitution has no value of.
+/// Sets each field's value, adding a field the substitution has no value of, the field's name the EDA tool's, in lower
+/// case.
 fn set_values(transforms: &mut Vec<EdaSubstitutionRuleTransformItem>, values: &[(String, String)]) {
     for (field_name, value) in values {
+        let field_name = &field_name.to_lowercase();
         match transforms
             .iter_mut()
             .find(|transform| transform.field_name == *field_name)

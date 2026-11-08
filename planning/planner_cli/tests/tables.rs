@@ -777,10 +777,123 @@ fn adds_sets_moves_and_removes_assembly_rules() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+const PARTS: &str = indoc! {r#"
+    "Manufacturer","Mpn","LCSC","Package"
+    "RESCO","1234","C1234","0402"
+    "CAPCO","CAP1","","0603"
+"#};
+
+/// Runs `planner_cli table --kind parts --source <file>` with the arguments, failing if it does, and returns what it
+/// wrote to standard output.
+fn change_parts(parts_path: &Path, trace_path: &Path, args: &[&str]) -> Result<String, anyhow::Error> {
+    let mut all_args = vec!["--kind", "parts", "--source", parts_path.to_str().unwrap()];
+    all_args.extend_from_slice(args);
+    let output = table(trace_path, &all_args)?;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// `STORE-20`, `STORE-21`, parts are listed with their keys, then a part is added with its manufacturer, MPN and an
+/// other value, named in any case, has its values set, as the user saw them, is moved and removed, and a named column
+/// is added.
+#[test]
+fn adds_sets_moves_and_removes_parts() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let parts_path = temp_dir.path().join("parts.csv");
+    write(&parts_path, PARTS)?;
+    let trace_path = temp_dir.path().join("trace.log");
+
+    let listed = change_parts(&parts_path, &trace_path, &["list", "--keys"])?;
+    assert_eq!(listed, indoc! {r#"
+        "Key","Manufacturer","Mpn","LCSC","Package"
+        "0","RESCO","1234","C1234","0402"
+        "1","CAPCO","CAP1","","0603"
+    "#});
+
+    change_parts(&parts_path, &trace_path, &[
+        "add",
+        "--manufacturer",
+        "LEDCO",
+        "--mpn",
+        "LED1",
+        "--value",
+        "lcsc=C5678",
+    ])?;
+    assert_eq!(read_to_string(&parts_path)?, indoc! {r#"
+        "Manufacturer","Mpn","LCSC","Package"
+        "RESCO","1234","C1234","0402"
+        "CAPCO","CAP1","","0603"
+        "LEDCO","LED1","C5678",""
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: ChangeTable {",
+        "stores_service: Performing stores operation. operation: ChangeRows {",
+        "Changing parts. source: '",
+        "stores_app: Changed table. kind: Parts, source: '",
+    ]);
+    assert!(!trace.contains("Event failed."));
+
+    // as the user saw it, so it's set only if it's still that.
+    change_parts(&parts_path, &trace_path, &[
+        "set",
+        "--row",
+        "1",
+        "--mpn",
+        "CAP2",
+        "--value",
+        "Package=0805",
+        "--where-mpn",
+        "CAP1",
+        "--where-value",
+        "Package=0603",
+    ])?;
+    assert_eq!(read_to_string(&parts_path)?, indoc! {r#"
+        "Manufacturer","Mpn","LCSC","Package"
+        "RESCO","1234","C1234","0402"
+        "CAPCO","CAP2","","0805"
+        "LEDCO","LED1","C5678",""
+    "#});
+
+    change_parts(&parts_path, &trace_path, &["move", "--row", "2", "--before", "0"])?;
+    change_parts(&parts_path, &trace_path, &[
+        "remove",
+        "--row",
+        "2",
+        "--where-manufacturer",
+        "CAPCO",
+        "--where-mpn",
+        "CAP2",
+    ])?;
+    assert_eq!(read_to_string(&parts_path)?, indoc! {r#"
+        "Manufacturer","Mpn","LCSC","Package"
+        "LEDCO","LED1","C5678",""
+        "RESCO","1234","C1234","0402"
+    "#});
+
+    let said = change_parts(&parts_path, &trace_path, &[
+        "add-columns",
+        "--column",
+        "Notes",
+        "--last",
+    ])?;
+    assert_eq!(said, "Added columns. columns: ['Notes']\n");
+    assert_eq!(read_to_string(&parts_path)?, indoc! {r#"
+        "Manufacturer","Mpn","LCSC","Package","Notes"
+        "LEDCO","LED1","C5678","",""
+        "RESCO","1234","C1234","0402",""
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert!(!trace.contains("Event failed."));
+
+    Ok(())
+}
+
 /// `STORE-20`, a part's options for a substitution, a substitution's for a part mapping, an EDA tool's, a pattern's, a
 /// value's and a comment's for an assembly rule, a designator's for the other kinds, a part mapping without its part or
-/// its EDA tool, an assembly rule without its designator, a substitution whose `--where-` values aren't the row's, and
-/// an EDA tool's columns for assembly rules (`STORE-21`), fail, saying why, and leave the file as it was.
+/// its EDA tool, an assembly rule without its designator, a part without its MPN, a substitution's or a part's whose
+/// `--where-` values aren't the row's, and an EDA tool's columns for assembly rules and parts (`STORE-21`), fail,
+/// saying why, and leave the file as it was.
 #[test]
 fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyhow::Error> {
     let temp_dir = tempdir()?;
@@ -796,9 +909,11 @@ fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyho
         .path()
         .join("assembly-rules.csv");
     write(&rules_path, ASSEMBLY_RULES)?;
+    let parts_path = temp_dir.path().join("parts.csv");
+    write(&parts_path, PARTS)?;
     let trace_path = temp_dir.path().join("trace.log");
 
-    let cases: [(&str, &Path, &str, &[&str], &str); 18] = [
+    let cases: [(&str, &Path, &str, &[&str], &str); 25] = [
         (
             "assembly-rules",
             &rules_path,
@@ -960,6 +1075,55 @@ fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyho
             MAPPINGS,
             &["add", "--eda", "diptrace", "--mpn", "MPN1"],
             "Option needed for the table's kind. option: '--manufacturer', kind: PartMappings",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["add", "--manufacturer", "MFR3", "--mpn", "MPN3", "--eda", "kicad"],
+            "Option not for the table's kind. option: '--eda', kind: Parts",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["set", "--row", "0", "--pattern", "name=R1"],
+            "Option not for the table's kind. option: '--pattern', kind: Parts",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["remove", "--row", "0", "--where-ref-des", "R1"],
+            "Option not for the table's kind. option: '--where-ref-des', kind: Parts",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["set", "--row", "0", "--comment", "comment 1"],
+            "Option not for the table's kind. option: '--comment', kind: Parts",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["add", "--manufacturer", "MFR3"],
+            "Option needed for the table's kind. option: '--mpn', kind: Parts",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["remove", "--row", "0", "--where-value", "lcsc=C7"],
+            "The table has changed since the change was made. kind: Parts, source: '",
+        ),
+        (
+            "parts",
+            &parts_path,
+            PARTS,
+            &["add-columns", "--eda", "diptrace"],
+            "The table has no EDA tool's columns. kind: Parts, source: '",
         ),
     ];
     for (kind, path, contents, args, expected) in cases {
