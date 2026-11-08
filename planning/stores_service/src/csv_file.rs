@@ -12,11 +12,11 @@ use notify::event::ModifyKind;
 use notify::{EventKind, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use stores_protocol::{
-    AssemblyRulesViewItem, BomViewItem, ColumnRef, ColumnValue, EdaPlacementsViewItem,
-    EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, FieldValue, Part, PartMappingsViewItem, Parts,
-    PartsSource, PartsViewItem, PartsWriteError, Pattern, PlacementsViewItem, Records, RecordsKind, RecordsOf, RefDes,
-    Revision, RowOrdering, RowRef, RowsChange, Source, StoresOutput, SubstitutionsViewItem, Table, TableKind,
-    TableRecords,
+    quoted_list, AddColumnsError, AssemblyRulesViewItem, BomViewItem, ColumnPosition, ColumnRef, ColumnValue,
+    EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, FieldValue, Part,
+    PartMappingsViewItem, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, PlacementsViewItem, Records,
+    RecordsKind, RecordsOf, RefDes, Revision, RowOrdering, RowRef, RowsChange, Source, StoresOutput,
+    SubstitutionsViewItem, Table, TableColumn, TableKind, TableRecords,
 };
 use tracing::{info, warn};
 
@@ -213,6 +213,17 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
     if kind == TableKind::PartMappings {
         let headers = stores::csv::read_headers(contents.as_slice())
             .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+        // `STORE-17`, a pattern's column for each EDA tool's field the file has a column for, even with no rows, so the
+        // core knows which an EDA tool's rows still need (`STORE-21`).
+        records.columns = TableColumn::part_mappings(
+            EdaTool::all_field_names()
+                .into_iter()
+                .filter(|field_name| {
+                    headers
+                        .iter()
+                        .any(|header| header.to_lowercase() == *field_name)
+                }),
+        );
         for column in records.columns.iter_mut() {
             column.reference = part_mapping_reference(&column.value, &headers);
         }
@@ -574,6 +585,79 @@ pub async fn change_rows(kind: TableKind, source: &Source, change: &RowsChange) 
             };
             records.insert(to, record);
         }
+    }
+
+    let mut contents = vec![];
+    stores::csv::write_records(&mut contents, &headers, &records).map_err(|error| failed(format!("{:#}", error)))?;
+
+    std::fs::write(path, &contents).map_err(|error| failed(error.to_string()))?;
+
+    Ok(self::revision(&contents))
+}
+
+/// Adds the columns to the file, each header inserted where it's to go, in the order given, with an empty value in each
+/// row, every other column, value and row left as they were, and returns the file's revision once it's written
+/// (`STORE-21`).
+///
+/// A column is already there if a header has its name, in any case, as the part mapper finds a field's column. The
+/// column they're to go before or after is named by its header, as it's written, as a column's reference is.
+pub async fn add_columns(
+    kind: TableKind,
+    source: &Source,
+    columns: &[String],
+    position: &ColumnPosition,
+) -> Result<Revision, AddColumnsError> {
+    let Source::File(path) = source else {
+        return Err(AddColumnsError::Failed {
+            cause: format!("Unsupported source. source: {:?}", source),
+        });
+    };
+    let failed = |cause: String| AddColumnsError::Failed {
+        cause: format!("Unable to add the columns. source: '{}', cause: '{}'", source, cause),
+    };
+    if kind != TableKind::PartMappings {
+        return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
+    }
+
+    info!(
+        "Adding columns. source: '{}', columns: {}",
+        source,
+        quoted_list(columns)
+    );
+    let current = match std::fs::read(path) {
+        Ok(contents) => contents,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Err(AddColumnsError::SourceNotFound),
+        Err(error) => return Err(failed(error.to_string())),
+    };
+    let (mut headers, mut records) =
+        stores::csv::read_records(current.as_slice()).map_err(|error| failed(format!("{:#}", error)))?;
+
+    for (index, column) in columns.iter().enumerate() {
+        let is_named = |header: &String| header.to_lowercase() == column.to_lowercase();
+        if headers.iter().any(is_named) || columns[..index].iter().any(is_named) {
+            return Err(AddColumnsError::ColumnExists {
+                column: column.clone(),
+            });
+        }
+    }
+    let place = |column: &String| {
+        headers
+            .iter()
+            .position(|header| header == column)
+            .ok_or_else(|| AddColumnsError::ColumnNotFound {
+                column: column.clone(),
+            })
+    };
+    let at = match position {
+        ColumnPosition::First => 0,
+        ColumnPosition::Last => headers.len(),
+        ColumnPosition::Before(column) => place(column)?,
+        ColumnPosition::After(column) => place(column)? + 1,
+    };
+
+    headers.splice(at..at, columns.iter().cloned());
+    for record in records.iter_mut() {
+        record.splice(at..at, columns.iter().map(|_| String::new()));
     }
 
     let mut contents = vec![];

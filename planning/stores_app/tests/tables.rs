@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    BomViewItem, Cell, ColumnRef, ColumnValue, EdaTool, Effect, Event, FieldChange, FieldPattern, FieldValue, Part,
-    PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source,
-    Stores, StoresOperation, StoresOutput, Table, TableChange, TableKind, TableRecords, TableRow, TableView,
-    TableViewRendererOperation,
+    AddColumnsError, BomViewItem, Cell, ColumnPosition, ColumnRef, ColumnValue, ColumnsToAdd, EdaTool, Effect, Event,
+    FieldChange, FieldPattern, FieldValue, Part, PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision,
+    RowKey, RowOrdering, RowRef, RowsChange, Source, Stores, StoresOperation, StoresOutput, Table, TableChange,
+    TableKind, TableRecords, TableRow, TableView, TableViewRendererOperation,
 };
 
 fn source(path: &str) -> Source {
@@ -974,4 +974,359 @@ fn a_change_that_can_not_be_made_says_why_and_keeps_the_table() {
         no_operations,
     );
     assert_eq!(views[0], view);
+}
+
+/// A stores service that adds the columns, the data source's revision then `changed`, and then reads the table as
+/// `after`.
+fn adds_columns_then_reads(resolved: &Source, after: Table) -> impl FnMut(&StoresOperation) -> StoresOutput {
+    let resolved = resolved.clone();
+    move |operation| match operation {
+        StoresOperation::AddColumns {
+            source, ..
+        } => {
+            assert_eq!(*source, resolved);
+            StoresOutput::ColumnsAdded(Ok(Revision(CHANGED.to_string())))
+        }
+        StoresOperation::ReadTable {
+            source, ..
+        } => {
+            assert_eq!(*source, resolved);
+            StoresOutput::TableRead(Ok(Some(read(after.clone()))))
+        }
+        operation => panic!("unexpected operation: {:?}", operation),
+    }
+}
+
+fn strings(values: &[&str]) -> Vec<String> {
+    values
+        .iter()
+        .map(|value| value.to_string())
+        .collect()
+}
+
+/// Opens part mappings, `mappings.csv`, identified as `/folder/mappings.csv`, whose one row has a pattern of each of the
+/// fields, so the table has a column of each, and takes the operations.
+fn given_part_mappings_with(shell: &mut Shell, field_names: &[&str]) -> (Source, Source) {
+    let as_asked = source("mappings.csv");
+    let resolved = source("/folder/mappings.csv");
+    let mut item = mapping("R1", "MPN1");
+    item.criteria = field_names
+        .iter()
+        .map(|field_name| FieldPattern {
+            field_name: field_name.to_string(),
+            pattern: Pattern::parse(""),
+        })
+        .collect();
+    let (_views, error) = shell.process(
+        Event::OpenTable {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::PartMappings(vec![item])))),
+    );
+    assert_eq!(error, None);
+    shell.take_operations();
+    (as_asked, resolved)
+}
+
+/// `STORE-21`, named columns are added where they're asked to go, then the table is read again, and its view sent.
+#[test]
+fn named_columns_are_added_then_the_table_is_read_again() {
+    let mut shell = Shell::new();
+    let (as_asked, resolved, _view) = given_open_part_mappings(&mut shell);
+    let after = mappings(&[("R1", "MPN1")]);
+
+    let (views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+            columns: ColumnsToAdd::Named {
+                columns: strings(&["Notes", "Status"]),
+                position: ColumnPosition::After("Mpn".to_string()),
+            },
+        },
+        adds_columns_then_reads(&resolved, after.clone()),
+    );
+
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![
+        StoresOperation::AddColumns {
+            kind: MAPPINGS,
+            source: resolved.clone(),
+            columns: strings(&["Notes", "Status"]),
+            position: ColumnPosition::After("Mpn".to_string()),
+        },
+        StoresOperation::ReadTable {
+            kind: MAPPINGS,
+            source: resolved.clone(),
+        },
+    ]);
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].table, after);
+    let view_model = shell.core.view();
+    let status = view_model
+        .table(MAPPINGS, &as_asked)
+        .unwrap();
+    assert!(!status.changing);
+    assert_eq!(status.change_error, None);
+}
+
+/// `STORE-21`, an EDA tool's columns are those of its fields the table doesn't have, whichever tool's they are, so a
+/// column shared by tools is added once, each named as `STORE-17` names it, before the part's columns.
+#[test]
+fn an_eda_tools_columns_are_those_of_its_fields_the_table_does_not_have() {
+    let cases: [(&[&str], EdaTool, &[&str]); 5] = [
+        (&["name"], EdaTool::KiCad, &["Package", "Val"]),
+        (&["name"], EdaTool::EasyEda, &["Device", "Value"]),
+        (&["name"], EdaTool::DipTrace, &["Value"]),
+        // KiCad's to EasyEDA's: only `device`, as `value` is there, DipTrace's.
+        (&["name", "value", "package", "val"], EdaTool::EasyEda, &["Device"]),
+        (&["package"], EdaTool::KiCad, &["Val"]),
+    ];
+
+    for (field_names, eda_tool, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved) = given_part_mappings_with(&mut shell, field_names);
+
+        let (_views, error) = shell.process(
+            Event::AddTableColumns {
+                kind: MAPPINGS,
+                source: as_asked.clone(),
+                columns: ColumnsToAdd::EdaTool {
+                    eda_tool,
+                },
+            },
+            adds_columns_then_reads(&resolved, mappings(&[("R1", "MPN1")])),
+        );
+
+        assert_eq!(error, None, "{:?}, {:?}", field_names, eda_tool);
+        assert_eq!(
+            shell.take_operations()[0],
+            StoresOperation::AddColumns {
+                kind: MAPPINGS,
+                source: resolved.clone(),
+                columns: strings(expected),
+                position: ColumnPosition::Before("Manufacturer".to_string()),
+            },
+            "{:?}, {:?}",
+            field_names,
+            eda_tool
+        );
+    }
+}
+
+/// `STORE-21`, a table that has an EDA tool's columns already is left as it is, nothing asked of the service.
+#[test]
+fn an_eda_tools_columns_already_there_are_not_added() {
+    let mut shell = Shell::new();
+    let (as_asked, _resolved) = given_part_mappings_with(&mut shell, &["name", "value", "device"]);
+
+    for eda_tool in [EdaTool::DipTrace, EdaTool::EasyEda] {
+        let (views, error) = shell.process(
+            Event::AddTableColumns {
+                kind: MAPPINGS,
+                source: as_asked.clone(),
+                columns: ColumnsToAdd::EdaTool {
+                    eda_tool,
+                },
+            },
+            no_operations,
+        );
+        assert_eq!(views, vec![]);
+        assert_eq!(error, None);
+    }
+}
+
+/// `STORE-21`, `STORE-19`, adding columns to a table that isn't loaded, of a kind that can't be changed, or while a
+/// change is being made, is refused, changing nothing.
+#[test]
+fn adding_columns_the_table_can_not_take_is_refused() {
+    let notes = || ColumnsToAdd::Named {
+        columns: strings(&["Notes"]),
+        position: ColumnPosition::Last,
+    };
+
+    // not loaded.
+    let mut shell = Shell::new();
+    let (_views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: MAPPINGS,
+            source: source("mappings.csv"),
+            columns: notes(),
+        },
+        no_operations,
+    );
+    assert_eq!(
+        error,
+        Some("The table is not loaded. kind: PartMappings, source: 'mappings.csv'".to_string())
+    );
+
+    // a BOM.
+    let mut shell = Shell::new();
+    let (as_asked, _resolved) = given_an_open_table(&mut shell);
+    let (_views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: KIND,
+            source: as_asked,
+            columns: notes(),
+        },
+        no_operations,
+    );
+    assert_eq!(
+        error,
+        Some("The table can't be changed. kind: Bom, source: '/folder/bom.csv'".to_string())
+    );
+
+    // while a change is being made, until which the status says so.
+    let mut shell = Shell::new();
+    let (as_asked, resolved, _view) = given_open_part_mappings(&mut shell);
+    let add = || Event::AddTableColumns {
+        kind: MAPPINGS,
+        source: as_asked.clone(),
+        columns: notes(),
+    };
+    let adding = shell.process_unanswered(add());
+    assert!(
+        shell
+            .core
+            .view()
+            .table(MAPPINGS, &as_asked)
+            .unwrap()
+            .changing
+    );
+    let (_views, error) = shell.process(add(), no_operations);
+    assert_eq!(
+        error,
+        Some("The table is being changed. kind: PartMappings, source: '/folder/mappings.csv'".to_string())
+    );
+    let (_views, error) = shell.answer(
+        adding,
+        StoresOutput::ColumnsAdded(Ok(Revision(CHANGED.to_string()))),
+        adds_columns_then_reads(&resolved, mappings(&[("R1", "MPN1")])),
+    );
+    assert_eq!(error, None);
+    assert!(
+        !shell
+            .core
+            .view()
+            .table(MAPPINGS, &as_asked)
+            .unwrap()
+            .changing
+    );
+}
+
+/// `STORE-21`, columns the service refuses to add, as one is there already, the column they're to go by isn't, or the
+/// back end can't add them, say why, keep the table as it was, reading nothing, and keep the error until a change
+/// succeeds, and a data source that's gone says so, and is read again.
+#[test]
+fn columns_the_service_refuses_to_add_say_why() {
+    let cases = [
+        (
+            AddColumnsError::ColumnExists {
+                column: "Name".to_string(),
+            },
+            "The column already exists. kind: PartMappings, source: '/folder/mappings.csv', column: 'Name'",
+        ),
+        (
+            AddColumnsError::ColumnNotFound {
+                column: "Notes".to_string(),
+            },
+            "The column doesn't exist. kind: PartMappings, source: '/folder/mappings.csv', column: 'Notes'",
+        ),
+        (
+            AddColumnsError::Failed {
+                cause: "Read-only.".to_string(),
+            },
+            "Unable to change the table. kind: PartMappings, source: '/folder/mappings.csv', cause: Read-only.",
+        ),
+    ];
+
+    for (refusal, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved, view) = given_open_part_mappings(&mut shell);
+
+        let (views, error) = shell.process(
+            Event::AddTableColumns {
+                kind: MAPPINGS,
+                source: as_asked.clone(),
+                columns: ColumnsToAdd::Named {
+                    columns: strings(&["Name"]),
+                    position: ColumnPosition::After("Notes".to_string()),
+                },
+            },
+            |operation| match operation {
+                StoresOperation::AddColumns {
+                    ..
+                } => StoresOutput::ColumnsAdded(Err(refusal.clone())),
+                operation => panic!("unexpected operation: {:?}", operation),
+            },
+        );
+
+        assert_eq!(views, vec![]);
+        assert_eq!(error.as_deref(), Some(expected));
+        let view_model = shell.core.view();
+        let status = view_model
+            .table(MAPPINGS, &as_asked)
+            .unwrap();
+        assert_eq!(status.change_error.as_deref(), Some(expected));
+        assert!(!status.changing);
+        let (views, _error) = shell.process(
+            Event::OpenTable {
+                kind: MAPPINGS,
+                source: as_asked.clone(),
+            },
+            no_operations,
+        );
+        assert_eq!(views[0], view);
+
+        // a change that succeeds clears it.
+        let (_views, error) = shell.process(
+            Event::AddTableColumns {
+                kind: MAPPINGS,
+                source: as_asked.clone(),
+                columns: ColumnsToAdd::EdaTool {
+                    eda_tool: EdaTool::KiCad,
+                },
+            },
+            adds_columns_then_reads(&resolved, mappings(&[("R1", "MPN1")])),
+        );
+        assert_eq!(error, None);
+        assert_eq!(
+            shell
+                .core
+                .view()
+                .table(MAPPINGS, &as_asked)
+                .unwrap()
+                .change_error,
+            None
+        );
+    }
+
+    // a data source that's gone.
+    let mut shell = Shell::new();
+    let (as_asked, resolved, _view) = given_open_part_mappings(&mut shell);
+    let mut service = service(&as_asked, &resolved, Ok(None));
+    let (_views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: MAPPINGS,
+            source: as_asked.clone(),
+            columns: ColumnsToAdd::EdaTool {
+                eda_tool: EdaTool::KiCad,
+            },
+        },
+        |operation| match operation {
+            StoresOperation::AddColumns {
+                ..
+            } => StoresOutput::ColumnsAdded(Err(AddColumnsError::SourceNotFound)),
+            operation => service(operation),
+        },
+    );
+    assert_eq!(
+        error,
+        Some("Data source not found. source: '/folder/mappings.csv'".to_string())
+    );
+    assert_eq!(shell.take_operations()[1..], [StoresOperation::ReadTable {
+        kind: MAPPINGS,
+        source: resolved.clone(),
+    }]);
 }

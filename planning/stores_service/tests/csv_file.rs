@@ -1,5 +1,5 @@
 //! The stores service's CSV file back end (`STORE-1`, `STORE-3`, `STORE-6` to `STORE-8`, `STORE-15`, `STORE-17`,
-//! `STORE-19`).
+//! `STORE-19`, `STORE-21`).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -7,9 +7,9 @@ use std::path::Path;
 
 use futures::executor::block_on;
 use stores_protocol::{
-    ColumnRef, EdaTool, FieldChange, FieldPattern, FieldValue, Part, Parts, PartsSource, PartsViewItem,
-    PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source, StoresOperation,
-    StoresOutput, Table, TableKind, TableRecords,
+    AddColumnsError, ColumnPosition, ColumnRef, EdaTool, FieldChange, FieldPattern, FieldValue, Part, Parts,
+    PartsSource, PartsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange,
+    Source, StoresOperation, StoresOutput, Table, TableKind, TableRecords,
 };
 use stores_service::StoresService;
 
@@ -879,4 +879,176 @@ fn refuses_a_change_whose_values_are_not_as_they_were() {
         );
         assert_eq!(contents(&source), MAPPINGS, "{:?}", change);
     }
+}
+
+fn add_columns(source: &Source, columns: &[&str], position: ColumnPosition) -> Result<Revision, AddColumnsError> {
+    match block_on(StoresService::new().perform_once(StoresOperation::AddColumns {
+        kind: TableKind::PartMappings,
+        source: source.clone(),
+        columns: strings(columns),
+        position,
+    })) {
+        Some(StoresOutput::ColumnsAdded(result)) => result,
+        output => panic!("unexpected output: {:?}", output),
+    }
+}
+
+const KICAD_MAPPINGS: &str = "\"Eda\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\",\"Notes\"\n\
+                              \"KiCad\",\"R_0402\",\"330R\",\"MFR1\",\"MPN1\",\"first\"\n\
+                              \"KiCad\",\"C_0402\",\"100nF\",\"MFR2\",\"MPN2\",\"\"\n";
+
+/// `STORE-21`, columns are added where they're to go, together, in the order given, with an empty value in each row,
+/// every other column, value and row as it was, every value quoted, and the revision is the file's.
+#[test]
+fn adds_columns_where_they_are_to_go() {
+    let cases = [
+        (
+            ColumnPosition::Before("Manufacturer".to_string()),
+            "\"Eda\",\"Package\",\"Val\",\"Device\",\"Value\",\"Manufacturer\",\"Mpn\",\"Notes\"\n\
+             \"KiCad\",\"R_0402\",\"330R\",\"\",\"\",\"MFR1\",\"MPN1\",\"first\"\n\
+             \"KiCad\",\"C_0402\",\"100nF\",\"\",\"\",\"MFR2\",\"MPN2\",\"\"\n",
+        ),
+        (
+            ColumnPosition::After("Eda".to_string()),
+            "\"Eda\",\"Device\",\"Value\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\",\"Notes\"\n\
+             \"KiCad\",\"\",\"\",\"R_0402\",\"330R\",\"MFR1\",\"MPN1\",\"first\"\n\
+             \"KiCad\",\"\",\"\",\"C_0402\",\"100nF\",\"MFR2\",\"MPN2\",\"\"\n",
+        ),
+        (
+            ColumnPosition::First,
+            "\"Device\",\"Value\",\"Eda\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\",\"Notes\"\n\
+             \"\",\"\",\"KiCad\",\"R_0402\",\"330R\",\"MFR1\",\"MPN1\",\"first\"\n\
+             \"\",\"\",\"KiCad\",\"C_0402\",\"100nF\",\"MFR2\",\"MPN2\",\"\"\n",
+        ),
+        (
+            ColumnPosition::Last,
+            "\"Eda\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\",\"Notes\",\"Device\",\"Value\"\n\
+             \"KiCad\",\"R_0402\",\"330R\",\"MFR1\",\"MPN1\",\"first\",\"\",\"\"\n\
+             \"KiCad\",\"C_0402\",\"100nF\",\"MFR2\",\"MPN2\",\"\",\"\",\"\"\n",
+        ),
+    ];
+
+    for (position, expected) in cases {
+        let folder = tempfile::tempdir().unwrap();
+        let source = csv_file(folder.path(), "part-mappings.csv", KICAD_MAPPINGS);
+
+        let revision = add_columns(&source, &["Device", "Value"], position.clone());
+
+        assert_eq!(contents(&source), expected, "{:?}", position);
+        assert_eq!(
+            revision,
+            Ok(stores_service::csv_file::revision(expected.as_bytes())),
+            "{:?}",
+            position
+        );
+    }
+}
+
+/// `STORE-21`, a file with only its headers has columns added too.
+#[test]
+fn adds_columns_to_a_file_with_no_rows() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "part-mappings.csv",
+        "\"Eda\",\"Name\",\"Manufacturer\",\"Mpn\"\n",
+    );
+
+    add_columns(&source, &["Value"], ColumnPosition::Before("Manufacturer".to_string())).unwrap();
+
+    assert_eq!(
+        contents(&source),
+        "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n"
+    );
+}
+
+/// `STORE-21`, columns already there, in any case, as the part mapper finds a field's column, or given twice, or to go
+/// by a column that isn't there, are refused, the file left as it was, and a file that isn't there says so.
+#[test]
+fn refuses_columns_that_can_not_be_added() {
+    let cases: [(&[&str], ColumnPosition, AddColumnsError); 4] = [
+        (
+            &["Device", "VAL"],
+            ColumnPosition::Last,
+            AddColumnsError::ColumnExists {
+                column: "VAL".to_string(),
+            },
+        ),
+        (
+            &["Device", "device"],
+            ColumnPosition::Last,
+            AddColumnsError::ColumnExists {
+                column: "device".to_string(),
+            },
+        ),
+        // a column is named by its header as it's written, as a column's reference is.
+        (
+            &["Device"],
+            ColumnPosition::Before("manufacturer".to_string()),
+            AddColumnsError::ColumnNotFound {
+                column: "manufacturer".to_string(),
+            },
+        ),
+        (
+            &["Device"],
+            ColumnPosition::After("Comment".to_string()),
+            AddColumnsError::ColumnNotFound {
+                column: "Comment".to_string(),
+            },
+        ),
+    ];
+
+    for (columns, position, expected) in cases {
+        let folder = tempfile::tempdir().unwrap();
+        let source = csv_file(folder.path(), "part-mappings.csv", KICAD_MAPPINGS);
+
+        let result = add_columns(&source, columns, position.clone());
+
+        assert_eq!(result, Err(expected), "{:?}, {:?}", columns, position);
+        assert_eq!(contents(&source), KICAD_MAPPINGS, "{:?}, {:?}", columns, position);
+    }
+
+    let folder = tempfile::tempdir().unwrap();
+    let missing = Source::File(folder.path().join("missing.csv"));
+    assert_eq!(
+        add_columns(&missing, &["Device"], ColumnPosition::Last),
+        Err(AddColumnsError::SourceNotFound)
+    );
+}
+
+/// `STORE-17`, `STORE-21`, part mappings have a pattern's column for each EDA tool's field the file has a column for,
+/// even with no rows, so the core knows which an EDA tool's rows still need.
+#[test]
+fn part_mappings_with_no_rows_have_their_fields_columns() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(
+        folder.path(),
+        "part-mappings.csv",
+        "\"Eda\",\"VAL\",\"Package\",\"Manufacturer\",\"Mpn\",\"Notes\"\n",
+    );
+
+    let records = read_table(TableKind::PartMappings, &source)
+        .unwrap()
+        .expect("a table");
+
+    assert_eq!(
+        records
+            .columns
+            .iter()
+            .map(|column| (
+                column.name.as_str(),
+                column
+                    .reference
+                    .as_ref()
+                    .map(|reference| reference.0.as_str())
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            ("Eda", Some("Eda")),
+            ("Package", Some("Package")),
+            ("Val", Some("VAL")),
+            ("Manufacturer", Some("Manufacturer")),
+            ("Mpn", Some("Mpn")),
+        ]
+    );
 }

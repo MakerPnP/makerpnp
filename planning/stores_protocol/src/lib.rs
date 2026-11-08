@@ -140,6 +140,48 @@ pub enum StoresOperation {
         source: Source,
         change: RowsChange,
     },
+
+    /// Adds columns to a data source of the kind, each named as the data source is to name it, together, in the order
+    /// given, where they're to go, with an empty value for each row (`STORE-21`). Answered with
+    /// [`StoresOutput::ColumnsAdded`].
+    AddColumns {
+        kind: TableKind,
+        source: Source,
+        columns: Vec<String>,
+        position: ColumnPosition,
+    },
+}
+
+/// Where columns are added to a table, any column named as the data source names it, as a column's reference does
+/// (`STORE-21`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum ColumnPosition {
+    First,
+    Last,
+    Before(String),
+    After(String),
+}
+
+/// The values, each single-quoted, as a list, such as "`['Package', 'Val']`", as the logs say a list of strings.
+pub fn quoted_list(values: &[String]) -> String {
+    let values: Vec<String> = values
+        .iter()
+        .map(|value| format!("'{}'", value))
+        .collect();
+    format!("[{}]", values.join(", "))
+}
+
+/// Why columns weren't added (`STORE-21`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum AddColumnsError {
+    /// A column to add is already there, or is to be added twice.
+    ColumnExists { column: String },
+    /// The column the columns are to go before or after isn't there.
+    ColumnNotFound { column: String },
+    /// The data source doesn't exist, for example as its file was removed.
+    SourceNotFound,
+    /// The columns couldn't be added, for example as the file is read-only, or the back end can't add them.
+    Failed { cause: String },
 }
 
 /// A row, as the back end that read it names it, such as a database's primary key, or a CSV file's row's place when it
@@ -369,6 +411,27 @@ pub struct TableColumn {
 }
 
 impl TableColumn {
+    /// Part mappings' columns, with a pattern's column for each of the fields, in their order, named as `STORE-17`
+    /// names them, such as "`Name`", and no references.
+    pub fn part_mappings<'a>(field_names: impl IntoIterator<Item = &'a str>) -> Vec<TableColumn> {
+        let mut columns = vec![TableColumn::new("Eda", ColumnValue::Eda)];
+        columns.extend(field_names.into_iter().map(|name| {
+            TableColumn::new(
+                Self::part_mappings_pattern_name(name),
+                ColumnValue::Pattern(name.to_string()),
+            )
+        }));
+        columns.push(TableColumn::new("Manufacturer", ColumnValue::Manufacturer));
+        columns.push(TableColumn::new("Mpn", ColumnValue::Mpn));
+        columns
+    }
+
+    /// The name of a part mappings' column of a field's patterns, the field in upper camel case, such as "`Package`",
+    /// as a column added for it is named (`STORE-17`, `STORE-21`).
+    pub fn part_mappings_pattern_name(field_name: &str) -> String {
+        field_name.to_upper_camel_case()
+    }
+
     fn new(name: impl Into<String>, value: ColumnValue) -> Self {
         Self {
             name: name.into(),
@@ -480,21 +543,13 @@ impl Table {
                 columns
             }
             Table::PartMappings(items) => {
-                let mut columns = vec![TableColumn::new("Eda", Eda)];
                 let names = first_found(
                     items
                         .iter()
                         .flat_map(|item| item.criteria.iter())
                         .map(|criterion| &criterion.field_name),
                 );
-                columns.extend(
-                    names
-                        .into_iter()
-                        .map(|name| TableColumn::new(name.to_upper_camel_case(), Pattern(name))),
-                );
-                columns.push(TableColumn::new("Manufacturer", Manufacturer));
-                columns.push(TableColumn::new("Mpn", Mpn));
-                columns
+                TableColumn::part_mappings(names.iter().map(String::as_str))
             }
             Table::Substitutions(items) => {
                 let mut columns = vec![TableColumn::new("Eda", Eda)];
@@ -910,6 +965,18 @@ impl Debug for StoresOperation {
                 .field("source", source)
                 .field("change", change)
                 .finish(),
+            StoresOperation::AddColumns {
+                kind,
+                source,
+                columns,
+                position,
+            } => f
+                .debug_struct("AddColumns")
+                .field("kind", kind)
+                .field("source", source)
+                .field("columns", columns)
+                .field("position", position)
+                .finish(),
         }
     }
 }
@@ -954,6 +1021,9 @@ pub enum StoresOutput {
 
     /// The revision of the data source once its rows were changed, or why they weren't (`STORE-19`).
     RowsChanged(Result<Revision, PartsWriteError>),
+
+    /// The revision of the data source once its columns were added, or why they weren't (`STORE-21`).
+    ColumnsAdded(Result<Revision, AddColumnsError>),
 }
 
 impl Operation for StoresOperation {
@@ -983,6 +1053,7 @@ impl Debug for StoresOutput {
             StoresOutput::PartsWritten(result) => write!(f, "PartsWritten({:?})", result),
             StoresOutput::TableRead(result) => write!(f, "TableRead({:?})", result),
             StoresOutput::RowsChanged(result) => write!(f, "RowsChanged({:?})", result),
+            StoresOutput::ColumnsAdded(result) => write!(f, "ColumnsAdded({:?})", result),
         }
     }
 }

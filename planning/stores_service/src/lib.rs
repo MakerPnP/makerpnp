@@ -101,6 +101,15 @@ impl StoresService {
                 async move { StoresOutput::RowsChanged(csv_file::change_rows(kind, &source, &change).await) },
             )
             .boxed(),
+            StoresOperation::AddColumns {
+                kind,
+                source,
+                columns,
+                position,
+            } => stream::once(async move {
+                StoresOutput::ColumnsAdded(csv_file::add_columns(kind, &source, &columns, &position).await)
+            })
+            .boxed(),
         }
     }
 

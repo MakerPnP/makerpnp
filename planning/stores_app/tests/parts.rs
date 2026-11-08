@@ -200,6 +200,9 @@ fn service(
         }
         | StoresOperation::ChangeRows {
             ..
+        }
+        | StoresOperation::AddColumns {
+            ..
         }) => panic!("unexpected operation: {:?}", operation),
     }
 }

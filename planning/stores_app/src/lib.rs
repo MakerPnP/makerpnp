@@ -20,11 +20,11 @@ use crux_core::render::RenderOperation;
 pub use crux_core::Core;
 use crux_core::{render, App, Command, Request};
 pub use stores_protocol::{
-    AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnRef, ColumnValue, EdaPlacement,
-    EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem, EdaTool, FieldChange, FieldPattern, FieldValue, Part,
-    PartMappingsViewItem, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern, Placement, PlacementsViewItem,
-    RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source, StoresOperation, StoresOutput,
-    SubstitutionsViewItem, Table, TableColumn, TableKind, TableRecords, TableRow,
+    quoted_list, AddColumnsError, AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnPosition, ColumnRef,
+    ColumnValue, EdaPlacement, EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem, EdaTool, FieldChange,
+    FieldPattern, FieldValue, Part, PartMappingsViewItem, Parts, PartsSource, PartsViewItem, PartsWriteError, Pattern,
+    Placement, PlacementsViewItem, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source, StoresOperation,
+    StoresOutput, SubstitutionsViewItem, Table, TableColumn, TableKind, TableRecords, TableRow,
 };
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -188,7 +188,22 @@ pub enum Event {
         change: TableChange,
     },
 
+    /// Adds columns to the table, named, or those an EDA tool's rows need that it doesn't have, as the core works them
+    /// out, then reads the table again, and sends its view (`STORE-21`).
+    AddTableColumns {
+        kind: TableKind,
+        source: Source,
+        columns: ColumnsToAdd,
+    },
+
     // internal, the results of the store operations the core asked for.
+    /// The columns were added to the table's data source, as the stores service identified it, or why not.
+    ColumnsAdded {
+        kind: TableKind,
+        source: Source,
+        columns: Vec<String>,
+        output: StoresOutput,
+    },
     /// The rows of the table's data source, as the stores service identified it, were changed, or why not.
     RowsChanged {
         kind: TableKind,
@@ -275,6 +290,19 @@ pub enum TableChange {
         row: TableRow,
         before: Option<(RowKey, TableRow)>,
     },
+}
+
+/// The columns to add to a table, as a front end asks for them (`STORE-21`).
+#[derive(serde::Serialize, serde::Deserialize, Debug, Clone, PartialEq)]
+pub enum ColumnsToAdd {
+    /// The columns, each named as the data source is to name it, such as a CSV file's header, in order, where they go.
+    Named {
+        columns: Vec<String>,
+        position: ColumnPosition,
+    },
+    /// The columns of the EDA tool's fields that the table doesn't have, as the core works them out, so a column shared
+    /// by tools is added once: for part mappings, each pattern's, before the part's columns.
+    EdaTool { eda_tool: EdaTool },
 }
 
 /// What the data source was resolved for.
@@ -419,6 +447,21 @@ pub enum StoresError {
         kind: TableKind,
         data_source: Source,
         column: ColumnValue,
+    },
+
+    /// A column named, by which columns are placed, isn't the data source's (`STORE-21`).
+    #[error("The column doesn't exist. kind: {kind:?}, source: '{data_source}', column: '{column}'")]
+    NamedColumnNotFound {
+        kind: TableKind,
+        data_source: Source,
+        column: String,
+    },
+
+    #[error("The column already exists. kind: {kind:?}, source: '{data_source}', column: '{column}'")]
+    ColumnAlreadyExists {
+        kind: TableKind,
+        data_source: Source,
+        column: String,
     },
 
     #[error("The rows can't be moved. kind: {kind:?}, source: '{data_source}'")]
@@ -653,6 +696,30 @@ impl Stores {
                 output,
             } => {
                 let result = Self::rows_changed(model, kind, &source, output);
+                Self::keep_table_change_error(model, kind, &source, &result);
+                result
+            }
+            Event::AddTableColumns {
+                kind,
+                source,
+                columns,
+            } => {
+                let resolved = model
+                    .table_aliases
+                    .get(&(kind, source.clone()))
+                    .cloned()
+                    .unwrap_or(source);
+                let result = Self::add_table_columns(model, kind, &resolved, columns);
+                Self::keep_table_change_error(model, kind, &resolved, &result);
+                result
+            }
+            Event::ColumnsAdded {
+                kind,
+                source,
+                columns,
+                output,
+            } => {
+                let result = Self::columns_added(model, kind, &source, columns, output);
                 Self::keep_table_change_error(model, kind, &source, &result);
                 result
             }
@@ -1140,17 +1207,7 @@ impl Stores {
             .or_default();
         state.changing = false;
 
-        let mut read_again = || match state.reading {
-            // `STORE-9`, the read under way may be from before the change, so it's read again once it's done.
-            true => {
-                state.changed_while_reading = true;
-                Command::done()
-            }
-            false => {
-                state.reading = true;
-                Self::read_table(kind, source.clone())
-            }
-        };
+        let mut read_again = || Self::read_table_again(state, kind, source);
 
         match output {
             StoresOutput::RowsChanged(Ok(revision)) => {
@@ -1184,6 +1241,205 @@ impl Stores {
             }
             .into()),
         }
+    }
+
+    /// Reads the table again, once it was changed, or, if it's being read, once that read is done, as it may be from
+    /// before the change (`STORE-9`).
+    fn read_table_again(state: &mut TableState, kind: TableKind, source: &Source) -> Command<Effect, Event> {
+        match state.reading {
+            true => {
+                state.changed_while_reading = true;
+                Command::done()
+            }
+            false => {
+                state.reading = true;
+                Self::read_table(kind, source.clone())
+            }
+        }
+    }
+
+    /// Has the service add the columns, if the table is loaded, its kind can be changed, and no other change is being
+    /// made, those of an EDA tool's fields being the ones the table doesn't have, or none, if it has them all
+    /// (`STORE-21`).
+    fn add_table_columns(
+        model: &mut Model,
+        kind: TableKind,
+        source: &Source,
+        columns: ColumnsToAdd,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .tables
+            .get_mut(&(kind, source.clone()))
+            .filter(|state| state.table.is_some())
+            .ok_or_else(|| StoresError::TableNotLoaded {
+                kind,
+                data_source: source.clone(),
+            })?;
+
+        if state.changing {
+            return Err(StoresError::TableBeingChanged {
+                kind,
+                data_source: source.clone(),
+            }
+            .into());
+        }
+
+        let records = state
+            .table
+            .as_ref()
+            .ok_or_else(|| StoresError::TableNotLoaded {
+                kind,
+                data_source: source.clone(),
+            })?;
+        if !records.table.is_changeable() {
+            return Err(StoresError::TableNotChangeable {
+                kind,
+                data_source: source.clone(),
+            }
+            .into());
+        }
+
+        let (columns, position) = match columns {
+            ColumnsToAdd::Named {
+                columns,
+                position,
+            } => (columns, position),
+            ColumnsToAdd::EdaTool {
+                eda_tool,
+            } => {
+                let Some(columns) = Self::eda_tool_columns(kind, source, records, eda_tool)? else {
+                    info!(
+                        "Table columns already there. kind: {:?}, source: '{}', eda_tool: {:?}",
+                        kind, source, eda_tool
+                    );
+                    return Ok(render::render());
+                };
+                columns
+            }
+        };
+
+        state.changing = true;
+        Ok(render::render().and(Self::add_columns(kind, source.clone(), columns, position)))
+    }
+
+    /// The columns of the EDA tool's fields that part mappings don't have, a field's column found whatever tool's it
+    /// is, so one shared by tools isn't added again, each named as `STORE-17` names it, before the part's columns, or
+    /// `None` if there are none to add (`STORE-21`).
+    fn eda_tool_columns(
+        kind: TableKind,
+        source: &Source,
+        records: &TableRecords,
+        eda_tool: EdaTool,
+    ) -> Result<Option<(Vec<String>, ColumnPosition)>, StoresError> {
+        let reference = |value: &ColumnValue| {
+            records
+                .columns
+                .iter()
+                .find(|column| column.value == *value)
+                .and_then(|column| column.reference.clone())
+        };
+        let columns: Vec<String> = eda_tool
+            .field_names()
+            .iter()
+            .filter(|&&field_name| reference(&ColumnValue::Pattern(field_name.to_string())).is_none())
+            .map(|field_name| TableColumn::part_mappings_pattern_name(field_name))
+            .collect();
+        if columns.is_empty() {
+            return Ok(None);
+        }
+
+        let manufacturer = reference(&ColumnValue::Manufacturer).ok_or_else(|| StoresError::ColumnNotFound {
+            kind,
+            data_source: source.clone(),
+            column: ColumnValue::Manufacturer,
+        })?;
+        Ok(Some((columns, ColumnPosition::Before(manufacturer.0))))
+    }
+
+    /// Reads the table again, once its columns were added, so every view shows them, or says why they weren't
+    /// (`STORE-21`).
+    fn columns_added(
+        model: &mut Model,
+        kind: TableKind,
+        source: &Source,
+        columns: Vec<String>,
+        output: StoresOutput,
+    ) -> Result<Command<Effect, Event>, Refused> {
+        let state = model
+            .tables
+            .entry((kind, source.clone()))
+            .or_default();
+        state.changing = false;
+
+        let StoresOutput::ColumnsAdded(result) = output else {
+            return Err(StoresError::UnexpectedOutput {
+                output: format!("{:?}", output),
+            }
+            .into());
+        };
+        // the table is kept as it was, as it wasn't changed, unless its data source is gone.
+        let error = match result {
+            Ok(revision) => {
+                info!(
+                    "Added table columns. kind: {:?}, source: '{}', columns: {}, revision: '{}'",
+                    kind,
+                    source,
+                    quoted_list(&columns),
+                    revision
+                );
+                return Ok(render::render().and(Self::read_table_again(state, kind, source)));
+            }
+            Err(AddColumnsError::SourceNotFound) => {
+                return Err(Refused {
+                    error: StoresError::DataSourceNotFound {
+                        data_source: source.clone(),
+                    },
+                    then: Self::read_table_again(state, kind, source),
+                });
+            }
+            Err(AddColumnsError::ColumnExists {
+                column,
+            }) => StoresError::ColumnAlreadyExists {
+                kind,
+                data_source: source.clone(),
+                column,
+            },
+            Err(AddColumnsError::ColumnNotFound {
+                column,
+            }) => StoresError::NamedColumnNotFound {
+                kind,
+                data_source: source.clone(),
+                column,
+            },
+            Err(AddColumnsError::Failed {
+                cause,
+            }) => StoresError::UnableToChangeTable {
+                kind,
+                data_source: source.clone(),
+                cause,
+            },
+        };
+        Err(error.into())
+    }
+
+    fn add_columns(
+        kind: TableKind,
+        source: Source,
+        columns: Vec<String>,
+        position: ColumnPosition,
+    ) -> Command<Effect, Event> {
+        Command::request_from_shell(StoresOperation::AddColumns {
+            kind,
+            source: source.clone(),
+            columns: columns.clone(),
+            position,
+        })
+        .then_send(move |output| Event::ColumnsAdded {
+            kind,
+            source: source.clone(),
+            columns: columns.clone(),
+            output,
+        })
     }
 
     /// Keeps why the table's last change was refused, until one succeeds, as [`Self::keep_change_error`] does.

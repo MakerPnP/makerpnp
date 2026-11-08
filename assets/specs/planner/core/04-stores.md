@@ -250,7 +250,9 @@ shown as a table and as parts is read for each. A data source that doesn't exist
 operation is `ReadTable`, logged as the service's others are (`STORE-7`), saying how many rows there are, not what
 they are. The `csv_file` back end reads each record as the core that uses it does: part mappings' fields' patterns by
 their names, in any case, as the part mapper does, and substitutions' as "`<Field>Pattern`" and "`<Field>`", with
-"`Comment`", as the Variant Builder does. A BOM is written without headers, as JLCPCB's are, so every row is read, by
+"`Comment`", as the Variant Builder does. Part mappings' columns are made from the file's headers, a pattern's column for
+each EDA tool's field it has a column for, in the EDA tools' order, so they're there even with no rows. A BOM is
+written without headers, as JLCPCB's are, so every row is read, by
 the order of its values, with the columns "`Designator`", "`Footprint`", "`JLCPCB Part`", "`Quantity`" and
 "`Comment`", its designators joined by "`, `", and a quantity as a number. Part mappings' columns are "`Eda`", each
 field's, such as "`Name`" and "`Value`", "`Manufacturer`" and "`Mpn`", and substitutions' "`Eda`", each field's
@@ -330,7 +332,7 @@ columns were added, or that none were needed. A row's EDA tool is changed, or a 
 or `add` after its tool's columns are added; a pattern for a field the data source has no column for fails, as
 `STORE-19` says. The gap: there's no `add-columns`.
 
-**STORE-21 — Adding a table's columns.** *Target*. The core MUST add columns to a table when asked
+**STORE-21 — Adding a table's columns.** *Confirmed.* The core MUST add columns to a table when asked
 (`AddTableColumns`), so a user can give a row values the data source has no columns for, such as a part mapping's
 patterns for another EDA tool's fields. It's its own change, not part of a change to rows (`STORE-19`), so each back
 end has one change of each kind to make, as there are no transactions: a front end that needs both adds the columns,
@@ -345,7 +347,9 @@ uses is (`VBGUI-13`). A front end MUST be able to ask for columns in either of t
 - **An EDA tool's columns**: the core MUST work out which of the tool's fields' columns the data source doesn't have,
   so a column shared by tools, such as DipTrace's and EasyEDA's "`value`", is added once, and used by both, and add
   those: for part mappings, each named as the field, in upper camel case, such as "`Package`", before the data source's
-  "`Manufacturer`" column, as it names it, so every pattern's column is before the part's columns. Substitutions'
+  "`Manufacturer`" column, as it names it, so every pattern's column is before the part's columns. The core works them
+  out from the table's columns, whose patterns' columns are those of every EDA tool's field the data source has, even
+  with no rows (`STORE-17`). Substitutions'
   are to come with them (the Variant Builder mission's step 11d): each field's "`<Field>Pattern`" and "`<Field>`" before
   "`Comment`". If none are needed, nothing is changed, and the core logs
   "`stores_app: Table columns already there. kind: <kind>, source: '<source>', eda_tool: <tool>`" at info level.
@@ -355,13 +359,19 @@ column, value and row as it was, so the rows' keys are as they were. Adding colu
 changed, if the table isn't loaded, if a change to it is being made (`STORE-19`), if its kind can't be changed (`STORE-19`), if a
 column to add is already there, saying "`The column already exists. column: '<column>'`", if a column is to go before
 or after one the data source doesn't have, saying "`The column doesn't exist.`", or if the back end can't add columns,
-saying why. A refusal is kept, and shown, as a change's is, until a change succeeds (`STORE-19`). Once the columns are
-added, the core MUST read the table again, and send its view, so every view of it shows them. *Observed*: the
-operation is `AddColumns`, logged as the service's others are (`STORE-7`). The `csv_file` back end reads the file,
-checks the columns, inserts each header where it's to go, with an empty value in each row, and writes the file, every
-value quoted, logging "`Adding columns. source: '<source>', columns: [<column>, ...]`" at info level. The core logs
-"`stores_app: Added table columns. kind: <kind>, source: '<source>', columns: [<column>, ...], revision: '<revision>'`"
-at info level once they're added. The gap: none of it is done yet.
+saying why. Whether a column is there is the back end's to say, as only it knows every column the data source has,
+including those the table doesn't show. A data source that's gone MUST say "`Data source not found.`", and the core
+MUST read the table again, so every view shows it's gone. A refusal is kept, and shown, as a change's is, until a
+change succeeds (`STORE-19`). Once the columns are added, the core MUST read the table again, and send its view, so
+every view of it shows them. *Observed*: the operation is `AddColumns`, logged as the service's others are
+(`STORE-7`), with the columns and where they go, `First`, `Last`, `Before("<column>")` or `After("<column>")`. The
+`csv_file` back end reads the file, checks the columns, a column being there if a header has its name in any case, as
+the part mapper finds a field's column, and one to go by being named by its header as it's written, as a column's
+reference is, inserts each header where it's to go, with an empty value in each row, and writes the file, every value
+quoted, logging "`Adding columns. source: '<source>', columns: ['<column>', ...]`" at info level. The core logs
+"`stores_app: Added table columns. kind: <kind>, source: '<source>', columns: ['<column>', ...], revision: '<revision>'`"
+at info level once they're added. Part mappings' columns can be added; the other kinds are to come with their changes
+(the Variant Builder mission's step 11).
 
 ## Acceptance criteria
 
@@ -408,6 +418,18 @@ at info level once they're added. The gap: none of it is done yet.
   "`stores_app: Changed table. kind: PartMappings, source: '`" are logged, in order, with no "`Event failed.`". It
   checks a change whose `--was-` values aren't the row's, a row that isn't there, and a table that can't be changed,
   fail, saying why, and leave the file as it was (`STORE-20`).
+- `planning/stores_app/tests/tables.rs` checks named columns are added where they're asked to go, then the table is
+  read again and its view sent, that an EDA tool's columns are those of its fields the table doesn't have, whichever
+  tool's they are, so a column shared by tools, such as "`Value`", is added once, each before "`Manufacturer`", that
+  none are added, and nothing asked of the service, if the table has them all, that adding columns to a table that
+  isn't loaded, of a kind that can't be changed, or while a change is being made, is refused, that a column the service
+  says is there already, a column to go by that isn't, and columns it can't add, say why, keep the table, and keep the
+  error until a change succeeds, and that a data source that's gone says so and is read again (`STORE-21`).
+- `planning/stores_service/tests/csv_file.rs` adds columns first, last, before and after a column, together, in the
+  order given, to a file with rows and one with none, checking the file, every other value as it was, and the
+  revision, refuses a column there already, in any case, one given twice, and a column to go by that isn't there, the
+  file left as it was, says a file that isn't there is gone, and reads part mappings with no rows with their fields'
+  columns (`STORE-21`, `STORE-17`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the
   core asks to identify the data source and then read it, and sends the view, with the parts in order, the other values'
