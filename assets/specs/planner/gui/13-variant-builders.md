@@ -93,17 +93,24 @@ file, in order, its path as in its list; and a "`Build output`" folder, showing 
 nodes "`Placements`" and "`BOM`" (`VBGUI-12`). Each folder is open to begin with.
 
 **VBGUI-11 — A data source's panel.** *Confirmed.* A data source's node MUST open a panel named "`<field>: <file>`",
-showing "`File: <file>`", and its records as a table, read-only, with the stores core (`STORE-17`), which takes all of
+showing "`File: <file>`", "`Reload`", which has the stores core read the data source again (`LoadTable`,
+`STORE-17`), and its records as a table, read-only, with the stores core (`STORE-17`), which takes all of
 the panel's space left below what's above it, ending at the panel's bottom, so its last rows can be scrolled to
 (`ISSUE-25`), and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it, in its
 order, a comment's last, and MUST be resizable, by dragging the edge on its right, which stays under the pointer, the last
 filling the rest of the width. Each value is shown as what it is (`STORE-17`): a pattern in blue if it's a value matched
 exactly, in green if it's a valid regular expression, and in red if it isn't, saying why when it's hovered, as it was
 parsed when it was read, not as it's shown. The placements are read in the variant builder's EDA tool's format, and
-parts are shown as the parts view shows them (`STORE-2`). A data source is opened once, however often its panel is shown, and is watched, so its table follows its
-file (`STORE-9`). If the stores core refuses it, the panel MUST say why, such as "`Data source not found.`", with the
-table as it was last read. *Observed*: the tab's "`ShowPanel(<panel>)`", "`OpenTable(<kind>, <source>)`" and
-"`OpenParts(<source>)`" commands are logged.
+parts as a table of parts (`STORE-17`). A data source is opened once, however often its panel is shown, and is watched,
+so its table follows its file (`STORE-9`). If the stores core refuses it, the panel MUST say why, such as
+"`Data source not found.`", with the table as it was last read.
+
+The GUI MUST have one data source panel, used for every data source wherever it's shown, a variant builder's panels
+and a parts tab (`PARTSRC-3`), so a data source is shown, and changed, the same way in each: its file, "`Reload`", why
+it can't be read, or why its last change was refused, the row buttons of a table that can be changed, and the table.
+*Observed*: the tab's "`ShowPanel(<panel>)`" commands are logged, and the panel's as
+"`Panel(<command>)`": "`Panel(Open(<kind>, <source>))`", "`Panel(Reload(<kind>, <source>))`" and
+"`Panel(Table(<kind>, <source>, <command>))`".
 
 **VBGUI-12 — The build's output.** *Confirmed.* The "`Build output`" panel is where the mapping results are to be
 shown, and until then MUST say "`The mapping results are to come.`" (the Variant Builder mission's step 10e). Its
@@ -133,7 +140,8 @@ are. Each change is of the row as it was shown when the change was made, so a ch
 and the panel MUST say why, as the core does, until a change succeeds, showing the table as it is now (`STORE-19`).
 Every panel showing the data source, in every variant builder, shows a change once it's written (`STORE-9`). The other
 tables stay read-only, with no buttons, and their cells can't be edited. *Observed*: the tab's
-"`Table(<kind>, <source>, <command>)`" commands are logged, a row button's as "`ChangeRows(<change>, <after change>)`",
+"`Panel(Table(<kind>, <source>, <command>))`" commands are logged, a row button's as
+"`ChangeRows(<change>, <after change>)`",
 and once it's shown, "`ChangeShown(Row(<place>))`", "`ChangeShown(NoRow)`" or "`ChangeShown(Unchanged)`", and, for a
 row brought into view, "`ScrolledToRow`". A row of any EDA tool can be given its patterns, whichever tools' columns
 the data source has. Choosing a row's EDA tool whose columns the data source doesn't have MUST first add them, as the
@@ -238,6 +246,18 @@ So an empty row, such as one just added, says all three. A row's status's text M
 mapping's isn't (`VBGUI-13`). *Observed*: the tab's commands are logged as `VBGUI-13` says, with the kind
 "`AssemblyRules`".
 
+**VBGUI-16 — Changing parts.** *Confirmed.* A parts' panel, a variant builder's or a parts tab's (`PARTSRC-6`), MUST
+change its data source as an assembly rules' panel does (`VBGUI-15`): its cells edited in place, its rows added,
+removed and moved, each change written at once, and the table's first column its rows' status. A part's manufacturer,
+its MPN and each of its other values are edited in a text field, a part being renamed by editing its manufacturer or
+MPN, and "`Add row`" adds a part with every value empty, whether or not the variant builder has an EDA tool; a part
+has no EDA tool, so no columns are added for one (`STORE-21`). Each of a row's cells is red if it's empty, and green
+if not. A row's status is green, saying "`No problems.`", if none of its cells is empty, and red if any is, saying
+"`Empty <column>.`" for each, in the columns' order, such as "`Empty Manufacturer.`", "`Empty Mpn.`" and
+"`Empty LCSC.`", the column named as the table names it. *Target*: two parts of the same manufacturer and MPN are a
+problem, as one names the other. The gap: each is shown, and changed, as it is. *Observed*: the tab's commands are
+logged as `VBGUI-13` says, with the kind "`Parts`".
+
 ## Acceptance criteria
 
 - `tests/ui/variant_builders.rs` creates a design variant with "`New design variant`", choosing DipTrace and its
@@ -280,11 +300,12 @@ mapping's isn't (`VBGUI-13`). *Observed*: the tab's commands are logged as `VBGU
 - `tests/ui/variant_builders.rs` double-clicks the part mappings, the parts and the placements, checking each panel is
   shown, in place of the "`Overview`", with its table's columns and rows, and that double-clicking "`Overview`" and the
   variant builder's file shows the "`Overview`" again, and checks the tab's "`ShowPanel(DataSource { source: PartMappings, `"
-  and "`OpenTable(PartMappings, `", "`stores_app: Received event. event: OpenTable { kind: PartMappings, `",
+  and "`Panel(Open(PartMappings, `", "`stores_app: Received event. event: OpenTable { kind: PartMappings, `",
   "`stores_service: Performing stores operation. operation: ReadTable { kind: PartMappings, `",
-  "`stores_app: Loaded table. kind: PartMappings, `", the tab's "`ShowPanel(Overview)`", "`OpenParts {`",
-  "`stores_app: Loaded parts.`" and "`stores_app: Loaded table. kind: EdaPlacements { eda_tool: DipTrace }, `" are
-  logged, in order, with no "`Event failed.`" (`VBGUI-10`, `VBGUI-11`).
+  "`stores_app: Loaded table. kind: PartMappings, `", the tab's "`ShowPanel(Overview)`", "`Panel(Open(Parts, `",
+  "`stores_app: Loaded table. kind: Parts, `" and
+  "`stores_app: Loaded table. kind: EdaPlacements { eda_tool: DipTrace }, `" are logged, in order, with no
+  "`Event failed.`" (`VBGUI-10`, `VBGUI-11`).
 - `tests/ui/variant_builders.rs` double-clicks "`Build output`", checking it says the mapping results are to come, then
   "`BOM`", checking it says "`Data source not found.`", then builds the variant, and checks the BOM's panel shows its
   columns and rows, and that the tab's "`ShowPanel(BuildOutput)`" and "`ShowPanel(Output(Bom))`",
@@ -305,7 +326,7 @@ mapping's isn't (`VBGUI-13`). *Observed*: the tab's commands are logged as `VBGU
 - `tests/ui/variant_builders.rs` edits a part mapping's pattern in its cell, finished by clicking another row, and its
   MPN, finished by pressing Enter, chooses its EDA tool, EasyEDA, whose "`Device`" column is added first, and checks
   the file after each, and checks the tab's
-  "`Table(PartMappings, `", "`stores_app: Received event. event: ChangeTable {`",
+  "`Panel(Table(PartMappings, `", "`stores_app: Received event. event: ChangeTable {`",
   "`stores_service: Performing stores operation. operation: ChangeRows {`" and
   "`stores_app: Changed table. kind: PartMappings, `" are logged, in order, with no "`Event failed.`" (`VBGUI-13`).
 - `tests/ui/variant_builders.rs`'s `a_part_mappings_rows_are_added_moved_and_removed` selects a row by clicking one of
@@ -371,7 +392,7 @@ mapping's isn't (`VBGUI-13`). *Observed*: the tab's commands are logged as `VBGU
   KiCad, whose columns are added first, and checks the file after each, hovers a value's cell of a field of the row's
   tool, and of one that isn't, checking "`Used to substitute DipTrace values.`" and
   "`Not used to substitute KiCad values.`",
-  and checks "`Table(Substitutions, `",
+  and checks "`Panel(Table(Substitutions, `",
   "`stores_app: Received event. event: ChangeTable { kind: Substitutions, `" and
   "`stores_app: Changed table. kind: Substitutions, source: '`" are logged, in order, with no "`Event failed.`".
   `a_global_substitutions_status_says_what_its_problems_are` hovers a global substitutions' rows' statuses, checking
@@ -388,13 +409,23 @@ mapping's isn't (`VBGUI-13`). *Observed*: the tab's commands are logged as `VBGU
 - `tests/ui/variant_builders.rs` edits an assembly rule's designator, manufacturer and MPN in their cells, adds,
   moves and removes rows, checking the file after each, hovers rows' statuses, checking "`No problems.`" for a row
   with none, "`Empty Mpn.`" for a row with no MPN, and "`Empty RefDes.`", "`Empty Manufacturer.`" and "`Empty Mpn.`"
-  for the row added, and that a status can't be selected, and checks "`Table(AssemblyRules, `",
+  for the row added, and that a status can't be selected, and checks "`Panel(Table(AssemblyRules, `",
   "`stores_app: Received event. event: ChangeTable { kind: AssemblyRules, `" and
   "`stores_app: Changed table. kind: AssemblyRules, source: '`" are logged, in order, with no "`Event failed.`"
   (`VBGUI-15`).
 - `data_sources::table`'s tests check an assembly rule's cells are red if empty and green if not, that its problems
   are each found, in the columns' order, and none if it has none, that a new row is an empty rule, and that the status
   column is first of assembly rules too (`VBGUI-15`).
+- `tests/ui/variant_builders.rs`'s `a_variant_builders_parts_are_changed_in_its_panel` edits a part's manufacturer,
+  MPN and other value in their cells in a variant builder's "`Parts`" panel, adds a row, checking its status says
+  "`Empty Manufacturer.`", "`Empty Mpn.`" and "`Empty <column>.`" for each other value, in order, moves and removes it,
+  checking the file after each, clicks "`Reload`", and checks "`Panel(Table(Parts, `",
+  "`stores_app: Received event. event: ChangeTable { kind: Parts, `", "`stores_app: Changed table. kind: Parts, `",
+  "`Panel(Reload(Parts, `" and "`stores_app: Table unchanged. kind: Parts, `" are logged, in order, with no
+  "`Event failed.`" (`VBGUI-11`, `VBGUI-16`).
+- `data_sources::table`'s tests check a part's cells, its other values' too, are red if empty and green if not, that
+  its problems are each found, in the columns' order, named as the table names them, and none if it has none, that a
+  new row is a part with every value empty, and that the status column is first of parts too (`VBGUI-16`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
   (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.

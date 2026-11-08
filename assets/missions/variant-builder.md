@@ -193,4 +193,8 @@ tools write them. Each is a commit, the core first.
 | 11e.1. The stores core and service: assembly rules' rows are changed, by their headers as they're written, and named columns added, an EDA tool's refused, as a rule has none (`STORE-17`, `STORE-19`, `STORE-21`). | Done |
 | 11e.2. The CLI changes assembly rules: `planner_cli table --kind assembly-rules --source <file>` `add`, `set`, `remove`, `move` and `add-columns`, with `--ref-des`, `--manufacturer` and `--mpn`, and the other kinds' options refused (`STORE-20`). | Done |
 | 11e.3. The GUI: an assembly rules' panel changes them as a part mappings' does, each empty cell red, and its rows' statuses saying which are empty (`VBGUI-15`). | Done |
-| 11f. A parts tab's other values, edited in their cells (`PARTSRC-7`). | Done |
+| 11f. A parts tab's other values, edited in their cells (`PARTSRC-7`). Replaced by 11g. | Done |
+| 11g. Parts as a table, changed as assembly rules are, through one data source panel shared by the parts tab and the variant builder's panels: the core and the service, the CLI, then the GUI. | Started |
+| 11g.1. The stores core and service: parts read as a table, their rows changed and named columns added, an EDA tool's refused, and `LoadTable` reading a table again (`STORE-17`, `STORE-19`, `STORE-21`). | To do |
+| 11g.2. The CLI changes parts: `planner_cli table --kind parts --source <file>` `add`, `set`, `remove`, `move` and `add-columns`, with `--manufacturer`, `--mpn` and `--value <NAME>=<VALUE>` (`STORE-20`). | To do |
+| 11g.3. The GUI: one data source panel, with "`Reload`", for every changeable table, used by the parts tab and the variant builder; a parts' panel changes them, each empty cell red, and its rows' statuses saying which are empty; the parts tab's fields and buttons above the table go (`VBGUI-11`, `VBGUI-16`, `PARTSRC-3`, `PARTSRC-6`). | To do |
