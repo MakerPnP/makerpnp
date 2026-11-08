@@ -85,7 +85,8 @@ pub struct GerberViewerUi {
     panel_sizing: Option<PanelSizing>,
     unit_map: Option<HashMap<PcbUnitIndex, DesignIndex>>,
 
-    placement_marker: Option<PlacementPositionUnit>,
+    /// The placements marked, each a placement's position, replaced each time placements are located (`UNITASG-8`).
+    placement_markers: Vec<PlacementPositionUnit>,
 
     gerber_state: Value<GerberViewState>,
     gerber_ui_state: Value<UiState>,
@@ -104,7 +105,7 @@ impl GerberViewerUi {
             panel_sizing: None,
             unit_map: None,
 
-            placement_marker: None,
+            placement_markers: Vec::new(),
 
             gerber_state: Value::new(GerberViewState::new(layers.clone())),
             gerber_ui_state: Value::default(),
@@ -346,13 +347,30 @@ impl GerberViewerUi {
         gerber_state.locate_view(point, center_screen_pos);
     }
 
-    /// rotation is in degrees.
-    pub fn show_placement_marker(&mut self, position: PlacementPositionUnit) {
-        self.placement_marker = Some(position);
-    }
-
-    pub fn clear_placement_marker(&mut self) {
-        self.placement_marker = None;
+    /// `UNITASG-8`, replaces the markers, and, if there are any, has the view framed on the box around them, once the
+    /// view's size is known, as it's drawn, or, if there are none, leaves the view where it is.
+    pub fn show_placement_markers(&mut self, positions: Vec<PlacementPositionUnit>) {
+        let mut gerber_state = self.gerber_state.lock().unwrap();
+        let target_unit_system = gerber_state.target_unit_system;
+        let mirrored = matches!(self.args.pcb_side, Some(PcbSide::Bottom));
+        gerber_state.markers_to_frame = positions
+            .iter()
+            .map(|position| {
+                // as `locate_view` does, the bottom's mirrored.
+                let mut point = position.coords;
+                if mirrored {
+                    point.x = -point.x;
+                }
+                let point = point.in_unit_system(target_unit_system);
+                (point.x.value_f64(), point.y.value_f64())
+            })
+            .fold(None, |bounds: Option<((f64, f64), (f64, f64))>, (x, y)| {
+                Some(match bounds {
+                    None => ((x, y), (x, y)),
+                    Some((min, max)) => ((min.0.min(x), min.1.min(y)), (max.0.max(x), max.1.max(y))),
+                })
+            });
+        self.placement_markers = positions;
     }
 }
 
@@ -366,6 +384,9 @@ struct GerberViewState {
     layers: Value<LayersMap>,
     transform: GerberTransform,
     target_unit_system: UnitSystem,
+    /// The box around the markers, in gerber coordinates, the view's to be framed on, once its size is known
+    /// (`UNITASG-8`).
+    markers_to_frame: Option<((f64, f64), (f64, f64))>,
 }
 
 impl Default for GerberViewState {
@@ -379,6 +400,7 @@ impl Default for GerberViewState {
             layers: Default::default(),
             transform: GerberTransform::default(),
             target_unit_system: UnitSystem::Millimeters,
+            markers_to_frame: None,
         }
     }
 }
@@ -512,7 +534,9 @@ impl LayerViewState {
 pub enum GerberViewerUiCommand {
     None,
     LocateView(Point2<DimensionUnit>),
-    ShowPlacementMarker(PlacementPositionUnit),
+    /// Replaces the markers, and, if there are any, has the view show them all, else leaves it where it is
+    /// (`UNITASG-8`).
+    ShowPlacementMarkers(Vec<PlacementPositionUnit>),
 }
 
 #[derive(Debug, Clone)]
@@ -543,13 +567,24 @@ impl UiComponent for GerberViewerUi {
             state.reset_view(viewport);
         }
 
+        // `UNITASG-8`, once, as the view's size is only known as it's drawn, after centring it, so a view opened by
+        // locating markers shows them.
+        if let Some((min, max)) = state.markers_to_frame.take() {
+            let zoomed = frame_view(&mut state.view, viewport, min, max);
+            debug!(
+                "Framed placement markers. markers: {}, zoomed: {}",
+                self.placement_markers.len(),
+                zoomed
+            );
+        }
+
         let mut ui_state = self.gerber_ui_state.lock().unwrap();
         ui_state.update(ui, &viewport, &response, &mut state.view);
 
         let painter = ui.painter().with_clip_rect(viewport);
 
         let mut request_draw_unit_unit_numbers = matches!(self.args.mode, GerberViewerMode::Panel);
-        let mut request_draw_placement_marker = self.placement_marker.is_some();
+        let mut request_draw_placement_marker = !self.placement_markers.is_empty();
 
         let layers = state.layers.lock().unwrap();
         let layer_count = layers.len();
@@ -610,7 +645,7 @@ impl UiComponent for GerberViewerUi {
 
                 if request_draw_placement_marker {
                     request_draw_placement_marker = false;
-                    if let Some(placement_marker_position) = &self.placement_marker {
+                    for placement_marker_position in &self.placement_markers {
                         // a line vector in Millimeters, a rotation of 0 means straight up, gerber coords are positive up.
                         let vector_mm = Vector2::new(0.0_f64, 0.5_f64);
 
@@ -670,11 +705,106 @@ impl UiComponent for GerberViewerUi {
 
                 None
             }
-            GerberViewerUiCommand::ShowPlacementMarker(position) => {
-                self.show_placement_marker(position);
+            GerberViewerUiCommand::ShowPlacementMarkers(positions) => {
+                self.show_placement_markers(positions);
 
                 None
             }
         }
+    }
+}
+
+/// The margin, of the view's width and height, on each side of the markers' box when it's zoomed to fit (`UNITASG-8`).
+const MARKERS_MARGIN: f32 = 0.1;
+
+/// `UNITASG-8`, pans the view, without changing its zoom, so the centre of the box, in gerber coordinates, from `min`
+/// to `max`, is the centre of the viewport, and, if any part of the box would then be out of the viewport, zooms so it
+/// fits, with a margin of [`MARKERS_MARGIN`] each side. Returns whether it zoomed.
+fn frame_view(view: &mut ViewState, viewport: Rect, min: (f64, f64), max: (f64, f64)) -> bool {
+    let size = Vec2::new((max.0 - min.0) as f32, (max.1 - min.1) as f32);
+    let on_screen = size * view.scale;
+    let zoomed = on_screen.x > viewport.width() || on_screen.y > viewport.height();
+    if zoomed {
+        let fits = 1.0 - 2.0 * MARKERS_MARGIN;
+        let scale_for = |available: f32, length: f32| (length > 0.0).then(|| available * fits / length);
+        view.scale = [
+            scale_for(viewport.width(), size.x),
+            scale_for(viewport.height(), size.y),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(f32::INFINITY, f32::min);
+    }
+    let centre = ((min.0 + max.0) / 2.0, (min.1 + max.1) / 2.0);
+    let viewport_centre = viewport.center();
+    view.translation = Vec2::new(
+        viewport_centre.x - centre.0 as f32 * view.scale,
+        viewport_centre.y + centre.1 as f32 * view.scale,
+    );
+    zoomed
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Rect, Vec2, pos2};
+    use gerber_viewer::ViewState;
+
+    use super::frame_view;
+
+    /// The point on the screen a point in gerber coordinates is drawn at, as the renderer draws it.
+    fn on_screen(view: &ViewState, (x, y): (f64, f64)) -> egui::Pos2 {
+        pos2(
+            view.translation.x + x as f32 * view.scale,
+            view.translation.y - y as f32 * view.scale,
+        )
+    }
+
+    const VIEWPORT: Rect = Rect::from_min_max(pos2(100.0, 50.0), pos2(1100.0, 850.0));
+
+    /// `UNITASG-8`, a box that fits is panned to, its centre the view's, the zoom unchanged.
+    #[test]
+    fn markers_that_fit_are_panned_to() {
+        let mut view = ViewState {
+            scale: 2.0,
+            ..ViewState::default()
+        };
+        let zoomed = frame_view(&mut view, VIEWPORT, (10.0, 10.0), (30.0, 50.0));
+        assert!(!zoomed);
+        assert_eq!(view.scale, 2.0);
+        assert_eq!(on_screen(&view, (20.0, 30.0)), VIEWPORT.center());
+    }
+
+    /// `UNITASG-8`, a single marker's box is a point, so the view only pans.
+    #[test]
+    fn a_single_marker_is_panned_to() {
+        let mut view = ViewState {
+            scale: 50.0,
+            ..ViewState::default()
+        };
+        let zoomed = frame_view(&mut view, VIEWPORT, (-5.0, 7.0), (-5.0, 7.0));
+        assert!(!zoomed);
+        assert_eq!(view.scale, 50.0);
+        assert_eq!(on_screen(&view, (-5.0, 7.0)), VIEWPORT.center());
+    }
+
+    /// `UNITASG-8`, a box that doesn't fit is zoomed to fit, with a margin of 10% of the view each side, by its width or
+    /// its height, whichever needs it, and centred.
+    #[test]
+    fn markers_out_of_view_are_zoomed_to_fit_with_a_margin() {
+        let mut view = ViewState::default();
+        // 2000 wide, 100 high, 1:1, too wide for 1000.
+        let zoomed = frame_view(&mut view, VIEWPORT, (0.0, 0.0), (2000.0, 100.0));
+        assert!(zoomed);
+        assert_eq!(view.scale, 1000.0 * 0.8 / 2000.0);
+        assert_eq!(on_screen(&view, (1000.0, 50.0)), VIEWPORT.center());
+        let left = on_screen(&view, (0.0, 0.0)).x;
+        assert!((left - (VIEWPORT.min.x + 100.0)).abs() < 0.01, "{left}");
+
+        // too high, 1000 for 800.
+        let mut view = ViewState::default();
+        assert!(frame_view(&mut view, VIEWPORT, (0.0, 0.0), (10.0, 1000.0)));
+        assert_eq!(view.scale, 800.0 * 0.8 / 1000.0);
+        let size = Vec2::new(10.0, 1000.0) * view.scale;
+        assert!(size.y <= VIEWPORT.height() * 0.8 + 0.01, "{size:?}");
     }
 }

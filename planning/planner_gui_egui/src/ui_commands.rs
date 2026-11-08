@@ -58,27 +58,27 @@ pub enum UiCommand {
     /// The result of a store operation the Variant Builder core asked for, done by the stores service (`STORE-7`).
     VariantBuilderReply(VariantBuilderReply),
     OpenVariantBuilderFile(PathBuf),
-    /// A variant builder's placement, for every open project to locate on its PCBs (`VBGUI-18`, `UNITASG-5`).
+    /// A variant builder's placements, for every open project to locate on its PCBs (`VBGUI-18`, `UNITASG-5`).
     LocateDesignComponent(DesignComponent),
 }
 
-/// A design's placement to locate, on each open PCB with a unit that an open project assigns any variant of the
-/// design to, as its ref-des and position are the design's, whichever the variant (`VBGUI-18`, `UNITASG-5`). Designs
-/// are matched by their names.
+/// A design's placements to locate, on each open PCB with a unit that an open project assigns any variant of the
+/// design to, as their ref-des and positions are the design's, whichever the variant (`VBGUI-18`, `UNITASG-5`).
+/// Designs are matched by their names.
 #[derive(Debug, Clone)]
 pub struct DesignComponent {
     pub design_name: String,
-    pub placement: PlacementToLocate,
+    /// Each with its position as the EDA tool exported it.
+    pub placements: Vec<PlacementToLocate>,
 }
 
-/// A design's placement to locate on a PCB, by the PCB's file, on each of its viewers of the design (`UNITASG-6`).
+/// A design's placements to locate on a PCB, by the PCB's file, on each of its viewers of the design (`UNITASG-6`).
 #[derive(Debug, Clone)]
 pub struct PcbDesignComponent {
     pub pcb_file: PathBuf,
     pub design_name: String,
-    pub pcb_side: PcbSide,
-    /// As the EDA tool exported it.
-    pub design_position: PlacementPositionUnit,
+    /// Each with its position as the EDA tool exported it.
+    pub placements: Vec<PlacementToLocate>,
 }
 
 // TODO perhaps the return type of this method be `Task<Result<UiCommand, UiAppError>>`

@@ -1357,6 +1357,27 @@ impl App {
         self.double_click_at(position);
     }
 
+    /// Double-clicks the nth, from 0, of the plain texts shown, counted from the top, such as an item in a tree view
+    /// whose label is also others', as a PCB's panel and each of its designs has a "Top" and a "Bottom".
+    pub fn double_click_nth_text(&mut self, text: &str, n: usize) {
+        self.wait_until(&format!("text '{text}' was shown {} times", n + 1), |app| {
+            app.harness
+                .query_all_by_role_and_label(Role::Label, text)
+                .count()
+                > n
+        });
+        self.wait_for_the_layout();
+        let mut rects: Vec<egui::Rect> = self
+            .harness
+            .query_all_by_role_and_label(Role::Label, text)
+            .map(|label| label.rect())
+            .collect();
+        rects.sort_by(|a, b| a.top().total_cmp(&b.top()));
+        let position = rects[n].center();
+
+        self.double_click_at(position);
+    }
+
     /// Double-clicks plain text that contains values, such as an item in a tree view.
     pub fn double_click_text_containing(&mut self, text: &str) {
         self.wait_for_text_containing(text);

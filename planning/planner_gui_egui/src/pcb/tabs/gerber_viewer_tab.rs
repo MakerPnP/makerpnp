@@ -8,8 +8,8 @@ use egui::{Ui, WidgetText};
 use egui_dock::tab_viewer::OnCloseResponse;
 use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
-use planner_app::{ObjectPath, PanelSizing, PcbOverview, PcbSide, PlacementPositionUnit};
-use tracing::{debug, trace};
+use planner_app::{PanelSizing, PcbOverview, PcbSide, PlacementPositionUnit};
+use tracing::{debug, info};
 
 use crate::forms::TABLE_TWO_ROWS_HEIGHT;
 use crate::i18n::conversions::{gerber_file_function_to_i18n_key, pcb_side_to_i18n_key};
@@ -33,18 +33,16 @@ pub struct GerberViewerTabUi {
     pub component: ComponentState<GerberViewerTabUiCommand>,
 }
 
-impl GerberViewerTabUi {
-    /// Marks the placement, and centres the view on it.
-    fn locate(&self, position: PlacementPositionUnit) {
-        let coords = position.coords;
-        self.gerber_viewer_ui
-            .component
-            .send(GerberViewerUiCommand::ShowPlacementMarker(position));
-        self.gerber_viewer_ui
-            .component
-            .send(GerberViewerUiCommand::LocateView(coords));
-    }
+/// A placement to mark on a viewer, at its position on the viewer's gerbers (`UNITASG-8`).
+#[derive(Debug, Clone)]
+pub struct PlacementMarker {
+    /// What's logged: the placement's ref-des, or, located by a project, its object path.
+    pub label: String,
+    pub pcb_side: PcbSide,
+    pub position: PlacementPositionUnit,
+}
 
+impl GerberViewerTabUi {
     pub fn new(args: GerberViewerUiInstanceArgs) -> Self {
         let component: ComponentState<GerberViewerTabUiCommand> = Default::default();
 
@@ -194,17 +192,9 @@ pub enum GerberViewerTabUiCommand {
     GerberViewerUiCommand(GerberViewerUiCommand),
     GoToClicked(f64, f64),
     CoordinatesChanged(String, String),
-    LocateComponent {
-        object_path: ObjectPath,
-        pcb_side: PcbSide,
-        design_position: PlacementPositionUnit,
-        unit_position: PlacementPositionUnit,
-    },
-    /// A design's placement, on the design's gerbers, located by a viewer of the design (`UNITASG-6`).
-    LocateDesignComponent {
-        pcb_side: PcbSide,
-        design_position: PlacementPositionUnit,
-    },
+    /// Replaces the viewer's markers with those on its side, every one if it shows both sides; none clears them
+    /// (`UNITASG-8`).
+    ShowPlacementMarkers(Vec<PlacementMarker>),
 }
 
 #[derive(Debug, Clone)]
@@ -343,39 +333,36 @@ impl UiComponent for GerberViewerTabUi {
                 self.coord_input = (x.to_string(), y.to_string());
                 None
             }
-            GerberViewerTabUiCommand::LocateComponent {
-                object_path,
-                pcb_side,
-                design_position,
-                unit_position,
-            } => {
-                if matches!(context.args.pcb_side, Some(candidate_pcb_side) if candidate_pcb_side.ne(&pcb_side)) {
-                    return None;
-                }
+            GerberViewerTabUiCommand::ShowPlacementMarkers(markers) => {
+                let markers: Vec<PlacementMarker> = markers
+                    .into_iter()
+                    .filter(|marker| {
+                        context
+                            .args
+                            .pcb_side
+                            .is_none_or(|side| side == marker.pcb_side)
+                    })
+                    .collect();
 
-                trace!(
-                    "Locate Component. object_path: {}, pcb_side: {:?}, design_position: {:?}, unit_position: {:?}",
-                    object_path, pcb_side, design_position, unit_position
+                info!(
+                    "Placement markers. mode: {:?}, pcb_side: {:?}, markers: [{}]",
+                    context.args.mode,
+                    context.args.pcb_side,
+                    markers
+                        .iter()
+                        .map(|marker| format!("'{}'", marker.label))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
 
-                let position = match context.args.mode {
-                    GerberViewerMode::Panel => unit_position,
-                    GerberViewerMode::Design(_) => design_position,
-                };
-
-                self.locate(position);
-                None
-            }
-            GerberViewerTabUiCommand::LocateDesignComponent {
-                pcb_side,
-                design_position,
-            } => {
-                if matches!(context.args.pcb_side, Some(candidate_pcb_side) if candidate_pcb_side.ne(&pcb_side))
-                    || !matches!(context.args.mode, GerberViewerMode::Design(_))
-                {
-                    return None;
-                }
-                self.locate(design_position);
+                self.gerber_viewer_ui
+                    .component
+                    .send(GerberViewerUiCommand::ShowPlacementMarkers(
+                        markers
+                            .into_iter()
+                            .map(|marker| marker.position)
+                            .collect(),
+                    ));
                 None
             }
         }

@@ -42,6 +42,22 @@ pub struct PcbTabContext {
 
 impl PcbTabs {
     tabs_impl!(PcbTabKind, PcbTabContext);
+
+    /// `UNITASG-9`, makes `shown` the active tab of its group, if `hidden` is in the same group and is the one showing,
+    /// returning whether it did, so the tabs are otherwise left as they are.
+    pub fn show_instead_of(&self, shown: &TabKey, hidden: &TabKey) -> bool {
+        let mut tree = self.tree.lock().unwrap();
+        let (Some(shown_path), Some(hidden_path)) = (tree.find_tab(shown), tree.find_tab(hidden)) else {
+            return false;
+        };
+        if shown_path.node_path() != hidden_path.node_path() {
+            return false;
+        }
+        let showing_hidden = tree
+            .leaf(hidden_path.node_path())
+            .is_ok_and(|leaf| leaf.active == hidden_path.tab);
+        showing_hidden && tree.set_active_tab(shown_path).is_ok()
+    }
 }
 
 #[derive(Debug, Clone)]

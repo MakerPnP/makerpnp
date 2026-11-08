@@ -19,6 +19,7 @@ use tabs::configuration_tab::{
 use tabs::explorer_tab::{ExplorerTab, ExplorerTabUiCommand, ExplorerTabUiContext, ExplorerUi};
 use tabs::gerber_viewer_tab::{
     GerberViewerTab, GerberViewerTabUi, GerberViewerTabUiAction, GerberViewerTabUiCommand, GerberViewerTabUiContext,
+    PlacementMarker,
 };
 use tracing::{debug, info, trace};
 
@@ -148,6 +149,71 @@ impl Pcb {
 
             Some(command)
         })
+    }
+
+    /// `UNITASG-8`, replaces the markers of each of the PCB's gerber viewers with those `markers` gives its mode, each
+    /// viewer keeping those on its side.
+    fn show_placement_markers(&self, markers: impl Fn(&GerberViewerMode) -> Vec<PlacementMarker>) {
+        let viewers = self
+            .pcb_tabs
+            .lock()
+            .unwrap()
+            .filter_map(|(_tab_key, tab)| match tab {
+                PcbTabKind::GerberViewer(gerber_viewer_tab) => Some(gerber_viewer_tab.args.clone()),
+                _ => None,
+            });
+        let pcb_ui_state = self.pcb_ui_state.lock().unwrap();
+        for args in viewers {
+            if let Some(gerber_viewer_ui) = pcb_ui_state
+                .gerber_viewer_tab_uis
+                .get(&args)
+            {
+                gerber_viewer_ui
+                    .component
+                    .send(GerberViewerTabUiCommand::ShowPlacementMarkers(markers(&args.mode)));
+            }
+        }
+    }
+
+    /// `UNITASG-9`, if the placements located are all on one side, shows the design's viewer of that side, if the
+    /// other side's is the one showing, in the same group of tabs.
+    fn show_design_side(&self, design_index: usize, sides: &[PcbSide]) {
+        let Some((&side, others)) = sides.split_first() else {
+            return;
+        };
+        if others
+            .iter()
+            .any(|other| *other != side)
+        {
+            return;
+        }
+        let other_side = match side {
+            PcbSide::Top => PcbSide::Bottom,
+            PcbSide::Bottom => PcbSide::Top,
+        };
+        let tabs = self.pcb_tabs.lock().unwrap();
+        let viewer = |pcb_side: PcbSide| {
+            tabs.find_tab(|tab| {
+                matches!(tab, PcbTabKind::GerberViewer(gerber_viewer_tab)
+                    if matches!(gerber_viewer_tab.args.mode, GerberViewerMode::Design(index) if index == design_index)
+                        && gerber_viewer_tab.args.pcb_side == Some(pcb_side))
+            })
+        };
+        let (Some(shown), Some(hidden)) = (viewer(side), viewer(other_side)) else {
+            return;
+        };
+        if tabs.show_instead_of(&shown, &hidden) {
+            info!(
+                "Showing design tab. pcb: '{}', design: '{}', pcb_side: {:?}",
+                self.path.display(),
+                self.pcb_overview
+                    .as_ref()
+                    .and_then(|pcb_overview| pcb_overview.designs.get(design_index))
+                    .map(|design| design.to_string())
+                    .unwrap_or_default(),
+                side
+            );
+        }
     }
 
     pub fn show_explorer(&mut self, path: PathBuf) -> Task<PcbAction> {
@@ -1024,8 +1090,6 @@ impl UiComponent for Pcb {
                 mut design_position,
                 mut unit_position,
             } => {
-                let tabs = self.pcb_tabs.lock().unwrap();
-
                 trace!(
                     "Locate component. pcb: {:?}, object_path: {:?}, pcb_side: {:?}, design_position: {:?}, unit_position: {:?}",
                     self.path, object_path, pcb_side, design_position, unit_position
@@ -1054,38 +1118,22 @@ impl UiComponent for Pcb {
 
                         trace!("adjusted unit_position: {:?}", unit_position);
 
-                        let tab_keys = tabs.filter_map(|(candidate_tab_key, candidate_tab)| match candidate_tab {
-                            PcbTabKind::GerberViewer(gerber_viewer_tab) => match gerber_viewer_tab.args.mode {
-                                GerberViewerMode::Design(candidate_index) if candidate_index.eq(&design_index) => {
-                                    Some(candidate_tab_key.clone())
-                                }
-                                GerberViewerMode::Panel => Some(candidate_tab_key.clone()),
-                                _ => None,
-                            },
-                            _ => None,
+                        // `UNITASG-8`, on the design's viewers and the panel's, the others' markers cleared.
+                        let marker = |position| {
+                            vec![PlacementMarker {
+                                label: object_path.to_string(),
+                                pcb_side,
+                                position,
+                            }]
+                        };
+                        self.show_placement_markers(|mode| match mode {
+                            GerberViewerMode::Design(candidate_index) if *candidate_index == design_index => {
+                                marker(design_position)
+                            }
+                            GerberViewerMode::Panel => marker(unit_position),
+                            _ => vec![],
                         });
-
-                        let pcb_ui_state = self.pcb_ui_state.lock().unwrap();
-
-                        for tab_key in tab_keys {
-                            tabs.with_tab_mut(&tab_key, |tab| {
-                                let PcbTabKind::GerberViewer(tab) = tab else { return };
-
-                                if let Some(gerber_viewer_ui) = pcb_ui_state
-                                    .gerber_viewer_tab_uis
-                                    .get(&tab.args)
-                                {
-                                    gerber_viewer_ui
-                                        .component
-                                        .send(GerberViewerTabUiCommand::LocateComponent {
-                                            object_path: object_path.clone(),
-                                            pcb_side,
-                                            design_position,
-                                            unit_position,
-                                        })
-                                }
-                            })
-                        }
+                        self.show_design_side(design_index, &[pcb_side]);
                     }
                 }
 
@@ -1095,15 +1143,17 @@ impl UiComponent for Pcb {
             PcbUiCommand::LocateDesignComponent(PcbDesignComponent {
                 pcb_file,
                 design_name,
-                pcb_side,
-                design_position,
+                placements,
             }) => {
                 info!(
-                    "Locating design component on PCB. pcb: '{}', design: '{}', pcb_side: {:?}, design_position: {:?}",
+                    "Locating design components on PCB. pcb: '{}', design: '{}', ref_des: [{}]",
                     pcb_file.display(),
                     design_name,
-                    pcb_side,
-                    design_position
+                    placements
+                        .iter()
+                        .map(|placement| format!("'{}'", placement.ref_des))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
 
                 let (Some(pcb_overview), Some(panel_sizing)) = (&self.pcb_overview, &self.panel_sizing) else {
@@ -1121,37 +1171,25 @@ impl UiComponent for Pcb {
                     );
                     return None;
                 };
-                let design_position = on_design_gerbers(panel_sizing, design_index, design_position);
-
-                let tabs = self.pcb_tabs.lock().unwrap();
-                let tab_keys = tabs.filter_map(|(candidate_tab_key, candidate_tab)| match candidate_tab {
-                    PcbTabKind::GerberViewer(gerber_viewer_tab) => match gerber_viewer_tab.args.mode {
-                        GerberViewerMode::Design(candidate_index) if candidate_index.eq(&design_index) => {
-                            Some(candidate_tab_key.clone())
-                        }
-                        _ => None,
-                    },
-                    _ => None,
-                });
-
-                let pcb_ui_state = self.pcb_ui_state.lock().unwrap();
-                for tab_key in tab_keys {
-                    tabs.with_tab_mut(&tab_key, |tab| {
-                        let PcbTabKind::GerberViewer(tab) = tab else { return };
-
-                        if let Some(gerber_viewer_ui) = pcb_ui_state
-                            .gerber_viewer_tab_uis
-                            .get(&tab.args)
-                        {
-                            gerber_viewer_ui
-                                .component
-                                .send(GerberViewerTabUiCommand::LocateDesignComponent {
-                                    pcb_side,
-                                    design_position,
-                                })
-                        }
+                let markers: Vec<PlacementMarker> = placements
+                    .iter()
+                    .map(|placement| PlacementMarker {
+                        label: placement.ref_des.clone(),
+                        pcb_side: placement.pcb_side,
+                        position: on_design_gerbers(panel_sizing, design_index, placement.design_position),
                     })
-                }
+                    .collect();
+
+                // `UNITASG-8`, the other viewers' markers cleared, the panel's included.
+                self.show_placement_markers(|mode| match mode {
+                    GerberViewerMode::Design(candidate_index) if *candidate_index == design_index => markers.clone(),
+                    _ => vec![],
+                });
+                let sides: Vec<PcbSide> = placements
+                    .iter()
+                    .map(|placement| placement.pcb_side)
+                    .collect();
+                self.show_design_side(design_index, &sides);
 
                 None
             }

@@ -38,15 +38,41 @@ pub enum DataSourcePanelUiCommand {
     Reload(TableKind, Source),
     /// The table's command, such as a cell edited (`VBGUI-13`).
     Table(TableKind, Source, TableUiCommand),
-    /// A placement's row was selected, an EDA placement's or a variant's, to locate it (`VBGUI-18`).
-    PlacementSelected(PlacementToLocate),
+    /// A placement's row was selected, an EDA placement's or a variant's, or a BOM item's, to locate it (`VBGUI-18`).
+    RowSelected(SelectedRow),
 }
 
 /// What the panel asks of the tab showing it.
 #[derive(Debug, Clone)]
 pub enum DataSourcePanelUiAction {
-    /// Locate the placement on the PCBs its design is on (`VBGUI-18`).
-    LocatePlacement(PlacementToLocate),
+    /// Locate the row's placements on the PCBs their design is on (`VBGUI-18`).
+    Locate(SelectedRow),
+}
+
+/// A row selected, of a table whose rows can be located (`VBGUI-18`).
+#[derive(Debug, Clone)]
+pub enum SelectedRow {
+    /// A placement, an EDA tool's or a variant's.
+    Placement(PlacementToLocate),
+    /// A BOM item, by its designators, each a placement's ref-des, for the tab to find in the variant's placements.
+    BomItem { designators: Vec<String> },
+}
+
+impl SelectedRow {
+    /// The row's selection, if the table's rows can be located.
+    fn of_row(view: &TableView, row: usize) -> Option<Self> {
+        match &view.table {
+            Table::Bom(items) => Some(SelectedRow::BomItem {
+                designators: items
+                    .get(row)?
+                    .designators
+                    .iter()
+                    .map(|ref_des| ref_des.to_string())
+                    .collect(),
+            }),
+            _ => PlacementToLocate::of_row(view, row).map(SelectedRow::Placement),
+        }
+    }
 }
 
 /// A placement to locate: its ref-des, its side, and its position, as the EDA tool exported it (`VBGUI-18`).
@@ -93,6 +119,13 @@ impl PlacementToLocate {
             ),
         })
     }
+
+    /// The placement with the ref-des, if the table is of placements and has it.
+    pub fn find(view: &TableView, ref_des: &str) -> Option<Self> {
+        (0..view.table.len())
+            .filter_map(|row| Self::of_row(view, row))
+            .find(|placement| placement.ref_des == ref_des)
+    }
 }
 
 impl DataSourcePanelUiCommand {
@@ -104,7 +137,7 @@ impl DataSourcePanelUiCommand {
             DataSourcePanelUiCommand::Open(..) => false,
             DataSourcePanelUiCommand::Reload(..) => true,
             DataSourcePanelUiCommand::Table(_, _, command) => command.is_users(),
-            DataSourcePanelUiCommand::PlacementSelected(_) => true,
+            DataSourcePanelUiCommand::RowSelected(_) => true,
         }
     }
 }
@@ -117,8 +150,8 @@ impl DataSourcePanel {
         stores: &Value<StoresCoreService>,
     ) -> Option<DataSourcePanelUiAction> {
         let event = match command {
-            DataSourcePanelUiCommand::PlacementSelected(placement) => {
-                return Some(DataSourcePanelUiAction::LocatePlacement(placement));
+            DataSourcePanelUiCommand::RowSelected(selected) => {
+                return Some(DataSourcePanelUiAction::Locate(selected));
             }
             DataSourcePanelUiCommand::Open(kind, source) => {
                 if !self
@@ -261,11 +294,11 @@ impl DataSourcePanel {
             }
             Some(view) => {
                 // `VBGUI-18`, a placement selected is located, the EDA tool's, which aren't changed here, or the
-                // variant's.
-                if let Some(placement) = show_table(ui, ui.id().with("table"), view.clone(), None)
-                    .and_then(|row| PlacementToLocate::of_row(&view, row))
+                // variant's, and a BOM item's placements.
+                if let Some(selected) = show_table(ui, ui.id().with("table"), view.clone(), None)
+                    .and_then(|row| SelectedRow::of_row(&view, row))
                 {
-                    send(DataSourcePanelUiCommand::PlacementSelected(placement));
+                    send(DataSourcePanelUiCommand::RowSelected(selected));
                 }
             }
             // the store operations are done without the GUI waiting for them, so the table may not be read yet.

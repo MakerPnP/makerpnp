@@ -234,6 +234,7 @@ variant is a target, for later (`UNITASG-7`).
 | 14b. A project has each of its PCBs with a unit assigned any variant of the design locate it, with the PCB's file, the design's name, and the position and side (`UNITASG-5`). | Done |
 | 14c. A PCB centres its viewers of the design on the position, adjusted by the design's offsets (`UNITASG-6`). | Done |
 | 14d. A GUI test checks the logs in order, for a project with the design, of another variant, and one without. | Done |
+| 14e. Many placements at once: selecting a BOM item's row locates each of its designators, found in the variant's placements; each viewer marks those on its side, replacing its markers, so none are left on the other side's (`ISSUE-27`), pans to the centre of their box, zooming only if it's out of view, with a 10% margin, and a viewer with none keeps its view; and, all on one side, that side's viewer is shown, if the other's was showing in the same group of tabs (`VBGUI-18`, `UNITASG-8`, `UNITASG-9`). | Done |
 
 ### Step 16, mapping results
 

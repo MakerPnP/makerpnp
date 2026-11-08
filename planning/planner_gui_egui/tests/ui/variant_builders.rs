@@ -1564,17 +1564,33 @@ fn building_an_incomplete_design_variant_says_what_is_missing() {
     );
 }
 
-/// Creates `<design>_variant_b.variant.json`, of the design, from DipTrace's placements `<design>.csv` in the folder.
-/// [`create_project_with_an_assigned_variant`]'s project assigns `variant_a` of `design_a`, not `variant_b`, to its
-/// PCB's first unit, and its PCB is opened. The variant's placements are the project's,
-/// `design_a_variant_a_placements.csv`, as if built.
-fn create_variant_b_of(app: &mut App, folder: &Path, design: &str) {
-    // the PCB the project's unit is on, open, with "Show PCB" on the project's PCB tab.
+/// Opens the PCB that [`create_project_with_an_assigned_variant`]'s project's unit is on, with "Show PCB" on the
+/// project's PCB tab.
+fn open_the_projects_pcb(app: &mut App) {
     app.click_tab_containing("PCB (");
     app.click_button("Show PCB");
     app.wait_for_tab("panel_a.pcb.json");
+}
 
-    fs::write(folder.join(format!("{design}.csv")), PLACEMENTS).unwrap();
+/// Opens the PCB's viewers of `design_a`, the top's, then the bottom's, from its explorer, which go in the same group
+/// of tabs, the bottom's showing.
+fn open_the_design_viewers(app: &mut App) {
+    // the panel's are first, then `design_a`'s, the PCB's first design.
+    app.double_click_nth_text("Top", 1);
+    app.wait_for_logs_in_order(&[
+        "ShowGerberViewer(GerberViewerUiInstanceArgs { mode: Design(0), pcb_side: Some(Top) })",
+    ]);
+    app.double_click_nth_text("Bottom", 1);
+    app.wait_for_logs_in_order(&[
+        "ShowGerberViewer(GerberViewerUiInstanceArgs { mode: Design(0), pcb_side: Some(Bottom) })",
+    ]);
+}
+
+/// Creates `<design>_variant_b.variant.json`, of the design, from DipTrace's `placements`, as `<design>.csv`, in the
+/// folder. [`create_project_with_an_assigned_variant`]'s project assigns `variant_a` of `design_a`, not `variant_b`, to
+/// its PCB's first unit. The variant's placements are the project's, `design_a_variant_a_placements.csv`, as if built.
+fn create_variant_b_of(app: &mut App, folder: &Path, design: &str, placements: &str) {
+    fs::write(folder.join(format!("{design}.csv")), placements).unwrap();
     fs::copy(
         folder.join("design_a_variant_a_placements.csv"),
         folder.join(format!("{design}_variant_b_placements.csv")),
@@ -1592,15 +1608,22 @@ fn create_variant_b_of(app: &mut App, folder: &Path, design: &str) {
     app.wait_for_text("Variant placements");
 }
 
-/// `VBGUI-18`, `UNITASG-5`, `UNITASG-6`, selecting an EDA placement's row, or a variant placement's, asks every open
-/// project to locate it, and a project with a unit assigned any variant of the design, not only the variant builder's,
-/// has its PCB locate it on its design, as the ref-des and positions are the design's.
+/// `VBGUI-18`, `UNITASG-5`, `UNITASG-6`, `UNITASG-8`, `UNITASG-9`, selecting an EDA placement's row, or a variant
+/// placement's, asks every open project to locate it, and a project with a unit assigned any variant of the design, not
+/// only the variant builder's, has its PCB locate it on its design, as the ref-des and positions are the design's: the
+/// viewer of its side marks it, and is shown, as the other side's viewer, in the same group of tabs, was showing.
+///
+/// Regression test for `ISSUE-27`: a placement's marker was left on the viewer of one side when a placement on the
+/// other side was located, as a viewer only changed its marker for a placement on its own side. Each viewer's markers
+/// are now replaced each time, by none if none are on its side.
 #[test]
-fn a_selected_placement_is_located_on_the_pcbs_its_design_is_on() {
+fn a_selected_placement_is_marked_on_the_pcbs_its_design_is_on() {
     let mut app = App::start();
     let folder = app.folder();
     create_project_with_an_assigned_variant(&mut app, &folder);
-    create_variant_b_of(&mut app, &folder, "design_a");
+    open_the_projects_pcb(&mut app);
+    open_the_design_viewers(&mut app);
+    create_variant_b_of(&mut app, &folder, "design_a", PLACEMENTS);
 
     app.double_click_text("EDA placements: design_a.csv");
     app.wait_for_tab("EDA placements: design_a.csv");
@@ -1608,25 +1631,72 @@ fn a_selected_placement_is_located_on_the_pcbs_its_design_is_on() {
     app.click_data_table_cell("R1", "RefDes");
 
     app.wait_for_logs_in_order(&[
-        "Locate design component. design: 'design_a', ref_des: 'R1', pcb_side: Top, design_position: ",
+        "Locate design components. design: 'design_a', ref_des: ['R1']",
         // "Design's PCBs. project: '<path>', design: ...", naming the PCB.
         "design: 'design_a', pcbs: ['",
-        "Locating design component on PCB. pcb: '",
+        // "Locating design components on PCB. pcb: '<path>', design: ...".
+        "panel_a.pcb.json', design: 'design_a', ref_des: ['R1']",
+        // the PCB shows the tab, then each viewer handles its markers.
+        "Showing design tab. pcb: '",
+        "Placement markers. mode: Design(0), pcb_side: Some(Top), markers: ['R1']",
+        "Placement markers. mode: Design(0), pcb_side: Some(Bottom), markers: []",
     ]);
 
-    // the variant's placements, as built, C1 on the bottom.
+    // the variant's placements, as built, C1 on the bottom, R1's marker gone from the top.
     app.double_click_text("Variant placements");
     app.wait_for_tab("Variant placements");
     app.wait_for_text("C1");
     app.click_data_table_cell("C1", "RefDes");
 
     app.wait_for_logs_in_order(&[
-        "Locate design component. design: 'design_a', ref_des: 'C1', pcb_side: Bottom, design_position: ",
+        "Locate design components. design: 'design_a', ref_des: ['C1']",
         "design: 'design_a', pcbs: ['",
-        // "Locating design component on PCB. pcb: '<path>', design: ...".
-        "panel_a.pcb.json', design: 'design_a', pcb_side: Bottom, design_position: ",
+        "panel_a.pcb.json', design: 'design_a', ref_des: ['C1']",
+        // "Showing design tab. pcb: '<path>', design: ...", the top's having been shown.
+        "panel_a.pcb.json', design: 'design_a', pcb_side: Bottom",
+        "Placement markers. mode: Design(0), pcb_side: Some(Top), markers: []",
+        "Placement markers. mode: Design(0), pcb_side: Some(Bottom), markers: ['C1']",
     ]);
     app.assert_not_logged("Design not found.");
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-18`, `UNITASG-8`, `UNITASG-9`, selecting a BOM item's row marks each of its designators, found in the
+/// variant's placements, on the viewer of its side, and, as they're on both sides, the tabs are left as they are.
+#[test]
+fn a_selected_bom_items_placements_are_marked_on_both_sides() {
+    let mut app = App::start();
+    let folder = app.folder();
+    create_project_with_an_assigned_variant(&mut app, &folder);
+    open_the_projects_pcb(&mut app);
+    open_the_design_viewers(&mut app);
+    fs::write(folder.join("parts.csv"), PARTS).unwrap();
+    fs::write(folder.join("part-mappings.csv"), PART_MAPPINGS).unwrap();
+    // two of the same part, R2 on the bottom.
+    let mut placements = PLACEMENTS.to_string();
+    placements.push_str("\"R2\",\"RES_0402\",\"330R\",\"Bottom\",\"30\",\"20\",\"0\"\n");
+    create_variant_b_of(&mut app, &folder, "design_a", &placements);
+    choose(&mut app, "Parts", folder.join("parts.csv"));
+    choose(&mut app, "Part mappings", folder.join("part-mappings.csv"));
+    app.click_button("Save changes");
+    app.wait_for_enabled_button("Build");
+    app.click_button("Build");
+    app.wait_for_text("Built.");
+
+    app.double_click_text("BOM");
+    app.wait_for_tab("BOM");
+    app.wait_for_text("R1, R2");
+    app.click_data_table_cell("R1, R2", "Designator");
+
+    app.wait_for_logs_in_order(&[
+        "Locate design components. design: 'design_a', ref_des: ['R1', 'R2']",
+        "design: 'design_a', pcbs: ['",
+        "panel_a.pcb.json', design: 'design_a', ref_des: ['R1', 'R2']",
+        "Placement markers. mode: Design(0), pcb_side: Some(Top), markers: ['R1']",
+        "Placement markers. mode: Design(0), pcb_side: Some(Bottom), markers: ['R2']",
+    ]);
+    app.assert_not_logged("Showing design tab.");
+    app.assert_not_logged("Ref-des not in the variant's placements.");
     app.assert_not_logged("Event failed.");
 }
 
@@ -1636,7 +1706,8 @@ fn a_placement_of_a_design_no_project_uses_is_not_located() {
     let mut app = App::start();
     let folder = app.folder();
     create_project_with_an_assigned_variant(&mut app, &folder);
-    create_variant_b_of(&mut app, &folder, "design_b");
+    open_the_projects_pcb(&mut app);
+    create_variant_b_of(&mut app, &folder, "design_b", PLACEMENTS);
 
     app.double_click_text("EDA placements: design_b.csv");
     app.wait_for_tab("EDA placements: design_b.csv");
@@ -1644,8 +1715,8 @@ fn a_placement_of_a_design_no_project_uses_is_not_located() {
     app.click_data_table_cell("R1", "RefDes");
 
     app.wait_for_logs_in_order(&[
-        "Locate design component. design: 'design_b', ref_des: 'R1', ",
+        "Locate design components. design: 'design_b', ref_des: ['R1']",
         "design: 'design_b', pcbs: []",
     ]);
-    app.assert_not_logged("Locating design component on PCB.");
+    app.assert_not_logged("Locating design components on PCB.");
 }

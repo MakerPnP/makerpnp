@@ -894,7 +894,7 @@ impl Project {
         }
         let DesignComponent {
             design_name,
-            placement,
+            placements,
         } = component;
         Some(ProjectAction::LocateDesignComponents(
             pcb_files
@@ -902,8 +902,7 @@ impl Project {
                 .map(|pcb_file| PcbDesignComponent {
                     pcb_file,
                     design_name: design_name.clone(),
-                    pcb_side: placement.pcb_side.clone(),
-                    design_position: placement.design_position,
+                    placements: placements.clone(),
                 })
                 .collect(),
         ))

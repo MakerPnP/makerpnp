@@ -16,7 +16,7 @@ use egui_i18n::tr;
 use egui_ltreeview::TreeViewState;
 use serde::{Deserialize, Serialize};
 use stores_app::{Source, TableKind, TableRow};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
     DEFAULT_VARIANT_NAME, SubstitutionsSource, design_name, file_name, placements_extensions, source_path, stored_path,
@@ -26,7 +26,9 @@ use variantbuilder_app::{
     VariantBuilderView,
 };
 
-use crate::data_sources::panel::{DataSourcePanel, DataSourcePanelUiAction, DataSourcePanelUiCommand};
+use crate::data_sources::panel::{
+    DataSourcePanel, DataSourcePanelUiAction, DataSourcePanelUiCommand, PlacementToLocate, SelectedRow,
+};
 use crate::data_sources::table::new_row;
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
@@ -469,21 +471,65 @@ impl UiComponent for VariantBuilderTab {
                 None
             }
             VariantBuilderTabUiCommand::Panel(command) => {
-                let DataSourcePanelUiAction::LocatePlacement(placement) = self
+                let DataSourcePanelUiAction::Locate(selected) = self
                     .data_source_panel
                     .update(command, &context.stores)?;
                 // `VBGUI-18`, of the design, as its file names it, whichever the variant, as the ref-des and positions
-                // are the design's, for the projects to decide where it is.
+                // are the design's, for the projects to decide where they are.
                 let (Some(view), _) = self.known(&context.variant_builders) else {
                     return None;
                 };
+                let placements = match selected {
+                    SelectedRow::Placement(placement) => vec![placement],
+                    SelectedRow::BomItem {
+                        designators,
+                    } => {
+                        let path = self.path.as_ref()?;
+                        let source = Source::File(view.file.outputs(path).placements);
+                        let placements = {
+                            let stores = context.stores.lock().unwrap();
+                            stores
+                                .table_status(TableKind::Placements, &source)
+                                .and_then(|status| stores.table_view(TableKind::Placements, &status.source))
+                        };
+                        let (found, missing): (Vec<_>, Vec<_>) = designators
+                            .into_iter()
+                            .map(|ref_des| {
+                                placements
+                                    .as_ref()
+                                    .and_then(|placements| PlacementToLocate::find(placements, &ref_des))
+                                    .ok_or(ref_des)
+                            })
+                            .partition(Result::is_ok);
+                        if !missing.is_empty() {
+                            warn!(
+                                "Ref-des not in the variant's placements. ref_des: [{}]",
+                                missing
+                                    .into_iter()
+                                    .filter_map(Result::err)
+                                    .map(|ref_des| format!("'{}'", ref_des))
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            );
+                        }
+                        found
+                            .into_iter()
+                            .filter_map(Result::ok)
+                            .collect()
+                    }
+                };
                 info!(
-                    "Locate design component. design: '{}', ref_des: '{}', pcb_side: {:?}, design_position: {:?}",
-                    view.file.design_name, placement.ref_des, placement.pcb_side, placement.design_position
+                    "Locate design components. design: '{}', ref_des: [{}]",
+                    view.file.design_name,
+                    placements
+                        .iter()
+                        .map(|placement| format!("'{}'", placement.ref_des))
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 );
                 Some(VariantBuilderTabAction::LocateDesignComponent(DesignComponent {
                     design_name: view.file.design_name.clone(),
-                    placement,
+                    placements,
                 }))
             }
             VariantBuilderTabUiCommand::Errors(command) => {
@@ -1286,6 +1332,24 @@ impl PanelViewer<'_> {
             return;
         };
         let outputs = view.file.outputs(self.path);
+        // `VBGUI-18`, a BOM item's placements are found in the variant's, so they're loaded with it.
+        if matches!(output, Output::Bom) {
+            let placements = Source::File(outputs.placements.clone());
+            let opened = self
+                .stores
+                .lock()
+                .unwrap()
+                .table_status(TableKind::Placements, &placements)
+                .is_some();
+            if !opened {
+                self.tab
+                    .component
+                    .send(VariantBuilderTabUiCommand::Panel(DataSourcePanelUiCommand::Open(
+                        TableKind::Placements,
+                        placements,
+                    )));
+            }
+        }
         let (kind, path) = match output {
             Output::Placements => (TableKind::Placements, outputs.placements),
             Output::Bom => (TableKind::Bom, outputs.bom),
