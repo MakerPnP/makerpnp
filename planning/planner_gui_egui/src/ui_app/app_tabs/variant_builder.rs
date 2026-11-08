@@ -1303,11 +1303,9 @@ impl PanelViewer<'_> {
             DataSource::GlobalSubstitutions | DataSource::DesignSubstitutions => TableKind::Substitutions,
             DataSource::AssemblyRules => TableKind::AssemblyRules,
         };
-        // `VBGUI-13`, `VBGUI-14`, a part mapping, or a substitution, added is of the variant builder's EDA tool.
-        let new_row = view
-            .file
-            .eda_tool
-            .and_then(|eda_tool| new_row(kind, eda_tool));
+        // `VBGUI-13`, `VBGUI-14`, a part mapping, or a substitution, added is of the variant builder's EDA tool, and
+        // `VBGUI-15`, an assembly rule, which has none, is added whether or not it has one.
+        let new_row = new_row(kind, view.file.eda_tool);
         self.show_table(ui, kind, data_source, new_row);
     }
 

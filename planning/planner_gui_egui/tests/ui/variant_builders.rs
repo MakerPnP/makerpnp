@@ -1036,6 +1036,105 @@ fn a_global_substitutions_status_says_what_its_problems_are() {
     app.assert_not_logged("Event failed.");
 }
 
+const ASSEMBLY_RULES_HEADERS: &str = "\"RefDes\",\"Manufacturer\",\"Mpn\"\n";
+
+/// Waits for the file to have the rows, after the headers `ASSEMBLY_RULES_HEADERS` has.
+fn wait_for_assembly_rules(app: &mut App, path: &Path, rows: &[&str]) {
+    let mut expected = ASSEMBLY_RULES_HEADERS.to_string();
+    for row in rows {
+        expected.push_str(row);
+        expected.push('\n');
+    }
+    wait_for_file(app, path, &expected);
+}
+
+/// `VBGUI-15`, `STORE-19`, an assembly rule's designator, manufacturer and MPN are edited in their cells, and its rows
+/// added, moved and removed, each written at once, and a rule's status, first, says which of its values are empty when
+/// it's hovered, or that none is, and can't be selected. Their colours are checked by `data_sources::table`'s tests, as
+/// the GUI's tests can't see them.
+#[test]
+fn an_assembly_rules_values_are_edited_and_its_rows_changed() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    let rules = folder.join("rules.csv");
+    let mut contents = ASSEMBLY_RULES_HEADERS.to_string();
+    contents.push_str("\"R1\",\"MFR1\",\"MPN1\"\n");
+    contents.push_str("\"C1\",\"MFR2\",\"\"\n");
+    fs::write(&rules, contents).unwrap();
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(&mut app, "Assembly rules", rules.clone());
+    // another panel in place of the "Overview", which lists the file too, so only the explorer has it.
+    app.double_click_text("Placements: board1.csv");
+    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("Assembly rules: rules.csv");
+    app.wait_for_tab("Assembly rules: rules.csv");
+    app.wait_for_text("MFR2");
+    let headers = ["◑", "RefDes", "Manufacturer", "Mpn"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
+
+    app.hover_data_table_cell("R1", "◑");
+    app.wait_for_text_containing("No problems.");
+    app.hover_data_table_cell("C1", "◑");
+    app.wait_for_text_containing("Empty Mpn.");
+    app.wait_until_no_text_contains("No problems.");
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("R1", "◑"), "");
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("R1", "Mpn"), "MPN1");
+
+    app.edit_data_table_cell_then_press_enter("R1", "RefDes", "R2");
+    wait_for_assembly_rules(&mut app, &rules, &["\"R2\",\"MFR1\",\"MPN1\"", "\"C1\",\"MFR2\",\"\""]);
+    app.wait_for_text("R2");
+    app.edit_data_table_cell_then_press_enter("R2", "Manufacturer", "MFR3");
+    wait_for_assembly_rules(&mut app, &rules, &["\"R2\",\"MFR3\",\"MPN1\"", "\"C1\",\"MFR2\",\"\""]);
+    app.wait_for_text("MFR3");
+    app.edit_data_table_cell_then_press_enter("C1", "Mpn", "MPN2");
+    wait_for_assembly_rules(&mut app, &rules, &[
+        "\"R2\",\"MFR3\",\"MPN1\"",
+        "\"C1\",\"MFR2\",\"MPN2\"",
+    ]);
+    app.wait_for_text("MPN2");
+    app.hover_data_table_cell("C1", "◑");
+    app.wait_for_text_containing("No problems.");
+
+    // with no designator, manufacturer or MPN, selected once it's shown, so it's moved.
+    app.click_button("Add row");
+    wait_for_assembly_rules(&mut app, &rules, &[
+        "\"R2\",\"MFR3\",\"MPN1\"",
+        "\"C1\",\"MFR2\",\"MPN2\"",
+        "\"\",\"\",\"\"",
+    ]);
+    app.hover_data_table_cell_in_row_numbered(3, "◑");
+    app.wait_for_text_containing("Empty RefDes.");
+    app.wait_for_text_containing("Empty Manufacturer.");
+    app.wait_for_text_containing("Empty Mpn.");
+    app.wait_for_enabled_button("Move up");
+    app.click_button("Move up");
+    wait_for_assembly_rules(&mut app, &rules, &[
+        "\"R2\",\"MFR3\",\"MPN1\"",
+        "\"\",\"\",\"\"",
+        "\"C1\",\"MFR2\",\"MPN2\"",
+    ]);
+
+    app.click_data_table_cell("C1", "Mpn");
+    app.wait_for_enabled_button("Remove row");
+    app.click_button("Remove row");
+    wait_for_assembly_rules(&mut app, &rules, &["\"R2\",\"MFR3\",\"MPN1\"", "\"\",\"\",\"\""]);
+    app.wait_until_text_is_gone("C1");
+
+    app.wait_for_logs_in_order(&[
+        "VariantBuilderTab command. command: Table(AssemblyRules, ",
+        "stores_app: Received event. event: ChangeTable { kind: AssemblyRules, ",
+        "stores_app: Changed table. kind: AssemblyRules, source: '",
+        "stores_app: Loaded table. kind: AssemblyRules, source: '",
+        "ChangeRows(Add {",
+        "ChangeShown(Row(2))",
+        "ChangeRows(Remove {",
+        "ChangeShown(NoRow)",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
 /// `VBGUI-12`, `STORE-17`, `STORE-9`, the "Build output" panel is a placeholder for the mapping results, and the BOM,
 /// which isn't there until the variant is built, is shown once it's built.
 #[test]

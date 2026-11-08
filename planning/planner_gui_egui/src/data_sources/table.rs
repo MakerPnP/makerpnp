@@ -1,6 +1,7 @@
 //! A table of a data source's records, as the stores core shows any data source other than parts (`STORE-17`), each
 //! value shown as what it is, a pattern by its kind (`VBGUI-11`), and, if its kind can be changed, edited in its cells,
-//! and its rows added, removed and moved: part mappings (`VBGUI-13`) and substitutions (`VBGUI-14`).
+//! and its rows added, removed and moved: part mappings (`VBGUI-13`), substitutions (`VBGUI-14`) and assembly rules
+//! (`VBGUI-15`).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -12,9 +13,9 @@ use egui_deferred_table::{
 };
 use egui_i18n::tr;
 use stores_app::{
-    Cell, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern,
-    Revision, RowKey, RowOrdering, SubstitutionsViewItem, Table, TableChange, TableColumn, TableKind, TableRow,
-    TableView,
+    AssemblyRule, AssemblyRulesViewItem, Cell, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern,
+    Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering, SubstitutionsViewItem, Table, TableChange,
+    TableColumn, TableKind, TableRow, TableView,
 };
 
 /// The view the stores core sent, shared with every other table showing the same data source, not a copy of it.
@@ -35,9 +36,13 @@ fn has_status(view: &TableView) -> bool {
     is_changed_here(view)
 }
 
-/// Whether the GUI changes the table: part mappings (`VBGUI-13`) and substitutions (`VBGUI-14`).
+/// Whether the GUI changes the table: part mappings (`VBGUI-13`), substitutions (`VBGUI-14`) and assembly rules
+/// (`VBGUI-15`).
 pub fn is_changed_here(view: &TableView) -> bool {
-    matches!(view.table, Table::PartMappings(_) | Table::Substitutions(_))
+    matches!(
+        view.table,
+        Table::PartMappings(_) | Table::Substitutions(_) | Table::AssemblyRules(_)
+    )
 }
 
 /// The view's column the table's column shows, after the status column if there's one.
@@ -292,6 +297,7 @@ fn same_row(a: &TableRow, b: &TableRow) -> bool {
                 && values(&a.transforms) == values(&b.transforms)
                 && a.comment.as_deref().unwrap_or_default() == b.comment.as_deref().unwrap_or_default()
         }
+        (TableRow::AssemblyRules(a), TableRow::AssemblyRules(b)) => a == b,
         _ => false,
     }
 }
@@ -439,6 +445,12 @@ fn cell_edit(row: &TableRow, column: &ColumnValue) -> Option<CellEdit> {
         (TableRow::Substitutions(item), ColumnValue::Comment) => {
             Some(CellEdit::Text(item.comment.clone().unwrap_or_default()))
         }
+        // `VBGUI-15`, an assembly rule's values are edited as text.
+        (TableRow::AssemblyRules(item), ColumnValue::RefDes) => Some(CellEdit::Text(item.rule.ref_des.clone())),
+        (TableRow::AssemblyRules(item), ColumnValue::Manufacturer) => {
+            Some(CellEdit::Text(item.rule.manufacturer.clone()))
+        }
+        (TableRow::AssemblyRules(item), ColumnValue::Mpn) => Some(CellEdit::Text(item.rule.mpn.clone())),
         _ => None,
     }
 }
@@ -482,6 +494,11 @@ fn with_edit(row: &TableRow, column: &ColumnValue, edit: CellEdit) -> TableRow {
                 item.comment = Some(text);
             }
         }
+        (TableRow::AssemblyRules(item), ColumnValue::RefDes, CellEdit::Text(text)) => item.rule.ref_des = text,
+        (TableRow::AssemblyRules(item), ColumnValue::Manufacturer, CellEdit::Text(text)) => {
+            item.rule.manufacturer = text
+        }
+        (TableRow::AssemblyRules(item), ColumnValue::Mpn, CellEdit::Text(text)) => item.rule.mpn = text,
         _ => {}
     }
     row
@@ -503,20 +520,29 @@ fn set_pattern(criteria: &mut Vec<FieldPattern>, field_name: &str, pattern: Patt
     }
 }
 
-/// A new row of the table, of the EDA tool, to be filled in: a part mapping with no patterns and no part (`VBGUI-13`),
-/// or a substitution with no patterns, values or comment (`VBGUI-14`), none if the table's rows aren't added here.
-pub fn new_row(kind: TableKind, eda_tool: EdaTool) -> Option<TableRow> {
+/// A new row of the table, to be filled in: a part mapping of the EDA tool with no patterns and no part (`VBGUI-13`),
+/// a substitution of the EDA tool with no patterns, values or comment (`VBGUI-14`), or an assembly rule with no
+/// designator, manufacturer or MPN, whether or not there's an EDA tool, as a rule has none (`VBGUI-15`); none if the
+/// table's rows aren't added here, or need an EDA tool and there's none.
+pub fn new_row(kind: TableKind, eda_tool: Option<EdaTool>) -> Option<TableRow> {
     match kind {
         TableKind::PartMappings => Some(TableRow::PartMappings(PartMappingsViewItem {
-            eda_tool,
+            eda_tool: eda_tool?,
             criteria: vec![],
             part: Part::new(String::new(), String::new()),
         })),
         TableKind::Substitutions => Some(TableRow::Substitutions(SubstitutionsViewItem {
-            eda_tool,
+            eda_tool: eda_tool?,
             criteria: vec![],
             transforms: vec![],
             comment: None,
+        })),
+        TableKind::AssemblyRules => Some(TableRow::AssemblyRules(AssemblyRulesViewItem {
+            rule: AssemblyRule {
+                ref_des: String::new(),
+                manufacturer: String::new(),
+                mpn: String::new(),
+            },
         })),
         _ => None,
     }
@@ -801,11 +827,13 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
                 (Some(substituted.background()), Some(substituted.text()))
             }
             (ColumnValue::Manufacturer, Some(TableRow::PartMappings(item))) => {
-                (Some(Background::of_part_value(&item.part.manufacturer)), None)
+                (Some(Background::of_needed_value(&item.part.manufacturer)), None)
             }
             (ColumnValue::Mpn, Some(TableRow::PartMappings(item))) => {
-                (Some(Background::of_part_value(&item.part.mpn)), None)
+                (Some(Background::of_needed_value(&item.part.mpn)), None)
             }
+            // `VBGUI-15`, each of an assembly rule's values says whether it's empty, as every rule needs all three.
+            (value, Some(TableRow::AssemblyRules(item))) => (Background::of_assembly_rule(item, value), None),
             _ => (None, None),
         };
         if let Some(background) = background {
@@ -998,20 +1026,37 @@ impl Background {
         Color32::from_rgba_unmultiplied(r, g, b, alpha)
     }
 
-    /// A part's value, its manufacturer or its MPN, red if it's empty, as every part mapping needs both, and green if
-    /// not.
-    fn of_part_value(value: &str) -> Self {
+    /// A value every row needs, red if it's empty, and green if not: a part mapping's manufacturer or MPN (`VBGUI-13`),
+    /// or any of an assembly rule's values (`VBGUI-15`).
+    fn of_needed_value(value: &str) -> Self {
         match value.is_empty() {
             true => Background::Red,
             false => Background::Green,
         }
     }
+
+    /// An assembly rule's value's, its designator's, manufacturer's or MPN's, none for a column it has no value of.
+    fn of_assembly_rule(item: &AssemblyRulesViewItem, column: &ColumnValue) -> Option<Self> {
+        let value = match column {
+            ColumnValue::RefDes => &item.rule.ref_des,
+            ColumnValue::Manufacturer => &item.rule.manufacturer,
+            ColumnValue::Mpn => &item.rule.mpn,
+            _ => return None,
+        };
+        Some(Self::of_needed_value(value))
+    }
 }
 
-/// What keeps a part mapping (`VBGUI-13`), or a substitution (`VBGUI-14`), from being used as it is, shown by the status
-/// column.
+/// What keeps a part mapping (`VBGUI-13`), a substitution (`VBGUI-14`), or an assembly rule (`VBGUI-15`), from being
+/// used as it is, shown by the status column.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Problem {
+    /// An assembly rule's designator is empty.
+    EmptyRefDes,
+    /// An assembly rule's manufacturer is empty.
+    EmptyManufacturer,
+    /// An assembly rule's MPN is empty.
+    EmptyMpn,
     /// One of its patterns, of any field, is a regular expression that isn't valid.
     InvalidPattern,
     /// The data source has no column for one of its EDA tool's fields, a substitution's pattern's or value's.
@@ -1035,7 +1080,7 @@ impl Problem {
         let (eda_tool, criteria) = match row {
             TableRow::PartMappings(item) => (item.eda_tool, &item.criteria),
             TableRow::Substitutions(item) => (item.eda_tool, &item.criteria),
-            TableRow::AssemblyRules(_) => return vec![],
+            TableRow::AssemblyRules(item) => return Self::of_assembly_rule(item),
         };
         let mut problems = vec![];
         if criteria.iter().any(|criterion| {
@@ -1067,6 +1112,19 @@ impl Problem {
             TableRow::AssemblyRules(_) => {}
         }
         problems
+    }
+
+    /// An assembly rule's empty values, in the columns' order, as every rule needs all three.
+    fn of_assembly_rule(item: &AssemblyRulesViewItem) -> Vec<Problem> {
+        [
+            (&item.rule.ref_des, Problem::EmptyRefDes),
+            (&item.rule.manufacturer, Problem::EmptyManufacturer),
+            (&item.rule.mpn, Problem::EmptyMpn),
+        ]
+        .into_iter()
+        .filter(|(value, _problem)| value.is_empty())
+        .map(|(_value, problem)| problem)
+        .collect()
     }
 
     /// Whether every one of the substitution's EDA tool's fields' patterns, empty if it has none, is a value matched
@@ -1115,6 +1173,9 @@ impl Problem {
     /// Said when the status is hovered.
     fn text(self) -> String {
         match self {
+            Problem::EmptyRefDes => tr!("data-table-problem-empty-ref-des"),
+            Problem::EmptyManufacturer => tr!("data-table-problem-empty-manufacturer"),
+            Problem::EmptyMpn => tr!("data-table-problem-empty-mpn"),
             Problem::InvalidPattern => tr!("data-table-problem-invalid-pattern"),
             Problem::MissingFieldColumns(eda_tool) => {
                 tr!("data-table-problem-missing-field-columns", { tool: eda_tool_name(eda_tool) })
@@ -1276,15 +1337,15 @@ mod tests {
     use egui::Visuals;
     use egui_deferred_table::{CellEditState, CellIndex};
     use stores_app::{
-        ColumnRef, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem,
-        Pattern, Revision, RowKey, RowOrdering, Source, SubstitutionsViewItem, Table, TableChange, TableColumn,
-        TableKind, TableRow, TableView,
+        AssemblyRule, AssemblyRulesViewItem, ColumnRef, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool,
+        FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering, Source,
+        SubstitutionsViewItem, Table, TableChange, TableColumn, TableKind, TableRow, TableView,
     };
 
     use super::{
         AfterChange, Background, CellEdit, EditedRow, PatternMatch, PendingChange, PendingRowChange, Problem,
         STATUS_GLYPH, STATUS_HEADER, SelectAfterChange, ShownAfterChange, Substitution, TableEditorState, TableRequest,
-        TableState, TableUiCommand, cell_edit, pattern_color, same_row, update_table, view_column, with_edit,
+        TableState, TableUiCommand, cell_edit, new_row, pattern_color, same_row, update_table, view_column, with_edit,
     };
 
     fn row(name: &str, mpn: &str) -> TableRow {
@@ -1729,8 +1790,8 @@ mod tests {
     /// pattern's.
     #[test]
     fn a_parts_cells_are_red_if_empty_and_green_if_not() {
-        assert_eq!(Background::of_part_value(""), Background::Red);
-        assert_eq!(Background::of_part_value("MFR1"), Background::Green);
+        assert_eq!(Background::of_needed_value(""), Background::Red);
+        assert_eq!(Background::of_needed_value("MFR1"), Background::Green);
         assert_eq!(Background::Red, PatternMatch::Invalid(EdaTool::KiCad).background());
         assert_eq!(Background::Green, PatternMatch::Matched(EdaTool::KiCad).background());
     }
@@ -2003,8 +2064,8 @@ mod tests {
         assert!(!same_row(&row, &edited));
     }
 
-    /// `VBGUI-13`, `VBGUI-14`, the status column is first, so a part mappings' or substitutions' table's columns are the
-    /// view's after it, and other tables have none.
+    /// `VBGUI-13`, `VBGUI-14`, `VBGUI-15`, the status column is first, so a part mappings', substitutions' or assembly
+    /// rules' table's columns are the view's after it, and other tables have none.
     #[test]
     fn the_status_column_is_first_of_changeable_tables_only() {
         let item = mapping_with(EdaTool::DipTrace, &[("name", "RES_0402")]);
@@ -2018,11 +2079,112 @@ mod tests {
         assert!(view_column(&substitutions, 0).is_none());
         assert_eq!(view_column(&substitutions, 1), substitutions.columns.first());
 
+        let rules = assembly_rules_view(&[]);
+        assert!(view_column(&rules, 0).is_none());
+        assert_eq!(view_column(&rules, 1), rules.columns.first());
+        assert_eq!(view_column(&rules, 3), rules.columns.get(2));
+        assert!(view_column(&rules, 4).is_none());
+
         let bom = TableView {
             table: Table::Bom(vec![]),
             ..mappings.clone()
         };
         assert_eq!(view_column(&bom, 0), bom.columns.first());
+    }
+
+    fn assembly_rule(ref_des: &str, manufacturer: &str, mpn: &str) -> AssemblyRulesViewItem {
+        AssemblyRulesViewItem {
+            rule: AssemblyRule {
+                ref_des: ref_des.to_string(),
+                manufacturer: manufacturer.to_string(),
+                mpn: mpn.to_string(),
+            },
+        }
+    }
+
+    /// Assembly rules, their columns each with a reference, as a file's are.
+    fn assembly_rules_view(items: &[AssemblyRulesViewItem]) -> TableView {
+        let table = Table::AssemblyRules(items.to_vec());
+        TableView {
+            kind: TableKind::AssemblyRules,
+            columns: table
+                .columns()
+                .into_iter()
+                .map(|column| TableColumn {
+                    reference: Some(ColumnRef(column.name.clone())),
+                    ..column
+                })
+                .collect(),
+            keys: (0..items.len())
+                .map(|index| RowKey(index.to_string()))
+                .collect(),
+            table,
+            ..view("1", &[])
+        }
+    }
+
+    fn rule_problems(item: &AssemblyRulesViewItem) -> Vec<Problem> {
+        let view = assembly_rules_view(std::slice::from_ref(item));
+        Problem::of(&view, &TableRow::AssemblyRules(item.clone()))
+    }
+
+    /// `VBGUI-15`, an assembly rule's problems are each of its values that's empty, in the columns' order, and none if
+    /// it has none.
+    #[test]
+    fn an_assembly_rules_problems_are_each_found() {
+        use Problem::*;
+
+        assert_eq!(rule_problems(&assembly_rule("R1", "MFR1", "MPN1")), vec![]);
+        assert_eq!(rule_problems(&assembly_rule("R1", "MFR1", "")), vec![EmptyMpn]);
+        assert_eq!(rule_problems(&assembly_rule("", "MFR1", "")), vec![
+            EmptyRefDes,
+            EmptyMpn
+        ]);
+        assert_eq!(rule_problems(&assembly_rule("", "", "")), vec![
+            EmptyRefDes,
+            EmptyManufacturer,
+            EmptyMpn
+        ]);
+    }
+
+    /// `VBGUI-15`, each of an assembly rule's cells is red if it's empty, and green if not.
+    #[test]
+    fn an_assembly_rules_cells_are_red_if_empty_and_green_if_not() {
+        let item = assembly_rule("R1", "", "MPN1");
+        assert_eq!(
+            Background::of_assembly_rule(&item, &ColumnValue::RefDes),
+            Some(Background::Green)
+        );
+        assert_eq!(
+            Background::of_assembly_rule(&item, &ColumnValue::Manufacturer),
+            Some(Background::Red)
+        );
+        assert_eq!(
+            Background::of_assembly_rule(&item, &ColumnValue::Mpn),
+            Some(Background::Green)
+        );
+        assert_eq!(Background::of_assembly_rule(&item, &ColumnValue::Eda), None);
+    }
+
+    /// `VBGUI-15`, an assembly rule's values are edited as text, and a new row is an empty rule, whether or not there's
+    /// an EDA tool, as a rule has none, though a part mapping, or a substitution, needs one.
+    #[test]
+    fn an_assembly_rules_cells_are_edited_and_a_new_one_is_empty() {
+        let row = TableRow::AssemblyRules(assembly_rule("R1", "MFR1", "MPN1"));
+        assert_eq!(
+            cell_edit(&row, &ColumnValue::RefDes),
+            Some(CellEdit::Text("R1".to_string()))
+        );
+        let edited = with_edit(&row, &ColumnValue::RefDes, CellEdit::Text("R2".to_string()));
+        let edited = with_edit(&edited, &ColumnValue::Manufacturer, CellEdit::Text("MFR2".to_string()));
+        let edited = with_edit(&edited, &ColumnValue::Mpn, CellEdit::Text(String::new()));
+        assert_eq!(edited, TableRow::AssemblyRules(assembly_rule("R2", "MFR2", "")));
+
+        let empty = Some(TableRow::AssemblyRules(assembly_rule("", "", "")));
+        assert_eq!(new_row(TableKind::AssemblyRules, None), empty);
+        assert_eq!(new_row(TableKind::AssemblyRules, Some(EdaTool::KiCad)), empty);
+        assert_eq!(new_row(TableKind::PartMappings, None), None);
+        assert_eq!(new_row(TableKind::Substitutions, None), None);
     }
 
     /// `VBGUI-13`, the status column's header and its circle are glyphs egui's own fonts have, so they're not shown as

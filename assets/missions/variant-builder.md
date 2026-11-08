@@ -189,8 +189,8 @@ tools write them. Each is a commit, the core first.
 | 11d.1. The stores core and service: a substitution has a pattern and a value for each EDA tool's field the data source has, its rows are changed, and an EDA tool's columns added, each group's after its last (`STORE-17`, `STORE-19`, `STORE-21`). | Done |
 | 11d.2. The CLI changes substitutions: `planner_cli table --kind substitutions --source <file>` `add`, `set`, `remove`, `move` and `add-columns`, with `--value <FIELD>=<VALUE>` and `--comment` (`STORE-20`). | Done |
 | 11d.3. The GUI: a substitutions' panel changes them as a part mappings' does, its value cells coloured, and its rows' statuses saying their problems (`VBGUI-14`). | Done |
-| 11e. Assembly rules, as part mappings are: the core and the service, the CLI, then the GUI. | Started |
+| 11e. Assembly rules, as part mappings are: the core and the service, the CLI, then the GUI. | Done |
 | 11e.1. The stores core and service: assembly rules' rows are changed, by their headers as they're written, and named columns added, an EDA tool's refused, as a rule has none (`STORE-17`, `STORE-19`, `STORE-21`). | Done |
 | 11e.2. The CLI changes assembly rules: `planner_cli table --kind assembly-rules --source <file>` `add`, `set`, `remove`, `move` and `add-columns`, with `--ref-des`, `--manufacturer` and `--mpn`, and the other kinds' options refused (`STORE-20`). | Done |
-| 11e.3. The GUI: an assembly rules' panel changes them as a part mappings' does, each empty cell red, and its rows' statuses saying which are empty (`VBGUI-15`). | |
+| 11e.3. The GUI: an assembly rules' panel changes them as a part mappings' does, each empty cell red, and its rows' statuses saying which are empty (`VBGUI-15`). | Done |
 | 11f. A parts tab's other values, edited in their cells (`PARTSRC`). | |

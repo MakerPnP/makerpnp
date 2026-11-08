@@ -691,6 +691,22 @@ impl App {
     pub fn hover_data_table_cell(&mut self, row_text: &str, column: &str) {
         let position = self.data_table_cell_position(row_text, column);
 
+        self.hover_at(position);
+    }
+
+    /// Moves the pointer over a data table's cell of a row, by the row's number, such as a row with no text yet, as
+    /// [`Self::hover_data_table_cell`] does.
+    pub fn hover_data_table_cell_in_row_numbered(&mut self, row_number: usize, column: &str) {
+        self.wait_for_text(&row_number.to_string());
+        self.wait_for_text(column);
+        self.wait_for_the_layout();
+        let position = egui::pos2(self.text_position(column).x, self.row_number_position(row_number).y);
+
+        self.hover_at(position);
+    }
+
+    /// Moves the pointer away, then over the position, so a tooltip shown is of what's there.
+    fn hover_at(&mut self, position: egui::Pos2) {
         self.harness
             .event(egui::Event::PointerGone);
         self.harness.step();
