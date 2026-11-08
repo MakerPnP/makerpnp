@@ -180,6 +180,10 @@ pub enum Event {
     /// sends its view (`STORE-17`).
     OpenTable { kind: TableKind, source: Source },
 
+    /// Reads the table again, identifying its data source first if it hasn't been, then sends its view if it changed,
+    /// for a data source whose watch was refused, or whose change wasn't noticed (`STORE-17`).
+    LoadTable { kind: TableKind, source: Source },
+
     /// Changes the table's rows, by their keys and their columns' references, if their values are still those of the
     /// rows the change was made to, then reads the table again, and sends its view (`STORE-19`).
     ChangeTable {
@@ -603,6 +607,23 @@ impl Stores {
                 }
 
                 Ok(Self::resolve_table(kind, source))
+            }
+            Event::LoadTable {
+                kind,
+                source,
+            } => {
+                let Some(resolved) = model
+                    .table_aliases
+                    .get(&(kind, source.clone()))
+                    .cloned()
+                else {
+                    return Ok(Self::resolve_table(kind, source));
+                };
+                let state = model
+                    .tables
+                    .entry((kind, resolved.clone()))
+                    .or_default();
+                Ok(render::render().and(Self::read_table_again(state, kind, &resolved)))
             }
             Event::TableSourceResolved {
                 kind,
@@ -1307,10 +1328,10 @@ impl Stores {
                 columns,
                 position,
             } => (columns, position),
-            // `STORE-21`, an assembly rule has no EDA tool, so its table has no EDA tool's columns.
+            // `STORE-21`, an assembly rule, or a part, has no EDA tool, so its table has no EDA tool's columns.
             ColumnsToAdd::EdaTool {
                 ..
-            } if matches!(records.table, Table::AssemblyRules(_)) => {
+            } if matches!(records.table, Table::AssemblyRules(_) | Table::Parts(_)) => {
                 return Err(StoresError::NoEdaToolColumns {
                     kind,
                     data_source: source.clone(),

@@ -494,6 +494,8 @@ fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::
                 item.rule.mpn = mpn.clone();
             }
         }
+        // FUTURE `STORE-20`, the CLI's next step.
+        TableRow::Parts(_) => bail!(not_changeable(view)),
     }
     Ok(())
 }

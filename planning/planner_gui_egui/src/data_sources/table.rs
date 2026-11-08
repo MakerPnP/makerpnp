@@ -165,8 +165,8 @@ impl PendingChange {
                 match &mut new {
                     TableRow::PartMappings(item) => item.eda_tool = self.eda_tool,
                     TableRow::Substitutions(item) => item.eda_tool = self.eda_tool,
-                    // an assembly rule has no EDA tool, so has no columns to add for one.
-                    TableRow::AssemblyRules(_) => return None,
+                    // an assembly rule, or a part, has no EDA tool, so has no columns to add for one.
+                    TableRow::AssemblyRules(_) | TableRow::Parts(_) => return None,
                 }
                 Some((
                     TableChange::Update {
@@ -1081,6 +1081,8 @@ impl Problem {
             TableRow::PartMappings(item) => (item.eda_tool, &item.criteria),
             TableRow::Substitutions(item) => (item.eda_tool, &item.criteria),
             TableRow::AssemblyRules(item) => return Self::of_assembly_rule(item),
+            // FUTURE `VBGUI-16`, the GUI's next step.
+            TableRow::Parts(_) => return vec![],
         };
         let mut problems = vec![];
         if criteria.iter().any(|criterion| {
@@ -1109,7 +1111,7 @@ impl Problem {
                     problems.push(Problem::ChangesNothing);
                 }
             }
-            TableRow::AssemblyRules(_) => {}
+            TableRow::AssemblyRules(_) | TableRow::Parts(_) => {}
         }
         problems
     }

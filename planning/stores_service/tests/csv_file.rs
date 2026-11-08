@@ -1233,6 +1233,147 @@ fn changes_assembly_rules() {
     assert_eq!(revision, self::revision(&source));
 }
 
+/// Parts with their other values' columns in an order of their own, around the part's.
+const PARTS_TABLE: &str = "\"LCSC\",\"Manufacturer\",\"Package\",\"Mpn\"\n\
+                           \"C1234\",\"RESCO\",\"0402\",\"1234\"\n\
+                           \"\",\"CAPCO\",\"0603\",\"CAP1\"\n";
+
+/// `STORE-17`, parts are read as a table, their manufacturer's and MPN's columns first, then each other value's, in
+/// the file's order, even with no rows, each value as text; `STORE-19`, their rows' keys are their places in the file,
+/// their columns' references the file's headers, as they're written, and their rows are ordered by their place; a file
+/// without a manufacturer's or an MPN's header is refused, saying which.
+#[test]
+fn reads_parts_as_a_table() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "parts.csv", PARTS_TABLE);
+
+    let records = read_table(TableKind::Parts, &source)
+        .unwrap()
+        .expect("a table");
+
+    assert_eq!(records.keys, vec![RowKey("0".to_string()), RowKey("1".to_string())]);
+    assert_eq!(records.ordering, RowOrdering::Position);
+    assert_eq!(references(&records), vec![
+        ("Manufacturer", Some("Manufacturer")),
+        ("Mpn", Some("Mpn")),
+        ("LCSC", Some("LCSC")),
+        ("Package", Some("Package")),
+    ]);
+    assert_eq!(
+        records.table,
+        Table::Parts(vec![
+            item("RESCO", "1234", &[("LCSC", "C1234"), ("Package", "0402")]),
+            item("CAPCO", "CAP1", &[("LCSC", ""), ("Package", "0603")]),
+        ])
+    );
+
+    let source = csv_file(folder.path(), "empty.csv", "\"Manufacturer\",\"Mpn\",\"LCSC\"\n");
+    let records = read_table(TableKind::Parts, &source)
+        .unwrap()
+        .expect("a table");
+    assert!(records.table.is_empty());
+    assert_eq!(references(&records), vec![
+        ("Manufacturer", Some("Manufacturer")),
+        ("Mpn", Some("Mpn")),
+        ("LCSC", Some("LCSC")),
+    ]);
+
+    let cases = [
+        ("\"Mpn\",\"LCSC\"\n\"MPN1\",\"C1\"\n", "Manufacturer"),
+        ("\"Manufacturer\"\n", "Mpn"),
+        // as they're written.
+        ("\"Manufacturer\",\"mpn\"\n", "Mpn"),
+    ];
+    for (contents, missing) in cases {
+        let source = csv_file(folder.path(), "missing.csv", contents);
+
+        let error = read_table(TableKind::Parts, &source).unwrap_err();
+
+        assert!(
+            error.contains(&format!("Missing header. header: '{}'", missing)),
+            "{contents}: {error}"
+        );
+    }
+}
+
+/// `STORE-19`, a part's manufacturer, MPN and other values are updated, and rows added, removed and moved, as part
+/// mappings' are; `STORE-21`, named columns are added to them, and an EDA tool's refused.
+#[test]
+fn changes_parts() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "parts.csv", PARTS_TABLE);
+    let change = |change: RowsChange| change_rows_of(TableKind::Parts, &source, change).unwrap();
+    let field = |column: &str, old: &str, new: &str| FieldChange {
+        column: ColumnRef(column.to_string()),
+        old: old.to_string(),
+        new: new.to_string(),
+    };
+
+    change(RowsChange::Update {
+        key: RowKey("1".to_string()),
+        changes: vec![
+            field("Manufacturer", "CAPCO", "CAPCO2"),
+            field("Mpn", "CAP1", "CAP2"),
+            field("LCSC", "", "C5678"),
+        ],
+    });
+    assert_eq!(
+        contents(&source),
+        "\"LCSC\",\"Manufacturer\",\"Package\",\"Mpn\"\n\
+         \"C1234\",\"RESCO\",\"0402\",\"1234\"\n\
+         \"C5678\",\"CAPCO2\",\"0603\",\"CAP2\"\n"
+    );
+
+    change(RowsChange::Add {
+        values: vec![value("Manufacturer", "MFR3"), value("Mpn", "MPN3")],
+    });
+    assert_eq!(
+        contents(&source),
+        "\"LCSC\",\"Manufacturer\",\"Package\",\"Mpn\"\n\
+         \"C1234\",\"RESCO\",\"0402\",\"1234\"\n\
+         \"C5678\",\"CAPCO2\",\"0603\",\"CAP2\"\n\
+         \"\",\"MFR3\",\"\",\"MPN3\"\n"
+    );
+
+    change(RowsChange::Move {
+        row: row_ref("2", &[("Mpn", "MPN3")]),
+        before: Some(row_ref("0", &[("Mpn", "1234")])),
+    });
+    assert_eq!(
+        contents(&source),
+        "\"LCSC\",\"Manufacturer\",\"Package\",\"Mpn\"\n\
+         \"\",\"MFR3\",\"\",\"MPN3\"\n\
+         \"C1234\",\"RESCO\",\"0402\",\"1234\"\n\
+         \"C5678\",\"CAPCO2\",\"0603\",\"CAP2\"\n"
+    );
+
+    change(RowsChange::Remove {
+        row: row_ref("2", &[("Manufacturer", "CAPCO2"), ("Mpn", "CAP2"), ("LCSC", "C5678")]),
+    });
+    assert_eq!(
+        contents(&source),
+        "\"LCSC\",\"Manufacturer\",\"Package\",\"Mpn\"\n\
+         \"\",\"MFR3\",\"\",\"MPN3\"\n\
+         \"C1234\",\"RESCO\",\"0402\",\"1234\"\n"
+    );
+
+    let revision = add_columns_of(TableKind::Parts, &source, &["Notes"], ColumnPosition::Last).unwrap();
+    assert_eq!(
+        contents(&source),
+        "\"LCSC\",\"Manufacturer\",\"Package\",\"Mpn\",\"Notes\"\n\
+         \"\",\"MFR3\",\"\",\"MPN3\",\"\"\n\
+         \"C1234\",\"RESCO\",\"0402\",\"1234\",\"\"\n"
+    );
+    assert_eq!(revision, self::revision(&source));
+
+    let before = contents(&source);
+    assert!(matches!(
+        add_columns_of(TableKind::Parts, &source, &["Device"], ColumnPosition::EdaToolColumns),
+        Err(AddColumnsError::Failed { .. })
+    ));
+    assert_eq!(contents(&source), before);
+}
+
 fn add_columns(source: &Source, columns: &[&str], position: ColumnPosition) -> Result<Revision, AddColumnsError> {
     add_columns_of(TableKind::PartMappings, source, columns, position)
 }

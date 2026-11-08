@@ -304,6 +304,8 @@ pub enum TableKind {
     PartMappings,
     Substitutions,
     AssemblyRules,
+    /// A parts data source's parts, each with its other values.
+    Parts,
     /// A variant's placements, as built.
     Placements,
     /// A variant's BOM, as built.
@@ -320,6 +322,8 @@ pub enum Table {
     PartMappings(Vec<PartMappingsViewItem>),
     Substitutions(Vec<SubstitutionsViewItem>),
     AssemblyRules(Vec<AssemblyRulesViewItem>),
+    /// Each part with a value of every other name the data source has.
+    Parts(Vec<PartsViewItem>),
     Placements(Vec<PlacementsViewItem>),
     Bom(Vec<BomViewItem>),
 }
@@ -330,6 +334,7 @@ pub enum TableRow {
     PartMappings(PartMappingsViewItem),
     Substitutions(SubstitutionsViewItem),
     AssemblyRules(AssemblyRulesViewItem),
+    Parts(PartsViewItem),
 }
 
 impl TableRow {
@@ -377,15 +382,27 @@ impl TableRow {
                 (ColumnValue::Manufacturer, item.rule.manufacturer.clone()),
                 (ColumnValue::Mpn, item.rule.mpn.clone()),
             ],
+            TableRow::Parts(item) => {
+                let mut values = vec![
+                    (ColumnValue::Manufacturer, item.part.manufacturer.clone()),
+                    (ColumnValue::Mpn, item.part.mpn.clone()),
+                ];
+                values.extend(
+                    item.fields
+                        .iter()
+                        .map(|(name, value)| (ColumnValue::Field(name.clone()), value.clone())),
+                );
+                values
+            }
         }
     }
 
-    /// The row's EDA tool, none if its kind has none, as an assembly rule hasn't.
+    /// The row's EDA tool, none if its kind has none, as an assembly rule, or a part, hasn't.
     pub fn eda_tool(&self) -> Option<EdaTool> {
         match self {
             TableRow::PartMappings(item) => Some(item.eda_tool),
             TableRow::Substitutions(item) => Some(item.eda_tool),
-            TableRow::AssemblyRules(_) => None,
+            TableRow::AssemblyRules(_) | TableRow::Parts(_) => None,
         }
     }
 }
@@ -540,6 +557,8 @@ pub enum ColumnValue {
     Pattern(String),
     /// The value a field is substituted with, by the field's name.
     Substitute(String),
+    /// A part's other value, by its name, as the data source names it, such as `LCSC`.
+    Field(String),
     Manufacturer,
     Mpn,
     Designator,
@@ -573,6 +592,7 @@ impl Table {
             Table::PartMappings(items) => items.len(),
             Table::Substitutions(items) => items.len(),
             Table::AssemblyRules(items) => items.len(),
+            Table::Parts(items) => items.len(),
             Table::Placements(items) => items.len(),
             Table::Bom(items) => items.len(),
         }
@@ -582,11 +602,11 @@ impl Table {
         self.len() == 0
     }
 
-    /// Whether the table's kind can be changed (`STORE-19`), part mappings, substitutions and assembly rules for now.
+    /// Whether the table's kind can be changed (`STORE-19`): part mappings, substitutions, assembly rules and parts.
     pub fn is_changeable(&self) -> bool {
         matches!(
             self,
-            Table::PartMappings(_) | Table::Substitutions(_) | Table::AssemblyRules(_)
+            Table::PartMappings(_) | Table::Substitutions(_) | Table::AssemblyRules(_) | Table::Parts(_)
         )
     }
 
@@ -605,6 +625,10 @@ impl Table {
                 .get(index)
                 .cloned()
                 .map(TableRow::AssemblyRules),
+            Table::Parts(items) => items
+                .get(index)
+                .cloned()
+                .map(TableRow::Parts),
             _ => None,
         }
     }
@@ -677,6 +701,23 @@ impl Table {
                 TableColumn::new("Manufacturer", Manufacturer),
                 TableColumn::new("Mpn", Mpn),
             ],
+            Table::Parts(items) => {
+                let mut columns = vec![
+                    TableColumn::new("Manufacturer", Manufacturer),
+                    TableColumn::new("Mpn", Mpn),
+                ];
+                let names = first_found(
+                    items
+                        .iter()
+                        .flat_map(|item| item.fields.keys()),
+                );
+                columns.extend(
+                    names
+                        .into_iter()
+                        .map(|name| TableColumn::new(name.clone(), Field(name))),
+                );
+                columns
+            }
             Table::Placements(_) => vec![
                 TableColumn::new("RefDes", RefDes),
                 TableColumn::new("Manufacturer", Manufacturer),
@@ -762,6 +803,18 @@ impl Table {
                     RefDes => borrowed(rule.ref_des.as_str()),
                     Manufacturer => borrowed(rule.manufacturer.as_str()),
                     Mpn => borrowed(rule.mpn.as_str()),
+                    _ => empty(),
+                }
+            }
+            Table::Parts(items) => {
+                let item = &items[row];
+                match value {
+                    Manufacturer => borrowed(item.part.manufacturer.as_str()),
+                    Mpn => borrowed(item.part.mpn.as_str()),
+                    Field(name) => item
+                        .fields
+                        .get(name)
+                        .map_or_else(empty, |value| borrowed(value.as_str())),
                     _ => empty(),
                 }
             }

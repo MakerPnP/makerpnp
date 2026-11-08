@@ -278,6 +278,28 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
         }
         records.ordering = RowOrdering::Position;
     }
+    // `STORE-19`, parts likewise, a column for each of their other values, in the file's order, even with no rows, a
+    // file without a manufacturer's or an MPN's header having been refused as it was read (`STORE-17`).
+    if kind == TableKind::Parts {
+        let headers = stores::parts::read_headers(contents.as_slice())
+            .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+        let column = |name: &str, value: ColumnValue| TableColumn {
+            name: name.to_string(),
+            value,
+            reference: Some(ColumnRef(name.to_string())),
+        };
+        records.columns = vec![
+            column("Manufacturer", ColumnValue::Manufacturer),
+            column("Mpn", ColumnValue::Mpn),
+        ];
+        records.columns.extend(
+            headers
+                .iter()
+                .filter(|header| *header != "Manufacturer" && *header != "Mpn")
+                .map(|header| column(header, ColumnValue::Field(header.clone()))),
+        );
+        records.ordering = RowOrdering::Position;
+    }
 
     Ok(Some(records))
 }
@@ -318,6 +340,16 @@ pub fn read_table_of(kind: TableKind, contents: &[u8]) -> anyhow::Result<Table> 
                     })
                 })
                 .collect::<anyhow::Result<_>>()?,
+        ),
+        // each value as text, as it is in the file (`ISSUE-23`).
+        TableKind::Parts => Table::Parts(
+            stores::parts::read_parts(contents)?
+                .into_iter()
+                .map(|(part, fields)| PartsViewItem {
+                    part,
+                    fields: fields.into_iter().collect(),
+                })
+                .collect(),
         ),
         TableKind::Placements => Table::Placements(
             stores::placements::read_all_placements(contents)?
@@ -465,6 +497,7 @@ fn table_name(kind: TableKind) -> &'static str {
         TableKind::PartMappings => "part mappings",
         TableKind::Substitutions => "eda substitutions",
         TableKind::AssemblyRules => "assembly rules",
+        TableKind::Parts => "parts",
         TableKind::Placements => "placements",
         TableKind::Bom => "bom",
     }
@@ -561,7 +594,7 @@ pub async fn change_rows(kind: TableKind, source: &Source, change: &RowsChange) 
     };
     if !matches!(
         kind,
-        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules
+        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules | TableKind::Parts
     ) {
         return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
     }
@@ -690,12 +723,12 @@ pub async fn add_columns(
     };
     if !matches!(
         kind,
-        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules
+        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules | TableKind::Parts
     ) {
         return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
     }
-    // the core refuses them, as assembly rules have no EDA tool.
-    if kind == TableKind::AssemblyRules && *position == ColumnPosition::EdaToolColumns {
+    // the core refuses them, as assembly rules and parts have no EDA tool.
+    if matches!(kind, TableKind::AssemblyRules | TableKind::Parts) && *position == ColumnPosition::EdaToolColumns {
         return Err(failed("The table has no EDA tool's columns.".to_string()));
     }
 

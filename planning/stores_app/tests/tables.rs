@@ -3,16 +3,16 @@
 //! The core is pure, so these tests answer the store operations it asks for themselves, with no files (`STORE-7`). The
 //! stores service's tests check the operations are done (`planning/stores_service/tests/`).
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
     AddColumnsError, AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnPosition, ColumnRef, ColumnValue,
     ColumnsToAdd, EdaSubstitutionRuleTransformItem, EdaTool, Effect, Event, FieldChange, FieldPattern, FieldValue,
-    Part, PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange,
-    Source, Stores, StoresOperation, StoresOutput, SubstitutionsViewItem, Table, TableChange, TableKind, TableRecords,
-    TableRow, TableView, TableViewRendererOperation,
+    Part, PartMappingsViewItem, PartsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef,
+    RowsChange, Source, Stores, StoresOperation, StoresOutput, SubstitutionsViewItem, Table, TableChange, TableKind,
+    TableRecords, TableRow, TableView, TableViewRendererOperation,
 };
 
 fn source(path: &str) -> Source {
@@ -1732,4 +1732,226 @@ fn an_eda_tools_columns_for_assembly_rules_are_refused() {
         columns: strings(&["Notes"]),
         position: ColumnPosition::Last,
     });
+}
+
+const PARTS: TableKind = TableKind::Parts;
+
+fn part(manufacturer: &str, mpn: &str, lcsc: &str) -> PartsViewItem {
+    PartsViewItem {
+        part: Part::new(manufacturer.to_string(), mpn.to_string()),
+        fields: BTreeMap::from([("LCSC".to_string(), lcsc.to_string())]),
+    }
+}
+
+/// Opens parts, `parts.csv`, identified as `/folder/parts.csv`, with the rows, and takes the operations.
+fn given_open_parts(shell: &mut Shell, rows: &[PartsViewItem]) -> (Source, Source) {
+    let as_asked = source("parts.csv");
+    let resolved = source("/folder/parts.csv");
+    let (_views, error) = shell.process(
+        Event::OpenTable {
+            kind: PARTS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::Parts(rows.to_vec())))),
+    );
+    assert_eq!(error, None);
+    shell.take_operations();
+    (as_asked, resolved)
+}
+
+/// `STORE-19`, a change to parts has the service change the rows by their keys and their columns' references, updating
+/// only a row's values that changed, its manufacturer, MPN and other values, adding a row's values, and removing or
+/// moving a row, checking its values, as part mappings' are.
+#[test]
+fn a_change_to_parts_has_the_service_change_their_rows() {
+    let p1 = part("MFR1", "MPN1", "C1");
+    let p2 = part("MFR2", "MPN2", "");
+    let row = |item: &PartsViewItem| TableRow::Parts(item.clone());
+    let expected = |manufacturer: &str, mpn: &str, lcsc: &str| {
+        vec![
+            value("Manufacturer", manufacturer),
+            value("Mpn", mpn),
+            value("LCSC", lcsc),
+        ]
+    };
+    let field = |column: &str, old: &str, new: &str| FieldChange {
+        column: ColumnRef(column.to_string()),
+        old: old.to_string(),
+        new: new.to_string(),
+    };
+    let cases = [
+        (
+            TableChange::Update {
+                key: key("1"),
+                old: row(&p2),
+                new: row(&part("MFR3", "MPN3", "C3")),
+            },
+            RowsChange::Update {
+                key: key("1"),
+                changes: vec![
+                    field("Manufacturer", "MFR2", "MFR3"),
+                    field("Mpn", "MPN2", "MPN3"),
+                    field("LCSC", "", "C3"),
+                ],
+            },
+        ),
+        (
+            TableChange::Update {
+                key: key("0"),
+                old: row(&p1),
+                new: row(&part("MFR1", "MPN1", "C2")),
+            },
+            RowsChange::Update {
+                key: key("0"),
+                changes: vec![field("LCSC", "C1", "C2")],
+            },
+        ),
+        (
+            TableChange::Add {
+                row: row(&part("MFR4", "MPN4", "C4")),
+            },
+            RowsChange::Add {
+                values: expected("MFR4", "MPN4", "C4"),
+            },
+        ),
+        (
+            TableChange::Remove {
+                key: key("0"),
+                row: row(&p1),
+            },
+            RowsChange::Remove {
+                row: RowRef {
+                    key: key("0"),
+                    expected: expected("MFR1", "MPN1", "C1"),
+                },
+            },
+        ),
+        (
+            TableChange::Move {
+                key: key("1"),
+                row: row(&p2),
+                before: Some((key("0"), row(&p1))),
+            },
+            RowsChange::Move {
+                row: RowRef {
+                    key: key("1"),
+                    expected: expected("MFR2", "MPN2", ""),
+                },
+                before: Some(RowRef {
+                    key: key("0"),
+                    expected: expected("MFR1", "MPN1", "C1"),
+                }),
+            },
+        ),
+    ];
+
+    for (change, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved) = given_open_parts(&mut shell, &[p1.clone(), p2.clone()]);
+
+        let (views, error) = shell.process(
+            Event::ChangeTable {
+                kind: PARTS,
+                source: as_asked.clone(),
+                change: change.clone(),
+            },
+            changes_then_reads(&resolved, Table::Parts(vec![p1.clone()])),
+        );
+
+        assert_eq!(error, None, "{:?}", change);
+        assert_eq!(
+            shell.take_operations()[0],
+            StoresOperation::ChangeRows {
+                kind: PARTS,
+                source: resolved.clone(),
+                change: expected,
+            },
+            "{:?}",
+            change
+        );
+        assert_eq!(views.len(), 1, "{:?}", change);
+    }
+}
+
+/// `STORE-21`, an EDA tool's columns asked for parts, which have no EDA tool, are refused, nothing asked of the
+/// service.
+#[test]
+fn an_eda_tools_columns_for_parts_are_refused() {
+    let mut shell = Shell::new();
+    let (as_asked, _resolved) = given_open_parts(&mut shell, &[part("MFR1", "MPN1", "C1")]);
+
+    let (views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: PARTS,
+            source: as_asked,
+            columns: ColumnsToAdd::EdaTool {
+                eda_tool: EdaTool::KiCad,
+            },
+        },
+        no_operations,
+    );
+
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        error,
+        Some("The table has no EDA tool's columns. kind: Parts, source: '/folder/parts.csv'".to_string())
+    );
+    assert_eq!(shell.take_operations(), vec![]);
+}
+
+/// `STORE-17`, a table loaded again is read again, its view sent only if it changed, and one not yet identified is
+/// identified first, then read, and watched.
+#[test]
+fn a_table_loaded_again_is_read_again() {
+    let mut shell = Shell::new();
+    let rows = vec![part("MFR1", "MPN1", "C1")];
+    let (as_asked, resolved) = given_open_parts(&mut shell, &rows);
+
+    let (views, error) = shell.process(
+        Event::LoadTable {
+            kind: PARTS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::Parts(rows.clone())))),
+    );
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![StoresOperation::ReadTable {
+        kind: PARTS,
+        source: resolved.clone(),
+    }]);
+    // unchanged, so no view.
+    assert_eq!(views, vec![]);
+
+    let changed = vec![part("MFR1", "MPN1", "C2")];
+    let (views, error) = shell.process(
+        Event::LoadTable {
+            kind: PARTS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::Parts(changed.clone())))),
+    );
+    assert_eq!(error, None);
+    assert_eq!(views.len(), 1);
+    assert_eq!(views[0].table, Table::Parts(changed));
+
+    let mut shell = Shell::new();
+    let (views, error) = shell.process(
+        Event::LoadTable {
+            kind: PARTS,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::Parts(rows.clone())))),
+    );
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations(), vec![
+        StoresOperation::ResolveSource {
+            source: as_asked,
+        },
+        StoresOperation::ReadTable {
+            kind: PARTS,
+            source: resolved.clone(),
+        },
+    ]);
+    assert_eq!(shell.watched(), vec![resolved]);
+    assert_eq!(views.len(), 1);
 }
