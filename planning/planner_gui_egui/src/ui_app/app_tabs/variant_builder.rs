@@ -3,7 +3,7 @@
 //! "Overview", whose data sources are chosen, in groups, then saved, and built, and a panel for each data source and
 //! output (`VBGUI`).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::mem::discriminant;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,7 +15,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use egui_ltreeview::TreeViewState;
 use serde::{Deserialize, Serialize};
-use stores_app::{ColumnsToAdd, Source, TableKind, TableRow};
+use stores_app::{Source, TableKind, TableRow};
 use tracing::debug;
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
@@ -26,11 +26,8 @@ use variantbuilder_app::{
     VariantBuilderView,
 };
 
-use crate::data_sources::parts_table::show_parts_table;
-use crate::data_sources::table::{
-    TableEditing, TableRequest, TableState, TableUiCommand, is_changed_here, new_row, show_row_buttons, show_table,
-    update_table,
-};
+use crate::data_sources::panel::{DataSourcePanel, DataSourcePanelUiCommand};
+use crate::data_sources::table::new_row;
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
 use crate::forms::{Form, NamedResponse};
@@ -46,13 +43,6 @@ mod panels;
 
 use panels::Panels;
 pub use panels::{DataSource, Output, Panel};
-
-/// A data source the tab has asked the stores core to open, so it's asked once (`VBGUI-11`).
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum Opened {
-    Parts(Source),
-    Table(TableKind, Source),
-}
 
 /// A field of a variant builder whose value is a file the user chooses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -128,15 +118,11 @@ pub struct VariantBuilderTab {
     #[derivative(Debug = "ignore")]
     tree_view_state: Value<TreeViewState<usize>>,
 
-    /// The data sources the tab has asked the stores core to open.
-    #[serde(skip)]
-    opened: BTreeSet<Opened>,
-
-    /// Each changeable table's cell being edited, and its rows selected, by its kind and its data source as it was asked
-    /// for (`VBGUI-13`).
+    /// The data source panel's state, of every table the tab's panels show: the tables it has had the stores core
+    /// open, and each changeable table's cell being edited, and its rows selected (`VBGUI-11`, `VBGUI-13`).
     #[serde(skip)]
     #[derivative(Debug = "ignore")]
-    table_editors: Value<BTreeMap<(TableKind, Source), TableState>>,
+    data_source_panel: DataSourcePanel,
 }
 
 #[derive(Debug, Clone)]
@@ -172,12 +158,8 @@ pub enum VariantBuilderTabUiCommand {
     // internal
     /// Opens the variant builder, reading its file.
     Open,
-    /// Has the stores core open a data source's parts, which a panel shows (`VBGUI-11`).
-    OpenParts(Source),
-    /// Has the stores core open a data source's table, which a panel shows (`VBGUI-11`, `VBGUI-12`).
-    OpenTable(TableKind, Source),
-    /// A table's command, a cell edited, or a change to make, with the stores core (`VBGUI-13`).
-    Table(TableKind, Source, TableUiCommand),
+    /// A data source panel's command, such as opening its table, or a cell edited (`VBGUI-11`, `VBGUI-13`).
+    Panel(DataSourcePanelUiCommand),
 }
 
 #[derive(Debug)]
@@ -460,69 +442,9 @@ impl UiComponent for VariantBuilderTab {
                 self.panels.lock().unwrap().show(panel);
                 None
             }
-            VariantBuilderTabUiCommand::OpenParts(source) => {
-                // `STORE-5`, asked once, as it's loaded once, and shown by every view of it.
-                if self
-                    .opened
-                    .insert(Opened::Parts(source.clone()))
-                {
-                    context
-                        .stores
-                        .lock()
-                        .unwrap()
-                        .process(stores_app::Event::OpenParts {
-                            source,
-                        });
-                }
-                None
-            }
-            VariantBuilderTabUiCommand::OpenTable(kind, source) => {
-                // `STORE-17`, asked once, as it's loaded once, and watched.
-                if self
-                    .opened
-                    .insert(Opened::Table(kind, source.clone()))
-                {
-                    context
-                        .stores
-                        .lock()
-                        .unwrap()
-                        .process(stores_app::Event::OpenTable {
-                            kind,
-                            source,
-                        });
-                }
-                None
-            }
-            VariantBuilderTabUiCommand::Table(kind, source, command) => {
-                let change = {
-                    let mut editors = self.table_editors.lock().unwrap();
-                    let state = editors
-                        .entry((kind, source.clone()))
-                        .or_default();
-                    update_table(state, command)
-                };
-                // `STORE-19`, written at once, so every view of the data source shows it, or, `STORE-21`, the columns a
-                // row's change needs added first.
-                let event = match change {
-                    Some(TableRequest::Change(change)) => stores_app::Event::ChangeTable {
-                        kind,
-                        source,
-                        change,
-                    },
-                    Some(TableRequest::AddColumns(eda_tool)) => stores_app::Event::AddTableColumns {
-                        kind,
-                        source,
-                        columns: ColumnsToAdd::EdaTool {
-                            eda_tool,
-                        },
-                    },
-                    None => return None,
-                };
-                context
-                    .stores
-                    .lock()
-                    .unwrap()
-                    .process(event);
+            VariantBuilderTabUiCommand::Panel(command) => {
+                self.data_source_panel
+                    .update(command, &context.stores);
                 None
             }
             VariantBuilderTabUiCommand::Changed(change) => {
@@ -1289,7 +1211,7 @@ impl PanelViewer<'_> {
         };
         let data_source = Source::File(source_path(self.path, path));
         let kind = match source {
-            DataSource::Parts => return self.show_parts(ui, data_source),
+            DataSource::Parts => TableKind::Parts,
             DataSource::Placements => match view.file.eda_tool {
                 Some(eda_tool) => TableKind::EdaPlacements {
                     eda_tool,
@@ -1304,7 +1226,7 @@ impl PanelViewer<'_> {
             DataSource::AssemblyRules => TableKind::AssemblyRules,
         };
         // `VBGUI-13`, `VBGUI-14`, a part mapping, or a substitution, added is of the variant builder's EDA tool, and
-        // `VBGUI-15`, an assembly rule, which has none, is added whether or not it has one.
+        // `VBGUI-15`, `VBGUI-16`, an assembly rule, or a part, which has none, is added whether or not it has one.
         let new_row = new_row(kind, view.file.eda_tool);
         self.show_table(ui, kind, data_source, new_row);
     }
@@ -1323,123 +1245,17 @@ impl PanelViewer<'_> {
         self.show_table(ui, kind, Source::File(path), None);
     }
 
-    /// The table, filling the panel, once it's loaded, and why it can't be, having the stores core open it if it hasn't
-    /// (`STORE-17`). One whose kind can be changed is edited, with buttons above it, adding `new_row` (`VBGUI-13`).
+    /// The table, with the GUI's one data source panel, as a parts tab shows its parts (`VBGUI-11`, `PARTSRC-3`), which
+    /// edits one whose kind can be changed, "Add row" adding `new_row` (`VBGUI-13`).
     fn show_table(&self, ui: &mut Ui, kind: TableKind, source: Source, new_row: Option<TableRow>) {
-        let (status, view) = {
-            let stores = self.stores.lock().unwrap();
-            let status = stores.table_status(kind, &source);
-            let view = status
-                .as_ref()
-                .and_then(|status| stores.table_view(kind, &status.source));
-            (status, view)
-        };
-        if status.is_none() {
+        let send = |command: DataSourcePanelUiCommand| {
             self.tab
                 .component
-                .send(VariantBuilderTabUiCommand::OpenTable(kind, source.clone()));
-        }
-
-        show_source(
-            ui,
-            &source,
-            status
-                .as_ref()
-                .and_then(|status| status.error.as_ref()),
-        );
-        // `VBGUI-13`, why the last change was refused, until one succeeds.
-        if let Some(error) = status
-            .as_ref()
-            .and_then(|status| status.change_error.as_ref())
-        {
-            ui.colored_label(ui.visuals().error_fg_color, error);
-        }
-        match view {
-            Some(view) if is_changed_here(&view) => {
-                let changing = status
-                    .as_ref()
-                    .is_some_and(|status| status.changing);
-                // a change is written, then the table's read again, so its view shows it once neither is under way.
-                let reading = status
-                    .as_ref()
-                    .is_some_and(|status| status.reading);
-                let send = |command: TableUiCommand| {
-                    self.tab
-                        .component
-                        .send(VariantBuilderTabUiCommand::Table(kind, source.clone(), command))
-                };
-                // the table's own state, kept across frames, as egui keeps a widget's.
-                let mut editors = self.tab.table_editors.lock().unwrap();
-                let state = editors
-                    .entry((kind, source.clone()))
-                    .or_default();
-                show_row_buttons(ui, &view, state, new_row, changing, &send);
-                show_table(
-                    ui,
-                    ui.id().with("table"),
-                    view,
-                    Some(TableEditing {
-                        state,
-                        send: &send,
-                        busy: changing || reading,
-                        refused: status
-                            .as_ref()
-                            .is_some_and(|status| status.change_error.is_some()),
-                    }),
-                );
-            }
-            Some(view) => show_table(ui, ui.id().with("table"), view, None),
-            None if status
-                .as_ref()
-                .is_none_or(|status| status.reading) =>
-            {
-                ui.spinner();
-            }
-            None => {}
-        }
-    }
-
-    /// The parts, as the parts tabs show them (`STORE-2`), filling the panel.
-    fn show_parts(&self, ui: &mut Ui, source: Source) {
-        let (status, view) = {
-            let stores = self.stores.lock().unwrap();
-            let status = stores.parts_source_status(&source);
-            let view = status
-                .as_ref()
-                .and_then(|status| stores.parts_view(&status.source));
-            (status, view)
+                .send(VariantBuilderTabUiCommand::Panel(command))
         };
-        if status.is_none() {
-            self.tab
-                .component
-                .send(VariantBuilderTabUiCommand::OpenParts(source.clone()));
-        }
-
-        show_source(
-            ui,
-            &source,
-            status
-                .as_ref()
-                .and_then(|status| status.error.as_ref()),
-        );
-        match view {
-            Some(view) => show_parts_table(ui, view, None),
-            None if status
-                .as_ref()
-                .is_none_or(|status| status.reading) =>
-            {
-                ui.spinner();
-            }
-            None => {}
-        }
-    }
-}
-
-/// The data source's file, and why it can't be read, if it can't, such as a BOM not yet built (`VBGUI-11`).
-fn show_source(ui: &mut Ui, source: &Source, error: Option<&String>) {
-    ui.label(tr!("variant-builder-data-source-path", { path: source.to_string() }));
-    if let Some(error) = error {
-        ui.colored_label(ui.visuals().error_fg_color, error);
+        self.tab
+            .data_source_panel
+            .show(ui, self.stores, kind, &source, new_row, &send);
     }
 }
 

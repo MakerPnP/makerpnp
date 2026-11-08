@@ -307,14 +307,15 @@ fn double_clicking_a_data_source_shows_its_table() {
 
     app.wait_for_logs_in_order(&[
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(DataSource { source: PartMappings, path: \"part-mappings.csv\" })",
-        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: OpenTable(PartMappings, ",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Panel(Open(PartMappings, ",
         "stores_app: Received event. event: OpenTable { kind: PartMappings, source: ",
         "stores_service: Performing stores operation. operation: ReadTable { kind: PartMappings, source: ",
         "stores_app: Loaded table. kind: PartMappings, source: '",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(Overview)",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(DataSource { source: Parts, ",
-        "stores_app: Received event. event: OpenParts {",
-        "stores_app: Loaded parts. source: '",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Panel(Open(Parts, ",
+        "stores_app: Received event. event: OpenTable { kind: Parts, source: ",
+        "stores_app: Loaded table. kind: Parts, source: '",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(DataSource { source: Placements, ",
         "stores_app: Loaded table. kind: EdaPlacements { eda_tool: DipTrace }, source: '",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(Overview)",
@@ -475,7 +476,7 @@ fn a_table_too_big_for_its_panel_ends_within_it() {
     // the last row, scrolled to, is shown, within the window.
     assert_last_row_is_shown(&mut app, "ROW_MPN199");
 
-    // as the parts are, shown as the parts view shows them.
+    // as the parts are, shown as a table too.
     let mut parts = "\"Manufacturer\",\"Mpn\"\n".to_string();
     for row in 0..200 {
         parts.push_str(&format!("\"MFR1\",\"PART_MPN{row}\"\n"));
@@ -492,7 +493,7 @@ fn a_table_too_big_for_its_panel_ends_within_it() {
 
     app.wait_for_logs_in_order(&[
         "stores_app: Loaded table. kind: PartMappings, source: '",
-        "stores_app: Loaded parts. source: '",
+        "stores_app: Loaded table. kind: Parts, source: '",
     ]);
     app.assert_not_logged("Event failed.");
 }
@@ -578,7 +579,7 @@ fn a_part_mappings_values_are_edited_in_their_cells() {
     );
 
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Table(PartMappings, ",
+        "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Panel(Table(PartMappings, ",
         "stores_app: Received event. event: ChangeTable { kind: PartMappings, ",
         "stores_service: Performing stores operation. operation: ChangeRows { kind: PartMappings, ",
         "stores_app: Changed table. kind: PartMappings, source: '",
@@ -671,7 +672,7 @@ fn a_part_mappings_rows_are_added_moved_and_removed() {
     app.assert_button_is_disabled("Move down");
 
     app.wait_for_logs_in_order(&[
-        "VariantBuilderTab command. command: Table(PartMappings, ",
+        "VariantBuilderTab command. command: Panel(Table(PartMappings, ",
         "ChangeRows(Add {",
         "stores_app: Received event. event: ChangeTable { kind: PartMappings, ",
         "stores_app: Changed table. kind: PartMappings, source: '",
@@ -934,7 +935,7 @@ fn a_design_substitutions_values_are_edited_and_its_rows_changed() {
     app.wait_for_text_containing("Used to substitute KiCad values.");
 
     app.wait_for_logs_in_order(&[
-        "VariantBuilderTab command. command: Table(Substitutions, ",
+        "VariantBuilderTab command. command: Panel(Table(Substitutions, ",
         "stores_app: Received event. event: ChangeTable { kind: Substitutions, ",
         "stores_app: Changed table. kind: Substitutions, source: '",
         "stores_app: Loaded table. kind: Substitutions, source: '",
@@ -1029,7 +1030,7 @@ fn a_global_substitutions_status_says_what_its_problems_are() {
     app.wait_for_text_containing("No problems.");
 
     app.wait_for_logs_in_order(&[
-        "VariantBuilderTab command. command: Table(Substitutions, ",
+        "VariantBuilderTab command. command: Panel(Table(Substitutions, ",
         "stores_app: Received event. event: ChangeTable { kind: Substitutions, ",
         "stores_app: Changed table. kind: Substitutions, source: '",
     ]);
@@ -1123,7 +1124,7 @@ fn an_assembly_rules_values_are_edited_and_its_rows_changed() {
     app.wait_until_text_is_gone("C1");
 
     app.wait_for_logs_in_order(&[
-        "VariantBuilderTab command. command: Table(AssemblyRules, ",
+        "VariantBuilderTab command. command: Panel(Table(AssemblyRules, ",
         "stores_app: Received event. event: ChangeTable { kind: AssemblyRules, ",
         "stores_app: Changed table. kind: AssemblyRules, source: '",
         "stores_app: Loaded table. kind: AssemblyRules, source: '",
@@ -1131,6 +1132,108 @@ fn an_assembly_rules_values_are_edited_and_its_rows_changed() {
         "ChangeShown(Row(2))",
         "ChangeRows(Remove {",
         "ChangeShown(NoRow)",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+const PARTS_HEADERS: &str = "\"Manufacturer\",\"Mpn\",\"LCSC\"\n";
+
+/// Waits for the file to have the rows, after the headers `PARTS_HEADERS` has.
+fn wait_for_parts(app: &mut App, path: &Path, rows: &[&str]) {
+    let mut expected = PARTS_HEADERS.to_string();
+    for row in rows {
+        expected.push_str(row);
+        expected.push('\n');
+    }
+    wait_for_file(app, path, &expected);
+}
+
+/// `VBGUI-11`, `VBGUI-16`, `STORE-19`, a variant builder's parts are changed in their panel, as a parts tab changes them:
+/// a part's manufacturer, MPN and other value edited in their cells, and its rows added, moved and removed, each written
+/// at once, a part's status saying which of its values are empty, and "Reload" reads them again.
+#[test]
+fn a_variant_builders_parts_are_changed_in_its_panel() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    let parts = folder.join("my-parts.csv");
+    let mut contents = PARTS_HEADERS.to_string();
+    contents.push_str("\"RESCO\",\"RES1\",\"C1\"\n");
+    contents.push_str("\"CAPCO\",\"CAP1\",\"\"\n");
+    fs::write(&parts, contents).unwrap();
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    choose(&mut app, "Parts", parts.clone());
+    // another panel in place of the "Overview", which lists the file too, so only the explorer has it.
+    app.double_click_text("Placements: board1.csv");
+    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("Parts: my-parts.csv");
+    app.wait_for_tab("Parts: my-parts.csv");
+    app.wait_for_text("CAPCO");
+    let headers = ["◑", "Manufacturer", "Mpn", "LCSC"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
+
+    app.hover_data_table_cell("RESCO", "◑");
+    app.wait_for_text_containing("No problems.");
+    app.hover_data_table_cell("CAPCO", "◑");
+    app.wait_for_text_containing("Empty LCSC.");
+
+    app.edit_data_table_cell_then_press_enter("RESCO", "Manufacturer", "RESCO2");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES1\",\"C1\"",
+        "\"CAPCO\",\"CAP1\",\"\"",
+    ]);
+    app.wait_for_text("RESCO2");
+    app.edit_data_table_cell_then_press_enter("RESCO2", "Mpn", "RES2");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"C1\"",
+        "\"CAPCO\",\"CAP1\",\"\"",
+    ]);
+    app.wait_for_text("RES2");
+    app.edit_data_table_cell_then_press_enter("CAPCO", "LCSC", "C2");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"C1\"",
+        "\"CAPCO\",\"CAP1\",\"C2\"",
+    ]);
+    app.wait_for_text("C2");
+
+    // with every value empty, selected once it's shown, so it's moved.
+    app.click_button("Add row");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"C1\"",
+        "\"CAPCO\",\"CAP1\",\"C2\"",
+        "\"\",\"\",\"\"",
+    ]);
+    app.hover_data_table_cell_in_row_numbered(3, "◑");
+    app.wait_for_text_containing("Empty Manufacturer.");
+    app.wait_for_text_containing("Empty Mpn.");
+    app.wait_for_text_containing("Empty LCSC.");
+    app.wait_for_enabled_button("Move up");
+    app.click_button("Move up");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"C1\"",
+        "\"\",\"\",\"\"",
+        "\"CAPCO\",\"CAP1\",\"C2\"",
+    ]);
+    app.click_button("Remove row");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"C1\"",
+        "\"CAPCO\",\"CAP1\",\"C2\"",
+    ]);
+
+    app.click_button("Reload");
+    app.wait_for_logs_in_order(&[
+        "VariantBuilderTab command. command: Panel(Table(Parts, ",
+        "stores_app: Received event. event: ChangeTable { kind: Parts, ",
+        "stores_app: Changed table. kind: Parts, source: '",
+        "stores_app: Loaded table. kind: Parts, source: '",
+        "ChangeRows(Add {",
+        "ChangeShown(Row(2))",
+        "ChangeRows(Remove {",
+        "ChangeShown(NoRow)",
+        "VariantBuilderTab command. command: Panel(Reload(Parts, ",
+        "stores_app: Received event. event: LoadTable { kind: Parts, ",
+        "stores_app: Table unchanged. kind: Parts, source: '",
     ]);
     app.assert_not_logged("Event failed.");
 }

@@ -26,8 +26,9 @@ source, the tab MUST show the core's error, which names a missing header (`STORE
 parts once it's fixed, or once it's changed, without "`Reload`", as the data source is watched (`STORE-9`), even if it
 couldn't be read. "`Reload`" MUST read the data source again (`LoadTable`, `STORE-17`), for a data source whose watch
 was refused, or whose change wasn't noticed. The error is the data source's: every tab and panel showing it MUST show
-the error, and keep showing the parts loaded before, if any. A data source with no parts shows the table with its
-columns and no rows, so a part can be added (`VBGUI-16`). The GUI doesn't wait for the stores service (`STORE-7`), so
+the error, and keep showing the parts loaded before, if any. A data source with no parts shows the panel with
+"`Add row`" enabled, so a part can be added (`VBGUI-16`); its table isn't drawn, not even its columns, as
+`egui_deferred_table` draws nothing with no rows (`FORM-8`). The GUI doesn't wait for the stores service (`STORE-7`), so
 until the parts are read the tab shows a spinner, as a variant builder's panel does.
 
 **PARTSRC-4 — Restoring.** *Observed.* A parts tab MUST be shown again when the GUI starts again. A tab whose data source
@@ -74,8 +75,8 @@ edited in its cell, and parts added, removed and moved with "`Add row`", "`Remov
   "`stores_app: Loaded table. kind: Parts, source: '`" are logged, in order. It then clicks "`Reload`", and checks
   "`Panel(Reload(Parts, `", "`stores_app: Received event. event: LoadTable { kind: Parts`" and
   "`stores_app: Table unchanged. kind: Parts, source: '`" are logged, in order (`PARTSRC-3`, `STORE-3`, `STORE-9`).
-- `tests/ui/parts_sources.rs` opens a file with only the headers, and checks the columns are shown, with "`Add row`"
-  enabled (`PARTSRC-3`).
+- `tests/ui/parts_sources.rs` opens a file with only the headers, and checks "`Add row`" is enabled, and that adding a
+  row shows the table, with its columns (`PARTSRC-3`).
 - `tests/ui/parts_sources.rs` opens two data sources, checks each tab shows its own data source's parts, then opens one
   of them again in a third tab, with its path written with "`..`". It checks the path shown is the canonical one, and
   that "`PartsTab command. command: Open`", "`stores_app: Received event. event: OpenTable { kind: Parts`" and

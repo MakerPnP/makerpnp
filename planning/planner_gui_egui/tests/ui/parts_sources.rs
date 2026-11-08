@@ -1,4 +1,5 @@
-//! Parts data sources, opened with "Open parts", whose parts the stores core loads (`PARTSRC`, `STORE`).
+//! Parts data sources, opened with "Open parts", whose parts the stores core loads as a table, and the GUI's one data
+//! source panel shows and changes, as a variant builder's "Parts" panel does (`PARTSRC`, `STORE`, `VBGUI-16`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -37,14 +38,17 @@ fn open_parts_shows_the_parts_of_a_csv_file() {
     app.click_button("Ok");
 
     app.wait_for_tab("parts.csv");
-    for text in ["Manufacturer", "MPN", "LCSC", "Package"] {
-        app.wait_for_text(text);
-    }
+    // the manufacturer's and the MPN's columns first, then the others in the file's order, after the status.
+    let headers = ["◑", "Manufacturer", "Mpn", "Package", "LCSC"].map(|header| {
+        app.wait_for_text(header);
+        app.text_position(header).x
+    });
+    assert!(headers.is_sorted(), "{headers:?}");
     // values that look like numbers are kept as they are in the file.
     for text in ["RESCO", "1234", "0402", "C1234", "CAPCO", "CAP1", "0603"] {
         app.wait_for_text(text);
     }
-    app.wait_for_text_containing("CSV file: ");
+    app.wait_for_text_containing("File: ");
     app.wait_for_text_containing("parts.csv");
     app.wait_until_no_tab_contains("Open parts");
 
@@ -55,28 +59,28 @@ fn open_parts_shows_the_parts_of_a_csv_file() {
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: CsvFilePicked(",
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Submit",
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Open",
-        "stores_app: Received event. event: OpenParts {",
+        "stores_app: Received event. event: OpenTable { kind: Parts, ",
         // `STORE-7`, the stores service does the operations, and its results come back as commands.
         "stores_service: Performing stores operation. operation: ResolveSource {",
         "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: ResolveSource {",
-        "stores_app: Received event. event: SourceResolved {",
-        "stores_service: Performing stores operation. operation: ReadParts {",
-        "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: ReadParts {",
-        "stores_app: Received event. event: PartsRead {",
-        "stores_app: Loaded parts. source: '",
+        "stores_app: Received event. event: TableSourceResolved {",
+        "stores_service: Performing stores operation. operation: ReadTable {",
+        "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: ReadTable {",
+        "stores_app: Received event. event: TableRead {",
+        "stores_app: Loaded table. kind: Parts, source: '",
     ]);
     app.assert_not_logged("Event failed.");
 
     // `STORE-8`, the file hasn't changed, so its revision hasn't, and the parts shown are kept.
     app.click_button("Reload");
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
-        "stores_app: Received event. event: LoadParts {",
-        "stores_app: Received event. event: PartsRead {",
-        "stores_app: Parts unchanged. source: '",
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Panel(Reload(Parts, ",
+        "stores_app: Received event. event: LoadTable { kind: Parts, ",
+        "stores_app: Received event. event: TableRead {",
+        "stores_app: Table unchanged. kind: Parts, source: '",
     ]);
     app.wait_for_text("RESCO");
-    app.assert_not_logged("Loaded parts.");
+    app.assert_not_logged("Loaded table.");
 }
 
 /// `PARTSRC-1`, `FORM-5`, "Ok" needs a data source, and choosing none keeps the file for when a CSV file is chosen
@@ -135,8 +139,8 @@ fn a_file_without_the_headers_shows_why_and_is_shown_once_fixed() {
     app.wait_for_text_containing("Missing header. header: 'Manufacturer'");
     app.wait_for_logs_in_order(&[
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Open",
-        "stores_app: Received event. event: OpenParts {",
-        "stores_app: Event failed. error: UnableToLoadParts {",
+        "stores_app: Received event. event: OpenTable { kind: Parts, ",
+        "stores_app: Event failed. error: UnableToLoadTable {",
     ]);
     assert_eq!(app.count_text("RES1"), 0);
 
@@ -146,29 +150,35 @@ fn a_file_without_the_headers_shows_why_and_is_shown_once_fixed() {
     app.wait_until_no_text_contains("Missing header.");
     app.wait_for_logs_in_order(&[
         "stores_app: Data source changed. source: '",
-        "stores_app: Loaded parts. source: '",
+        "stores_app: Loaded table. kind: Parts, source: '",
     ]);
 
     app.click_button("Reload");
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
-        "stores_app: Received event. event: LoadParts {",
-        "stores_app: Parts unchanged. source: '",
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Panel(Reload(Parts, ",
+        "stores_app: Received event. event: LoadTable { kind: Parts, ",
+        "stores_app: Table unchanged. kind: Parts, source: '",
     ]);
     app.wait_for_text("RESCO");
 }
 
-/// `PARTSRC-3`, `FORM-8`, a file with only the headers has no parts, and no table is drawn.
+/// `PARTSRC-3`, `FORM-8`, a file with only the headers has no parts, and a part can be added, which shows the table, as
+/// `egui_deferred_table` draws nothing with no rows.
 #[test]
-fn a_file_with_no_parts_says_so() {
+fn a_part_can_be_added_to_a_file_with_no_parts() {
     let mut app = App::start();
-    let parts = given_a_parts_file(&app.folder(), "parts.csv", "\"Manufacturer\",\"Mpn\"\n");
+    let parts = given_a_parts_file(&app.folder(), "parts.csv", "\"Manufacturer\",\"Mpn\",\"LCSC\"\n");
 
     choose_csv_file(&mut app, &parts);
     app.click_button("Ok");
 
-    app.wait_for_text("There are no parts.");
-    assert_eq!(app.count_text("Manufacturer"), 0);
+    app.wait_for_enabled_button("Add row");
+    app.click_button("Add row");
+    wait_for_file(&mut app, &parts, "\"Manufacturer\",\"Mpn\",\"LCSC\"\n\"\",\"\",\"\"\n");
+    for header in ["◑", "Manufacturer", "Mpn", "LCSC"] {
+        app.wait_for_text(header);
+    }
+    app.assert_not_logged("Event failed.");
 }
 
 /// `PARTSRC-5`, `STORE-5`, `STORE-6`, `STORE-9`, a data source shown in two tabs is loaded once, even when its path is
@@ -193,8 +203,8 @@ fn a_data_source_can_be_shown_in_two_tabs() {
     app.wait_for_text("DIODECO");
     // each tab shows its own data source's parts.
     assert_eq!(app.count_text("RESCO"), 0);
-    // "stores_app: Loaded parts. source: '<path>', part_count: <n>", for each.
-    app.wait_for_logs_in_order(&["parts.csv', part_count: 2", "other_parts.csv', part_count: 1"]);
+    // "stores_app: Loaded table. kind: Parts, source: '<path>', row_count: <n>, ...", for each.
+    app.wait_for_logs_in_order(&["parts.csv', row_count: 2", "other_parts.csv', row_count: 1"]);
 
     // the same file, written differently.
     fs::create_dir(app.folder().join("other")).unwrap();
@@ -213,10 +223,10 @@ fn a_data_source_can_be_shown_in_two_tabs() {
     // used as it was loaded, not loaded again.
     app.wait_for_logs_in_order(&[
         "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Open",
-        "stores_app: Received event. event: OpenParts {",
-        "stores_app: Parts already loaded. source: '",
+        "stores_app: Received event. event: OpenTable { kind: Parts, ",
+        "stores_app: Table already loaded. kind: Parts, source: '",
     ]);
-    app.assert_not_logged("Loaded parts.");
+    app.assert_not_logged("Loaded table.");
     // `STORE-9`, and watched once.
     app.assert_not_logged("operation: WatchSource {");
     app.assert_not_logged("Event failed.");
@@ -226,9 +236,9 @@ fn a_data_source_can_be_shown_in_two_tabs() {
     app.wait_for_text("NEWCO");
     app.wait_until_text_is_gone("RESCO");
     app.wait_for_logs_in_order(&[
-        "stores_app: Received event. event: SourceChanged {",
+        "stores_app: Received event. event: TableSourceChanged {",
         "stores_app: Data source changed. source: '",
-        "stores_app: Loaded parts. source: '",
+        "stores_app: Loaded table. kind: Parts, source: '",
     ]);
 
     // the first tab shows the change too. "other_parts.csv" is shown first, so that the parts are seen to change with
@@ -240,8 +250,8 @@ fn a_data_source_can_be_shown_in_two_tabs() {
     app.wait_for_text("NEWCO");
     assert_eq!(app.count_text("RESCO"), 0);
     // without "Reload".
-    app.assert_not_logged("ReloadClicked");
-    app.assert_not_logged("event: LoadParts");
+    app.assert_not_logged("Panel(Reload(");
+    app.assert_not_logged("event: LoadTable");
 }
 
 /// `PARTSRC-3`, `PARTSRC-5`, `STORE-3`, a refused reload is the data source's, so every tab showing it says why, and
@@ -271,9 +281,9 @@ fn a_refused_reload_is_shown_by_every_tab_showing_the_data_source() {
     app.wait_for_text_containing("Missing header. header: 'Manufacturer'");
     app.wait_for_text("RESCO");
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: ReloadClicked",
-        "stores_app: Received event. event: LoadParts {",
-        "stores_app: Event failed. error: UnableToLoadParts {",
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Panel(Reload(Parts, ",
+        "stores_app: Received event. event: LoadTable { kind: Parts, ",
+        "stores_app: Event failed. error: UnableToLoadTable {",
     ]);
 
     // the other data source's tab has no error, the first tab showing this one has.
@@ -285,62 +295,6 @@ fn a_refused_reload_is_shown_by_every_tab_showing_the_data_source() {
     app.wait_for_text("RESCO");
 }
 
-/// `PARTSRC-6`, `STORE-15`, a part typed is added, and removed, by the stores core, each change based on the revision
-/// of the parts shown, the buttons enabled only for a part that isn't, or is, shown.
-#[test]
-fn adding_and_removing_a_part_changes_the_file() {
-    let mut app = App::start();
-    let parts = given_a_parts_file(&app.folder(), "parts.csv", PARTS);
-
-    choose_csv_file(&mut app, &parts);
-    app.click_button("Ok");
-    app.wait_for_text("RESCO");
-
-    // no part typed.
-    app.assert_button_is_disabled("Add part");
-    app.assert_button_is_disabled("Remove part");
-
-    // a part that's shown can only be removed.
-    app.type_into("Manufacturer", "RESCO");
-    app.type_into("MPN", "1234");
-    app.wait_for_enabled_button("Remove part");
-    app.assert_button_is_disabled("Add part");
-
-    app.type_into("Manufacturer", "LEDCO");
-    app.type_into("MPN", "LED1");
-    app.wait_for_enabled_button("Add part");
-    app.assert_button_is_disabled("Remove part");
-
-    app.click_button("Add part");
-    // now shown, so it can only be removed.
-    app.wait_for_enabled_button("Remove part");
-    app.wait_until_button_is_disabled("Add part");
-    app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: AddPartClicked",
-        "stores_app: Received event. event: ChangeParts {",
-        "stores_service: Performing stores operation. operation: WriteParts {",
-        "planner_gui_egui::ui_commands: UiApp command. command: StoresReply(StoresReply { operation: WriteParts {",
-        "stores_app: Received event. event: PartsWritten {",
-        "stores_app: Changed parts. source: '",
-    ]);
-    app.assert_not_logged("Event failed.");
-    assert_eq!(
-        fs::read_to_string(&parts).unwrap(),
-        format!("{PARTS}\"LEDCO\",\"LED1\",\"\",\"\"\n")
-    );
-
-    app.click_button("Remove part");
-    app.wait_for_enabled_button("Add part");
-    app.wait_until_button_is_disabled("Remove part");
-    app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: RemovePartClicked",
-        "stores_app: Received event. event: ChangeParts {",
-        "stores_app: Changed parts. source: '",
-    ]);
-    app.assert_not_logged("Event failed.");
-    assert_eq!(fs::read_to_string(&parts).unwrap(), PARTS);
-}
-
 /// Waits for the file to have the contents, as the stores service writes it once the core changes it.
 fn wait_for_file(app: &mut App, path: &Path, expected: &str) {
     app.wait_until(&format!("the file had: {expected}"), |_app| {
@@ -348,58 +302,103 @@ fn wait_for_file(app: &mut App, path: &Path, expected: &str) {
     });
 }
 
-/// `PARTSRC-7`, `STORE-15`, a part's other values are edited in their cells, each written at once, finished with Enter
-/// or by clicking elsewhere, an empty one too, and its manufacturer and MPN aren't, as they name it.
+/// Waits for the file to have the rows, after the headers `PARTS` has.
+fn wait_for_parts(app: &mut App, path: &Path, rows: &[&str]) {
+    let mut expected = "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n".to_string();
+    for row in rows {
+        expected.push_str(row);
+        expected.push('\n');
+    }
+    wait_for_file(app, path, &expected);
+}
+
+/// `PARTSRC-6`, `VBGUI-16`, `STORE-19`, a parts tab changes its parts with the data source panel, as a variant builder's
+/// "Parts" panel does, with no fields above the table: a part's manufacturer, MPN and other values edited in their
+/// cells, an empty one too, and its rows added, moved and removed, each written at once, and a part's status saying
+/// which of its values are empty.
 #[test]
-fn a_parts_other_values_are_edited_in_their_cells() {
+fn parts_are_changed_in_the_parts_tab() {
     let mut app = App::start();
     let parts = given_a_parts_file(&app.folder(), "parts.csv", PARTS);
 
     choose_csv_file(&mut app, &parts);
     app.click_button("Ok");
-    app.wait_for_text("C1234");
+    app.wait_for_text("CAPCO");
+    app.wait_until_field_is_gone("Manufacturer");
+    app.wait_until_field_is_gone("MPN");
+    assert!(!app.is_button_shown("Add part"));
+    assert!(!app.is_button_shown("Remove part"));
 
-    app.edit_data_table_cell_then_press_enter("RESCO", "LCSC", "C5678");
-    wait_for_file(
-        &mut app,
-        &parts,
-        "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n\
-         \"RESCO\",\"1234\",\"0402\",\"C5678\"\n\
-         \"CAPCO\",\"CAP1\",\"0603\",\"\"\n",
-    );
-    app.wait_for_text("C5678");
+    app.hover_data_table_cell("RESCO", "◑");
+    app.wait_for_text_containing("No problems.");
+    app.hover_data_table_cell("CAPCO", "◑");
+    app.wait_for_text_containing("Empty LCSC.");
 
-    // empty, finished by clicking another part's cell.
-    app.edit_data_table_cell("CAPCO", "LCSC", "C9", "RESCO");
-    wait_for_file(
-        &mut app,
-        &parts,
-        "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n\
-         \"RESCO\",\"1234\",\"0402\",\"C5678\"\n\
-         \"CAPCO\",\"CAP1\",\"0603\",\"C9\"\n",
-    );
+    app.edit_data_table_cell_then_press_enter("RESCO", "Manufacturer", "RESCO2");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"1234\",\"0402\",\"C1234\"",
+        "\"CAPCO\",\"CAP1\",\"0603\",\"\"",
+    ]);
+    app.wait_for_text("RESCO2");
+    app.edit_data_table_cell_then_press_enter("RESCO2", "Mpn", "RES2");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
+        "\"CAPCO\",\"CAP1\",\"0603\",\"\"",
+    ]);
+    app.wait_for_text("RES2");
+    // finished by clicking another part's cell.
+    app.edit_data_table_cell("CAPCO", "LCSC", "C9", "RESCO2");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
+        "\"CAPCO\",\"CAP1\",\"0603\",\"C9\"",
+    ]);
     app.wait_for_text("C9");
+    app.hover_data_table_cell("CAPCO", "◑");
+    app.wait_for_text_containing("No problems.");
+    // emptied.
     app.edit_data_table_cell_then_press_enter("CAPCO", "Package", "");
-    wait_for_file(
-        &mut app,
-        &parts,
-        "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n\
-         \"RESCO\",\"1234\",\"0402\",\"C5678\"\n\
-         \"CAPCO\",\"CAP1\",\"\",\"C9\"\n",
-    );
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
+        "\"CAPCO\",\"CAP1\",\"\",\"C9\"",
+    ]);
     app.wait_until_text_is_gone("0603");
+    app.hover_data_table_cell("CAPCO", "◑");
+    app.wait_for_text_containing("Empty Package.");
 
-    app.assert_data_table_cell_is_not_editable("RESCO", "Manufacturer");
-    app.assert_data_table_cell_is_not_editable("CAP1", "MPN");
+    // with every value empty, selected once it's shown, so it's moved.
+    app.click_button("Add row");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
+        "\"CAPCO\",\"CAP1\",\"\",\"C9\"",
+        "\"\",\"\",\"\",\"\"",
+    ]);
+    app.hover_data_table_cell_in_row_numbered(3, "◑");
+    for text in ["Empty Manufacturer.", "Empty Mpn.", "Empty Package.", "Empty LCSC."] {
+        app.wait_for_text_containing(text);
+    }
+    app.wait_for_enabled_button("Move up");
+    app.click_button("Move up");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
+        "\"\",\"\",\"\",\"\"",
+        "\"CAPCO\",\"CAP1\",\"\",\"C9\"",
+    ]);
+    app.click_button("Remove row");
+    wait_for_parts(&mut app, &parts, &[
+        "\"RESCO2\",\"RES2\",\"0402\",\"C1234\"",
+        "\"CAPCO\",\"CAP1\",\"\",\"C9\"",
+    ]);
 
     app.wait_for_logs_in_order(&[
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Table(EditSubmitted)",
-        "stores_app: Received event. event: ChangeParts {",
-        "stores_app: Changed parts. source: '",
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Table(Change(PartsEdit {",
-        "stores_app: Changed parts. source: '",
-        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Table(EditSubmitted)",
-        "stores_app: Changed parts. source: '",
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Panel(Table(Parts, ",
+        "stores_app: Received event. event: ChangeTable { kind: Parts, ",
+        "stores_service: Performing stores operation. operation: ChangeRows {",
+        "stores_app: Changed table. kind: Parts, source: '",
+        "stores_app: Loaded table. kind: Parts, source: '",
+        "ChangeRows(Add {",
+        "ChangeShown(Row(2))",
+        "ChangeRows(Remove {",
+        "ChangeShown(NoRow)",
     ]);
     app.assert_not_logged("Event failed.");
 }
