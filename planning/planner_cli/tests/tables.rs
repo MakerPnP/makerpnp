@@ -320,7 +320,8 @@ fn a_change_that_is_refused_fails_and_leaves_the_file() -> Result<(), anyhow::Er
 }
 
 /// `STORE-20`, `STORE-21`, an EDA tool's columns are added, those its rows need that the table doesn't have, a column
-/// shared by tools added once, before "`Manufacturer`", saying which, and a row of that tool is then added; columns
+/// shared by tools added once, after the last pattern's column, as the part's columns are after every pattern's, saying
+/// which, and a row of that tool is then added; columns
 /// already there need none; and named columns are added where they're to go.
 #[test]
 fn adds_columns_then_a_row_of_another_eda_tool() -> Result<(), anyhow::Error> {
@@ -396,6 +397,39 @@ fn adds_columns_then_a_row_of_another_eda_tool() -> Result<(), anyhow::Error> {
         "DipTrace","R2","","","MFR1","MPN2","note 2","",""
         "EasyEda","","10k","RES","MFR2","MPN3","","",""
     "#});
+
+    Ok(())
+}
+
+/// `STORE-21`, the EDA tools' columns of a file whose part's columns aren't after every pattern's column are added after
+/// its last column, KiCad's, then EasyEDA's after KiCad's, every other column where it was.
+#[test]
+fn an_eda_tools_columns_are_added_last_if_the_parts_are_not_after_the_patterns() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let mappings_path = temp_dir
+        .path()
+        .join("part-mappings.csv");
+    write(&mappings_path, indoc! {r#"
+        "Eda","Manufacturer","Mpn","Name","Value","Notes"
+        "DipTrace","MFR1","MPN1","R1","330R","note 1"
+    "#})?;
+    let trace_path = temp_dir.path().join("trace.log");
+
+    change_mappings(&mappings_path, &trace_path, &["add-columns", "--eda", "kicad"])?;
+    change_mappings(&mappings_path, &trace_path, &["add-columns", "--eda", "easyeda"])?;
+
+    assert_eq!(read_to_string(&mappings_path)?, indoc! {r#"
+        "Eda","Manufacturer","Mpn","Name","Value","Notes","Package","Val","Device"
+        "DipTrace","MFR1","MPN1","R1","330R","note 1","","",""
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_service: Performing stores operation. operation: AddColumns {",
+        "position: EdaToolColumns",
+        "stores_service: Performing stores operation. operation: AddColumns {",
+        "position: EdaToolColumns",
+    ]);
+    assert!(!trace.contains("Event failed."));
 
     Ok(())
 }

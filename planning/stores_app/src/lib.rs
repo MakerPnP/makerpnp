@@ -1307,7 +1307,7 @@ impl Stores {
             ColumnsToAdd::EdaTool {
                 eda_tool,
             } => {
-                let Some(columns) = Self::eda_tool_columns(kind, source, records, eda_tool)? else {
+                let Some(columns) = Self::eda_tool_columns(records, eda_tool) else {
                     info!(
                         "Table columns already there. kind: {:?}, source: '{}', eda_tool: {:?}",
                         kind, source, eda_tool
@@ -1323,37 +1323,22 @@ impl Stores {
     }
 
     /// The columns of the EDA tool's fields that part mappings don't have, a field's column found whatever tool's it
-    /// is, so one shared by tools isn't added again, each named as `STORE-17` names it, before the part's columns, or
-    /// `None` if there are none to add (`STORE-21`).
-    fn eda_tool_columns(
-        kind: TableKind,
-        source: &Source,
-        records: &TableRecords,
-        eda_tool: EdaTool,
-    ) -> Result<Option<(Vec<String>, ColumnPosition)>, StoresError> {
-        let reference = |value: &ColumnValue| {
-            records
-                .columns
-                .iter()
-                .find(|column| column.value == *value)
-                .and_then(|column| column.reference.clone())
+    /// is, so one shared by tools isn't added again, each named as `STORE-17` names it, where the data source puts an EDA
+    /// tool's columns, or `None` if there are none to add (`STORE-21`).
+    fn eda_tool_columns(records: &TableRecords, eda_tool: EdaTool) -> Option<(Vec<String>, ColumnPosition)> {
+        let has_column = |field_name: &str| {
+            records.columns.iter().any(|column| {
+                column.reference.is_some() && column.value == ColumnValue::Pattern(field_name.to_string())
+            })
         };
         let columns: Vec<String> = eda_tool
             .field_names()
             .iter()
-            .filter(|&&field_name| reference(&ColumnValue::Pattern(field_name.to_string())).is_none())
+            .filter(|&&field_name| !has_column(field_name))
             .map(|field_name| TableColumn::part_mappings_pattern_name(field_name))
             .collect();
-        if columns.is_empty() {
-            return Ok(None);
-        }
-
-        let manufacturer = reference(&ColumnValue::Manufacturer).ok_or_else(|| StoresError::ColumnNotFound {
-            kind,
-            data_source: source.clone(),
-            column: ColumnValue::Manufacturer,
-        })?;
-        Ok(Some((columns, ColumnPosition::Before(manufacturer.0))))
+        // where they go is the back end's to say, as only it knows the order of the data source's columns.
+        (!columns.is_empty()).then_some((columns, ColumnPosition::EdaToolColumns))
     }
 
     /// Reads the table again, once its columns were added, so every view shows them, or says why they weren't

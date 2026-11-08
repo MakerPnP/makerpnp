@@ -160,6 +160,8 @@ pub enum ColumnPosition {
     Last,
     Before(String),
     After(String),
+    /// Where the data source puts an EDA tool's columns, as only its back end knows the order of its columns.
+    EdaToolColumns,
 }
 
 /// The values, each single-quoted, as a list, such as "`['Package', 'Val']`", as the logs say a list of strings.

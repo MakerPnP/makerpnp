@@ -348,12 +348,16 @@ uses is (`VBGUI-13`). A front end MUST be able to ask for columns in either of t
   text.
 - **An EDA tool's columns**: the core MUST work out which of the tool's fields' columns the data source doesn't have,
   so a column shared by tools, such as DipTrace's and EasyEDA's "`value`", is added once, and used by both, and add
-  those: for part mappings, each named as the field, in upper camel case, such as "`Package`", before the data source's
-  "`Manufacturer`" column, as it names it, so every pattern's column is before the part's columns. The core works them
+  those: for part mappings, each named as the field, in upper camel case, such as "`Package`". The core works them
   out from the table's columns, whose patterns' columns are those of every EDA tool's field the data source has, even
-  with no rows (`STORE-17`). Substitutions'
-  are to come with them (the Variant Builder mission's step 11d): each field's "`<Field>Pattern`" and "`<Field>`" before
-  "`Comment`". If none are needed, nothing is changed, and the core logs
+  with no rows (`STORE-17`). Where they go in the data source is the back end's to say, as only it knows the order of
+  the data source's columns, which needn't be the table's (`STORE-17`). For part mappings:
+  1. If the data source has a "`Manufacturer`" column, or an "`Mpn`" column, or both, and every pattern's column is
+     before them, they go after the last pattern's column, or, if it has none, before the first of them.
+  2. Otherwise, they go after the last column.
+
+  Substitutions' are to come with them (the Variant Builder mission's step 11d): each field's "`<Field>Pattern`" and
+  "`<Field>`" before "`Comment`". If none are needed, nothing is changed, and the core logs
   "`stores_app: Table columns already there. kind: <kind>, source: '<source>', eda_tool: <tool>`" at info level.
 
 The back end MUST add the columns where they're asked to go, with an empty value for each row, leaving every other
@@ -366,10 +370,12 @@ including those the table doesn't show. A data source that's gone MUST say "`Dat
 MUST read the table again, so every view shows it's gone. A refusal is kept, and shown, as a change's is, until a
 change succeeds (`STORE-19`). Once the columns are added, the core MUST read the table again, and send its view, so
 every view of it shows them. *Observed*: the operation is `AddColumns`, logged as the service's others are
-(`STORE-7`), with the columns and where they go, `First`, `Last`, `Before("<column>")` or `After("<column>")`. The
+(`STORE-7`), with the columns and where they go, `First`, `Last`, `Before("<column>")`, `After("<column>")`, or
+`EdaToolColumns` for an EDA tool's. The
 `csv_file` back end reads the file, checks the columns, a column being there if a header has its name in any case, as
 the part mapper finds a field's column, and one to go by being named by its header as it's written, as a column's
-reference is, inserts each header where it's to go, with an empty value in each row, and writes the file, every value
+reference is, a pattern's column being one whose header is an EDA tool's field's name in any case, and the part's
+"`Manufacturer`" and "`Mpn`" as they're written, inserts each header where it's to go, with an empty value in each row, and writes the file, every value
 quoted, logging "`Adding columns. source: '<source>', columns: ['<column>', ...]`" at info level. The core logs
 "`stores_app: Added table columns. kind: <kind>, source: '<source>', columns: ['<column>', ...], revision: '<revision>'`"
 at info level once they're added. Part mappings' columns can be added; the other kinds are to come with their changes
@@ -421,7 +427,7 @@ at info level once they're added. Part mappings' columns can be added; the other
   checks a change whose `--was-` values aren't the row's, a row that isn't there, and a table that can't be changed,
   fail, saying why, and leave the file as it was (`STORE-20`).
 - `planning/planner_cli/tests/tables.rs` adds EasyEDA's columns to DipTrace's part mappings, only "`Device`", as
-  "`Value`" is there, before "`Manufacturer`", saying so, then adds an EasyEDA row, checks DipTrace's need none, and adds
+  "`Value`" is there, after "`Value`", the last pattern's column, saying so, then adds an EasyEDA row, checks DipTrace's need none, and adds
   named columns after another, checking the file and what's said after each, and checks
   "`stores_app: Received event. event: AddTableColumns {`",
   "`stores_service: Performing stores operation. operation: AddColumns {`", "`Adding columns. source: '`",
@@ -430,17 +436,24 @@ at info level once they're added. Part mappings' columns can be added; the other
   "`Event failed.`". It checks a pattern of a field without a column, a column there already, in any case, one to go by
   that isn't there, named columns without where they go, an EDA tool's with where they go, and adding columns to a BOM,
   fail, saying why, and leave the file as it was (`STORE-20`, `STORE-21`).
+- `planning/planner_cli/tests/tables.rs`'s `an_eda_tools_columns_are_added_last_if_the_parts_are_not_after_the_patterns`
+  adds KiCad's, then EasyEDA's, columns to a file whose "`Manufacturer`" and "`Mpn`" are before "`Name`" and
+  "`Value`", checking they're added after its last column, EasyEDA's after KiCad's, every other column where it was,
+  and checks "`position: EdaToolColumns`" is logged for each, with no "`Event failed.`" (`STORE-21`).
 - `planning/stores_app/tests/tables.rs` checks named columns are added where they're asked to go, then the table is
   read again and its view sent, that an EDA tool's columns are those of its fields the table doesn't have, whichever
-  tool's they are, so a column shared by tools, such as "`Value`", is added once, each before "`Manufacturer`", that
+  tool's they are, so a column shared by tools, such as "`Value`", is added once, where the data source puts an EDA tool's
+  columns, `EdaToolColumns`, that
   none are added, and nothing asked of the service, if the table has them all, that adding columns to a table that
   isn't loaded, of a kind that can't be changed, or while a change is being made, is refused, that a column the service
   says is there already, a column to go by that isn't, and columns it can't add, say why, keep the table, and keep the
   error until a change succeeds, and that a data source that's gone says so and is read again (`STORE-21`).
 - `planning/stores_service/tests/csv_file.rs` adds columns first, last, before and after a column, together, in the
   order given, to a file with rows and one with none, checking the file, every other value as it was, and the
-  revision, refuses a column there already, in any case, one given twice, and a column to go by that isn't there, the
-  file left as it was, says a file that isn't there is gone, and reads part mappings with no rows with their fields'
+  revision, adds an EDA tool's columns after the last pattern's column of files whose "`Manufacturer`" or "`Mpn`", or
+  both, are after every pattern's column, a column of the user's between them, before them if there's no pattern's
+  column, and after the last column of files whose part's columns are before a pattern's, or that have none, refuses a
+  column there already, in any case, one given twice, and a column to go by that isn't there, the file left as it was, says a file that isn't there is gone, and reads part mappings with no rows with their fields'
   columns (`STORE-21`, `STORE-17`).
 
 - `planning/stores_app/tests/parts.rs`, with no files, answers the operations the core asks for itself, and checks the

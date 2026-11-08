@@ -286,7 +286,7 @@ removed at once. The gap: the stores core makes one change at a time.
   MPN, and "`The data source has no column for one of KiCad's fields.`" and "`None of KiCad's fields has a pattern.`"
   for a KiCad row of DipTrace's columns (`VBGUI-13`).
 - `tests/ui/variant_builders.rs`'s `choosing_a_rows_eda_tool_adds_its_columns_first` chooses KiCad for a row of
-  DipTrace's part mappings, checking "`Package`" and "`Val`" are added before "`Manufacturer`", then the row's tool is
+  DipTrace's part mappings, checking "`Package`" and "`Val`" are added after "`Value`", the last pattern's column, then the row's tool is
   changed, keeping its patterns, then EasyEDA, checking only "`Device`" is added, then KiCad again, whose columns are
   there, checking the file after each, and hovers pattern cells, checking "`Not matched by KiCad.`" and
   "`Not matched by DipTrace.`" for fields the row's tool doesn't match, "`Matched by KiCad. None of its fields has a

@@ -962,6 +962,54 @@ fn adds_columns_to_a_file_with_no_rows() {
     );
 }
 
+/// `STORE-21`, an EDA tool's columns are added to a part mappings file after its last pattern's column if it has a
+/// manufacturer's or an MPN's column, and every pattern's column is before them, so before them if it has no pattern's
+/// column, and otherwise after its last column, its other columns, and their values, as they were.
+#[test]
+fn adds_an_eda_tools_columns_where_the_file_puts_them() {
+    let cases = [
+        // every pattern's column before the part's, a column of the user's between them.
+        (
+            "\"Eda\",\"Name\",\"Value\",\"Notes\",\"Manufacturer\",\"Mpn\"\n\"DipTrace\",\"R1\",\"330R\",\"n\",\"MFR1\",\"MPN1\"\n",
+            "\"Eda\",\"Name\",\"Value\",\"Package\",\"Val\",\"Notes\",\"Manufacturer\",\"Mpn\"\n\"DipTrace\",\"R1\",\"330R\",\"\",\"\",\"n\",\"MFR1\",\"MPN1\"\n",
+        ),
+        // only an MPN's column, in any case, as the part mapper finds a field's column.
+        (
+            "\"Eda\",\"NAME\",\"Mpn\"\n\"DipTrace\",\"R1\",\"MPN1\"\n",
+            "\"Eda\",\"NAME\",\"Package\",\"Val\",\"Mpn\"\n\"DipTrace\",\"R1\",\"\",\"\",\"MPN1\"\n",
+        ),
+        // no pattern's column.
+        (
+            "\"Eda\",\"Manufacturer\",\"Mpn\"\n\"DipTrace\",\"MFR1\",\"MPN1\"\n",
+            "\"Eda\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\"\n\"DipTrace\",\"\",\"\",\"MFR1\",\"MPN1\"\n",
+        ),
+        // the part's columns before the patterns'.
+        (
+            "\"Eda\",\"Manufacturer\",\"Mpn\",\"Name\",\"Value\",\"Notes\"\n\"DipTrace\",\"MFR1\",\"MPN1\",\"R1\",\"330R\",\"n\"\n",
+            "\"Eda\",\"Manufacturer\",\"Mpn\",\"Name\",\"Value\",\"Notes\",\"Package\",\"Val\"\n\"DipTrace\",\"MFR1\",\"MPN1\",\"R1\",\"330R\",\"n\",\"\",\"\"\n",
+        ),
+        // a pattern's column after the part's.
+        (
+            "\"Eda\",\"Name\",\"Manufacturer\",\"Mpn\",\"Value\"\n\"DipTrace\",\"R1\",\"MFR1\",\"MPN1\",\"330R\"\n",
+            "\"Eda\",\"Name\",\"Manufacturer\",\"Mpn\",\"Value\",\"Package\",\"Val\"\n\"DipTrace\",\"R1\",\"MFR1\",\"MPN1\",\"330R\",\"\",\"\"\n",
+        ),
+        // no part's column.
+        (
+            "\"Eda\",\"Name\",\"Value\",\"Notes\"\n\"DipTrace\",\"R1\",\"330R\",\"n\"\n",
+            "\"Eda\",\"Name\",\"Value\",\"Notes\",\"Package\",\"Val\"\n\"DipTrace\",\"R1\",\"330R\",\"n\",\"\",\"\"\n",
+        ),
+    ];
+
+    for (file, expected) in cases {
+        let folder = tempfile::tempdir().unwrap();
+        let source = csv_file(folder.path(), "part-mappings.csv", file);
+
+        add_columns(&source, &["Package", "Val"], ColumnPosition::EdaToolColumns).unwrap();
+
+        assert_eq!(contents(&source), expected, "{file}");
+    }
+}
+
 /// `STORE-21`, columns already there, in any case, as the part mapper finds a field's column, or given twice, or to go
 /// by a column that isn't there, are refused, the file left as it was, and a file that isn't there says so.
 #[test]

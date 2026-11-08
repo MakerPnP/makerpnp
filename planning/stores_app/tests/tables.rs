@@ -1072,7 +1072,8 @@ fn named_columns_are_added_then_the_table_is_read_again() {
 }
 
 /// `STORE-21`, an EDA tool's columns are those of its fields the table doesn't have, whichever tool's they are, so a
-/// column shared by tools is added once, each named as `STORE-17` names it, before the part's columns.
+/// column shared by tools is added once, each named as `STORE-17` names it, where the data source puts an EDA tool's
+/// columns.
 #[test]
 fn an_eda_tools_columns_are_those_of_its_fields_the_table_does_not_have() {
     let cases: [(&[&str], EdaTool, &[&str]); 5] = [
@@ -1106,7 +1107,8 @@ fn an_eda_tools_columns_are_those_of_its_fields_the_table_does_not_have() {
                 kind: MAPPINGS,
                 source: resolved.clone(),
                 columns: strings(expected),
-                position: ColumnPosition::Before("Manufacturer".to_string()),
+                // where the service puts them, as only it knows the order of the file's columns.
+                position: ColumnPosition::EdaToolColumns,
             },
             "{:?}, {:?}",
             field_names,

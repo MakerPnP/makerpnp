@@ -653,6 +653,7 @@ pub async fn add_columns(
         ColumnPosition::Last => headers.len(),
         ColumnPosition::Before(column) => place(column)?,
         ColumnPosition::After(column) => place(column)? + 1,
+        ColumnPosition::EdaToolColumns => eda_tool_columns_place(&headers),
     };
 
     headers.splice(at..at, columns.iter().cloned());
@@ -666,6 +667,29 @@ pub async fn add_columns(
     std::fs::write(path, &contents).map_err(|error| failed(error.to_string()))?;
 
     Ok(self::revision(&contents))
+}
+
+/// Where an EDA tool's columns go in a part mappings file (`STORE-21`): after its last pattern's column, if it has a
+/// manufacturer's or an MPN's column, and every pattern's column is before them, so before them if it has no pattern's
+/// column, or else after its last column.
+fn eda_tool_columns_place(headers: &[String]) -> usize {
+    let field_names = EdaTool::all_field_names();
+    let places = |matches: &dyn Fn(&String) -> bool| -> Vec<usize> {
+        headers
+            .iter()
+            .enumerate()
+            .filter(|(_, header)| matches(header))
+            .map(|(place, _)| place)
+            .collect()
+    };
+    // found as `part_mapping_reference` finds them.
+    let patterns = places(&|header| field_names.contains(&header.to_lowercase().as_str()));
+    let part = places(&|header| header == "Manufacturer" || header == "Mpn");
+    match (part.first(), patterns.last()) {
+        (Some(&part), Some(&last)) if last < part => last + 1,
+        (Some(&part), None) => part,
+        _ => headers.len(),
+    }
 }
 
 /// What the records are called in the logs, as they were when the core read them itself.
