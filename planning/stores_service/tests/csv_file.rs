@@ -1109,6 +1109,130 @@ fn adds_an_eda_tools_substitutions_columns_after_the_last_of_their_group() {
         .contains("\"DipTrace\",\"R1\",\"RES\",\"/1.*/\",\"\",\"\",\"10k\",\"\",\"\",\"keep me\",\"c1\"\n"));
 }
 
+/// Assembly rules with a column the table doesn't show, `Notes`, and columns in an order of their own.
+const ASSEMBLY_RULES: &str = "\"Mpn\",\"RefDes\",\"Notes\",\"Manufacturer\"\n\
+                              \"MPN1\",\"R1\",\"keep me\",\"MFR1\"\n\
+                              \"MPN2\",\"C1\",\"\",\"MFR2\"\n";
+
+/// `STORE-19`, assembly rules' rows' keys are their places in the file, their columns' references the file's headers,
+/// as they're written, and their rows are ordered by their place; a file without one of their columns is refused,
+/// saying which, even with no rows (`STORE-17`).
+#[test]
+fn reads_assembly_rules_keys_references_and_ordering() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "assembly-rules.csv", ASSEMBLY_RULES);
+
+    let records = read_table(TableKind::AssemblyRules, &source)
+        .unwrap()
+        .expect("a table");
+
+    assert_eq!(records.keys, vec![RowKey("0".to_string()), RowKey("1".to_string())]);
+    assert_eq!(records.ordering, RowOrdering::Position);
+    assert_eq!(references(&records), vec![
+        ("RefDes", Some("RefDes")),
+        ("Manufacturer", Some("Manufacturer")),
+        ("Mpn", Some("Mpn")),
+    ]);
+
+    let cases = [
+        ("\"RefDes\",\"Manufacturer\"\n\"R1\",\"MFR1\"\n", "Mpn"),
+        ("\"Manufacturer\",\"Mpn\"\n", "RefDes"),
+        // as they're written, as the Variant Builder reads them.
+        ("\"refdes\",\"Manufacturer\",\"Mpn\"\n", "RefDes"),
+    ];
+    for (contents, missing) in cases {
+        let source = csv_file(folder.path(), "missing.csv", contents);
+
+        let error = read_table(TableKind::AssemblyRules, &source).unwrap_err();
+
+        assert!(
+            error.contains(&format!("Missing field. field: \"{}\"", missing)),
+            "{contents}: {error}"
+        );
+    }
+}
+
+/// `STORE-19`, an assembly rule's designator, manufacturer and MPN are updated, and rows added, removed and moved, as
+/// part mappings' are, the columns the table doesn't show as they were; `STORE-21`, named columns are added to them.
+#[test]
+fn changes_assembly_rules() {
+    let folder = tempfile::tempdir().unwrap();
+    let source = csv_file(folder.path(), "assembly-rules.csv", ASSEMBLY_RULES);
+    let change = |change: RowsChange| change_rows_of(TableKind::AssemblyRules, &source, change).unwrap();
+    let field = |column: &str, old: &str, new: &str| FieldChange {
+        column: ColumnRef(column.to_string()),
+        old: old.to_string(),
+        new: new.to_string(),
+    };
+
+    change(RowsChange::Update {
+        key: RowKey("1".to_string()),
+        changes: vec![
+            field("RefDes", "C1", "C2"),
+            field("Manufacturer", "MFR2", "MFR3"),
+            field("Mpn", "MPN2", "MPN3"),
+        ],
+    });
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"RefDes\",\"Notes\",\"Manufacturer\"\n\
+         \"MPN1\",\"R1\",\"keep me\",\"MFR1\"\n\
+         \"MPN3\",\"C2\",\"\",\"MFR3\"\n"
+    );
+
+    change(RowsChange::Add {
+        values: vec![
+            value("RefDes", "D1"),
+            value("Manufacturer", "MFR4"),
+            value("Mpn", "MPN4"),
+        ],
+    });
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"RefDes\",\"Notes\",\"Manufacturer\"\n\
+         \"MPN1\",\"R1\",\"keep me\",\"MFR1\"\n\
+         \"MPN3\",\"C2\",\"\",\"MFR3\"\n\
+         \"MPN4\",\"D1\",\"\",\"MFR4\"\n"
+    );
+
+    change(RowsChange::Move {
+        row: row_ref("2", &[("RefDes", "D1")]),
+        before: Some(row_ref("0", &[("RefDes", "R1")])),
+    });
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"RefDes\",\"Notes\",\"Manufacturer\"\n\
+         \"MPN4\",\"D1\",\"\",\"MFR4\"\n\
+         \"MPN1\",\"R1\",\"keep me\",\"MFR1\"\n\
+         \"MPN3\",\"C2\",\"\",\"MFR3\"\n"
+    );
+
+    change(RowsChange::Remove {
+        row: row_ref("2", &[("RefDes", "C2"), ("Manufacturer", "MFR3"), ("Mpn", "MPN3")]),
+    });
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"RefDes\",\"Notes\",\"Manufacturer\"\n\
+         \"MPN4\",\"D1\",\"\",\"MFR4\"\n\
+         \"MPN1\",\"R1\",\"keep me\",\"MFR1\"\n"
+    );
+
+    let revision = add_columns_of(
+        TableKind::AssemblyRules,
+        &source,
+        &["Owner"],
+        ColumnPosition::After("RefDes".to_string()),
+    )
+    .unwrap();
+    assert_eq!(
+        contents(&source),
+        "\"Mpn\",\"RefDes\",\"Owner\",\"Notes\",\"Manufacturer\"\n\
+         \"MPN4\",\"D1\",\"\",\"\",\"MFR4\"\n\
+         \"MPN1\",\"R1\",\"\",\"keep me\",\"MFR1\"\n"
+    );
+    assert_eq!(revision, self::revision(&source));
+}
+
 fn add_columns(source: &Source, columns: &[&str], position: ColumnPosition) -> Result<Revision, AddColumnsError> {
     add_columns_of(TableKind::PartMappings, source, columns, position)
 }

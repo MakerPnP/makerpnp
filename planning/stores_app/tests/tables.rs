@@ -8,10 +8,10 @@ use std::path::PathBuf;
 
 use crux_core::Core;
 use stores_app::{
-    AddColumnsError, BomViewItem, Cell, ColumnPosition, ColumnRef, ColumnValue, ColumnsToAdd,
-    EdaSubstitutionRuleTransformItem, EdaTool, Effect, Event, FieldChange, FieldPattern, FieldValue, Part,
-    PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange, Source,
-    Stores, StoresOperation, StoresOutput, SubstitutionsViewItem, Table, TableChange, TableKind, TableRecords,
+    AddColumnsError, AssemblyRule, AssemblyRulesViewItem, BomViewItem, Cell, ColumnPosition, ColumnRef, ColumnValue,
+    ColumnsToAdd, EdaSubstitutionRuleTransformItem, EdaTool, Effect, Event, FieldChange, FieldPattern, FieldValue,
+    Part, PartMappingsViewItem, PartsWriteError, Pattern, RefDes, Revision, RowKey, RowOrdering, RowRef, RowsChange,
+    Source, Stores, StoresOperation, StoresOutput, SubstitutionsViewItem, Table, TableChange, TableKind, TableRecords,
     TableRow, TableView, TableViewRendererOperation,
 };
 
@@ -1552,5 +1552,184 @@ fn an_eda_tools_substitutions_columns_are_its_fields_patterns_and_values() {
         source: resolved,
         columns: strings(&["NamePattern", "ValuePattern", "Value"]),
         position: ColumnPosition::EdaToolColumns,
+    });
+}
+
+const ASSEMBLY_RULES: TableKind = TableKind::AssemblyRules;
+
+fn assembly_rule(ref_des: &str, manufacturer: &str, mpn: &str) -> AssemblyRulesViewItem {
+    AssemblyRulesViewItem {
+        rule: AssemblyRule {
+            ref_des: ref_des.to_string(),
+            manufacturer: manufacturer.to_string(),
+            mpn: mpn.to_string(),
+        },
+    }
+}
+
+/// Opens assembly rules, `rules.csv`, identified as `/folder/rules.csv`, with the rows, and takes the operations.
+fn given_open_assembly_rules(shell: &mut Shell, rows: &[AssemblyRulesViewItem]) -> (Source, Source) {
+    let as_asked = source("rules.csv");
+    let resolved = source("/folder/rules.csv");
+    let (_views, error) = shell.process(
+        Event::OpenTable {
+            kind: ASSEMBLY_RULES,
+            source: as_asked.clone(),
+        },
+        service(&as_asked, &resolved, Ok(Some(Table::AssemblyRules(rows.to_vec())))),
+    );
+    assert_eq!(error, None);
+    shell.take_operations();
+    (as_asked, resolved)
+}
+
+/// `STORE-19`, a change to assembly rules has the service change the rows by their keys and their columns' references,
+/// updating only a row's values that changed, its designator, manufacturer and MPN, adding a row's values, and removing
+/// or moving a row, checking its values, as part mappings' are.
+#[test]
+fn a_change_to_assembly_rules_has_the_service_change_their_rows() {
+    let r1 = assembly_rule("R1", "MFR1", "MPN1");
+    let c1 = assembly_rule("C1", "MFR2", "MPN2");
+    let row = |item: &AssemblyRulesViewItem| TableRow::AssemblyRules(item.clone());
+    let expected = |ref_des: &str, manufacturer: &str, mpn: &str| {
+        vec![
+            value("RefDes", ref_des),
+            value("Manufacturer", manufacturer),
+            value("Mpn", mpn),
+        ]
+    };
+    let field = |column: &str, old: &str, new: &str| FieldChange {
+        column: ColumnRef(column.to_string()),
+        old: old.to_string(),
+        new: new.to_string(),
+    };
+    let cases = [
+        (
+            TableChange::Update {
+                key: key("1"),
+                old: row(&c1),
+                new: row(&assembly_rule("C2", "MFR3", "MPN3")),
+            },
+            RowsChange::Update {
+                key: key("1"),
+                changes: vec![
+                    field("RefDes", "C1", "C2"),
+                    field("Manufacturer", "MFR2", "MFR3"),
+                    field("Mpn", "MPN2", "MPN3"),
+                ],
+            },
+        ),
+        (
+            TableChange::Add {
+                row: row(&assembly_rule("D1", "MFR4", "MPN4")),
+            },
+            RowsChange::Add {
+                values: expected("D1", "MFR4", "MPN4"),
+            },
+        ),
+        (
+            TableChange::Remove {
+                key: key("0"),
+                row: row(&r1),
+            },
+            RowsChange::Remove {
+                row: RowRef {
+                    key: key("0"),
+                    expected: expected("R1", "MFR1", "MPN1"),
+                },
+            },
+        ),
+        (
+            TableChange::Move {
+                key: key("1"),
+                row: row(&c1),
+                before: Some((key("0"), row(&r1))),
+            },
+            RowsChange::Move {
+                row: RowRef {
+                    key: key("1"),
+                    expected: expected("C1", "MFR2", "MPN2"),
+                },
+                before: Some(RowRef {
+                    key: key("0"),
+                    expected: expected("R1", "MFR1", "MPN1"),
+                }),
+            },
+        ),
+    ];
+
+    for (change, expected) in cases {
+        let mut shell = Shell::new();
+        let (as_asked, resolved) = given_open_assembly_rules(&mut shell, &[r1.clone(), c1.clone()]);
+
+        let (views, error) = shell.process(
+            Event::ChangeTable {
+                kind: ASSEMBLY_RULES,
+                source: as_asked.clone(),
+                change: change.clone(),
+            },
+            changes_then_reads(&resolved, Table::AssemblyRules(vec![r1.clone()])),
+        );
+
+        assert_eq!(error, None, "{:?}", change);
+        assert_eq!(
+            shell.take_operations()[0],
+            StoresOperation::ChangeRows {
+                kind: ASSEMBLY_RULES,
+                source: resolved.clone(),
+                change: expected,
+            },
+            "{:?}",
+            change
+        );
+        assert_eq!(views.len(), 1, "{:?}", change);
+    }
+}
+
+/// `STORE-21`, an EDA tool's columns asked for assembly rules, which have no EDA tool, are refused, nothing asked of the
+/// service, though named columns are added.
+#[test]
+fn an_eda_tools_columns_for_assembly_rules_are_refused() {
+    let mut shell = Shell::new();
+    let (as_asked, resolved) = given_open_assembly_rules(&mut shell, &[assembly_rule("R1", "MFR1", "MPN1")]);
+
+    let (views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: ASSEMBLY_RULES,
+            source: as_asked.clone(),
+            columns: ColumnsToAdd::EdaTool {
+                eda_tool: EdaTool::DipTrace,
+            },
+        },
+        no_operations,
+    );
+
+    assert_eq!(views, vec![]);
+    assert_eq!(
+        error,
+        Some("The table has no EDA tool's columns. kind: AssemblyRules, source: '/folder/rules.csv'".to_string())
+    );
+    assert_eq!(shell.take_operations(), vec![]);
+
+    let (_views, error) = shell.process(
+        Event::AddTableColumns {
+            kind: ASSEMBLY_RULES,
+            source: as_asked,
+            columns: ColumnsToAdd::Named {
+                columns: strings(&["Notes"]),
+                position: ColumnPosition::Last,
+            },
+        },
+        adds_columns_then_reads(
+            &resolved,
+            Table::AssemblyRules(vec![assembly_rule("R1", "MFR1", "MPN1")]),
+        ),
+    );
+    assert_eq!(error, None);
+    assert_eq!(shell.take_operations()[0], StoresOperation::AddColumns {
+        kind: ASSEMBLY_RULES,
+        source: resolved,
+        columns: strings(&["Notes"]),
+        position: ColumnPosition::Last,
     });
 }

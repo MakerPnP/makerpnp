@@ -436,6 +436,8 @@ fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::
                 item.comment = Some(comment.clone());
             }
         }
+        // not yet by the CLI.
+        TableRow::AssemblyRules(_) => bail!(not_changeable(view)),
     }
     Ok(())
 }

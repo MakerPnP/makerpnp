@@ -253,6 +253,31 @@ pub async fn read_table(kind: TableKind, source: &Source) -> Result<Option<Table
         }
         records.ordering = RowOrdering::Position;
     }
+    // `STORE-19`, assembly rules likewise, their columns' references their headers, as they're written, as the Variant
+    // Builder reads them, a file without one refused, saying which, even with no rows (`STORE-17`).
+    if kind == TableKind::AssemblyRules {
+        let headers = stores::csv::read_headers(contents.as_slice())
+            .map_err(|error| format!("Unable to read the table. source: '{}', cause: '{:#}'", source, error))?;
+        for column in records.columns.iter_mut() {
+            let name = match column.value {
+                ColumnValue::RefDes => "RefDes",
+                ColumnValue::Manufacturer => "Manufacturer",
+                ColumnValue::Mpn => "Mpn",
+                _ => continue,
+            };
+            if !headers
+                .iter()
+                .any(|header| header == name)
+            {
+                return Err(format!(
+                    "Unable to read the table. source: '{}', cause: 'Missing field. field: \"{}\"'",
+                    source, name
+                ));
+            }
+            column.reference = Some(ColumnRef(name.to_string()));
+        }
+        records.ordering = RowOrdering::Position;
+    }
 
     Ok(Some(records))
 }
@@ -534,7 +559,10 @@ pub async fn change_rows(kind: TableKind, source: &Source, change: &RowsChange) 
     let failed = |cause: String| PartsWriteError::Failed {
         cause: format!("Unable to change the table. source: '{}', cause: '{}'", source, cause),
     };
-    if !matches!(kind, TableKind::PartMappings | TableKind::Substitutions) {
+    if !matches!(
+        kind,
+        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules
+    ) {
         return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
     }
 
@@ -660,8 +688,15 @@ pub async fn add_columns(
     let failed = |cause: String| AddColumnsError::Failed {
         cause: format!("Unable to add the columns. source: '{}', cause: '{}'", source, cause),
     };
-    if !matches!(kind, TableKind::PartMappings | TableKind::Substitutions) {
+    if !matches!(
+        kind,
+        TableKind::PartMappings | TableKind::Substitutions | TableKind::AssemblyRules
+    ) {
         return Err(failed(format!("Unsupported table. kind: {:?}", kind)));
+    }
+    // the core refuses them, as assembly rules have no EDA tool.
+    if kind == TableKind::AssemblyRules && *position == ColumnPosition::EdaToolColumns {
+        return Err(failed("The table has no EDA tool's columns.".to_string()));
     }
 
     info!(

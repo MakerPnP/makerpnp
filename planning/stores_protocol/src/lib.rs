@@ -329,6 +329,7 @@ pub enum Table {
 pub enum TableRow {
     PartMappings(PartMappingsViewItem),
     Substitutions(SubstitutionsViewItem),
+    AssemblyRules(AssemblyRulesViewItem),
 }
 
 impl TableRow {
@@ -371,14 +372,20 @@ impl TableRow {
                 );
                 values
             }
+            TableRow::AssemblyRules(item) => vec![
+                (ColumnValue::RefDes, item.rule.ref_des.clone()),
+                (ColumnValue::Manufacturer, item.rule.manufacturer.clone()),
+                (ColumnValue::Mpn, item.rule.mpn.clone()),
+            ],
         }
     }
 
-    /// The row's EDA tool.
-    pub fn eda_tool(&self) -> EdaTool {
+    /// The row's EDA tool, none if its kind has none, as an assembly rule hasn't.
+    pub fn eda_tool(&self) -> Option<EdaTool> {
         match self {
-            TableRow::PartMappings(item) => item.eda_tool,
-            TableRow::Substitutions(item) => item.eda_tool,
+            TableRow::PartMappings(item) => Some(item.eda_tool),
+            TableRow::Substitutions(item) => Some(item.eda_tool),
+            TableRow::AssemblyRules(_) => None,
         }
     }
 }
@@ -575,9 +582,12 @@ impl Table {
         self.len() == 0
     }
 
-    /// Whether the table's kind can be changed (`STORE-19`), part mappings and substitutions for now.
+    /// Whether the table's kind can be changed (`STORE-19`), part mappings, substitutions and assembly rules for now.
     pub fn is_changeable(&self) -> bool {
-        matches!(self, Table::PartMappings(_) | Table::Substitutions(_))
+        matches!(
+            self,
+            Table::PartMappings(_) | Table::Substitutions(_) | Table::AssemblyRules(_)
+        )
     }
 
     /// The row, if the table's kind can be changed, and it's there, for a front end to change and set (`STORE-19`).
@@ -591,6 +601,10 @@ impl Table {
                 .get(index)
                 .cloned()
                 .map(TableRow::Substitutions),
+            Table::AssemblyRules(items) => items
+                .get(index)
+                .cloned()
+                .map(TableRow::AssemblyRules),
             _ => None,
         }
     }

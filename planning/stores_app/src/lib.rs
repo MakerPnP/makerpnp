@@ -442,6 +442,9 @@ pub enum StoresError {
     #[error("The table can't be changed. kind: {kind:?}, source: '{data_source}'")]
     TableNotChangeable { kind: TableKind, data_source: Source },
 
+    #[error("The table has no EDA tool's columns. kind: {kind:?}, source: '{data_source}'")]
+    NoEdaToolColumns { kind: TableKind, data_source: Source },
+
     #[error("The column doesn't exist. kind: {kind:?}, source: '{data_source}', column: {column:?}")]
     ColumnNotFound {
         kind: TableKind,
@@ -1304,6 +1307,16 @@ impl Stores {
                 columns,
                 position,
             } => (columns, position),
+            // `STORE-21`, an assembly rule has no EDA tool, so its table has no EDA tool's columns.
+            ColumnsToAdd::EdaTool {
+                ..
+            } if matches!(records.table, Table::AssemblyRules(_)) => {
+                return Err(StoresError::NoEdaToolColumns {
+                    kind,
+                    data_source: source.clone(),
+                }
+                .into());
+            }
             ColumnsToAdd::EdaTool {
                 eda_tool,
             } => {

@@ -89,7 +89,7 @@ impl EditedRow {
                     .tools_without_columns
                     .contains(&eda_tool) =>
             {
-                (self.row.eda_tool() != eda_tool).then(|| {
+                (self.row.eda_tool() != Some(eda_tool)).then(|| {
                     TableUiCommand::ChangeAfterColumns(PendingChange {
                         eda_tool,
                         change: PendingRowChange::Tool {
@@ -160,6 +160,8 @@ impl PendingChange {
                 match &mut new {
                     TableRow::PartMappings(item) => item.eda_tool = self.eda_tool,
                     TableRow::Substitutions(item) => item.eda_tool = self.eda_tool,
+                    // an assembly rule has no EDA tool, so has no columns to add for one.
+                    TableRow::AssemblyRules(_) => return None,
                 }
                 Some((
                     TableChange::Update {
@@ -672,9 +674,11 @@ pub fn show_row_buttons(
             .clicked()
             && let Some(row) = new_row
         {
-            let eda_tool = row.eda_tool();
-            match has_columns(view, eda_tool) {
-                true => {
+            match row
+                .eda_tool()
+                .filter(|&eda_tool| !has_columns(view, eda_tool))
+            {
+                None => {
                     // after the others.
                     let select = select_row(&row, row_count);
                     change(
@@ -684,7 +688,7 @@ pub fn show_row_buttons(
                         select,
                     );
                 }
-                false => send(TableUiCommand::ChangeAfterColumns(PendingChange {
+                Some(eda_tool) => send(TableUiCommand::ChangeAfterColumns(PendingChange {
                     eda_tool,
                     change: PendingRowChange::Add {
                         row,
@@ -1031,6 +1035,7 @@ impl Problem {
         let (eda_tool, criteria) = match row {
             TableRow::PartMappings(item) => (item.eda_tool, &item.criteria),
             TableRow::Substitutions(item) => (item.eda_tool, &item.criteria),
+            TableRow::AssemblyRules(_) => return vec![],
         };
         let mut problems = vec![];
         if criteria.iter().any(|criterion| {
@@ -1059,6 +1064,7 @@ impl Problem {
                     problems.push(Problem::ChangesNothing);
                 }
             }
+            TableRow::AssemblyRules(_) => {}
         }
         problems
     }
