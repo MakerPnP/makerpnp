@@ -135,18 +135,21 @@ Every panel showing the data source, in every variant builder, shows a change on
 tables stay read-only, with no buttons, and their cells can't be edited. *Observed*: the tab's
 "`Table(<kind>, <source>, <command>)`" commands are logged, a row button's as "`ChangeRows(<change>, <after change>)`",
 and once it's shown, "`ChangeShown(Row(<place>))`", "`ChangeShown(NoRow)`" or "`ChangeShown(Unchanged)`", and, for a
-row brought into view, "`ScrolledToRow`". *Target*: several rows selected are removed at once. The gap: the stores core
-makes one change at a time. *Target*: a row of any EDA tool can be given its patterns, whichever tools' columns the
-data source has. Choosing a row's EDA tool whose columns the data source doesn't have MUST first add them, as the core
-works them out (`STORE-21`), then, once the table's read again, change the row's tool, as the row is shown then; "`Add
-row`" likewise adds the variant builder's EDA tool's columns, if they're needed, then the row. If adding the columns is
-refused, the panel says why (`STORE-21`), and the row is left as it was. Changing a row's tool keeps its patterns for
-the other tools' fields, as they're the user's. Every pattern's cell is shown, and editable, whichever tool the row
-has, and its background says whether the row's tool matches the field: faint green if it does, and faint red if it
-doesn't, so its pattern is ignored, saying so when it's hovered, "`Matched by <tool>.`" or
-"`Not matched by <tool>.`", so the colour isn't the only sign. *Observed*: the core's "`AddTableColumns`" event is logged
-before the row's "`ChangeTable`". The gap: the core can't add columns (`STORE-21`), and the
-cells aren't coloured.
+row brought into view, "`ScrolledToRow`". A row of any EDA tool can be given its patterns, whichever tools' columns
+the data source has. Choosing a row's EDA tool whose columns the data source doesn't have MUST first add them, as the
+core works them out (`STORE-21`), then, once the table's read again, change the row's tool, as the row is shown then,
+if it's still as it was; "`Add row`" likewise adds the variant builder's EDA tool's columns, if they're needed, then
+the row, which is selected once it's shown, as a row added is. The row buttons are disabled until the row's change is
+made. If adding the columns is refused, the panel says why (`STORE-21`), and the row is left as it was. Changing a
+row's tool keeps its patterns for the other tools' fields, as they're the user's. Every pattern's cell is shown, and
+editable, whichever tool the row has, and its background says whether the row's tool matches the field: faint green if
+it does, and faint red if it doesn't, so its pattern is ignored, saying so when the cell is hovered, even with no
+pattern, "`Matched by <tool>.`" or "`Not matched by <tool>.`", so the colour isn't the only sign, with why an invalid
+regular expression isn't valid below it. The cell's editor, shown over it, isn't coloured. *Observed*: the tab's
+"`ChangeAfterColumns(<pending change>)`" command is logged, then the core's "`AddTableColumns`" event, and once the
+columns are shown, "`ColumnsShown(Some((<change>, <after change>)))`", before the row's "`ChangeTable`", or
+"`ColumnsShown(None)`" if the columns weren't added, or the row isn't as it was. *Target*: several rows selected are
+removed at once. The gap: the stores core makes one change at a time.
 
 ## Acceptance criteria
 
@@ -212,7 +215,8 @@ cells aren't coloured.
   columns and checks each column is as much wider as the edge was dragged; it's the regression test for `ISSUE-24`
   (`VBGUI-11`).
 - `tests/ui/variant_builders.rs` edits a part mapping's pattern in its cell, finished by clicking another row, and its
-  MPN, finished by pressing Enter, chooses its EDA tool, and checks the file after each, and checks the tab's
+  MPN, finished by pressing Enter, chooses its EDA tool, EasyEDA, whose "`Device`" column is added first, and checks
+  the file after each, and checks the tab's
   "`Table(PartMappings, `", "`stores_app: Received event. event: ChangeTable {`",
   "`stores_service: Performing stores operation. operation: ChangeRows {`" and
   "`stores_app: Changed table. kind: PartMappings, `" are logged, in order, with no "`Event failed.`" (`VBGUI-13`).
@@ -236,6 +240,26 @@ cells aren't coloured.
   to be, the one added read back with an empty pattern of each field, or no row, after a remove, and they're kept if
   the change wasn't made, and that the row is brought into view once, and the cell chosen is no longer chosen
   (`VBGUI-13`).
+- `data_sources::table`'s tests check an edit giving a row an EDA tool whose columns the table doesn't have asks for
+  them to be added, the change of its tool pending, and one whose columns it has is made at once, that once the columns
+  are shown the pending change is made of the row as it's shown then, keeping its patterns, or not if the row changed
+  or is gone, that a row added is added and selected once it's shown, that nothing is made if the columns weren't
+  added, and that a pattern's cell is faint green if the row's tool matches its field, a field shared by tools matched
+  by each, and faint red if not, in either theme (`VBGUI-13`).
+- `tests/ui/variant_builders.rs`'s `choosing_a_rows_eda_tool_adds_its_columns_first` chooses KiCad for a row of
+  DipTrace's part mappings, checking "`Package`" and "`Val`" are added before "`Manufacturer`", then the row's tool is
+  changed, keeping its patterns, then EasyEDA, checking only "`Device`" is added, then KiCad again, whose columns are
+  there, checking the file after each, and hovers pattern cells, checking "`Not matched by KiCad.`",
+  "`Matched by KiCad.`" and "`Not matched by DipTrace.`" are shown. It checks "`ChangeAfterColumns(`",
+  "`stores_app: Received event. event: AddTableColumns {`", the core's "`Added table columns.`",
+  "`stores_app: Loaded table. kind: PartMappings, `", "`ColumnsShown(Some((Update {`",
+  "`stores_app: Received event. event: ChangeTable {`" and "`stores_app: Changed table. kind: PartMappings, `" are
+  logged, in order, with no "`Event failed.`". `adding_a_row_adds_its_eda_tools_columns_first` adds a DipTrace row to
+  KiCad's part mappings, checking "`Name`" and "`Value`" are added first, and the row selected, and logs
+  "`ColumnsShown(Some((Add {`" and "`ChangeShown(Row(1))`". `a_rows_tool_whose_columns_can_not_be_added_is_left_as_it_was`
+  makes the file read-only, chooses KiCad, and checks the panel says "`Unable to change the table.`", the file and the
+  row are as they were, "`ColumnsShown(None)`" is logged, and no "`ChangeTable`", and the row buttons work again
+  (`VBGUI-13`, `STORE-21`).
 - `tests/ui/variant_builders.rs`'s `a_table_too_big_for_its_panel_ends_within_it` shows 200 part mappings, and 200
   parts, scrolls each table to its end, and checks its last row is shown above the table's horizontal scroll bar; it's
   the regression test for `ISSUE-25` (`VBGUI-11`).

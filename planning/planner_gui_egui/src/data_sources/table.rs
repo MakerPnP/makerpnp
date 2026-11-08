@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use egui::{Button, Color32, ComboBox, Key, TextEdit, Ui, Visuals};
+use egui::{Button, Color32, ComboBox, Key, Sense, TextEdit, Ui, Visuals};
 use egui_deferred_table::{
     Action, AxisParameters, CellEditState, CellIndex, DeferredTable, DeferredTableDataSource, DeferredTableRenderer,
     EditableTableRenderer, EditorState, TableDimensions,
@@ -32,12 +32,13 @@ pub enum CellEdit {
 }
 
 /// The row a cell's edit is of, as it was shown when the edit began, and the cell's column, so the change is of the row
-/// as the user saw it (`STORE-19`).
+/// as the user saw it (`STORE-19`), and the EDA tools whose columns the table didn't have then (`STORE-21`).
 #[derive(Debug, Clone)]
 pub struct EditedRow {
     key: RowKey,
     row: TableRow,
     column: ColumnValue,
+    tools_without_columns: Vec<EdaTool>,
 }
 
 impl EditedRow {
@@ -50,6 +51,119 @@ impl EditedRow {
             new,
         })
     }
+
+    /// The command that makes the edit's change: the row's change, or, if it's given an EDA tool whose columns the
+    /// table doesn't have, their adding, the change of its tool pending until they're shown (`VBGUI-13`).
+    fn command(self, edit: CellEdit) -> Option<TableUiCommand> {
+        match edit {
+            CellEdit::Eda(eda_tool)
+                if self
+                    .tools_without_columns
+                    .contains(&eda_tool) =>
+            {
+                let TableRow::PartMappings(item) = &self.row;
+                (item.eda_tool != eda_tool).then(|| {
+                    TableUiCommand::ChangeAfterColumns(PendingChange {
+                        eda_tool,
+                        change: PendingRowChange::Tool {
+                            key: self.key,
+                            row: self.row,
+                        },
+                    })
+                })
+            }
+            edit => self
+                .change(edit)
+                .map(TableUiCommand::Change),
+        }
+    }
+}
+
+/// Whether the table has every one of the EDA tool's fields' columns, so a row of it can be given each of its patterns
+/// (`STORE-21`).
+fn has_columns(view: &TableView, eda_tool: EdaTool) -> bool {
+    eda_tool
+        .field_names()
+        .iter()
+        .all(|field_name| {
+            view.columns.iter().any(|column| {
+                column.reference.is_some() && column.value == ColumnValue::Pattern(field_name.to_string())
+            })
+        })
+}
+
+/// A row's change pending until the EDA tool's columns, which it needs, are added, and the table's read again
+/// (`VBGUI-13`, `STORE-21`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PendingChange {
+    eda_tool: EdaTool,
+    change: PendingRowChange,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum PendingRowChange {
+    /// The row given the EDA tool, the row as it was shown when the change was made.
+    Tool { key: RowKey, row: TableRow },
+    /// The row added, after the others, which is selected once it's shown.
+    Add { row: TableRow },
+}
+
+impl PendingChange {
+    /// The change, now the columns are shown, of the row as it's shown now, with the row to select once it's shown, or
+    /// none, if the row isn't shown as it was, as it was changed since.
+    fn made(self, view: &TableView) -> Option<(TableChange, Option<AfterChange>)> {
+        match self.change {
+            PendingRowChange::Tool {
+                key,
+                row,
+            } => {
+                let index = view
+                    .keys
+                    .iter()
+                    .position(|shown| *shown == key)?;
+                let (key, old) = view
+                    .row(index)
+                    .filter(|(_key, shown)| same_row(shown, &row))?;
+                let mut new = old.clone();
+                let TableRow::PartMappings(item) = &mut new;
+                item.eda_tool = self.eda_tool;
+                Some((
+                    TableChange::Update {
+                        key,
+                        old,
+                        new,
+                    },
+                    None,
+                ))
+            }
+            PendingRowChange::Add {
+                row,
+            } => {
+                let after = AfterChange {
+                    revision: view.revision.clone(),
+                    select: SelectAfterChange::Row {
+                        row: row.clone(),
+                        place: view.table.len(),
+                    },
+                };
+                Some((
+                    TableChange::Add {
+                        row,
+                    },
+                    Some(after),
+                ))
+            }
+        }
+    }
+}
+
+/// What a table asks the tab to have the stores core do (`VBGUI-13`).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TableRequest {
+    /// Change its rows (`STORE-19`).
+    Change(TableChange),
+    /// Add the EDA tool's columns the table doesn't have (`STORE-21`).
+    AddColumns(EdaTool),
 }
 
 /// The cell `egui_deferred_table` has chosen, which a click again edits, and the cell being edited.
@@ -66,6 +180,8 @@ pub struct TableState {
     after_change: Option<AfterChange>,
     /// The row to bring into view, once, as it was added or moved.
     scroll_to_row: Option<usize>,
+    /// The row's change to make once the columns it needs are added, and shown.
+    pending: Option<PendingChange>,
 }
 
 /// The row to select once a change is shown, and the revision of the view the change was made to, so a change that
@@ -155,11 +271,16 @@ pub enum TableUiCommand {
     ChangeShown(ShownAfterChange),
     /// The table was asked to bring the row into view.
     ScrolledToRow,
+    /// A row's change that needs an EDA tool's columns the table doesn't have, so they're added first.
+    ChangeAfterColumns(PendingChange),
+    /// The columns a pending change needed are shown, or weren't added, so the change, if there's still one, of the row
+    /// as it's shown now, is made, with the row to select once it's shown.
+    ColumnsShown(Option<(TableChange, Option<AfterChange>)>),
 }
 
-/// Handles a table's command, changing the cell edited, or the rows selected, and returns the change to make, if any
-/// (`VBGUI-13`).
-pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<TableChange> {
+/// Handles a table's command, changing the cell edited, or the rows selected, and returns what to have the stores core
+/// do, if anything (`VBGUI-13`).
+pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<TableRequest> {
     let editor = &mut state.editor;
     match command {
         TableUiCommand::CellEdited(cell, edit) => {
@@ -173,7 +294,9 @@ pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<T
         TableUiCommand::EditSubmitted => match editor.state.take() {
             Some(CellEditState::Editing(cell, edit, edited)) => {
                 editor.state = Some(CellEditState::Pivot(cell));
-                edited.change(edit)
+                edited
+                    .command(edit)
+                    .and_then(|command| update_table(state, command))
             }
             other => {
                 editor.state = other;
@@ -190,10 +313,21 @@ pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<T
             state.selected_rows = rows;
             None
         }
-        TableUiCommand::Change(change) => Some(change),
+        TableUiCommand::Change(change) => Some(TableRequest::Change(change)),
         TableUiCommand::ChangeRows(change, after_change) => {
             state.after_change = Some(after_change);
-            Some(change)
+            Some(TableRequest::Change(change))
+        }
+        TableUiCommand::ChangeAfterColumns(pending) => {
+            let eda_tool = pending.eda_tool;
+            state.pending = Some(pending);
+            Some(TableRequest::AddColumns(eda_tool))
+        }
+        TableUiCommand::ColumnsShown(made) => {
+            state.pending = None;
+            let (change, after_change) = made?;
+            state.after_change = after_change;
+            Some(TableRequest::Change(change))
         }
         TableUiCommand::ChangeShown(shown) => {
             state.after_change = None;
@@ -274,8 +408,6 @@ pub fn new_part_mapping(eda_tool: EdaTool) -> TableRow {
     })
 }
 
-const EDA_TOOLS: [EdaTool; 3] = [EdaTool::DipTrace, EdaTool::KiCad, EdaTool::EasyEda];
-
 /// As `STORE-17` names it, and the data source has it.
 fn eda_tool_name(eda_tool: EdaTool) -> &'static str {
     match eda_tool {
@@ -303,10 +435,15 @@ impl EditableTableRenderer<TableDataSource> for TableEditor<'_> {
         column.reference.as_ref()?;
         let (key, row) = source.view.row(cell_index.row)?;
         let edit = cell_edit(&row, &column.value)?;
+        let tools_without_columns = EdaTool::ALL
+            .into_iter()
+            .filter(|&eda_tool| !has_columns(&source.view, eda_tool))
+            .collect();
         Some((edit, EditedRow {
             key,
             row,
             column: column.value.clone(),
+            tools_without_columns,
         }))
     }
 
@@ -318,8 +455,8 @@ impl EditableTableRenderer<TableDataSource> for TableEditor<'_> {
         edited: EditedRow,
         _source: &mut TableDataSource,
     ) {
-        if let Some(change) = edited.change(edit) {
-            (self.send)(TableUiCommand::Change(change));
+        if let Some(command) = edited.command(edit) {
+            (self.send)(command);
         }
     }
 
@@ -350,7 +487,7 @@ impl EditableTableRenderer<TableDataSource> for TableEditor<'_> {
                     .selected_text(eda_tool_name(chosen))
                     .width(ui.available_width())
                     .show_ui(ui, |ui| {
-                        for eda_tool in EDA_TOOLS {
+                        for eda_tool in EdaTool::ALL {
                             ui.selectable_value(&mut chosen, eda_tool, eda_tool_name(eda_tool));
                         }
                     });
@@ -382,9 +519,9 @@ fn edit_text(ui: &mut Ui, text: &str, color: Option<Color32>, send: &dyn Fn(Tabl
     response.changed().then_some(text)
 }
 
-/// The buttons that change the table's rows (`VBGUI-13`): "Add row" adds `new_row`, if there's one, and the others
-/// change the row selected, if there's one, and only one, disabled while `changing`, and the row's while a cell is being
-/// edited.
+/// The buttons that change the table's rows (`VBGUI-13`): "Add row" adds `new_row`, if there's one, adding its EDA
+/// tool's columns first, if the table doesn't have them, and the others change the row selected, if there's one, and
+/// only one, disabled while `changing`, or a change waits for its columns, and the row's while a cell is being edited.
 pub fn show_row_buttons(
     ui: &mut Ui,
     view: &TableView,
@@ -393,6 +530,7 @@ pub fn show_row_buttons(
     changing: bool,
     send: &dyn Fn(TableUiCommand),
 ) {
+    let changing = changing || state.pending.is_some();
     let row_count = view.table.len();
     // FUTURE several rows are removed at once.
     let selected = match state.selected_rows.len() {
@@ -425,14 +563,26 @@ pub fn show_row_buttons(
             .clicked()
             && let Some(row) = new_row
         {
-            // after the others.
-            let select = select_row(&row, row_count);
-            change(
-                TableChange::Add {
-                    row,
-                },
-                select,
-            );
+            let TableRow::PartMappings(item) = &row;
+            let eda_tool = item.eda_tool;
+            match has_columns(view, eda_tool) {
+                true => {
+                    // after the others.
+                    let select = select_row(&row, row_count);
+                    change(
+                        TableChange::Add {
+                            row,
+                        },
+                        select,
+                    );
+                }
+                false => send(TableUiCommand::ChangeAfterColumns(PendingChange {
+                    eda_tool,
+                    change: PendingRowChange::Add {
+                        row,
+                    },
+                })),
+            }
         }
 
         let remove = Button::new(tr!("data-table-button-remove-row"));
@@ -498,6 +648,8 @@ pub struct TableEditing<'a> {
     /// Whether a change is being written, or the table read again after one, so the view isn't yet as the change left
     /// it.
     pub busy: bool,
+    /// Whether the last change was refused, such as adding columns a pending change needed (`STORE-21`).
+    pub refused: bool,
 }
 
 impl DeferredTableDataSource for TableDataSource {
@@ -520,6 +672,20 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
         else {
             return;
         };
+        // `VBGUI-13`, a pattern's cell of a row whose kind can be changed says whether the row's EDA tool matches its
+        // field, even with no pattern.
+        let matched = match (&column.value, source.view.table.row(cell_index.row)) {
+            (ColumnValue::Pattern(field_name), Some(TableRow::PartMappings(item))) => {
+                Some(PatternMatch::of(item.eda_tool, field_name))
+            }
+            _ => None,
+        };
+        let mut hover = vec![];
+        if let Some(matched) = matched {
+            ui.painter()
+                .rect_filled(ui.max_rect(), 0.0, matched.background(ui.visuals()));
+            hover.push(matched.text());
+        }
         match source
             .view
             .table
@@ -528,21 +694,71 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
             Cell::Text(text) => {
                 ui.label(text.as_ref());
             }
-            Cell::Pattern(pattern) => show_pattern(ui, pattern),
+            Cell::Pattern(pattern) => {
+                show_pattern(ui, pattern);
+                if let Pattern::Regex {
+                    regex: Err(error), ..
+                } = pattern
+                {
+                    hover.push(error.to_string());
+                }
+            }
+        }
+        // the whole cell, as an empty pattern's is the cell itself, and senses only hovering, so it's still clicked.
+        if !hover.is_empty() {
+            ui.interact(ui.max_rect(), ui.id().with("hover"), Sense::hover())
+                .on_hover_text(hover.join("\n"));
+        }
+    }
+}
+
+/// Whether a row's EDA tool matches a field, so its pattern is used, or ignored (`VBGUI-13`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum PatternMatch {
+    Matched(EdaTool),
+    NotMatched(EdaTool),
+}
+
+impl PatternMatch {
+    fn of(eda_tool: EdaTool, field_name: &str) -> Self {
+        match eda_tool
+            .field_names()
+            .contains(&field_name)
+        {
+            true => PatternMatch::Matched(eda_tool),
+            false => PatternMatch::NotMatched(eda_tool),
+        }
+    }
+
+    /// Faint green, or faint red, so the pattern's own colour can still be read, in either theme.
+    fn background(self, visuals: &Visuals) -> Color32 {
+        let alpha = match visuals.dark_mode {
+            true => 40,
+            false => 32,
+        };
+        match self {
+            PatternMatch::Matched(_) => Color32::from_rgba_unmultiplied(0, 200, 0, alpha),
+            PatternMatch::NotMatched(_) => Color32::from_rgba_unmultiplied(230, 0, 0, alpha),
+        }
+    }
+
+    /// Said when it's hovered, so the colour isn't the only sign.
+    fn text(self) -> String {
+        match self {
+            PatternMatch::Matched(eda_tool) => {
+                tr!("data-table-pattern-matched", { tool: eda_tool_name(eda_tool) })
+            }
+            PatternMatch::NotMatched(eda_tool) => {
+                tr!("data-table-pattern-not-matched", { tool: eda_tool_name(eda_tool) })
+            }
         }
     }
 }
 
 /// A pattern, coloured by what it is, as it was parsed when it was read, not each frame. A regular expression that isn't
-/// valid says why when it's hovered.
+/// valid says why when its cell is hovered.
 fn show_pattern(ui: &mut Ui, pattern: &Pattern) {
-    let response = ui.colored_label(pattern_color(pattern, ui.visuals()), pattern.text());
-    if let Pattern::Regex {
-        regex: Err(error), ..
-    } = pattern
-    {
-        response.on_hover_text(error.to_string());
-    }
+    ui.colored_label(pattern_color(pattern, ui.visuals()), pattern.text());
 }
 
 /// Green for a valid regular expression, red for one that isn't, and blue for a value matched exactly.
@@ -595,6 +811,16 @@ pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Opti
         Some(editing) => {
             let send = editing.send;
             let state = editing.state;
+            // once the columns a change needs are added, and shown, the change is made, of the row as it's shown now,
+            // or, if they weren't added, it isn't (`STORE-21`).
+            if let Some(pending) = &state.pending
+                && !editing.busy
+            {
+                let made = (!editing.refused)
+                    .then(|| pending.clone().made(&view))
+                    .flatten();
+                send(TableUiCommand::ColumnsShown(made));
+            }
             // once the change the row buttons made is shown, the rows are selected as it says, by `update_table`.
             if let Some(after_change) = &state.after_change
                 && !editing.busy
@@ -643,8 +869,8 @@ mod tests {
     };
 
     use super::{
-        AfterChange, CellEdit, EditedRow, SelectAfterChange, ShownAfterChange, TableEditorState, TableState,
-        TableUiCommand, pattern_color, update_table,
+        AfterChange, CellEdit, EditedRow, PatternMatch, PendingChange, PendingRowChange, SelectAfterChange,
+        ShownAfterChange, TableEditorState, TableRequest, TableState, TableUiCommand, pattern_color, update_table,
     };
 
     fn row(name: &str, mpn: &str) -> TableRow {
@@ -671,6 +897,7 @@ mod tests {
                     key: RowKey("1".to_string()),
                     row: row("R2", "MPN2"),
                     column: ColumnValue::Mpn,
+                    tools_without_columns: vec![],
                 })),
             },
             ..TableState::default()
@@ -692,11 +919,11 @@ mod tests {
 
         assert_eq!(
             change,
-            Some(TableChange::Update {
+            Some(TableRequest::Change(TableChange::Update {
                 key: RowKey("1".to_string()),
                 old: row("R2", "MPN2"),
                 new: row("R2", "MPN5"),
-            })
+            }))
         );
         assert!(matches!(state.editor.state, Some(CellEditState::Pivot(CELL))));
     }
@@ -719,6 +946,7 @@ mod tests {
             key: RowKey("1".to_string()),
             row: row("R2", "MPN2"),
             column: ColumnValue::Pattern("value".to_string()),
+            tools_without_columns: vec![],
         };
         assert_eq!(edited.change(CellEdit::Pattern(Pattern::parse(""))), None);
     }
@@ -739,7 +967,7 @@ mod tests {
             new: row("R1", "MPN5"),
         };
         let change = update_table(&mut state, TableUiCommand::Change(update.clone()));
-        assert_eq!(change, Some(update));
+        assert_eq!(change, Some(TableRequest::Change(update)));
         assert_eq!(state.selected_rows, [0, 2].into());
         assert_eq!(state.after_change, None);
     }
@@ -844,7 +1072,7 @@ mod tests {
         };
         let after = after_change("1", select_row(row("", ""), 2));
         let change = update_table(&mut state, TableUiCommand::ChangeRows(add.clone(), after.clone()));
-        assert_eq!(change, Some(add));
+        assert_eq!(change, Some(TableRequest::Change(add)));
         assert_eq!(state.after_change, Some(after));
         // until it's shown, the rows selected, and the cell chosen, are kept.
         assert_eq!(state.selected_rows, [0, 2].into());
@@ -872,6 +1100,159 @@ mod tests {
         update_table(&mut state, TableUiCommand::ChangeShown(ShownAfterChange::NoRow));
         assert_eq!(state.selected_rows, [].into());
         assert_eq!(state.scroll_to_row, None);
+    }
+
+    fn with_tool(row: TableRow, eda_tool: EdaTool) -> TableRow {
+        let TableRow::PartMappings(mut item) = row;
+        item.eda_tool = eda_tool;
+        TableRow::PartMappings(item)
+    }
+
+    /// `VBGUI-13`, `STORE-21`, an edit giving a row an EDA tool whose columns the table doesn't have adds them first, the
+    /// change of the row's tool pending until they're shown, and one whose columns it has, or of another value, is
+    /// made at once.
+    #[test]
+    fn an_edit_giving_a_tool_without_its_columns_adds_them_first() {
+        let edited = |tools_without_columns: Vec<EdaTool>| EditedRow {
+            key: RowKey("1".to_string()),
+            row: row("R2", "MPN2"),
+            column: ColumnValue::Eda,
+            tools_without_columns,
+        };
+
+        let mut state = TableState::default();
+        let command = edited(vec![EdaTool::KiCad])
+            .command(CellEdit::Eda(EdaTool::KiCad))
+            .unwrap();
+        assert_eq!(
+            update_table(&mut state, command),
+            Some(TableRequest::AddColumns(EdaTool::KiCad))
+        );
+        assert_eq!(
+            state.pending,
+            Some(PendingChange {
+                eda_tool: EdaTool::KiCad,
+                change: PendingRowChange::Tool {
+                    key: RowKey("1".to_string()),
+                    row: row("R2", "MPN2"),
+                },
+            })
+        );
+
+        // its columns are there.
+        let command = edited(vec![EdaTool::EasyEda])
+            .command(CellEdit::Eda(EdaTool::KiCad))
+            .unwrap();
+        assert!(matches!(command, TableUiCommand::Change(TableChange::Update { .. })));
+        // the row's own tool, which changes nothing.
+        assert!(
+            edited(vec![EdaTool::DipTrace])
+                .command(CellEdit::Eda(EdaTool::DipTrace))
+                .is_none()
+        );
+    }
+
+    /// `VBGUI-13`, `STORE-21`, once the columns are shown, the pending change is made of the row as it's shown then, its
+    /// tool changed, keeping its patterns, or not, if the row isn't as it was; a row added is added, after the others,
+    /// and selected once it's shown; and nothing is made if the columns weren't added.
+    #[test]
+    fn a_pending_change_is_made_once_the_columns_are_shown() {
+        let tool = |key: &str, row: TableRow| PendingChange {
+            eda_tool: EdaTool::KiCad,
+            change: PendingRowChange::Tool {
+                key: RowKey(key.to_string()),
+                row,
+            },
+        };
+        // read back with an empty pattern of each field, as the columns were added.
+        let mut shown = row("R2", "MPN2");
+        let TableRow::PartMappings(item) = &mut shown;
+        item.criteria.push(FieldPattern {
+            field_name: "package".to_string(),
+            pattern: Pattern::parse(""),
+        });
+        let after = view("2", &[row("R1", "MPN1"), shown.clone()]);
+
+        assert_eq!(
+            tool("1", row("R2", "MPN2")).made(&after),
+            Some((
+                TableChange::Update {
+                    key: RowKey("1".to_string()),
+                    old: shown.clone(),
+                    new: with_tool(shown.clone(), EdaTool::KiCad),
+                },
+                None
+            ))
+        );
+        // changed since, or gone.
+        assert_eq!(tool("1", row("R2", "MPN7")).made(&after), None);
+        assert_eq!(tool("5", row("R2", "MPN2")).made(&after), None);
+
+        let added = with_tool(row("", ""), EdaTool::KiCad);
+        let add = PendingChange {
+            eda_tool: EdaTool::KiCad,
+            change: PendingRowChange::Add {
+                row: added.clone(),
+            },
+        };
+        let (change, after_change) = add.clone().made(&after).unwrap();
+        assert_eq!(change, TableChange::Add {
+            row: added.clone(),
+        });
+        assert_eq!(after_change, Some(after_change_of("2", added, 2)));
+
+        let mut state = TableState::default();
+        update_table(&mut state, TableUiCommand::ChangeAfterColumns(add.clone()));
+        assert_eq!(
+            update_table(&mut state, TableUiCommand::ColumnsShown(add.made(&after))),
+            Some(TableRequest::Change(change))
+        );
+        assert_eq!(state.pending, None);
+        assert!(state.after_change.is_some());
+
+        let mut state = TableState::default();
+        update_table(
+            &mut state,
+            TableUiCommand::ChangeAfterColumns(tool("1", row("R2", "MPN2"))),
+        );
+        assert_eq!(update_table(&mut state, TableUiCommand::ColumnsShown(None)), None);
+        assert_eq!(state.pending, None);
+        assert_eq!(state.after_change, None);
+    }
+
+    fn after_change_of(revision: &str, row: TableRow, place: usize) -> AfterChange {
+        after_change(revision, select_row(row, place))
+    }
+
+    /// `VBGUI-13`, a pattern's cell says whether the row's EDA tool matches its field, a field shared by tools matched by
+    /// each, in either theme, faint green if it is, and faint red if not.
+    #[test]
+    fn a_patterns_cell_says_whether_the_rows_tool_matches_its_field() {
+        assert_eq!(
+            PatternMatch::of(EdaTool::DipTrace, "name"),
+            PatternMatch::Matched(EdaTool::DipTrace)
+        );
+        assert_eq!(
+            PatternMatch::of(EdaTool::EasyEda, "value"),
+            PatternMatch::Matched(EdaTool::EasyEda)
+        );
+        assert_eq!(
+            PatternMatch::of(EdaTool::KiCad, "value"),
+            PatternMatch::NotMatched(EdaTool::KiCad)
+        );
+
+        for visuals in [Visuals::dark(), Visuals::light()] {
+            let matched = PatternMatch::Matched(EdaTool::KiCad).background(&visuals);
+            let not_matched = PatternMatch::NotMatched(EdaTool::KiCad).background(&visuals);
+            assert!(
+                matched.g() > matched.r() && matched.a() < 64,
+                "faint green: {matched:?}"
+            );
+            assert!(
+                not_matched.r() > not_matched.g() && not_matched.a() < 64,
+                "faint red: {not_matched:?}"
+            );
+        }
     }
 
     /// `VBGUI-11`, a pattern's colour says what it is, in either theme.

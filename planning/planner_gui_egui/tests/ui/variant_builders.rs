@@ -531,11 +531,15 @@ fn a_part_mappings_values_are_edited_in_their_cells() {
     ]);
     app.wait_for_text("MPN5");
 
+    // with EasyEDA's column the file didn't have, `Device`, added first (`STORE-21`).
     app.choose_in_data_table_cell_combo_box("CAP_0603", "Eda", "EasyEda", &[]);
-    wait_for_mappings(&mut app, &mappings, &[
-        "\"DipTrace\",\"/RES_.*/\",\"330R\",\"MFR1\",\"MPN1\"",
-        "\"EasyEda\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN5\"",
-    ]);
+    wait_for_file(
+        &mut app,
+        &mappings,
+        "\"Eda\",\"Name\",\"Value\",\"Device\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"/RES_.*/\",\"330R\",\"\",\"MFR1\",\"MPN1\"\n\
+         \"EasyEda\",\"CAP_0603\",\"10u\",\"\",\"MFR2\",\"MPN5\"\n",
+    );
 
     app.wait_for_logs_in_order(&[
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: Table(PartMappings, ",
@@ -648,6 +652,138 @@ fn a_part_mappings_rows_are_added_moved_and_removed() {
     app.wait_for_text("RefDes");
     app.wait_until_button_is_gone("Add row");
     app.assert_data_table_cell_is_not_editable("R1", "RefDes");
+}
+
+/// Waits for the file to be the contents.
+fn wait_for_file(app: &mut App, path: &Path, expected: &str) {
+    app.wait_until(&format!("the file was {expected}"), |_app| {
+        fs::read_to_string(path).is_ok_and(|contents| contents == expected)
+    });
+}
+
+/// `VBGUI-13`, `STORE-21`, choosing a row's EDA tool whose columns the data source doesn't have adds them first, before
+/// "`Manufacturer`", a column shared by tools added once, then changes the row's tool, keeping its patterns, and each
+/// pattern's cell says whether the row's tool matches its field when it's hovered.
+#[test]
+fn choosing_a_rows_eda_tool_adds_its_columns_first() {
+    let mut app = App::start();
+    let mappings = given_part_mappings_shown(&mut app, TWO_MAPPINGS);
+
+    app.choose_in_data_table_cell_combo_box("CAP_0603", "Eda", "KiCad", &[]);
+    wait_for_file(
+        &mut app,
+        &mappings,
+        "\"Eda\",\"Name\",\"Value\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"RES_0402\",\"330R\",\"\",\"\",\"MFR1\",\"MPN1\"\n\
+         \"KiCad\",\"CAP_0603\",\"10u\",\"\",\"\",\"MFR2\",\"MPN2\"\n",
+    );
+    app.wait_for_text("Package");
+    app.wait_for_logs_in_order(&[
+        "ChangeAfterColumns(PendingChange { eda_tool: KiCad,",
+        "stores_app: Received event. event: AddTableColumns { kind: PartMappings, ",
+        // the core's "Added table columns." line, which says the revision.
+        "columns: ['Package', 'Val'], revision: '",
+        "stores_app: Loaded table. kind: PartMappings, source: '",
+        "ColumnsShown(Some((Update {",
+        "stores_app: Received event. event: ChangeTable { kind: PartMappings, ",
+        "stores_app: Changed table. kind: PartMappings, source: '",
+    ]);
+
+    // `value` is DipTrace's and EasyEDA's, so only `device` is added.
+    app.choose_in_data_table_cell_combo_box("CAP_0603", "Eda", "EasyEda", &[]);
+    wait_for_file(
+        &mut app,
+        &mappings,
+        "\"Eda\",\"Name\",\"Value\",\"Package\",\"Val\",\"Device\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"RES_0402\",\"330R\",\"\",\"\",\"\",\"MFR1\",\"MPN1\"\n\
+         \"EasyEda\",\"CAP_0603\",\"10u\",\"\",\"\",\"\",\"MFR2\",\"MPN2\"\n",
+    );
+    app.wait_for_logs_in_order(&["columns: ['Device'], revision: '"]);
+
+    // a tool whose columns are there is changed at once.
+    app.choose_in_data_table_cell_combo_box("CAP_0603", "Eda", "KiCad", &[]);
+    wait_for_file(
+        &mut app,
+        &mappings,
+        "\"Eda\",\"Name\",\"Value\",\"Package\",\"Val\",\"Device\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"RES_0402\",\"330R\",\"\",\"\",\"\",\"MFR1\",\"MPN1\"\n\
+         \"KiCad\",\"CAP_0603\",\"10u\",\"\",\"\",\"\",\"MFR2\",\"MPN2\"\n",
+    );
+
+    // every pattern's cell is shown, whichever tool the row has, saying whether the tool matches its field.
+    app.hover_data_table_cell("CAP_0603", "Name");
+    app.wait_for_text_containing("Not matched by KiCad.");
+    app.hover_data_table_cell("CAP_0603", "Package");
+    app.wait_for_text_containing("Matched by KiCad.");
+    app.hover_data_table_cell("RES_0402", "Device");
+    app.wait_for_text_containing("Not matched by DipTrace.");
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-13`, `STORE-21`, "Add row" adds the variant builder's EDA tool's columns first, if the data source doesn't have
+/// them, then the row, which is selected once it's shown.
+#[test]
+fn adding_a_row_adds_its_eda_tools_columns_first() {
+    let mut app = App::start();
+    let mappings = given_part_mappings_shown(
+        &mut app,
+        "\"Eda\",\"Package\",\"Val\",\"Manufacturer\",\"Mpn\"\n\
+         \"KiCad\",\"R_0402\",\"330R\",\"MFR1\",\"MPN1\"\n",
+    );
+    app.wait_for_text("R_0402");
+
+    // the variant builder's EDA tool is DipTrace.
+    app.click_button("Add row");
+    wait_for_file(
+        &mut app,
+        &mappings,
+        "\"Eda\",\"Package\",\"Val\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
+         \"KiCad\",\"R_0402\",\"330R\",\"\",\"\",\"MFR1\",\"MPN1\"\n\
+         \"DipTrace\",\"\",\"\",\"\",\"\",\"\",\"\"\n",
+    );
+    // selected, as the last row.
+    app.wait_for_enabled_button("Move up");
+    app.assert_button_is_disabled("Move down");
+    app.wait_for_logs_in_order(&[
+        "ChangeAfterColumns(PendingChange { eda_tool: DipTrace,",
+        // the core's "Added table columns." line, which says the revision.
+        "columns: ['Name', 'Value'], revision: '",
+        "ColumnsShown(Some((Add {",
+        "stores_app: Changed table. kind: PartMappings, source: '",
+        "ChangeShown(Row(1))",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-13`, `STORE-21`, if the columns a row's tool needs can't be added, the panel says why, and the row is left as
+/// it was.
+#[test]
+fn a_rows_tool_whose_columns_can_not_be_added_is_left_as_it_was() {
+    let mut app = App::start();
+    let mappings = given_part_mappings_shown(&mut app, TWO_MAPPINGS);
+    app.wait_for_text("CAP_0603");
+    let mut permissions = fs::metadata(&mappings)
+        .unwrap()
+        .permissions();
+    permissions.set_readonly(true);
+    fs::set_permissions(&mappings, permissions.clone()).unwrap();
+
+    app.choose_in_data_table_cell_combo_box("CAP_0603", "Eda", "KiCad", &[]);
+
+    app.wait_for_text_containing("Unable to change the table. kind: PartMappings, source: '");
+    app.wait_for_logs_in_order(&[
+        "stores_app: Received event. event: AddTableColumns { kind: PartMappings, ",
+        "ColumnsShown(None)",
+    ]);
+    assert_eq!(fs::read_to_string(&mappings).unwrap(), TWO_MAPPINGS);
+    app.assert_not_logged("stores_app: Received event. event: ChangeTable {");
+    // the row buttons can be used again.
+    app.click_data_table_cell("RES_0402", "Mpn");
+    app.wait_for_enabled_button("Move down");
+
+    #[allow(clippy::permissions_set_readonly_false)]
+    permissions.set_readonly(false);
+    fs::set_permissions(&mappings, permissions).unwrap();
 }
 
 /// `VBGUI-12`, `STORE-17`, `STORE-9`, the "Build output" panel is a placeholder for the mapping results, and the BOM,

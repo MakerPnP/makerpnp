@@ -686,6 +686,19 @@ impl App {
         self.click_at(position);
     }
 
+    /// Moves the pointer over a data table's cell, where the column with this header crosses the row containing the
+    /// text, such as to show its tooltip, and away from it first, so a tooltip shown is the cell's.
+    pub fn hover_data_table_cell(&mut self, row_text: &str, column: &str) {
+        let position = self.data_table_cell_position(row_text, column);
+
+        self.harness
+            .event(egui::Event::PointerGone);
+        self.harness.step();
+        self.harness
+            .event(egui::Event::PointerMoved(position));
+        self.harness.step();
+    }
+
     /// Where a data table's row number is, the leftmost label with the number.
     fn row_number_position(&self, row_number: usize) -> egui::Pos2 {
         let number = row_number.to_string();

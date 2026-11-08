@@ -15,7 +15,7 @@ use egui_extras::{Column, TableBuilder};
 use egui_i18n::tr;
 use egui_ltreeview::TreeViewState;
 use serde::{Deserialize, Serialize};
-use stores_app::{Source, TableKind, TableRow};
+use stores_app::{ColumnsToAdd, Source, TableKind, TableRow};
 use tracing::debug;
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
@@ -28,7 +28,8 @@ use variantbuilder_app::{
 
 use crate::data_sources::parts_table::show_parts_table;
 use crate::data_sources::table::{
-    TableEditing, TableState, TableUiCommand, new_part_mapping, show_row_buttons, show_table, update_table,
+    TableEditing, TableRequest, TableState, TableUiCommand, new_part_mapping, show_row_buttons, show_table,
+    update_table,
 };
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
@@ -500,18 +501,28 @@ impl UiComponent for VariantBuilderTab {
                         .or_default();
                     update_table(state, command)
                 };
-                // `STORE-19`, written at once, so every view of the data source shows it.
-                if let Some(change) = change {
-                    context
-                        .stores
-                        .lock()
-                        .unwrap()
-                        .process(stores_app::Event::ChangeTable {
-                            kind,
-                            source,
-                            change,
-                        });
-                }
+                // `STORE-19`, written at once, so every view of the data source shows it, or, `STORE-21`, the columns a
+                // row's change needs added first.
+                let event = match change {
+                    Some(TableRequest::Change(change)) => stores_app::Event::ChangeTable {
+                        kind,
+                        source,
+                        change,
+                    },
+                    Some(TableRequest::AddColumns(eda_tool)) => stores_app::Event::AddTableColumns {
+                        kind,
+                        source,
+                        columns: ColumnsToAdd::EdaTool {
+                            eda_tool,
+                        },
+                    },
+                    None => return None,
+                };
+                context
+                    .stores
+                    .lock()
+                    .unwrap()
+                    .process(event);
                 None
             }
             VariantBuilderTabUiCommand::Changed(change) => {
@@ -1373,6 +1384,9 @@ impl PanelViewer<'_> {
                         state,
                         send: &send,
                         busy: changing || reading,
+                        refused: status
+                            .as_ref()
+                            .is_some_and(|status| status.change_error.is_some()),
                     }),
                 );
             }
