@@ -8,9 +8,9 @@ use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{
-    quoted_list, ColumnPosition, ColumnsToAdd, EdaSubstitutionRuleTransformItem, FieldPattern, Part,
-    PartMappingsViewItem, PartsChange, PartsView, PartsViewRendererOperation, Pattern, Revision, RowKey, Source,
-    Stores, StoresError, SubstitutionsViewItem, TableChange, TableKind, TableRow, TableView,
+    quoted_list, AssemblyRule, AssemblyRulesViewItem, ColumnPosition, ColumnsToAdd, EdaSubstitutionRuleTransformItem,
+    FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView, PartsViewRendererOperation, Pattern, Revision,
+    RowKey, Source, Stores, StoresError, SubstitutionsViewItem, TableChange, TableKind, TableRow, TableView,
     TableViewRendererOperation,
 };
 
@@ -192,18 +192,38 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         TableCommand::Add {
             values,
         } => {
-            let eda_tool = values.eda.build();
+            let needed = |given: &[(&str, bool)]| -> anyhow::Result<()> {
+                match given
+                    .iter()
+                    .find(|(_option, given)| !*given)
+                {
+                    Some((option, _given)) => bail!(
+                        "Option needed for the table's kind. option: '{}', kind: {:?}",
+                        option,
+                        view.kind
+                    ),
+                    None => Ok(()),
+                }
+            };
+            let eda_tool = || {
+                values
+                    .eda
+                    .as_ref()
+                    .map(EdaToolArg::build)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Option needed for the table's kind. option: '--eda', kind: {:?}",
+                            view.kind
+                        )
+                    })
+            };
             let mut row = match view.kind {
                 TableKind::PartMappings => {
-                    for (option, value) in [("--manufacturer", &values.manufacturer), ("--mpn", &values.mpn)] {
-                        if value.is_none() {
-                            bail!(
-                                "Option needed for the table's kind. option: '{}', kind: {:?}",
-                                option,
-                                view.kind
-                            );
-                        }
-                    }
+                    let eda_tool = eda_tool()?;
+                    needed(&[
+                        ("--manufacturer", values.manufacturer.is_some()),
+                        ("--mpn", values.mpn.is_some()),
+                    ])?;
                     TableRow::PartMappings(PartMappingsViewItem {
                         eda_tool,
                         criteria: vec![],
@@ -211,17 +231,33 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
                     })
                 }
                 TableKind::Substitutions => TableRow::Substitutions(SubstitutionsViewItem {
-                    eda_tool,
+                    eda_tool: eda_tool()?,
                     criteria: vec![],
                     transforms: vec![],
                     comment: None,
                 }),
+                TableKind::AssemblyRules => {
+                    needed(&[
+                        ("--ref-des", values.ref_des.is_some()),
+                        ("--manufacturer", values.manufacturer.is_some()),
+                        ("--mpn", values.mpn.is_some()),
+                    ])?;
+                    TableRow::AssemblyRules(AssemblyRulesViewItem {
+                        rule: AssemblyRule {
+                            ref_des: String::new(),
+                            manufacturer: String::new(),
+                            mpn: String::new(),
+                        },
+                    })
+                }
                 _ => bail!(not_changeable(view)),
             };
+            // the EDA tool again, so it's refused for a kind without one.
             set_row(view, &mut row, &RowValues {
                 options: "--",
-                eda: None,
+                eda: values.eda.as_ref(),
                 patterns: &values.patterns,
+                ref_des: values.ref_des.as_ref(),
                 manufacturer: values.manufacturer.as_ref(),
                 mpn: values.mpn.as_ref(),
                 values: &values.values,
@@ -242,6 +278,7 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
                 options: "--",
                 eda: values.eda.as_ref(),
                 patterns: &values.patterns,
+                ref_des: values.ref_des.as_ref(),
                 manufacturer: values.manufacturer.as_ref(),
                 mpn: values.mpn.as_ref(),
                 values: &values.values,
@@ -368,6 +405,7 @@ fn row_as_seen(view: &TableView, key: &str, seen: &WhereRowArgs) -> anyhow::Resu
         options: "--where-",
         eda: seen.where_eda.as_ref(),
         patterns: &seen.where_patterns,
+        ref_des: seen.where_ref_des.as_ref(),
         manufacturer: seen.where_manufacturer.as_ref(),
         mpn: seen.where_mpn.as_ref(),
         values: &seen.where_values,
@@ -376,12 +414,13 @@ fn row_as_seen(view: &TableView, key: &str, seen: &WhereRowArgs) -> anyhow::Resu
     Ok((key, row))
 }
 
-/// A row's values, as given with the options, a part mapping's or a substitution's.
+/// A row's values, as given with the options, a part mapping's, a substitution's or an assembly rule's.
 struct RowValues<'a> {
     /// What the options' names start with, such as "`--where-`", to say which was refused.
     options: &'static str,
     eda: Option<&'a EdaToolArg>,
     patterns: &'a [(String, String)],
+    ref_des: Option<&'a String>,
     manufacturer: Option<&'a String>,
     mpn: Option<&'a String>,
     values: &'a [(String, String)],
@@ -389,7 +428,7 @@ struct RowValues<'a> {
 }
 
 /// Sets the row's values given, keeping the others, refusing those its kind doesn't have, such as a substitution's
-/// manufacturer, so the file is left as it was (`STORE-20`).
+/// manufacturer, or an assembly rule's EDA tool, so the file is left as it was (`STORE-20`).
 fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::Result<()> {
     let refuse = |given: &[(&str, bool)]| -> anyhow::Result<()> {
         match given
@@ -408,6 +447,7 @@ fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::
     match row {
         TableRow::PartMappings(item) => {
             refuse(&[
+                ("ref-des", values.ref_des.is_some()),
                 ("value", !values.values.is_empty()),
                 ("comment", values.comment.is_some()),
             ])?;
@@ -424,6 +464,7 @@ fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::
         }
         TableRow::Substitutions(item) => {
             refuse(&[
+                ("ref-des", values.ref_des.is_some()),
                 ("manufacturer", values.manufacturer.is_some()),
                 ("mpn", values.mpn.is_some()),
             ])?;
@@ -436,8 +477,23 @@ fn set_row(view: &TableView, row: &mut TableRow, values: &RowValues) -> anyhow::
                 item.comment = Some(comment.clone());
             }
         }
-        // not yet by the CLI.
-        TableRow::AssemblyRules(_) => bail!(not_changeable(view)),
+        TableRow::AssemblyRules(item) => {
+            refuse(&[
+                ("eda", values.eda.is_some()),
+                ("pattern", !values.patterns.is_empty()),
+                ("value", !values.values.is_empty()),
+                ("comment", values.comment.is_some()),
+            ])?;
+            if let Some(ref_des) = values.ref_des {
+                item.rule.ref_des = ref_des.clone();
+            }
+            if let Some(manufacturer) = values.manufacturer {
+                item.rule.manufacturer = manufacturer.clone();
+            }
+            if let Some(mpn) = values.mpn {
+                item.rule.mpn = mpn.clone();
+            }
+        }
     }
     Ok(())
 }

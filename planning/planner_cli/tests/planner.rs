@@ -3852,7 +3852,7 @@ mod help {
               pcb      PCB mode
               process  Process mode, to define a process's operations and tasks
               parts    Parts mode, to use a parts data source
-              table    Table mode, to show a data source's records as a table, and change part mappings and substitutions
+              table    Table mode, to show a data source's records as a table, and change part mappings, substitutions and assembly rules
               help     Print this message or the help of the given subcommand(s)
 
             Options:

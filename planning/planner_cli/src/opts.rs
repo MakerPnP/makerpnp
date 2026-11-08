@@ -61,7 +61,8 @@ pub(crate) enum ModeCommand {
     /// Parts mode, to use a parts data source
     Parts(PartsCommandArgs),
 
-    /// Table mode, to show a data source's records as a table, and change part mappings and substitutions
+    /// Table mode, to show a data source's records as a table, and change part mappings, substitutions and assembly
+    /// rules
     Table(TableCommandArgs),
 }
 
@@ -92,7 +93,8 @@ pub(crate) enum TableCommand {
         keys: bool,
     },
     /// Add a row, after the others, a part mapping, e.g. 'add --eda diptrace --pattern name=/R.*/ --manufacturer RESCO
-    /// --mpn RES1', or a substitution, e.g. 'add --eda diptrace --pattern name=R0402 --value name=RES_0402'
+    /// --mpn RES1', a substitution, e.g. 'add --eda diptrace --pattern name=R0402 --value name=RES_0402', or an assembly
+    /// rule, e.g. 'add --ref-des R1 --manufacturer RESCO --mpn RES1'
     Add {
         #[command(flatten)]
         values: NewRowArgs,
@@ -161,20 +163,23 @@ pub(crate) struct RowArgs {
     pub(crate) row: String,
 }
 
-/// A new row's values: a part mapping's, or a substitution's.
+/// A new row's values: a part mapping's, a substitution's, or an assembly rule's.
 #[derive(Debug, Args)]
 pub(crate) struct NewRowArgs {
-    /// The EDA tool whose placements it maps, or substitutes
+    /// The EDA tool whose placements it maps, or substitutes, needed for a part mapping and a substitution
     #[arg(long, value_name = "EDA_TOOL")]
-    pub(crate) eda: EdaToolArg,
+    pub(crate) eda: Option<EdaToolArg>,
     /// A field's pattern, a value matched exactly, or a regular expression between '/'s, e.g. 'name=/R.*/'; repeat it
     /// for each field
     #[arg(long = "pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
     pub(crate) patterns: Vec<(String, String)>,
-    /// A part mapping's part's manufacturer, e.g. 'RESCO', needed for a part mapping
+    /// An assembly rule's designator, e.g. 'R1', needed for an assembly rule
+    #[arg(long, value_name = "REF_DES")]
+    pub(crate) ref_des: Option<String>,
+    /// A part mapping's, or an assembly rule's, part's manufacturer, e.g. 'RESCO', needed for both
     #[arg(long, value_name = "MANUFACTURER")]
     pub(crate) manufacturer: Option<String>,
-    /// A part mapping's part's manufacturer part number, e.g. 'RES1', needed for a part mapping
+    /// A part mapping's, or an assembly rule's, part's manufacturer part number, e.g. 'RES1', needed for both
     #[arg(long, value_name = "MPN")]
     pub(crate) mpn: Option<String>,
     /// A substitution's value for a field, e.g. 'name=RES_0402'; repeat it for each field
@@ -185,7 +190,7 @@ pub(crate) struct NewRowArgs {
     pub(crate) comment: Option<String>,
 }
 
-/// A row's values to set, at least one: a part mapping's, or a substitution's.
+/// A row's values to set, at least one: a part mapping's, a substitution's, or an assembly rule's.
 #[derive(Debug, Args)]
 #[group(required = true, multiple = true)]
 pub(crate) struct RowValuesArgs {
@@ -196,10 +201,13 @@ pub(crate) struct RowValuesArgs {
     /// for each field
     #[arg(long = "pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
     pub(crate) patterns: Vec<(String, String)>,
-    /// A part mapping's part's manufacturer, e.g. 'RESCO'
+    /// An assembly rule's designator, e.g. 'R1'
+    #[arg(long, value_name = "REF_DES")]
+    pub(crate) ref_des: Option<String>,
+    /// A part mapping's, or an assembly rule's, part's manufacturer, e.g. 'RESCO'
     #[arg(long, value_name = "MANUFACTURER")]
     pub(crate) manufacturer: Option<String>,
-    /// A part mapping's part's manufacturer part number, e.g. 'RES1'
+    /// A part mapping's, or an assembly rule's, part's manufacturer part number, e.g. 'RES1'
     #[arg(long, value_name = "MPN")]
     pub(crate) mpn: Option<String>,
     /// A substitution's value for a field, e.g. 'name=RES_0402'; repeat it for each field
@@ -221,10 +229,13 @@ pub(crate) struct WhereRowArgs {
     /// Change the row only where a field's pattern is this, e.g. 'name=/R.*/'; repeat it for each field
     #[arg(long = "where-pattern", value_name = "FIELD=PATTERN", value_parser = parse_field_pattern)]
     pub(crate) where_patterns: Vec<(String, String)>,
-    /// Change a part mapping only where its part's manufacturer is this
+    /// Change an assembly rule only where its designator is this
+    #[arg(long, value_name = "REF_DES")]
+    pub(crate) where_ref_des: Option<String>,
+    /// Change a part mapping, or an assembly rule, only where its part's manufacturer is this
     #[arg(long, value_name = "MANUFACTURER")]
     pub(crate) where_manufacturer: Option<String>,
-    /// Change a part mapping only where its part's manufacturer part number is this
+    /// Change a part mapping, or an assembly rule, only where its part's manufacturer part number is this
     #[arg(long, value_name = "MPN")]
     pub(crate) where_mpn: Option<String>,
     /// Change a substitution only where a field's value is this, e.g. 'name=RES_0402'; repeat it for each field

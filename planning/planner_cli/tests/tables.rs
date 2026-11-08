@@ -656,8 +656,131 @@ fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
     Ok(())
 }
 
-/// `STORE-20`, a part's options for a substitution, a substitution's for a part mapping, a part mapping without its
-/// part, and a substitution whose `--where-` values aren't the row's, fail, saying why, and leave the file as it was.
+/// Assembly rules, with a column the table doesn't show, `Notes`.
+const ASSEMBLY_RULES: &str = indoc! {r#"
+    "RefDes","Manufacturer","Mpn","Notes"
+    "R1","MFR1","MPN1","keep me"
+    "C1","MFR2","MPN2",""
+"#};
+
+/// Runs `planner_cli table --kind assembly-rules --source <file>` with the arguments, failing if it does, and returns
+/// what it wrote to standard output.
+fn change_assembly_rules(rules_path: &Path, trace_path: &Path, args: &[&str]) -> Result<String, anyhow::Error> {
+    let mut all_args = vec!["--kind", "assembly-rules", "--source", rules_path.to_str().unwrap()];
+    all_args.extend_from_slice(args);
+    let output = table(trace_path, &all_args)?;
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+/// `STORE-20`, `STORE-21`, assembly rules are listed with their keys, then a row is added with its designator,
+/// manufacturer and MPN, has its values set, as the user saw them, is moved and removed, and a named column is added.
+#[test]
+fn adds_sets_moves_and_removes_assembly_rules() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let rules_path = temp_dir
+        .path()
+        .join("assembly-rules.csv");
+    write(&rules_path, ASSEMBLY_RULES)?;
+    let trace_path = temp_dir.path().join("trace.log");
+
+    let listed = change_assembly_rules(&rules_path, &trace_path, &["list", "--keys"])?;
+    assert_eq!(listed, indoc! {r#"
+        "Key","RefDes","Manufacturer","Mpn"
+        "0","R1","MFR1","MPN1"
+        "1","C1","MFR2","MPN2"
+    "#});
+
+    change_assembly_rules(&rules_path, &trace_path, &[
+        "add",
+        "--ref-des",
+        "D1",
+        "--manufacturer",
+        "MFR3",
+        "--mpn",
+        "MPN3",
+    ])?;
+    assert_eq!(read_to_string(&rules_path)?, indoc! {r#"
+        "RefDes","Manufacturer","Mpn","Notes"
+        "R1","MFR1","MPN1","keep me"
+        "C1","MFR2","MPN2",""
+        "D1","MFR3","MPN3",""
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: ChangeTable {",
+        "stores_service: Performing stores operation. operation: ChangeRows {",
+        "Changing assembly rules. source: '",
+        "stores_app: Changed table. kind: AssemblyRules, source: '",
+        "stores_service: Performing stores operation. operation: ReadTable {",
+    ]);
+    assert!(!trace.contains("Event failed."));
+
+    // as the user saw it, so it's set only if it's still that.
+    change_assembly_rules(&rules_path, &trace_path, &[
+        "set",
+        "--row",
+        "0",
+        "--ref-des",
+        "R2",
+        "--mpn",
+        "MPN4",
+        "--where-ref-des",
+        "R1",
+    ])?;
+    assert_eq!(read_to_string(&rules_path)?, indoc! {r#"
+        "RefDes","Manufacturer","Mpn","Notes"
+        "R2","MFR1","MPN4","keep me"
+        "C1","MFR2","MPN2",""
+        "D1","MFR3","MPN3",""
+    "#});
+
+    change_assembly_rules(&rules_path, &trace_path, &["move", "--row", "2", "--before", "0"])?;
+    change_assembly_rules(&rules_path, &trace_path, &[
+        "remove",
+        "--row",
+        "2",
+        "--where-ref-des",
+        "C1",
+        "--where-manufacturer",
+        "MFR2",
+        "--where-mpn",
+        "MPN2",
+    ])?;
+    assert_eq!(read_to_string(&rules_path)?, indoc! {r#"
+        "RefDes","Manufacturer","Mpn","Notes"
+        "D1","MFR3","MPN3",""
+        "R2","MFR1","MPN4","keep me"
+    "#});
+
+    let said = change_assembly_rules(&rules_path, &trace_path, &[
+        "add-columns",
+        "--column",
+        "Owner",
+        "--after",
+        "RefDes",
+    ])?;
+    assert_eq!(said, "Added columns. columns: ['Owner']\n");
+    assert_eq!(read_to_string(&rules_path)?, indoc! {r#"
+        "RefDes","Owner","Manufacturer","Mpn","Notes"
+        "D1","","MFR3","MPN3",""
+        "R2","","MFR1","MPN4","keep me"
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: AddTableColumns {",
+        "stores_service: Performing stores operation. operation: AddColumns {",
+        "stores_app: Added table columns. kind: AssemblyRules, source: '",
+    ]);
+    assert!(!trace.contains("Event failed."));
+
+    Ok(())
+}
+
+/// `STORE-20`, a part's options for a substitution, a substitution's for a part mapping, an EDA tool's, a pattern's, a
+/// value's and a comment's for an assembly rule, a designator's for the other kinds, a part mapping without its part or
+/// its EDA tool, an assembly rule without its designator, a substitution whose `--where-` values aren't the row's, and
+/// an EDA tool's columns for assembly rules (`STORE-21`), fail, saying why, and leave the file as it was.
 #[test]
 fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyhow::Error> {
     let temp_dir = tempdir()?;
@@ -669,9 +792,100 @@ fn options_not_for_the_tables_kind_fail_and_leave_the_file() -> Result<(), anyho
         .path()
         .join("part-mappings.csv");
     write(&mappings_path, MAPPINGS)?;
+    let rules_path = temp_dir
+        .path()
+        .join("assembly-rules.csv");
+    write(&rules_path, ASSEMBLY_RULES)?;
     let trace_path = temp_dir.path().join("trace.log");
 
-    let cases: [(&str, &Path, &str, &[&str], &str); 7] = [
+    let cases: [(&str, &Path, &str, &[&str], &str); 18] = [
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &[
+                "add",
+                "--ref-des",
+                "D1",
+                "--manufacturer",
+                "MFR3",
+                "--mpn",
+                "MPN3",
+                "--eda",
+                "diptrace",
+            ],
+            "Option not for the table's kind. option: '--eda', kind: AssemblyRules",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["set", "--row", "0", "--pattern", "name=R1"],
+            "Option not for the table's kind. option: '--pattern', kind: AssemblyRules",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["set", "--row", "0", "--value", "name=RES"],
+            "Option not for the table's kind. option: '--value', kind: AssemblyRules",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["set", "--row", "0", "--comment", "comment 1"],
+            "Option not for the table's kind. option: '--comment', kind: AssemblyRules",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["remove", "--row", "0", "--where-eda", "diptrace"],
+            "Option not for the table's kind. option: '--where-eda', kind: AssemblyRules",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["add", "--manufacturer", "MFR3", "--mpn", "MPN3"],
+            "Option needed for the table's kind. option: '--ref-des', kind: AssemblyRules",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["remove", "--row", "0", "--where-ref-des", "R7"],
+            "The table has changed since the change was made. kind: AssemblyRules, source: '",
+        ),
+        (
+            "assembly-rules",
+            &rules_path,
+            ASSEMBLY_RULES,
+            &["add-columns", "--eda", "diptrace"],
+            "The table has no EDA tool's columns. kind: AssemblyRules, source: '",
+        ),
+        (
+            "part-mappings",
+            &mappings_path,
+            MAPPINGS,
+            &["set", "--row", "0", "--ref-des", "R1"],
+            "Option not for the table's kind. option: '--ref-des', kind: PartMappings",
+        ),
+        (
+            "part-mappings",
+            &mappings_path,
+            MAPPINGS,
+            &["add", "--manufacturer", "MFR1", "--mpn", "MPN1"],
+            "Option needed for the table's kind. option: '--eda', kind: PartMappings",
+        ),
+        (
+            "substitutions",
+            &substitutions_path,
+            SUBSTITUTIONS,
+            &["remove", "--row", "0", "--where-ref-des", "R1"],
+            "Option not for the table's kind. option: '--where-ref-des', kind: Substitutions",
+        ),
         (
             "substitutions",
             &substitutions_path,
