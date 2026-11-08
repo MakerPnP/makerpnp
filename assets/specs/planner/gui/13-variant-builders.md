@@ -153,8 +153,27 @@ how the row's tool uses it, the first of these that's so:
   "`Matched by <tool>. None of its fields has a pattern.`".
 - **Green**: otherwise, the tool matches the field, saying "`Matched by <tool>.`".
 
-The cell says so when it's hovered, even with no pattern, so the colour isn't the only sign. The cell's editor, shown
-over it, isn't coloured. *Observed*: the tab's
+The cell says so when it's hovered, even with no pattern, so the colour isn't the only sign. A manufacturer's, or an
+MPN's, cell is likewise red if it's empty, as every part mapping needs both, and green if not. The cell's editor, shown
+over it, isn't coloured.
+
+The table's first column, shown only by the GUI, is the row's status, headed "`◑`", a circle half filled, depicting its
+two states: a red circle, "`⏺`", if the row has any of these problems, and a green one if it has none. Hovering it says
+what each problem is, in this order, or "`No problems.`":
+
+- "`A pattern isn't valid.`": one of the row's patterns, of any field, as the user may give the row another tool, is
+  a regular expression that isn't valid.
+- "`The data source has no column for one of <tool>'s fields.`": the table lacks a column of one of the row's tool's
+  fields (`STORE-21`).
+- "`None of <tool>'s fields has a pattern.`": every one of the tool's fields' patterns in the row is empty, or the data
+  source has no column for it, as an orange cell says.
+- "`The data source has no manufacturer's column, or no MPN's.`".
+- "`The manufacturer, or the MPN, is empty.`": said only if the data source has both columns.
+
+The circles are glyphs of egui's own fonts, tinted, as they have no colour emoji, nor a traffic light. *Target*: colour
+emoji, once the GUI uses an egui with colour fonts. The gap: egui 0.36 has none.
+
+*Observed*: the tab's
 "`ChangeAfterColumns(<pending change>)`" command is logged, then the core's "`AddTableColumns`" event, and once the
 columns are shown, "`ColumnsShown(Some((<change>, <after change>)))`", before the row's "`ChangeTable`", or
 "`ColumnsShown(None)`" if the columns weren't added, or the row isn't as it was. *Target*: several rows selected are
@@ -257,7 +276,15 @@ removed at once. The gap: the stores core makes one change at a time.
   added, and that a pattern's cell is blue if the row's tool doesn't match its field, whatever its pattern, red if it
   does and its pattern is a regular expression that isn't valid, orange if it does and every one of the tool's fields'
   patterns in the row is empty or missing, and green otherwise, a field shared by tools matched by each, each faint,
-  and each colour told apart from the others, in either theme (`VBGUI-13`).
+  and each colour told apart from the others, in either theme, that a manufacturer's or an MPN's cell is red if it's
+  empty and green if not, that a part mapping's problems are each found, in order, and none if it has none, that the
+  status column is first only of part mappings, and that its header and circle are glyphs egui's own fonts have
+  (`VBGUI-13`).
+- `tests/ui/variant_builders.rs`'s `a_part_mappings_status_says_what_its_problems_are` checks the status column,
+  "`◑`", is before "`Eda`", and hovers each row's status, checking "`No problems.`" for a row with none,
+  "`A pattern isn't valid.`" and "`The manufacturer, or the MPN, is empty.`" for a row with an invalid pattern and no
+  MPN, and "`The data source has no column for one of KiCad's fields.`" and "`None of KiCad's fields has a pattern.`"
+  for a KiCad row of DipTrace's columns (`VBGUI-13`).
 - `tests/ui/variant_builders.rs`'s `choosing_a_rows_eda_tool_adds_its_columns_first` chooses KiCad for a row of
   DipTrace's part mappings, checking "`Package`" and "`Val`" are added before "`Manufacturer`", then the row's tool is
   changed, keeping its patterns, then EasyEDA, checking only "`Device`" is added, then KiCad again, whose columns are

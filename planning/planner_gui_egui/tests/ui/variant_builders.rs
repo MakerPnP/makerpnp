@@ -386,6 +386,40 @@ fn a_part_mappings_patterns_are_shown_and_an_invalid_one_says_why() {
     app.wait_for_text_containing("Matched by DipTrace.");
 }
 
+/// `VBGUI-13`, a part mapping's status, the first column, a circle, says when it's hovered that the row has no problems,
+/// or what they are. Its colours, and the manufacturer's and MPN's, are checked by `data_sources::table`'s tests, as the
+/// GUI's tests can't see them.
+#[test]
+fn a_part_mappings_status_says_what_its_problems_are() {
+    let mut app = App::start();
+    given_part_mappings_shown(
+        &mut app,
+        "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
+         \"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"\n\
+         \"DipTrace\",\"/R_[/\",\"\",\"MFR2\",\"\"\n\
+         \"KiCad\",\"CAP_0603\",\"\",\"MFR3\",\"MPN3\"\n",
+    );
+    app.wait_for_text("MFR3");
+    // first, before the columns the data source has.
+    let headers = ["◑", "Eda", "Name"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
+
+    app.hover_data_table_cell("RES_0402", "◑");
+    app.wait_for_text_containing("No problems.");
+
+    app.hover_data_table_cell("MFR2", "◑");
+    app.wait_for_text_containing("A pattern isn't valid.");
+    app.wait_for_text_containing("The manufacturer, or the MPN, is empty.");
+    app.wait_until_no_text_contains("No problems.");
+
+    // KiCad's `package` and `val` have no columns, so neither has a pattern.
+    app.hover_data_table_cell("MFR3", "◑");
+    app.wait_for_text_containing("The data source has no column for one of KiCad's fields.");
+    app.wait_for_text_containing("None of KiCad's fields has a pattern.");
+    app.wait_until_no_text_contains("is empty.");
+    app.assert_not_logged("Event failed.");
+}
+
 const TWO_MAPPINGS: &str = "\"Eda\",\"Name\",\"Value\",\"Manufacturer\",\"Mpn\"\n\
                             \"DipTrace\",\"RES_0402\",\"330R\",\"MFR1\",\"MPN1\"\n\
                             \"DipTrace\",\"CAP_0603\",\"10u\",\"MFR2\",\"MPN2\"\n";

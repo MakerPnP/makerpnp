@@ -13,12 +13,34 @@ use egui_deferred_table::{
 use egui_i18n::tr;
 use stores_app::{
     Cell, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering,
-    TableChange, TableRow, TableView,
+    TableChange, TableColumn, TableRow, TableView,
 };
 
 /// The view the stores core sent, shared with every other table showing the same data source, not a copy of it.
 struct TableDataSource {
     view: Arc<TableView>,
+}
+
+impl TableDataSource {
+    /// The view's column the table's column shows, none if it's the status column.
+    fn column(&self, index: usize) -> Option<&TableColumn> {
+        view_column(&self.view, index)
+    }
+}
+
+/// Whether the table has a status column, first, shown only by the GUI, as its rows' kind can be changed, so each can
+/// have problems (`VBGUI-13`).
+fn has_status(view: &TableView) -> bool {
+    view.table.is_changeable()
+}
+
+/// The view's column the table's column shows, after the status column if there's one.
+fn view_column(view: &TableView, index: usize) -> Option<&TableColumn> {
+    let index = match has_status(view) {
+        true => index.checked_sub(1)?,
+        false => index,
+    };
+    view.columns.get(index)
 }
 
 /// What a cell is being edited to, as it's typed, or chosen (`VBGUI-13`).
@@ -428,10 +450,7 @@ impl EditableTableRenderer<TableDataSource> for TableEditor<'_> {
 
     /// A cell whose column the data source has, so a change can name it (`STORE-19`).
     fn build_item_state(&self, cell_index: CellIndex, source: &mut TableDataSource) -> Option<(CellEdit, EditedRow)> {
-        let column = source
-            .view
-            .columns
-            .get(cell_index.column)?;
+        let column = source.column(cell_index.column)?;
         column.reference.as_ref()?;
         let (key, row) = source.view.row(cell_index.row)?;
         let edit = cell_edit(&row, &column.value)?;
@@ -656,7 +675,7 @@ impl DeferredTableDataSource for TableDataSource {
     fn get_dimensions(&self) -> TableDimensions {
         TableDimensions {
             row_count: self.view.table.len(),
-            column_count: self.view.columns.len(),
+            column_count: self.view.columns.len() + usize::from(has_status(&self.view)),
         }
     }
 }
@@ -665,27 +684,33 @@ struct TableRenderer {}
 
 impl DeferredTableRenderer<TableDataSource> for TableRenderer {
     fn render_cell(&self, ui: &mut Ui, cell_index: CellIndex, source: &TableDataSource) {
-        let Some(column) = source
-            .view
-            .columns
-            .get(cell_index.column)
-        else {
+        let row = source.view.table.row(cell_index.row);
+        let Some(column) = source.column(cell_index.column) else {
+            if let Some(TableRow::PartMappings(item)) = &row {
+                show_status(ui, &Problem::of(&source.view, item));
+            }
             return;
         };
         // `VBGUI-13`, a pattern's cell of a row whose kind can be changed says how the row's EDA tool uses it, even with
-        // no pattern.
-        let matched = match (&column.value, source.view.table.row(cell_index.row)) {
+        // no pattern, and its manufacturer's and MPN's say whether they're empty.
+        let (background, text) = match (&column.value, &row) {
             (ColumnValue::Pattern(field_name), Some(TableRow::PartMappings(item))) => {
-                Some(PatternMatch::of(&item, field_name))
+                let matched = PatternMatch::of(item, field_name);
+                (Some(matched.background()), Some(matched.text()))
             }
-            _ => None,
+            (ColumnValue::Manufacturer, Some(TableRow::PartMappings(item))) => {
+                (Some(Background::of_part_value(&item.part.manufacturer)), None)
+            }
+            (ColumnValue::Mpn, Some(TableRow::PartMappings(item))) => {
+                (Some(Background::of_part_value(&item.part.mpn)), None)
+            }
+            _ => (None, None),
         };
-        let mut hover = vec![];
-        if let Some(matched) = matched {
+        if let Some(background) = background {
             ui.painter()
-                .rect_filled(ui.max_rect(), 0.0, matched.background(ui.visuals()));
-            hover.push(matched.text());
+                .rect_filled(ui.max_rect(), 0.0, background.color(ui.visuals()));
         }
+        let mut hover: Vec<String> = text.into_iter().collect();
         match source
             .view
             .table
@@ -754,19 +779,13 @@ impl PatternMatch {
         }
     }
 
-    /// Faint blue, red, orange or green, so the pattern's own colour can still be read, in either theme.
-    fn background(self, visuals: &Visuals) -> Color32 {
-        let alpha = match visuals.dark_mode {
-            true => 40,
-            false => 32,
-        };
-        let (r, g, b) = match self {
-            PatternMatch::NotMatched(_) => (0, 100, 255),
-            PatternMatch::Invalid(_) => (230, 0, 0),
-            PatternMatch::NoPatterns(_) => (255, 140, 0),
-            PatternMatch::Matched(_) => (0, 200, 0),
-        };
-        Color32::from_rgba_unmultiplied(r, g, b, alpha)
+    fn background(self) -> Background {
+        match self {
+            PatternMatch::NotMatched(_) => Background::Blue,
+            PatternMatch::Invalid(_) => Background::Red,
+            PatternMatch::NoPatterns(_) => Background::Orange,
+            PatternMatch::Matched(_) => Background::Green,
+        }
     }
 
     /// Said when it's hovered, so the colour isn't the only sign; an invalid expression's cell says why, too.
@@ -783,6 +802,137 @@ impl PatternMatch {
             }
         }
     }
+}
+
+/// A part mapping's cell's background, saying whether its value is as the row needs it (`VBGUI-13`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Background {
+    Blue,
+    Red,
+    Orange,
+    Green,
+}
+
+impl Background {
+    /// Faint, so the value's own colour can still be read, in either theme.
+    fn color(self, visuals: &Visuals) -> Color32 {
+        let alpha = match visuals.dark_mode {
+            true => 40,
+            false => 32,
+        };
+        let (r, g, b) = match self {
+            Background::Blue => (0, 100, 255),
+            Background::Red => (230, 0, 0),
+            Background::Orange => (255, 140, 0),
+            Background::Green => (0, 200, 0),
+        };
+        Color32::from_rgba_unmultiplied(r, g, b, alpha)
+    }
+
+    /// A part's value, its manufacturer or its MPN, red if it's empty, as every part mapping needs both, and green if
+    /// not.
+    fn of_part_value(value: &str) -> Self {
+        match value.is_empty() {
+            true => Background::Red,
+            false => Background::Green,
+        }
+    }
+}
+
+/// What keeps a part mapping from being used as it is, shown by the status column (`VBGUI-13`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Problem {
+    /// One of its patterns, of any field, is a regular expression that isn't valid.
+    InvalidPattern,
+    /// The data source has no column for one of its EDA tool's fields.
+    MissingFieldColumns(EdaTool),
+    /// None of its EDA tool's fields has a pattern, empty or with no column.
+    NoPatterns(EdaTool),
+    /// The data source has no manufacturer's column, or no MPN's.
+    MissingPartColumns,
+    /// Its manufacturer, or its MPN, is empty.
+    EmptyPart,
+}
+
+impl Problem {
+    /// The part mapping's problems, in this order, none if it can be used as it is.
+    fn of(view: &TableView, item: &PartMappingsViewItem) -> Vec<Problem> {
+        let eda_tool = item.eda_tool;
+        let mut problems = vec![];
+        if item.criteria.iter().any(|criterion| {
+            matches!(criterion.pattern, Pattern::Regex {
+                regex: Err(_),
+                ..
+            })
+        }) {
+            problems.push(Problem::InvalidPattern);
+        }
+        if !has_columns(view, eda_tool) {
+            problems.push(Problem::MissingFieldColumns(eda_tool));
+        }
+        if let Some(field_name) = eda_tool.field_names().first()
+            && PatternMatch::of(item, field_name) == PatternMatch::NoPatterns(eda_tool)
+        {
+            problems.push(Problem::NoPatterns(eda_tool));
+        }
+        let has_column = |value: ColumnValue| {
+            view.columns
+                .iter()
+                .any(|column| column.value == value && column.reference.is_some())
+        };
+        if !has_column(ColumnValue::Manufacturer) || !has_column(ColumnValue::Mpn) {
+            problems.push(Problem::MissingPartColumns);
+        } else if item.part.manufacturer.is_empty() || item.part.mpn.is_empty() {
+            problems.push(Problem::EmptyPart);
+        }
+        problems
+    }
+
+    /// Said when the status is hovered.
+    fn text(self) -> String {
+        match self {
+            Problem::InvalidPattern => tr!("data-table-problem-invalid-pattern"),
+            Problem::MissingFieldColumns(eda_tool) => {
+                tr!("data-table-problem-missing-field-columns", { tool: eda_tool_name(eda_tool) })
+            }
+            Problem::NoPatterns(eda_tool) => {
+                tr!("data-table-problem-no-patterns", { tool: eda_tool_name(eda_tool) })
+            }
+            Problem::MissingPartColumns => tr!("data-table-problem-missing-part-columns"),
+            Problem::EmptyPart => tr!("data-table-problem-empty-part"),
+        }
+    }
+}
+
+/// The status column's header, a circle half filled, depicting its two states. egui's own fonts have no traffic light,
+/// nor any colour emoji.
+const STATUS_HEADER: &str = "◑";
+/// A status, a circle tinted red or green, as egui's own fonts have no colour emoji, nor `●`.
+const STATUS_GLYPH: &str = "⏺";
+
+/// The status of a part mapping's row: a red circle if it has problems, saying what they are when it's hovered, and a
+/// green one if it has none (`VBGUI-13`).
+fn show_status(ui: &mut Ui, problems: &[Problem]) {
+    let (color, text) = match problems.is_empty() {
+        true => (
+            match ui.visuals().dark_mode {
+                true => Color32::LIGHT_GREEN,
+                false => Color32::DARK_GREEN,
+            },
+            tr!("data-table-status-no-problems"),
+        ),
+        false => (
+            ui.visuals().error_fg_color,
+            problems
+                .iter()
+                .map(|problem| problem.text())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        ),
+    };
+    ui.colored_label(color, STATUS_GLYPH);
+    ui.interact(ui.max_rect(), ui.id().with("hover"), Sense::hover())
+        .on_hover_text(text);
 }
 
 /// A pattern, coloured by what it is, as it was parsed when it was read, not each frame. A regular expression that isn't
@@ -815,15 +965,20 @@ fn pattern_color(pattern: &Pattern, visuals: &Visuals) -> Color32 {
 /// kind can be changed (`VBGUI-13`), else it's read-only.
 #[profiling::function]
 pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Option<TableEditing>) {
-    let mut column_parameters: Vec<AxisParameters> = view
-        .columns
-        .iter()
-        .map(|column| {
+    let status = has_status(&view).then(|| {
+        AxisParameters::default()
+            .default_dimension(30.0)
+            .resizable(false)
+            .name(STATUS_HEADER.to_string())
+    });
+    let mut column_parameters: Vec<AxisParameters> = status
+        .into_iter()
+        .chain(view.columns.iter().map(|column| {
             AxisParameters::default()
                 .default_dimension(150.0)
                 .resizable(true)
                 .name(column.name.clone())
-        })
+        }))
         .collect();
     if let Some(last) = column_parameters.pop() {
         column_parameters.push(last.expandable(true));
@@ -894,13 +1049,14 @@ mod tests {
     use egui::Visuals;
     use egui_deferred_table::{CellEditState, CellIndex};
     use stores_app::{
-        ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering, Source,
-        Table, TableChange, TableKind, TableRow, TableView,
+        ColumnRef, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey,
+        RowOrdering, Source, Table, TableChange, TableColumn, TableKind, TableRow, TableView,
     };
 
     use super::{
-        AfterChange, CellEdit, EditedRow, PatternMatch, PendingChange, PendingRowChange, SelectAfterChange,
-        ShownAfterChange, TableEditorState, TableRequest, TableState, TableUiCommand, pattern_color, update_table,
+        AfterChange, Background, CellEdit, EditedRow, PatternMatch, PendingChange, PendingRowChange, Problem,
+        STATUS_GLYPH, STATUS_HEADER, SelectAfterChange, ShownAfterChange, TableEditorState, TableRequest, TableState,
+        TableUiCommand, pattern_color, update_table, view_column,
     };
 
     fn row(name: &str, mpn: &str) -> TableRow {
@@ -1309,7 +1465,7 @@ mod tests {
     #[test]
     fn a_patterns_cells_backgrounds_are_faint_and_told_apart() {
         for visuals in [Visuals::dark(), Visuals::light()] {
-            let colour = |matched: PatternMatch| matched.background(&visuals);
+            let colour = |matched: PatternMatch| matched.background().color(&visuals);
             let blue = colour(PatternMatch::NotMatched(EdaTool::KiCad));
             let red = colour(PatternMatch::Invalid(EdaTool::KiCad));
             let orange = colour(PatternMatch::NoPatterns(EdaTool::KiCad));
@@ -1325,6 +1481,106 @@ mod tests {
                 "orange: {orange:?}"
             );
             assert!(green.g() > green.r() && green.g() > green.b(), "green: {green:?}");
+        }
+    }
+
+    /// `VBGUI-13`, a manufacturer's, or an MPN's, cell is red if it's empty, and green if not, the same colours as a
+    /// pattern's.
+    #[test]
+    fn a_parts_cells_are_red_if_empty_and_green_if_not() {
+        assert_eq!(Background::of_part_value(""), Background::Red);
+        assert_eq!(Background::of_part_value("MFR1"), Background::Green);
+        assert_eq!(Background::Red, PatternMatch::Invalid(EdaTool::KiCad).background());
+        assert_eq!(Background::Green, PatternMatch::Matched(EdaTool::KiCad).background());
+    }
+
+    /// Part mappings' columns, each with a reference, as a file's are, with a pattern's for each of the fields.
+    fn columns_with(field_names: &[&str], part: bool) -> Vec<TableColumn> {
+        TableColumn::part_mappings(field_names.iter().copied())
+            .into_iter()
+            .filter(|column| part || !matches!(column.value, ColumnValue::Manufacturer | ColumnValue::Mpn))
+            .map(|column| TableColumn {
+                reference: Some(ColumnRef(column.name.clone())),
+                ..column
+            })
+            .collect()
+    }
+
+    fn view_with(columns: Vec<TableColumn>, item: &PartMappingsViewItem) -> TableView {
+        TableView {
+            columns,
+            ..view("1", &[TableRow::PartMappings(item.clone())])
+        }
+    }
+
+    /// `VBGUI-13`, a part mapping's problems are each found, in order: a pattern of any field that isn't valid, a
+    /// column of one of its EDA tool's fields missing, none of the tool's fields with a pattern, the manufacturer's or
+    /// the MPN's column missing, and, if they're there, either empty, and none if it can be used as it is.
+    #[test]
+    fn a_part_mappings_problems_are_each_found() {
+        use EdaTool::*;
+        use Problem::*;
+        let all = ["name", "value", "package", "val", "device"];
+
+        let good = mapping_with(DipTrace, &[("name", "RES_0402"), ("value", "")]);
+        assert_eq!(Problem::of(&view_with(columns_with(&all, true), &good), &good), vec![]);
+
+        // KiCad's `val` has no column, and neither of its fields has a pattern, and another tool's isn't valid.
+        let bad = mapping_with(KiCad, &[("name", "/R_[/"), ("package", "")]);
+        let columns = columns_with(&["name", "value", "package"], true);
+        assert_eq!(Problem::of(&view_with(columns, &bad), &bad), vec![
+            InvalidPattern,
+            MissingFieldColumns(KiCad),
+            NoPatterns(KiCad),
+        ]);
+
+        // the part's columns missing, so whether it's empty isn't said.
+        let mut empty = good.clone();
+        empty.part = Part::new(String::new(), "MPN1".to_string());
+        assert_eq!(
+            Problem::of(&view_with(columns_with(&all, false), &empty), &empty),
+            vec![MissingPartColumns]
+        );
+        assert_eq!(Problem::of(&view_with(columns_with(&all, true), &empty), &empty), vec![
+            EmptyPart
+        ]);
+        empty.part = Part::new("MFR1".to_string(), String::new());
+        assert_eq!(Problem::of(&view_with(columns_with(&all, true), &empty), &empty), vec![
+            EmptyPart
+        ]);
+    }
+
+    /// `VBGUI-13`, the status column is first, so a part mappings' table's columns are the view's after it, and other
+    /// tables have none.
+    #[test]
+    fn the_status_column_is_first_of_part_mappings_only() {
+        let item = mapping_with(EdaTool::DipTrace, &[("name", "RES_0402")]);
+        let mappings = view_with(columns_with(&["name"], true), &item);
+        assert!(view_column(&mappings, 0).is_none());
+        assert_eq!(view_column(&mappings, 1), mappings.columns.first());
+        assert_eq!(view_column(&mappings, 4), mappings.columns.get(3));
+        assert!(view_column(&mappings, 5).is_none());
+
+        let bom = TableView {
+            table: Table::Bom(vec![]),
+            ..mappings.clone()
+        };
+        assert_eq!(view_column(&bom, 0), bom.columns.first());
+    }
+
+    /// `VBGUI-13`, the status column's header and its circle are glyphs egui's own fonts have, so they're not shown as
+    /// boxes.
+    #[test]
+    fn the_status_glyphs_are_in_the_default_fonts() {
+        let ctx = egui::Context::default();
+        // fonts are built at the start of a frame.
+        let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+        output.textures_delta.clear();
+        for glyph in [STATUS_HEADER, STATUS_GLYPH] {
+            assert!(
+                ctx.fonts_mut(|fonts| fonts.has_glyphs(&egui::FontId::proportional(14.0), glyph)),
+                "{glyph} has no glyph"
+            );
         }
     }
 
