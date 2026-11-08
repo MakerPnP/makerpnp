@@ -20,7 +20,7 @@ use tabs::explorer_tab::{ExplorerTab, ExplorerTabUiCommand, ExplorerTabUiContext
 use tabs::gerber_viewer_tab::{
     GerberViewerTab, GerberViewerTabUi, GerberViewerTabUiAction, GerberViewerTabUiCommand, GerberViewerTabUiContext,
 };
-use tracing::{debug, trace};
+use tracing::{debug, info, trace};
 
 use crate::pcb::core_helper::PcbCoreHelper;
 use crate::pcb::tabs::explorer_tab::ExplorerTabUiAction;
@@ -30,6 +30,7 @@ use crate::planner_app_core::{PlannerCoreService, PlannerError};
 use crate::sync::Enqueue;
 use crate::sync::Value;
 use crate::task::Task;
+use crate::ui_commands::PcbDesignComponent;
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_components::gerber_viewer_ui::{GerberViewerMode, GerberViewerUiInstanceArgs};
 use crate::ui_util::NavigationPath;
@@ -533,7 +534,38 @@ pub enum PcbUiCommand {
         design_position: PlacementPositionUnit,
         unit_position: PlacementPositionUnit,
     },
+    /// A design's placement, located on each of the PCB's viewers of the design (`UNITASG-6`).
+    LocateDesignComponent(PcbDesignComponent),
     RefreshPcb,
+}
+
+/// The placement's position, as the EDA tool exported it, on the design's gerbers: the design's placement offset,
+/// usually negative, added, and its gerber offset, usually negative, subtracted, to apply it again.
+fn on_design_gerbers(
+    panel_sizing: &PanelSizing,
+    design_index: usize,
+    mut design_position: PlacementPositionUnit,
+) -> PlacementPositionUnit {
+    let design_sizing = &panel_sizing.design_sizings[design_index];
+    trace!("design_sizing: {:?}", design_sizing);
+
+    // FIXME hard-coded use of UnitSystem::Millimeters
+    let placement_offset = DimensionUnitPoint2::new_dim_f64(
+        design_sizing.placement_offset.x,
+        design_sizing.placement_offset.y,
+        UnitSystem::Millimeters,
+    );
+    let gerber_offset = DimensionUnitPoint2::new_dim_f64(
+        design_sizing.gerber_offset.x,
+        design_sizing.gerber_offset.y,
+        UnitSystem::Millimeters,
+    );
+
+    let eda_offset = placement_offset - gerber_offset;
+    design_position.coords += eda_offset;
+
+    trace!("adjusted design_position: {:?}", design_position);
+    design_position
 }
 
 pub struct PcbContext {
@@ -1006,26 +1038,7 @@ impl UiComponent for Pcb {
                     let (_pcb_index, unit_index) = (pcb_number - 1, unit_number - 1);
 
                     if let Some(&design_index) = pcb_overview.unit_map.get(&unit_index) {
-                        let design_sizing = &panel_sizing.design_sizings[design_index];
-                        trace!("design_sizing: {:?}", design_sizing);
-
-                        // FIXME hard-coded use of UnitSystem::Millimeters
-                        let placement_offset = DimensionUnitPoint2::new_dim_f64(
-                            design_sizing.placement_offset.x,
-                            design_sizing.placement_offset.y,
-                            UnitSystem::Millimeters,
-                        );
-                        let gerber_offset = DimensionUnitPoint2::new_dim_f64(
-                            design_sizing.gerber_offset.x,
-                            design_sizing.gerber_offset.y,
-                            UnitSystem::Millimeters,
-                        );
-
-                        // Placement coordinates are as-exported in EDA tool - add the design placement offset (which is usually negative), subtract the design gerber offset (usually negative) to re-apply it.
-                        let eda_offset = placement_offset - gerber_offset;
-                        design_position.coords += eda_offset;
-
-                        trace!("adjusted design_position: {:?}", design_position);
+                        design_position = on_design_gerbers(panel_sizing, design_index, design_position);
 
                         // Unit coordinates are correct for PnP machine, but may not match the panel gerbers.
                         // Add the panel gerber offset
@@ -1074,6 +1087,70 @@ impl UiComponent for Pcb {
                             })
                         }
                     }
+                }
+
+                None
+            }
+            // `UNITASG-6`, on each viewer of the design, not the panel's, as the placement isn't of one unit.
+            PcbUiCommand::LocateDesignComponent(PcbDesignComponent {
+                pcb_file,
+                design_name,
+                pcb_side,
+                design_position,
+            }) => {
+                info!(
+                    "Locating design component on PCB. pcb: '{}', design: '{}', pcb_side: {:?}, design_position: {:?}",
+                    pcb_file.display(),
+                    design_name,
+                    pcb_side,
+                    design_position
+                );
+
+                let (Some(pcb_overview), Some(panel_sizing)) = (&self.pcb_overview, &self.panel_sizing) else {
+                    return None;
+                };
+                let Some(design_index) = pcb_overview
+                    .designs
+                    .iter()
+                    .position(|candidate| candidate.to_string() == design_name)
+                else {
+                    debug!(
+                        "Design not found. pcb: '{}', design: '{}'",
+                        pcb_file.display(),
+                        design_name
+                    );
+                    return None;
+                };
+                let design_position = on_design_gerbers(panel_sizing, design_index, design_position);
+
+                let tabs = self.pcb_tabs.lock().unwrap();
+                let tab_keys = tabs.filter_map(|(candidate_tab_key, candidate_tab)| match candidate_tab {
+                    PcbTabKind::GerberViewer(gerber_viewer_tab) => match gerber_viewer_tab.args.mode {
+                        GerberViewerMode::Design(candidate_index) if candidate_index.eq(&design_index) => {
+                            Some(candidate_tab_key.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                });
+
+                let pcb_ui_state = self.pcb_ui_state.lock().unwrap();
+                for tab_key in tab_keys {
+                    tabs.with_tab_mut(&tab_key, |tab| {
+                        let PcbTabKind::GerberViewer(tab) = tab else { return };
+
+                        if let Some(gerber_viewer_ui) = pcb_ui_state
+                            .gerber_viewer_tab_uis
+                            .get(&tab.args)
+                        {
+                            gerber_viewer_ui
+                                .component
+                                .send(GerberViewerTabUiCommand::LocateDesignComponent {
+                                    pcb_side,
+                                    design_position,
+                                })
+                        }
+                    })
                 }
 
                 None

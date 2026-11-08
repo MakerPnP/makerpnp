@@ -34,6 +34,17 @@ pub struct GerberViewerTabUi {
 }
 
 impl GerberViewerTabUi {
+    /// Marks the placement, and centres the view on it.
+    fn locate(&self, position: PlacementPositionUnit) {
+        let coords = position.coords;
+        self.gerber_viewer_ui
+            .component
+            .send(GerberViewerUiCommand::ShowPlacementMarker(position));
+        self.gerber_viewer_ui
+            .component
+            .send(GerberViewerUiCommand::LocateView(coords));
+    }
+
     pub fn new(args: GerberViewerUiInstanceArgs) -> Self {
         let component: ComponentState<GerberViewerTabUiCommand> = Default::default();
 
@@ -188,6 +199,11 @@ pub enum GerberViewerTabUiCommand {
         pcb_side: PcbSide,
         design_position: PlacementPositionUnit,
         unit_position: PlacementPositionUnit,
+    },
+    /// A design's placement, on the design's gerbers, located by a viewer of the design (`UNITASG-6`).
+    LocateDesignComponent {
+        pcb_side: PcbSide,
+        design_position: PlacementPositionUnit,
     },
 }
 
@@ -347,14 +363,19 @@ impl UiComponent for GerberViewerTabUi {
                     GerberViewerMode::Design(_) => design_position,
                 };
 
-                let coords = position.coords;
-
-                self.gerber_viewer_ui
-                    .component
-                    .send(GerberViewerUiCommand::ShowPlacementMarker(position));
-                self.gerber_viewer_ui
-                    .component
-                    .send(GerberViewerUiCommand::LocateView(coords));
+                self.locate(position);
+                None
+            }
+            GerberViewerTabUiCommand::LocateDesignComponent {
+                pcb_side,
+                design_position,
+            } => {
+                if matches!(context.args.pcb_side, Some(candidate_pcb_side) if candidate_pcb_side.ne(&pcb_side))
+                    || !matches!(context.args.mode, GerberViewerMode::Design(_))
+                {
+                    return None;
+                }
+                self.locate(design_position);
                 None
             }
         }

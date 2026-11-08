@@ -56,7 +56,9 @@ parents, or how its commands reach it.
 
 Gaps: a command has to pass through each level between the application and its component, with code at each level to
 wrap it and more to unwrap it (`ui_app.rs`, `send_project_command`, `configure_project_component`, and 43 uses of
-`configure_mapper`). `UiCommand::LocateComponent` reaches a PCB by searching for it from `handle_command`.
+`configure_mapper`). `UiCommand::LocateComponent` reaches a PCB by searching for it from `handle_command`, as a project's
+`LocateDesignComponents` does, and `LocateDesignComponent`, a variant builder's placement to be located, reaches every
+open project from there (`VBGUI-18`, `UNITASG-5`).
 
 ## Data from the core
 

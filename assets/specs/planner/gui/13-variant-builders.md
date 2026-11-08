@@ -277,6 +277,16 @@ cells is red. Otherwise its status is green, saying "`No problems.`", and each o
 isn't empty, and has no colour if it is, as another is enough to map it. The other cells have no colour. The panel
 doesn't show the mapping results, which are the Variant Builder mission's step 16's.
 
+**VBGUI-18 — Locating a placement.** *Confirmed.* Selecting a placement's row, in the EDA placements' panel
+(`VBGUI-17`) or the variant placements' (`VBGUI-12`), MUST ask every open project to locate it on its PCBs
+(`LocateDesignComponent`), with the variant builder's design name, and the placement's ref-des, position, its X and Y
+as the EDA tool exported them, and side. Not the variant name, as the ref-des and position are the design's, the same
+for any of its variants. Each project decides whether the placement is on its PCBs, by its unit assignments
+(`UNITASG-5`), as a variant builder isn't assigned a PCB: its placements are a design's, which may be on many PCBs, of
+many projects. With no project open, or none using the design, nothing happens. This is the GUI's alone, as it's about
+the documents it has open. A row is selected by clicking any of its cells. *Observed*: the variant builder logs it,
+such as "`Locate design component. design: 'board1', ref_des: 'R1', pcb_side: Top, design_position: `".
+
 ## Acceptance criteria
 
 - `tests/ui/variant_builders.rs` creates a design variant with "`New design variant`", choosing DipTrace and its
@@ -458,6 +468,10 @@ doesn't show the mapping results, which are the Variant Builder mission's step 1
   empty, one being enough, that the status column is first of EDA placements, and that those fields' cells are red if
   all are empty, green if not empty, with no colour if empty but another isn't, another tool's field having none
   (`VBGUI-17`).
+- `tests/ui/variant_builders.rs`'s `a_selected_placement_is_located_on_the_pcbs_its_design_is_on` and
+  `a_placement_of_a_design_no_project_uses_is_not_located` click an EDA placement's row and a variant
+  placement's, and check what's logged, in order, by the variant builder, the project and the PCB (`VBGUI-18`), as
+  `UNITASG-5`'s acceptance criteria say.
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
   (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.

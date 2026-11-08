@@ -12,6 +12,7 @@ use crate::project::{Project, ProjectAction, ProjectContext, ProjectKey, Project
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
+use crate::ui_commands::PcbDesignComponent;
 use crate::ui_component::{ComponentState, UiComponent};
 
 /// This is persisted between application restarts
@@ -51,6 +52,8 @@ pub enum ProjectTabAction {
         design_position: PlacementPositionUnit,
         unit_position: PlacementPositionUnit,
     },
+    /// A design's placement, for each of the project's PCBs that has it (`UNITASG-5`).
+    LocateDesignComponents(Vec<PcbDesignComponent>),
 }
 
 pub struct ProjectTabContext {
@@ -172,6 +175,9 @@ impl UiComponent for ProjectTab {
                         design_position,
                         unit_position,
                     }),
+                    Some(ProjectAction::LocateDesignComponents(components)) => {
+                        Some(ProjectTabAction::LocateDesignComponents(components))
+                    }
                 }
             }
         }

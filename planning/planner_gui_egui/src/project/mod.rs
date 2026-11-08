@@ -48,6 +48,7 @@ use crate::project::tabs::{ProjectTabAction, ProjectTabContext, ProjectTabUiComm
 use crate::project::toolbar::{ProjectToolbar, ProjectToolbarAction, ProjectToolbarUiCommand};
 use crate::sync::{Enqueue, Value, ValueGuard};
 use crate::task::Task;
+use crate::ui_commands::{DesignComponent, PcbDesignComponent};
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_util::NavigationPath;
 
@@ -82,6 +83,8 @@ pub enum ProjectAction {
         design_position: PlacementPositionUnit,
         unit_position: PlacementPositionUnit,
     },
+    /// A design's placement, for each of the project's PCBs that has it (`UNITASG-5`).
+    LocateDesignComponents(Vec<PcbDesignComponent>),
 }
 
 #[derive(Derivative)]
@@ -851,6 +854,61 @@ impl Project {
             })
     }
 
+    /// `UNITASG-5`, the placement, for each of the project's PCBs with a unit assigned any variant of the design, by its
+    /// name, as the ref-des and positions are the design's, once for each PCB, as the design is the same on each of its
+    /// units. The project's own placements aren't used, so it's located though the project may not have been refreshed
+    /// with it (`UNITASG-7`).
+    fn locate_design_component(&self, component: DesignComponent) -> Option<ProjectAction> {
+        let pcb_files: Vec<PathBuf> = {
+            let state = self.project_ui_state.lock().unwrap();
+            state
+                .data
+                .overview
+                .get()
+                .map(|overview| {
+                    overview
+                        .pcbs
+                        .iter()
+                        .filter(|pcb| {
+                            pcb.unit_assignments
+                                .values()
+                                .any(|design_variant| design_variant.design_name.to_string() == component.design_name)
+                        })
+                        .map(|pcb| pcb_file_path(&self.path, &pcb.pcb_file))
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        info!(
+            "Design's PCBs. project: '{}', design: '{}', pcbs: [{}]",
+            self.path.display(),
+            component.design_name,
+            pcb_files
+                .iter()
+                .map(|pcb_file| format!("'{}'", pcb_file.display()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+        if pcb_files.is_empty() {
+            return None;
+        }
+        let DesignComponent {
+            design_name,
+            placement,
+        } = component;
+        Some(ProjectAction::LocateDesignComponents(
+            pcb_files
+                .into_iter()
+                .map(|pcb_file| PcbDesignComponent {
+                    pcb_file,
+                    design_name: design_name.clone(),
+                    pcb_side: placement.pcb_side.clone(),
+                    design_position: placement.design_position,
+                })
+                .collect(),
+        ))
+    }
+
     fn show_add_phase_modal(&mut self, key: ProjectKey) {
         let processes = {
             let state = self.project_ui_state.lock().unwrap();
@@ -1417,6 +1475,7 @@ impl Project {
                 self.show_unit_assignments(key, pcb_index);
                 None
             }
+            ProjectUiCommand::LocateDesignComponent(component) => self.locate_design_component(component),
             ProjectUiCommand::ShowExplorer => {
                 self.show_explorer();
                 None
@@ -2139,6 +2198,9 @@ pub enum ProjectUiCommand {
     },
 
     ShowPcbUnitAssignments(u16),
+    /// A variant builder's placement, to locate on each of the project's PCBs with a unit assigned any variant of its
+    /// design (`UNITASG-5`).
+    LocateDesignComponent(DesignComponent),
     UnitAssignmentsTabUiCommand {
         pcb_index: u16,
         command: UnitAssignmentsTabUiCommand,

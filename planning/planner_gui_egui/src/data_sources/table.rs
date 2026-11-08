@@ -1437,9 +1437,10 @@ fn field_name(column: &TableColumn) -> String {
 
 /// Shows the table, a row for each of the data source's records, with its columns as the headers, each resizable, taking
 /// all the space left in the `Ui`, so it's resized with its container. Its cells are edited if it's `editing`, and its
-/// kind can be changed (`VBGUI-13`), else it's read-only.
+/// kind can be changed (`VBGUI-13`), else it's read-only, and the row of a cell clicked is returned, such as a
+/// placement's, to locate it (`VBGUI-18`).
 #[profiling::function]
-pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Option<TableEditing>) {
+pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Option<TableEditing>) -> Option<usize> {
     let status = has_status(&view).then(|| {
         AxisParameters::default()
             .default_dimension(30.0)
@@ -1515,12 +1516,20 @@ pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Opti
                     (editing.send)(TableUiCommand::RowsSelected(selection));
                 }
             }
+            None
         }
         None => {
             let mut source = TableDataSource {
                 view,
             };
-            let (_response, _actions) = table.show(ui, &mut source, &mut renderer);
+            let (_response, actions) = table.show(ui, &mut source, &mut renderer);
+            actions
+                .into_iter()
+                .rev()
+                .find_map(|action| match action {
+                    Action::CellClicked(cell_index) => Some(cell_index.row),
+                    _ => None,
+                })
         }
     }
 }

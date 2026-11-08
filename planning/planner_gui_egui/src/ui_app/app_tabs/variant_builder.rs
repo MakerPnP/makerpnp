@@ -16,7 +16,7 @@ use egui_i18n::tr;
 use egui_ltreeview::TreeViewState;
 use serde::{Deserialize, Serialize};
 use stores_app::{Source, TableKind, TableRow};
-use tracing::debug;
+use tracing::{debug, info};
 use validator::Validate;
 use variantbuilder_app::variant_builders::{
     DEFAULT_VARIANT_NAME, SubstitutionsSource, design_name, file_name, placements_extensions, source_path, stored_path,
@@ -26,7 +26,7 @@ use variantbuilder_app::{
     VariantBuilderView,
 };
 
-use crate::data_sources::panel::{DataSourcePanel, DataSourcePanelUiCommand};
+use crate::data_sources::panel::{DataSourcePanel, DataSourcePanelUiAction, DataSourcePanelUiCommand};
 use crate::data_sources::table::new_row;
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
@@ -35,6 +35,7 @@ use crate::stores_core::StoresCoreService;
 use crate::sync::Value;
 use crate::tabs::{Tab, TabKey};
 use crate::task::Task;
+use crate::ui_commands::DesignComponent;
 use crate::ui_component::{ComponentState, UiComponent};
 use crate::ui_components::errors::{Errors, ErrorsUiCommand};
 use crate::variant_builder_core::VariantBuilderCoreService;
@@ -186,6 +187,8 @@ impl VariantBuilderTabUiCommand {
 pub enum VariantBuilderTabAction {
     /// Commands for this tab to handle next, in order.
     Task(Task<VariantBuilderTabUiCommand>),
+    /// A placement selected, for every open project to locate on its PCBs (`VBGUI-18`).
+    LocateDesignComponent(DesignComponent),
 }
 
 pub struct VariantBuilderTabContext {
@@ -466,9 +469,22 @@ impl UiComponent for VariantBuilderTab {
                 None
             }
             VariantBuilderTabUiCommand::Panel(command) => {
-                self.data_source_panel
-                    .update(command, &context.stores);
-                None
+                let DataSourcePanelUiAction::LocatePlacement(placement) = self
+                    .data_source_panel
+                    .update(command, &context.stores)?;
+                // `VBGUI-18`, of the design, as its file names it, whichever the variant, as the ref-des and positions
+                // are the design's, for the projects to decide where it is.
+                let (Some(view), _) = self.known(&context.variant_builders) else {
+                    return None;
+                };
+                info!(
+                    "Locate design component. design: '{}', ref_des: '{}', pcb_side: {:?}, design_position: {:?}",
+                    view.file.design_name, placement.ref_des, placement.pcb_side, placement.design_position
+                );
+                Some(VariantBuilderTabAction::LocateDesignComponent(DesignComponent {
+                    design_name: view.file.design_name.clone(),
+                    placement,
+                }))
             }
             VariantBuilderTabUiCommand::Errors(command) => {
                 self.errors.update(command);

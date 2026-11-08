@@ -4,9 +4,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use eda_units::eda_units::angle::AngleUnit;
+use eda_units::eda_units::dimension_unit::{DimensionUnitPoint2, DimensionUnitPoint2Ext};
+use eda_units::eda_units::unit_system::UnitSystem;
 use egui::Ui;
 use egui_i18n::tr;
-use stores_app::{ColumnsToAdd, Event, Source, TableKind, TableRow};
+use planner_app::{PcbSide, PlacementPositionUnit};
+use stores_app::{ColumnsToAdd, Event, Source, Table, TableKind, TableRow, TableView};
 
 use crate::data_sources::table::{
     TableEditing, TableRequest, TableState, TableUiCommand, is_changed_here, show_row_buttons, show_table, update_table,
@@ -34,6 +38,61 @@ pub enum DataSourcePanelUiCommand {
     Reload(TableKind, Source),
     /// The table's command, such as a cell edited (`VBGUI-13`).
     Table(TableKind, Source, TableUiCommand),
+    /// A placement's row was selected, an EDA placement's or a variant's, to locate it (`VBGUI-18`).
+    PlacementSelected(PlacementToLocate),
+}
+
+/// What the panel asks of the tab showing it.
+#[derive(Debug, Clone)]
+pub enum DataSourcePanelUiAction {
+    /// Locate the placement on the PCBs its design is on (`VBGUI-18`).
+    LocatePlacement(PlacementToLocate),
+}
+
+/// A placement to locate: its ref-des, its side, and its position, as the EDA tool exported it (`VBGUI-18`).
+#[derive(Debug, Clone)]
+pub struct PlacementToLocate {
+    pub ref_des: String,
+    pub pcb_side: PcbSide,
+    pub design_position: PlacementPositionUnit,
+}
+
+impl PlacementToLocate {
+    /// The placement shown in the row, if the table is of placements, an EDA tool's or a variant's.
+    fn of_row(view: &TableView, row: usize) -> Option<Self> {
+        let (ref_des, pcb_side, x, y, rotation) = match &view.table {
+            Table::EdaPlacements(items) => {
+                let placement = &items.get(row)?.placement;
+                (
+                    placement.ref_des.clone(),
+                    placement.pcb_side.clone(),
+                    placement.x,
+                    placement.y,
+                    placement.rotation,
+                )
+            }
+            Table::Placements(items) => {
+                let placement = &items.get(row)?.placement;
+                (
+                    placement.ref_des.to_string(),
+                    placement.pcb_side.clone(),
+                    placement.x,
+                    placement.y,
+                    placement.rotation,
+                )
+            }
+            _ => return None,
+        };
+        Some(Self {
+            ref_des,
+            pcb_side,
+            // FIXME hard-coded use of UnitSystem::Millimeters, as a project's placements table has.
+            design_position: PlacementPositionUnit::new(
+                DimensionUnitPoint2::new_dim_decimal(x, y, UnitSystem::Millimeters),
+                AngleUnit::new_degrees_decimal(rotation),
+            ),
+        })
+    }
 }
 
 impl DataSourcePanelUiCommand {
@@ -45,20 +104,28 @@ impl DataSourcePanelUiCommand {
             DataSourcePanelUiCommand::Open(..) => false,
             DataSourcePanelUiCommand::Reload(..) => true,
             DataSourcePanelUiCommand::Table(_, _, command) => command.is_users(),
+            DataSourcePanelUiCommand::PlacementSelected(_) => true,
         }
     }
 }
 
 impl DataSourcePanel {
-    /// Handles the panel's command, having the stores core do what it asks, if anything.
-    pub fn update(&mut self, command: DataSourcePanelUiCommand, stores: &Value<StoresCoreService>) {
+    /// Handles the panel's command, having the stores core do what it asks, if anything, or the tab, by its action.
+    pub fn update(
+        &mut self,
+        command: DataSourcePanelUiCommand,
+        stores: &Value<StoresCoreService>,
+    ) -> Option<DataSourcePanelUiAction> {
         let event = match command {
+            DataSourcePanelUiCommand::PlacementSelected(placement) => {
+                return Some(DataSourcePanelUiAction::LocatePlacement(placement));
+            }
             DataSourcePanelUiCommand::Open(kind, source) => {
                 if !self
                     .opened
                     .insert((kind, source.clone()))
                 {
-                    return;
+                    return None;
                 }
                 Event::OpenTable {
                     kind,
@@ -93,11 +160,12 @@ impl DataSourcePanel {
                             eda_tool,
                         },
                     },
-                    None => return,
+                    None => return None,
                 }
             }
         };
         stores.lock().unwrap().process(event);
+        None
     }
 
     /// Shows the table, filling the space left, once it's loaded, and why it can't be, having the stores core open it if
@@ -191,7 +259,15 @@ impl DataSourcePanel {
                     }),
                 );
             }
-            Some(view) => show_table(ui, ui.id().with("table"), view, None),
+            Some(view) => {
+                // `VBGUI-18`, a placement selected is located, the EDA tool's, which aren't changed here, or the
+                // variant's.
+                if let Some(placement) = show_table(ui, ui.id().with("table"), view.clone(), None)
+                    .and_then(|row| PlacementToLocate::of_row(&view, row))
+                {
+                    send(DataSourcePanelUiCommand::PlacementSelected(placement));
+                }
+            }
             // the store operations are done without the GUI waiting for them, so the table may not be read yet.
             None if status
                 .as_ref()

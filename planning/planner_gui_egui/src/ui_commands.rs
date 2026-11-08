@@ -5,6 +5,7 @@ use planner_app::{ObjectPath, PcbSide, PlacementPositionUnit};
 use tracing::{debug, trace};
 
 use crate::config::Config;
+use crate::data_sources::panel::PlacementToLocate;
 use crate::pcb::{PcbAction, PcbUiCommand};
 use crate::process::{ProcessAction, ProcessUiCommand};
 use crate::project::{ProjectAction, ProjectUiCommand};
@@ -57,6 +58,27 @@ pub enum UiCommand {
     /// The result of a store operation the Variant Builder core asked for, done by the stores service (`STORE-7`).
     VariantBuilderReply(VariantBuilderReply),
     OpenVariantBuilderFile(PathBuf),
+    /// A variant builder's placement, for every open project to locate on its PCBs (`VBGUI-18`, `UNITASG-5`).
+    LocateDesignComponent(DesignComponent),
+}
+
+/// A design's placement to locate, on each open PCB with a unit that an open project assigns any variant of the
+/// design to, as its ref-des and position are the design's, whichever the variant (`VBGUI-18`, `UNITASG-5`). Designs
+/// are matched by their names.
+#[derive(Debug, Clone)]
+pub struct DesignComponent {
+    pub design_name: String,
+    pub placement: PlacementToLocate,
+}
+
+/// A design's placement to locate on a PCB, by the PCB's file, on each of its viewers of the design (`UNITASG-6`).
+#[derive(Debug, Clone)]
+pub struct PcbDesignComponent {
+    pub pcb_file: PathBuf,
+    pub design_name: String,
+    pub pcb_side: PcbSide,
+    /// As the EDA tool exported it.
+    pub design_position: PlacementPositionUnit,
 }
 
 // TODO perhaps the return type of this method be `Task<Result<UiCommand, UiAppError>>`
@@ -189,6 +211,17 @@ pub fn handle_command(
                     }))
             }
 
+            Task::none()
+        }
+        // `UNITASG-5`, each project decides whether it's on its PCBs.
+        UiCommand::LocateDesignComponent(component) => {
+            let app_state = app_state.lock().unwrap();
+            let projects = app_state.projects.lock().unwrap();
+            for (project_key, project) in projects.iter() {
+                project
+                    .component
+                    .send((project_key, ProjectUiCommand::LocateDesignComponent(component.clone())));
+            }
             Task::none()
         }
 
@@ -342,6 +375,9 @@ pub fn handle_command(
                                 command,
                             }),
                         }),
+                        VariantBuilderTabAction::LocateDesignComponent(component) => {
+                            Task::done(UiCommand::LocateDesignComponent(component))
+                        }
                     },
                     TabKindAction::ProjectTabAction {
                         action,
@@ -401,9 +437,33 @@ pub fn handle_command(
                             design_position,
                             unit_position,
                         }),
+                        ProjectTabAction::LocateDesignComponents(components) => {
+                            locate_on_pcbs(&app_state, components);
+                            Task::none()
+                        }
                     },
                 },
             }
+        }
+    }
+}
+
+/// `UNITASG-6`, each design's placement, for its PCB to locate on its viewers of the design, if it's open, as a PCB
+/// that isn't open isn't opened.
+fn locate_on_pcbs(app_state: &Value<AppState>, components: Vec<PcbDesignComponent>) {
+    let app_state = app_state.lock().unwrap();
+    let pcbs = app_state.pcbs.lock().unwrap();
+    for component in components {
+        if let Some((pcb_key, pcb)) = pcbs
+            .iter()
+            .find(|(_candidate_key, candidate_pcb)| {
+                candidate_pcb
+                    .path()
+                    .eq(&component.pcb_file)
+            })
+        {
+            pcb.component
+                .send((pcb_key, PcbUiCommand::LocateDesignComponent(component)));
         }
     }
 }

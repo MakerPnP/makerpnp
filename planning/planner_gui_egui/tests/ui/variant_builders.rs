@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::fixture::App;
+use crate::workflow::create_project_with_an_assigned_variant;
 
 const PLACEMENTS: &str = "\"RefDes\",\"Name\",\"Value\",\"Side\",\"X\",\"Y\",\"Rotation\"\n\
                           \"R1\",\"RES_0402\",\"330R\",\"Top\",\"10\",\"20\",\"90\"\n";
@@ -1561,4 +1562,90 @@ fn building_an_incomplete_design_variant_says_what_is_missing() {
             .join("board1_default_placements.csv")
             .exists()
     );
+}
+
+/// Creates `<design>_variant_b.variant.json`, of the design, from DipTrace's placements `<design>.csv` in the folder.
+/// [`create_project_with_an_assigned_variant`]'s project assigns `variant_a` of `design_a`, not `variant_b`, to its
+/// PCB's first unit, and its PCB is opened. The variant's placements are the project's,
+/// `design_a_variant_a_placements.csv`, as if built.
+fn create_variant_b_of(app: &mut App, folder: &Path, design: &str) {
+    // the PCB the project's unit is on, open, with "Show PCB" on the project's PCB tab.
+    app.click_tab_containing("PCB (");
+    app.click_button("Show PCB");
+    app.wait_for_tab("panel_a.pcb.json");
+
+    fs::write(folder.join(format!("{design}.csv")), PLACEMENTS).unwrap();
+    fs::copy(
+        folder.join("design_a_variant_a_placements.csv"),
+        folder.join(format!("{design}_variant_b_placements.csv")),
+    )
+    .unwrap();
+    app.click_button("New design variant");
+    app.wait_for_tab("New design variant");
+    app.choose_from_combo_box("EDA tool", "DipTrace");
+    choose(app, "EDA placements", folder.join(format!("{design}.csv")));
+    app.wait_for_field_value("Design name", design);
+    app.type_into("Variant name", "variant_b");
+    app.wait_for_enabled_button("Ok");
+    app.click_button("Ok");
+    app.wait_for_tab(&format!("{design}_variant_b.variant.json"));
+    app.wait_for_text("Variant placements");
+}
+
+/// `VBGUI-18`, `UNITASG-5`, `UNITASG-6`, selecting an EDA placement's row, or a variant placement's, asks every open
+/// project to locate it, and a project with a unit assigned any variant of the design, not only the variant builder's,
+/// has its PCB locate it on its design, as the ref-des and positions are the design's.
+#[test]
+fn a_selected_placement_is_located_on_the_pcbs_its_design_is_on() {
+    let mut app = App::start();
+    let folder = app.folder();
+    create_project_with_an_assigned_variant(&mut app, &folder);
+    create_variant_b_of(&mut app, &folder, "design_a");
+
+    app.double_click_text("EDA placements: design_a.csv");
+    app.wait_for_tab("EDA placements: design_a.csv");
+    app.wait_for_text("R1");
+    app.click_data_table_cell("R1", "RefDes");
+
+    app.wait_for_logs_in_order(&[
+        "Locate design component. design: 'design_a', ref_des: 'R1', pcb_side: Top, design_position: ",
+        // "Design's PCBs. project: '<path>', design: ...", naming the PCB.
+        "design: 'design_a', pcbs: ['",
+        "Locating design component on PCB. pcb: '",
+    ]);
+
+    // the variant's placements, as built, C1 on the bottom.
+    app.double_click_text("Variant placements");
+    app.wait_for_tab("Variant placements");
+    app.wait_for_text("C1");
+    app.click_data_table_cell("C1", "RefDes");
+
+    app.wait_for_logs_in_order(&[
+        "Locate design component. design: 'design_a', ref_des: 'C1', pcb_side: Bottom, design_position: ",
+        "design: 'design_a', pcbs: ['",
+        // "Locating design component on PCB. pcb: '<path>', design: ...".
+        "panel_a.pcb.json', design: 'design_a', pcb_side: Bottom, design_position: ",
+    ]);
+    app.assert_not_logged("Design not found.");
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-18`, `UNITASG-5`, a project with no unit assigned any variant of the design locates nothing.
+#[test]
+fn a_placement_of_a_design_no_project_uses_is_not_located() {
+    let mut app = App::start();
+    let folder = app.folder();
+    create_project_with_an_assigned_variant(&mut app, &folder);
+    create_variant_b_of(&mut app, &folder, "design_b");
+
+    app.double_click_text("EDA placements: design_b.csv");
+    app.wait_for_tab("EDA placements: design_b.csv");
+    app.wait_for_text("R1");
+    app.click_data_table_cell("R1", "RefDes");
+
+    app.wait_for_logs_in_order(&[
+        "Locate design component. design: 'design_b', ref_des: 'R1', ",
+        "design: 'design_b', pcbs: []",
+    ]);
+    app.assert_not_logged("Locating design component on PCB.");
 }
