@@ -170,6 +170,8 @@ what each problem is, in this order, or "`No problems.`":
 - "`The data source has no manufacturer's column, or no MPN's.`".
 - "`The manufacturer, or the MPN, is empty.`": said only if the data source has both columns.
 
+A row's status's text, and its EDA tool's, MUST NOT be selectable, as they're shown, or chosen, not typed, so dragging
+across them doesn't select them; the other cells' text can be selected, to be copied, as a read-only table's can.
 The circles are glyphs of egui's own fonts, tinted, as they have no colour emoji, nor a traffic light. *Target*: colour
 emoji, once the GUI uses an egui with colour fonts. The gap: egui 0.36 has none.
 
@@ -339,6 +341,9 @@ EDA tools' order, then the comment, as the core shows them (`STORE-17`), whateve
 - `tests/ui/variant_builders.rs`'s `a_table_too_big_for_its_panel_ends_within_it` shows 200 part mappings, and 200
   parts, scrolls each table to its end, and checks its last row is shown above the table's horizontal scroll bar; it's
   the regression test for `ISSUE-25` (`VBGUI-11`).
+- `tests/ui/variant_builders.rs`'s `a_rows_status_and_eda_tool_can_not_be_selected` drags across a row's status, its
+  EDA tool and another cell, then copies, checking nothing is copied of the status or the EDA tool, and the other
+  cell's text is, in a part mappings' table and a substitutions' (`VBGUI-13`, `VBGUI-14`).
 - `tests/ui/variant_builders.rs`'s `a_design_substitutions_values_are_edited_and_its_rows_changed` edits a design
   substitution's pattern, value and comment in their cells, adds, moves and removes rows, chooses a row's EDA tool,
   KiCad, whose columns are added first, and checks the file after each, hovers a value's cell of a field of the row's

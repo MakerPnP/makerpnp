@@ -950,6 +950,37 @@ fn a_design_substitutions_values_are_edited_and_its_rows_changed() {
     app.assert_not_logged("Event failed.");
 }
 
+/// `VBGUI-13`, `VBGUI-14`, a row's status's and EDA tool's text can't be selected, in a part mappings' table and a
+/// substitutions', as they're chosen, not typed, and other cells' text can.
+#[test]
+fn a_rows_status_and_eda_tool_can_not_be_selected() {
+    let mut app = App::start();
+    given_part_mappings_shown(&mut app, TWO_MAPPINGS);
+    app.wait_for_text("MPN1");
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("RES_0402", "Mpn"), "MPN1");
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("RES_0402", "Eda"), "");
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("RES_0402", "◑"), "");
+
+    let folder = app.folder();
+    let substitutions = folder.join("d1.csv");
+    let mut contents = SUBSTITUTIONS_HEADERS.to_string();
+    contents.push_str("\"DipTrace\",\"R0402\",\"\",\"RES_0402\",\"\",\"comment 1\"\n");
+    fs::write(&substitutions, contents).unwrap();
+    app.double_click_text(FILE_NAME);
+    add(&mut app, "Design substitutions", substitutions);
+    app.double_click_text("Placements: board1.csv");
+    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("d1.csv");
+    app.wait_for_tab("Design substitutions: d1.csv");
+    app.wait_for_text("comment 1");
+    assert_eq!(
+        app.copy_text_dragged_across_data_table_cell("RES_0402", "Comment"),
+        "comment 1"
+    );
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("RES_0402", "Eda"), "");
+    assert_eq!(app.copy_text_dragged_across_data_table_cell("RES_0402", "◑"), "");
+}
+
 /// `VBGUI-14`, a global substitutions' panel is changed too, and a substitution's status, first, says what its problems
 /// are when it's hovered, or that it has none. Their colours are checked by `data_sources::table`'s tests, as the GUI's
 /// tests can't see them.

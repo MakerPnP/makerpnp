@@ -1205,6 +1205,58 @@ impl App {
         self.wait_for_the_layout();
     }
 
+    /// Drags across the text of a data table's cell, where the column with this header crosses the row containing the
+    /// text, as if to select it, then copies, returning the text copied, empty if the cell's text can't be selected.
+    pub fn copy_text_dragged_across_data_table_cell(&mut self, row_text: &str, column: &str) -> String {
+        let position = self.data_table_cell_position(row_text, column);
+        let label = self
+            .harness
+            .query_all(By::new().role(Role::Label))
+            .map(|label| label.rect())
+            .filter(|rect| rect.contains(position))
+            .min_by(|a, b| a.area().total_cmp(&b.area()))
+            .expect("a label in the cell");
+        let start = label.left_center() + egui::vec2(1.0, 0.0);
+        let end = label.right_center() - egui::vec2(1.0, 0.0);
+
+        self.harness
+            .event(egui::Event::PointerMoved(start));
+        self.harness.step();
+        self.harness
+            .event(egui::Event::PointerButton {
+                pos: start,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: egui::Modifiers::NONE,
+            });
+        self.harness.step();
+        for step in 1..=5 {
+            self.harness
+                .event(egui::Event::PointerMoved(start + (end - start) * (step as f32 / 5.0)));
+            self.harness.step();
+        }
+        self.harness
+            .event(egui::Event::PointerButton {
+                pos: end,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            });
+        self.harness.step();
+        self.harness.event(egui::Event::Copy);
+        self.harness.step();
+        self.harness
+            .output()
+            .platform_output
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                egui::OutputCommand::CopyText(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// The height of a table, from the top of one of its column headers to the bottom of its resize handle.
     pub fn table_height(&self, column_header: &str, resize_handle: &str) -> f32 {
         let top = self

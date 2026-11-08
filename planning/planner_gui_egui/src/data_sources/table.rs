@@ -5,7 +5,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use egui::{Button, Color32, ComboBox, Key, Sense, TextEdit, Ui, Visuals};
+use egui::{Button, Color32, ComboBox, Key, Label, RichText, Sense, TextEdit, Ui, Visuals};
 use egui_deferred_table::{
     Action, AxisParameters, CellEditState, CellIndex, DeferredTable, DeferredTableDataSource, DeferredTableRenderer,
     EditableTableRenderer, EditorState, TableDimensions,
@@ -814,6 +814,10 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
             .table
             .cell(cell_index.row, &column.value)
         {
+            // `VBGUI-13`, an EDA tool's text can't be selected, as it's chosen, not typed.
+            Cell::Text(text) if column.value == ColumnValue::Eda => {
+                ui.add(Label::new(text.as_ref()).selectable(false));
+            }
             Cell::Text(text) => {
                 ui.label(text.as_ref());
             }
@@ -1146,7 +1150,8 @@ fn show_status(ui: &mut Ui, problems: &[Problem]) {
                 .join("\n"),
         ),
     };
-    ui.colored_label(color, STATUS_GLYPH);
+    // a glyph, not text, so it can't be selected.
+    ui.add(Label::new(RichText::new(STATUS_GLYPH).color(color)).selectable(false));
     ui.interact(ui.max_rect(), ui.id().with("hover"), Sense::hover())
         .on_hover_text(text);
 }
