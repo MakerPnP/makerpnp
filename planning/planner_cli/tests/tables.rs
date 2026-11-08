@@ -549,9 +549,9 @@ fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
 
     let listed = change_substitutions(&substitutions_path, &trace_path, &["list", "--keys"])?;
     assert_eq!(listed, indoc! {r#"
-        "Key","Eda","NamePattern","Name","ValuePattern","Value","Comment"
-        "0","DipTrace","R0402","RES_0402","","","comment 1"
-        "1","DipTrace","/C.*/","CAP_0402","100nF","","DERATE 50V"
+        "Key","Eda","NamePattern","ValuePattern","Name","Value","Comment"
+        "0","DipTrace","R0402","","RES_0402","","comment 1"
+        "1","DipTrace","/C.*/","100nF","CAP_0402","","DERATE 50V"
     "#});
 
     change_substitutions(&substitutions_path, &trace_path, &[
@@ -621,7 +621,7 @@ fn adds_sets_moves_and_removes_substitutions() -> Result<(), anyhow::Error> {
     let said = change_substitutions(&substitutions_path, &trace_path, &["add-columns", "--eda", "kicad"])?;
     assert_eq!(
         said,
-        "Added columns. columns: ['PackagePattern', 'Package', 'ValPattern', 'Val']\n"
+        "Added columns. columns: ['PackagePattern', 'ValPattern', 'Package', 'Val']\n"
     );
     change_substitutions(&substitutions_path, &trace_path, &[
         "add",

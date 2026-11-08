@@ -1,6 +1,6 @@
 //! A table of a data source's records, as the stores core shows any data source other than parts (`STORE-17`), each
 //! value shown as what it is, a pattern by its kind (`VBGUI-11`), and, if its kind can be changed, edited in its cells,
-//! and its rows added, removed and moved (`VBGUI-13`).
+//! and its rows added, removed and moved: part mappings (`VBGUI-13`) and substitutions (`VBGUI-14`).
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -12,8 +12,9 @@ use egui_deferred_table::{
 };
 use egui_i18n::tr;
 use stores_app::{
-    Cell, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey, RowOrdering,
-    Table, TableChange, TableColumn, TableRow, TableView,
+    Cell, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern,
+    Revision, RowKey, RowOrdering, SubstitutionsViewItem, Table, TableChange, TableColumn, TableKind, TableRow,
+    TableView,
 };
 
 /// The view the stores core sent, shared with every other table showing the same data source, not a copy of it.
@@ -34,9 +35,9 @@ fn has_status(view: &TableView) -> bool {
     is_changed_here(view)
 }
 
-/// Whether the GUI changes the table: part mappings, as substitutions aren't yet (`VBGUI-14`).
+/// Whether the GUI changes the table: part mappings (`VBGUI-13`) and substitutions (`VBGUI-14`).
 pub fn is_changed_here(view: &TableView) -> bool {
-    matches!(view.table, Table::PartMappings(_))
+    matches!(view.table, Table::PartMappings(_) | Table::Substitutions(_))
 }
 
 /// The view's column the table's column shows, after the status column if there's one.
@@ -105,16 +106,21 @@ impl EditedRow {
     }
 }
 
-/// Whether the table has every one of the EDA tool's fields' columns, so a row of it can be given each of its patterns
-/// (`STORE-21`).
+/// Whether the table has every one of the EDA tool's fields' columns, so a row of it can be given each of its patterns,
+/// and, a substitution, each of its values (`STORE-21`).
 fn has_columns(view: &TableView, eda_tool: EdaTool) -> bool {
+    let has_column = |value: ColumnValue| {
+        view.columns
+            .iter()
+            .any(|column| column.reference.is_some() && column.value == value)
+    };
+    let substitutions = matches!(view.table, Table::Substitutions(_));
     eda_tool
         .field_names()
         .iter()
         .all(|field_name| {
-            view.columns.iter().any(|column| {
-                column.reference.is_some() && column.value == ColumnValue::Pattern(field_name.to_string())
-            })
+            has_column(ColumnValue::Pattern(field_name.to_string()))
+                && (!substitutions || has_column(ColumnValue::Substitute(field_name.to_string())))
         })
 }
 
@@ -151,10 +157,10 @@ impl PendingChange {
                     .row(index)
                     .filter(|(_key, shown)| same_row(shown, &row))?;
                 let mut new = old.clone();
-                let TableRow::PartMappings(item) = &mut new else {
-                    return None;
-                };
-                item.eda_tool = self.eda_tool;
+                match &mut new {
+                    TableRow::PartMappings(item) => item.eda_tool = self.eda_tool,
+                    TableRow::Substitutions(item) => item.eda_tool = self.eda_tool,
+                }
                 Some((
                     TableChange::Update {
                         key,
@@ -253,14 +259,11 @@ impl AfterChange {
 }
 
 /// Whether the rows are the same, as they're read back: a row is read with a pattern of each of the data source's
-/// fields, an empty one for a field it had none of, which isn't one, as an edit leaving it empty isn't.
+/// fields, an empty one for a field it had none of, which isn't one, as an edit leaving it empty isn't, and likewise a
+/// substitution's values and comment.
 fn same_row(a: &TableRow, b: &TableRow) -> bool {
-    let (TableRow::PartMappings(a), TableRow::PartMappings(b)) = (a, b) else {
-        return a == b;
-    };
-    fn patterns(item: &PartMappingsViewItem) -> Vec<(&str, &str)> {
-        let mut patterns = item
-            .criteria
+    fn patterns(criteria: &[FieldPattern]) -> Vec<(&str, &str)> {
+        let mut patterns = criteria
             .iter()
             .filter(|criterion| !criterion.pattern.text().is_empty())
             .map(|criterion| (criterion.field_name.as_str(), criterion.pattern.text()))
@@ -268,7 +271,27 @@ fn same_row(a: &TableRow, b: &TableRow) -> bool {
         patterns.sort();
         patterns
     }
-    a.eda_tool == b.eda_tool && a.part == b.part && patterns(a) == patterns(b)
+    fn values(transforms: &[EdaSubstitutionRuleTransformItem]) -> Vec<(&str, &str)> {
+        let mut values = transforms
+            .iter()
+            .filter(|transform| !transform.field_value.is_empty())
+            .map(|transform| (transform.field_name.as_str(), transform.field_value.as_str()))
+            .collect::<Vec<_>>();
+        values.sort();
+        values
+    }
+    match (a, b) {
+        (TableRow::PartMappings(a), TableRow::PartMappings(b)) => {
+            a.eda_tool == b.eda_tool && a.part == b.part && patterns(&a.criteria) == patterns(&b.criteria)
+        }
+        (TableRow::Substitutions(a), TableRow::Substitutions(b)) => {
+            a.eda_tool == b.eda_tool
+                && patterns(&a.criteria) == patterns(&b.criteria)
+                && values(&a.transforms) == values(&b.transforms)
+                && a.comment.as_deref().unwrap_or_default() == b.comment.as_deref().unwrap_or_default()
+        }
+        _ => false,
+    }
 }
 
 /// The rows to select once a change is shown (`VBGUI-13`).
@@ -385,20 +408,35 @@ pub fn update_table(state: &mut TableState, command: TableUiCommand) -> Option<T
 
 /// The edit of the row's value in the column, as it is, if it can be edited.
 fn cell_edit(row: &TableRow, column: &ColumnValue) -> Option<CellEdit> {
-    let TableRow::PartMappings(item) = row else {
-        return None;
-    };
-    match column {
-        ColumnValue::Eda => Some(CellEdit::Eda(item.eda_tool)),
-        ColumnValue::Pattern(field_name) => Some(CellEdit::Pattern(
-            item.criteria
+    let pattern = |criteria: &[FieldPattern], field_name: &str| {
+        CellEdit::Pattern(
+            criteria
                 .iter()
                 .find(|criterion| criterion.field_name == *field_name)
                 .map(|criterion| criterion.pattern.clone())
                 .unwrap_or_else(|| Pattern::parse("")),
+        )
+    };
+    match (row, column) {
+        (TableRow::PartMappings(item), ColumnValue::Eda) => Some(CellEdit::Eda(item.eda_tool)),
+        (TableRow::PartMappings(item), ColumnValue::Pattern(field_name)) => Some(pattern(&item.criteria, field_name)),
+        (TableRow::PartMappings(item), ColumnValue::Manufacturer) => {
+            Some(CellEdit::Text(item.part.manufacturer.clone()))
+        }
+        (TableRow::PartMappings(item), ColumnValue::Mpn) => Some(CellEdit::Text(item.part.mpn.clone())),
+        // `VBGUI-14`, a substitution's values and comment are edited as text.
+        (TableRow::Substitutions(item), ColumnValue::Eda) => Some(CellEdit::Eda(item.eda_tool)),
+        (TableRow::Substitutions(item), ColumnValue::Pattern(field_name)) => Some(pattern(&item.criteria, field_name)),
+        (TableRow::Substitutions(item), ColumnValue::Substitute(field_name)) => Some(CellEdit::Text(
+            item.transforms
+                .iter()
+                .find(|transform| transform.field_name == *field_name)
+                .map(|transform| transform.field_value.clone())
+                .unwrap_or_default(),
         )),
-        ColumnValue::Manufacturer => Some(CellEdit::Text(item.part.manufacturer.clone())),
-        ColumnValue::Mpn => Some(CellEdit::Text(item.part.mpn.clone())),
+        (TableRow::Substitutions(item), ColumnValue::Comment) => {
+            Some(CellEdit::Text(item.comment.clone().unwrap_or_default()))
+        }
         _ => None,
     }
 }
@@ -406,40 +444,80 @@ fn cell_edit(row: &TableRow, column: &ColumnValue) -> Option<CellEdit> {
 /// The row with the edit of its value in the column.
 fn with_edit(row: &TableRow, column: &ColumnValue, edit: CellEdit) -> TableRow {
     let mut row = row.clone();
-    let TableRow::PartMappings(item) = &mut row else {
-        return row;
-    };
-    match (column, edit) {
-        (ColumnValue::Eda, CellEdit::Eda(eda_tool)) => item.eda_tool = eda_tool,
-        (ColumnValue::Pattern(field_name), CellEdit::Pattern(pattern)) => {
+    match (&mut row, column, edit) {
+        (TableRow::PartMappings(item), ColumnValue::Eda, CellEdit::Eda(eda_tool)) => item.eda_tool = eda_tool,
+        (TableRow::PartMappings(item), ColumnValue::Pattern(field_name), CellEdit::Pattern(pattern)) => {
+            set_pattern(&mut item.criteria, field_name, pattern)
+        }
+        (TableRow::PartMappings(item), ColumnValue::Manufacturer, CellEdit::Text(text)) => {
+            item.part.manufacturer = text
+        }
+        (TableRow::PartMappings(item), ColumnValue::Mpn, CellEdit::Text(text)) => item.part.mpn = text,
+        (TableRow::Substitutions(item), ColumnValue::Eda, CellEdit::Eda(eda_tool)) => item.eda_tool = eda_tool,
+        (TableRow::Substitutions(item), ColumnValue::Pattern(field_name), CellEdit::Pattern(pattern)) => {
+            set_pattern(&mut item.criteria, field_name, pattern)
+        }
+        (TableRow::Substitutions(item), ColumnValue::Substitute(field_name), CellEdit::Text(text)) => {
             match item
-                .criteria
+                .transforms
                 .iter_mut()
-                .find(|criterion| criterion.field_name == *field_name)
+                .find(|transform| transform.field_name == *field_name)
             {
-                Some(criterion) => criterion.pattern = pattern,
-                // a pattern left empty isn't one the row didn't have.
-                None if pattern.text().is_empty() => {}
-                None => item.criteria.push(FieldPattern {
-                    field_name: field_name.clone(),
-                    pattern,
-                }),
+                Some(transform) => transform.field_value = text,
+                // a value left empty isn't one the row didn't have.
+                None if text.is_empty() => {}
+                None => item
+                    .transforms
+                    .push(EdaSubstitutionRuleTransformItem {
+                        field_name: field_name.clone(),
+                        field_value: text,
+                    }),
             }
         }
-        (ColumnValue::Manufacturer, CellEdit::Text(text)) => item.part.manufacturer = text,
-        (ColumnValue::Mpn, CellEdit::Text(text)) => item.part.mpn = text,
+        (TableRow::Substitutions(item), ColumnValue::Comment, CellEdit::Text(text)) => {
+            // a comment left empty isn't one the row didn't have.
+            if item.comment.is_some() || !text.is_empty() {
+                item.comment = Some(text);
+            }
+        }
         _ => {}
     }
     row
 }
 
-/// A new part mapping, of the EDA tool, with no patterns and no part, to be filled in (`VBGUI-13`).
-pub fn new_part_mapping(eda_tool: EdaTool) -> TableRow {
-    TableRow::PartMappings(PartMappingsViewItem {
-        eda_tool,
-        criteria: vec![],
-        part: Part::new(String::new(), String::new()),
-    })
+/// Sets the field's pattern, adding it if the row has no pattern of it.
+fn set_pattern(criteria: &mut Vec<FieldPattern>, field_name: &str, pattern: Pattern) {
+    match criteria
+        .iter_mut()
+        .find(|criterion| criterion.field_name == *field_name)
+    {
+        Some(criterion) => criterion.pattern = pattern,
+        // a pattern left empty isn't one the row didn't have.
+        None if pattern.text().is_empty() => {}
+        None => criteria.push(FieldPattern {
+            field_name: field_name.to_string(),
+            pattern,
+        }),
+    }
+}
+
+/// A new row of the table, of the EDA tool, to be filled in: a part mapping with no patterns and no part (`VBGUI-13`),
+/// or a substitution with no patterns, values or comment (`VBGUI-14`), none if the table's rows aren't added here.
+pub fn new_row(kind: TableKind, eda_tool: EdaTool) -> Option<TableRow> {
+    match kind {
+        TableKind::PartMappings => Some(TableRow::PartMappings(PartMappingsViewItem {
+            eda_tool,
+            criteria: vec![],
+            part: Part::new(String::new(), String::new()),
+        })),
+        TableKind::Substitutions => Some(TableRow::Substitutions(SubstitutionsViewItem {
+            eda_tool,
+            criteria: vec![],
+            transforms: vec![],
+            comment: None,
+        })),
+        _ => None,
+    }
 }
 
 /// As `STORE-17` names it, and the data source has it.
@@ -697,17 +775,26 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
     fn render_cell(&self, ui: &mut Ui, cell_index: CellIndex, source: &TableDataSource) {
         let row = source.view.table.row(cell_index.row);
         let Some(column) = source.column(cell_index.column) else {
-            if let Some(TableRow::PartMappings(item)) = &row {
-                show_status(ui, &Problem::of(&source.view, item));
+            if let Some(row) = &row {
+                show_status(ui, &Problem::of(&source.view, row));
             }
             return;
         };
         // `VBGUI-13`, a pattern's cell of a row whose kind can be changed says how the row's EDA tool uses it, even with
-        // no pattern, and its manufacturer's and MPN's say whether they're empty.
+        // no pattern, and its manufacturer's and MPN's say whether they're empty; `VBGUI-14`, a substitution's value's
+        // says whether the row's tool substitutes its field.
         let (background, text) = match (&column.value, &row) {
             (ColumnValue::Pattern(field_name), Some(TableRow::PartMappings(item))) => {
-                let matched = PatternMatch::of(item, field_name);
+                let matched = PatternMatch::of(item.eda_tool, &item.criteria, field_name);
                 (Some(matched.background()), Some(matched.text()))
+            }
+            (ColumnValue::Pattern(field_name), Some(TableRow::Substitutions(item))) => {
+                let matched = PatternMatch::of(item.eda_tool, &item.criteria, field_name);
+                (Some(matched.background()), Some(matched.text()))
+            }
+            (ColumnValue::Substitute(field_name), Some(TableRow::Substitutions(item))) => {
+                let substituted = Substitution::of(item, field_name);
+                (Some(substituted.background()), Some(substituted.text()))
             }
             (ColumnValue::Manufacturer, Some(TableRow::PartMappings(item))) => {
                 (Some(Background::of_part_value(&item.part.manufacturer)), None)
@@ -763,10 +850,10 @@ enum PatternMatch {
 }
 
 impl PatternMatch {
-    fn of(item: &PartMappingsViewItem, field_name: &str) -> Self {
-        let eda_tool = item.eda_tool;
+    /// Of the field's pattern of a row of the EDA tool with the patterns, a part mapping's or a substitution's.
+    fn of(eda_tool: EdaTool, criteria: &[FieldPattern], field_name: &str) -> Self {
         let pattern = |field_name: &str| {
-            item.criteria
+            criteria
                 .iter()
                 .find(|criterion| criterion.field_name == field_name)
                 .map(|criterion| &criterion.pattern)
@@ -815,7 +902,70 @@ impl PatternMatch {
     }
 }
 
-/// A part mapping's cell's background, saying whether its value is as the row needs it (`VBGUI-13`).
+/// Whether a substitution's EDA tool substitutes a field's value, the first of these that's so, an empty value being
+/// one, as a field can be substituted with nothing, unless every one of the tool's values is empty (`VBGUI-14`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Substitution {
+    /// The tool doesn't substitute the field, so its value is ignored.
+    NotSubstituted(EdaTool),
+    /// The tool substitutes the field, and none of its fields has a value, empty or with no column.
+    NoValues(EdaTool),
+    /// The tool substitutes the field.
+    Substituted(EdaTool),
+}
+
+impl Substitution {
+    fn of(item: &SubstitutionsViewItem, field_name: &str) -> Self {
+        let eda_tool = item.eda_tool;
+        match eda_tool
+            .field_names()
+            .contains(&field_name)
+        {
+            false => Substitution::NotSubstituted(eda_tool),
+            true if has_no_values(item) => Substitution::NoValues(eda_tool),
+            true => Substitution::Substituted(eda_tool),
+        }
+    }
+
+    fn background(self) -> Background {
+        match self {
+            Substitution::NotSubstituted(_) => Background::Blue,
+            Substitution::NoValues(_) => Background::Red,
+            Substitution::Substituted(_) => Background::Green,
+        }
+    }
+
+    /// Said when it's hovered, so the colour isn't the only sign.
+    fn text(self) -> String {
+        match self {
+            Substitution::NotSubstituted(eda_tool) => {
+                tr!("data-table-value-not-substituted", { tool: eda_tool_name(eda_tool) })
+            }
+            Substitution::NoValues(eda_tool) => {
+                tr!("data-table-value-no-values", { tool: eda_tool_name(eda_tool) })
+            }
+            Substitution::Substituted(eda_tool) => {
+                tr!("data-table-value-substituted", { tool: eda_tool_name(eda_tool) })
+            }
+        }
+    }
+}
+
+/// Whether every one of the substitution's EDA tool's fields' values is empty, or has no column, so it substitutes
+/// nothing (`VBGUI-14`).
+fn has_no_values(item: &SubstitutionsViewItem) -> bool {
+    item.eda_tool
+        .field_names()
+        .iter()
+        .all(|&field_name| {
+            item.transforms
+                .iter()
+                .find(|transform| transform.field_name == field_name)
+                .is_none_or(|transform| transform.field_value.is_empty())
+        })
+}
+
+/// A changeable row's cell's background, saying whether its value is as the row needs it (`VBGUI-13`, `VBGUI-14`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Background {
     Blue,
@@ -850,12 +1000,13 @@ impl Background {
     }
 }
 
-/// What keeps a part mapping from being used as it is, shown by the status column (`VBGUI-13`).
+/// What keeps a part mapping (`VBGUI-13`), or a substitution (`VBGUI-14`), from being used as it is, shown by the status
+/// column.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Problem {
     /// One of its patterns, of any field, is a regular expression that isn't valid.
     InvalidPattern,
-    /// The data source has no column for one of its EDA tool's fields.
+    /// The data source has no column for one of its EDA tool's fields, a substitution's pattern's or value's.
     MissingFieldColumns(EdaTool),
     /// None of its EDA tool's fields has a pattern, empty or with no column.
     NoPatterns(EdaTool),
@@ -863,14 +1014,22 @@ enum Problem {
     MissingPartColumns,
     /// Its manufacturer, or its MPN, is empty.
     EmptyPart,
+    /// None of a substitution's EDA tool's fields has a value, empty or with no column.
+    NoValues,
+    /// A substitution's every one of its EDA tool's fields' patterns is a value matched exactly, the same as the value
+    /// it's substituted with, so it never changes a placement.
+    ChangesNothing,
 }
 
 impl Problem {
-    /// The part mapping's problems, in this order, none if it can be used as it is.
-    fn of(view: &TableView, item: &PartMappingsViewItem) -> Vec<Problem> {
-        let eda_tool = item.eda_tool;
+    /// The row's problems, in this order, none if it can be used as it is.
+    fn of(view: &TableView, row: &TableRow) -> Vec<Problem> {
+        let (eda_tool, criteria) = match row {
+            TableRow::PartMappings(item) => (item.eda_tool, &item.criteria),
+            TableRow::Substitutions(item) => (item.eda_tool, &item.criteria),
+        };
         let mut problems = vec![];
-        if item.criteria.iter().any(|criterion| {
+        if criteria.iter().any(|criterion| {
             matches!(criterion.pattern, Pattern::Regex {
                 regex: Err(_),
                 ..
@@ -882,21 +1041,65 @@ impl Problem {
             problems.push(Problem::MissingFieldColumns(eda_tool));
         }
         if let Some(field_name) = eda_tool.field_names().first()
-            && PatternMatch::of(item, field_name) == PatternMatch::NoPatterns(eda_tool)
+            && PatternMatch::of(eda_tool, criteria, field_name) == PatternMatch::NoPatterns(eda_tool)
         {
             problems.push(Problem::NoPatterns(eda_tool));
         }
+        match row {
+            TableRow::PartMappings(item) => problems.extend(Self::of_part(view, item)),
+            TableRow::Substitutions(item) => {
+                if has_no_values(item) {
+                    problems.push(Problem::NoValues);
+                }
+                if Self::changes_nothing(item) {
+                    problems.push(Problem::ChangesNothing);
+                }
+            }
+        }
+        problems
+    }
+
+    /// Whether every one of the substitution's EDA tool's fields' patterns, empty if it has none, is a value matched
+    /// exactly, the same as its value, empty if it has none.
+    fn changes_nothing(item: &SubstitutionsViewItem) -> bool {
+        item.eda_tool
+            .field_names()
+            .iter()
+            .all(|&field_name| {
+                let pattern = item
+                    .criteria
+                    .iter()
+                    .find(|criterion| criterion.field_name == field_name)
+                    .map(|criterion| &criterion.pattern);
+                let value = item
+                    .transforms
+                    .iter()
+                    .find(|transform| transform.field_name == field_name)
+                    .map_or("", |transform| transform.field_value.as_str());
+                match pattern {
+                    None => value.is_empty(),
+                    Some(Pattern::Exact(exact)) => exact == value,
+                    Some(Pattern::Regex {
+                        ..
+                    }) => false,
+                }
+            })
+    }
+
+    /// A part mapping's part's problems.
+    fn of_part(view: &TableView, item: &PartMappingsViewItem) -> Option<Problem> {
         let has_column = |value: ColumnValue| {
             view.columns
                 .iter()
                 .any(|column| column.value == value && column.reference.is_some())
         };
         if !has_column(ColumnValue::Manufacturer) || !has_column(ColumnValue::Mpn) {
-            problems.push(Problem::MissingPartColumns);
+            Some(Problem::MissingPartColumns)
         } else if item.part.manufacturer.is_empty() || item.part.mpn.is_empty() {
-            problems.push(Problem::EmptyPart);
+            Some(Problem::EmptyPart)
+        } else {
+            None
         }
-        problems
     }
 
     /// Said when the status is hovered.
@@ -911,6 +1114,8 @@ impl Problem {
             }
             Problem::MissingPartColumns => tr!("data-table-problem-missing-part-columns"),
             Problem::EmptyPart => tr!("data-table-problem-empty-part"),
+            Problem::NoValues => tr!("data-table-problem-no-values"),
+            Problem::ChangesNothing => tr!("data-table-problem-changes-nothing"),
         }
     }
 }
@@ -921,7 +1126,7 @@ const STATUS_HEADER: &str = "◑";
 /// A status, a circle tinted red or green, as egui's own fonts have no colour emoji, nor `●`.
 const STATUS_GLYPH: &str = "⏺";
 
-/// The status of a part mapping's row: a red circle if it has problems, saying what they are when it's hovered, and a
+/// The status of a part mapping's, or a substitution's, row: a red circle if it has problems, saying what they are when it's hovered, and a
 /// green one if it has none (`VBGUI-13`).
 fn show_status(ui: &mut Ui, problems: &[Problem]) {
     let (color, text) = match problems.is_empty() {
@@ -1060,14 +1265,15 @@ mod tests {
     use egui::Visuals;
     use egui_deferred_table::{CellEditState, CellIndex};
     use stores_app::{
-        ColumnRef, ColumnValue, EdaTool, FieldPattern, Part, PartMappingsViewItem, Pattern, Revision, RowKey,
-        RowOrdering, Source, Table, TableChange, TableColumn, TableKind, TableRow, TableView,
+        ColumnRef, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem,
+        Pattern, Revision, RowKey, RowOrdering, Source, SubstitutionsViewItem, Table, TableChange, TableColumn,
+        TableKind, TableRow, TableView,
     };
 
     use super::{
         AfterChange, Background, CellEdit, EditedRow, PatternMatch, PendingChange, PendingRowChange, Problem,
-        STATUS_GLYPH, STATUS_HEADER, SelectAfterChange, ShownAfterChange, TableEditorState, TableRequest, TableState,
-        TableUiCommand, pattern_color, update_table, view_column,
+        STATUS_GLYPH, STATUS_HEADER, SelectAfterChange, ShownAfterChange, Substitution, TableEditorState, TableRequest,
+        TableState, TableUiCommand, cell_edit, pattern_color, same_row, update_table, view_column, with_edit,
     };
 
     fn row(name: &str, mpn: &str) -> TableRow {
@@ -1445,6 +1651,10 @@ mod tests {
         }
     }
 
+    fn pattern_match(item: &PartMappingsViewItem, field_name: &str) -> PatternMatch {
+        PatternMatch::of(item.eda_tool, &item.criteria, field_name)
+    }
+
     /// `VBGUI-13`, a pattern's cell says how the row's EDA tool uses it, the first that's so: blue if the tool doesn't
     /// match its field, whatever its pattern, red if it does and its pattern is a regular expression that isn't valid,
     /// orange if it does and none of the tool's fields has a pattern in the row, empty or with no column, and green
@@ -1460,24 +1670,24 @@ mod tests {
             ("package", "/R_[/"),
             ("val", ""),
         ]);
-        assert_eq!(PatternMatch::of(&dip_trace, "name"), Matched(DipTrace));
+        assert_eq!(pattern_match(&dip_trace, "name"), Matched(DipTrace));
         // empty, but another of the tool's fields has a pattern.
-        assert_eq!(PatternMatch::of(&dip_trace, "value"), Matched(DipTrace));
+        assert_eq!(pattern_match(&dip_trace, "value"), Matched(DipTrace));
         // not the tool's, even if it isn't valid, or is empty, or has no column.
-        assert_eq!(PatternMatch::of(&dip_trace, "package"), NotMatched(DipTrace));
-        assert_eq!(PatternMatch::of(&dip_trace, "val"), NotMatched(DipTrace));
-        assert_eq!(PatternMatch::of(&dip_trace, "device"), NotMatched(DipTrace));
+        assert_eq!(pattern_match(&dip_trace, "package"), NotMatched(DipTrace));
+        assert_eq!(pattern_match(&dip_trace, "val"), NotMatched(DipTrace));
+        assert_eq!(pattern_match(&dip_trace, "device"), NotMatched(DipTrace));
 
         let invalid = mapping_with(EasyEda, &[("device", ""), ("value", "/10[/")]);
-        assert_eq!(PatternMatch::of(&invalid, "value"), Invalid(EasyEda));
+        assert_eq!(pattern_match(&invalid, "value"), Invalid(EasyEda));
         // the other field, empty, as the invalid one is a pattern, if not a valid one.
-        assert_eq!(PatternMatch::of(&invalid, "device"), Matched(EasyEda));
+        assert_eq!(pattern_match(&invalid, "device"), Matched(EasyEda));
 
         // every one of KiCad's empty, or with no column, `val`, whatever the other tools' fields have.
         let none = mapping_with(KiCad, &[("name", "RES_0402"), ("package", "")]);
-        assert_eq!(PatternMatch::of(&none, "package"), NoPatterns(KiCad));
-        assert_eq!(PatternMatch::of(&none, "val"), NoPatterns(KiCad));
-        assert_eq!(PatternMatch::of(&none, "name"), NotMatched(KiCad));
+        assert_eq!(pattern_match(&none, "package"), NoPatterns(KiCad));
+        assert_eq!(pattern_match(&none, "val"), NoPatterns(KiCad));
+        assert_eq!(pattern_match(&none, "name"), NotMatched(KiCad));
     }
 
     /// `VBGUI-13`, each of a pattern cell's backgrounds is faint, and its colour, blue, red, orange or green, in either
@@ -1533,6 +1743,10 @@ mod tests {
         }
     }
 
+    fn mapping_problems(view: &TableView, item: &PartMappingsViewItem) -> Vec<Problem> {
+        Problem::of(view, &TableRow::PartMappings(item.clone()))
+    }
+
     /// `VBGUI-13`, a part mapping's problems are each found, in order: a pattern of any field that isn't valid, a
     /// column of one of its EDA tool's fields missing, none of the tool's fields with a pattern, the manufacturer's or
     /// the MPN's column missing, and, if they're there, either empty, and none if it can be used as it is.
@@ -1543,12 +1757,15 @@ mod tests {
         let all = ["name", "value", "package", "val", "device"];
 
         let good = mapping_with(DipTrace, &[("name", "RES_0402"), ("value", "")]);
-        assert_eq!(Problem::of(&view_with(columns_with(&all, true), &good), &good), vec![]);
+        assert_eq!(
+            mapping_problems(&view_with(columns_with(&all, true), &good), &good),
+            vec![]
+        );
 
         // KiCad's `val` has no column, and neither of its fields has a pattern, and another tool's isn't valid.
         let bad = mapping_with(KiCad, &[("name", "/R_[/"), ("package", "")]);
         let columns = columns_with(&["name", "value", "package"], true);
-        assert_eq!(Problem::of(&view_with(columns, &bad), &bad), vec![
+        assert_eq!(mapping_problems(&view_with(columns, &bad), &bad), vec![
             InvalidPattern,
             MissingFieldColumns(KiCad),
             NoPatterns(KiCad),
@@ -1558,28 +1775,237 @@ mod tests {
         let mut empty = good.clone();
         empty.part = Part::new(String::new(), "MPN1".to_string());
         assert_eq!(
-            Problem::of(&view_with(columns_with(&all, false), &empty), &empty),
+            mapping_problems(&view_with(columns_with(&all, false), &empty), &empty),
             vec![MissingPartColumns]
         );
-        assert_eq!(Problem::of(&view_with(columns_with(&all, true), &empty), &empty), vec![
-            EmptyPart
-        ]);
+        assert_eq!(
+            mapping_problems(&view_with(columns_with(&all, true), &empty), &empty),
+            vec![EmptyPart]
+        );
         empty.part = Part::new("MFR1".to_string(), String::new());
-        assert_eq!(Problem::of(&view_with(columns_with(&all, true), &empty), &empty), vec![
-            EmptyPart
-        ]);
+        assert_eq!(
+            mapping_problems(&view_with(columns_with(&all, true), &empty), &empty),
+            vec![EmptyPart]
+        );
     }
 
-    /// `VBGUI-13`, the status column is first, so a part mappings' table's columns are the view's after it, and other
-    /// tables have none.
+    /// A substitution of the EDA tool, with the fields' patterns and values, and the comment.
+    fn substitution_with(
+        eda_tool: EdaTool,
+        patterns: &[(&str, &str)],
+        values: &[(&str, &str)],
+        comment: Option<&str>,
+    ) -> SubstitutionsViewItem {
+        SubstitutionsViewItem {
+            eda_tool,
+            criteria: patterns
+                .iter()
+                .map(|(field_name, pattern)| FieldPattern {
+                    field_name: field_name.to_string(),
+                    pattern: Pattern::parse(pattern),
+                })
+                .collect(),
+            transforms: values
+                .iter()
+                .map(|(field_name, value)| EdaSubstitutionRuleTransformItem {
+                    field_name: field_name.to_string(),
+                    field_value: value.to_string(),
+                })
+                .collect(),
+            comment: comment.map(str::to_string),
+        }
+    }
+
+    /// Substitutions' columns, each with a reference, as a file's are, a pattern's and a value's for each of the
+    /// fields.
+    fn substitution_columns(pattern_fields: &[&str], value_fields: &[&str], comment: bool) -> Vec<TableColumn> {
+        TableColumn::substitutions(pattern_fields, value_fields, comment)
+            .into_iter()
+            .map(|column| TableColumn {
+                reference: Some(ColumnRef(column.name.clone())),
+                ..column
+            })
+            .collect()
+    }
+
+    fn substitutions_view(columns: &[TableColumn], items: &[SubstitutionsViewItem]) -> TableView {
+        TableView {
+            kind: TableKind::Substitutions,
+            columns: columns.to_vec(),
+            table: Table::Substitutions(items.to_vec()),
+            keys: (0..items.len())
+                .map(|index| RowKey(index.to_string()))
+                .collect(),
+            ..view("1", &[])
+        }
+    }
+
+    fn substitution_problems(columns: &[TableColumn], item: &SubstitutionsViewItem) -> Vec<Problem> {
+        let view = substitutions_view(columns, std::slice::from_ref(item));
+        Problem::of(&view, &TableRow::Substitutions(item.clone()))
+    }
+
+    /// `VBGUI-14`, a substitution's problems are each found, in order: a pattern of any field that isn't valid, a
+    /// pattern's or a value's column of one of its EDA tool's fields missing, none of the tool's fields with a pattern,
+    /// none with a value, and every one of the tool's patterns a value matched exactly, the same as its value, and none
+    /// if it has none.
     #[test]
-    fn the_status_column_is_first_of_part_mappings_only() {
+    fn a_substitutions_problems_are_each_found() {
+        use EdaTool::*;
+        use Problem::*;
+        let all = ["name", "value", "package", "val", "device"];
+        let columns = substitution_columns(&all, &all, true);
+
+        let good = substitution_with(
+            DipTrace,
+            &[("name", "R0402"), ("value", "")],
+            &[("name", "RES_0402"), ("value", "")],
+            Some(""),
+        );
+        assert_eq!(substitution_problems(&columns, &good), vec![]);
+        // a regular expression is never the value it's substituted with.
+        let regex = substitution_with(DipTrace, &[("name", "/R0402/")], &[("name", "/R0402/")], None);
+        assert_eq!(substitution_problems(&columns, &regex), vec![]);
+
+        // another tool's pattern isn't valid, and KiCad's `val` has no value's column, and neither of its fields has a
+        // pattern, nor a value, so it changes nothing, as each is substituted with nothing.
+        let bad = substitution_with(KiCad, &[("name", "/R_[/"), ("package", "")], &[("package", "")], None);
+        let missing_value = substitution_columns(&all, &["name", "value", "package"], false);
+        assert_eq!(substitution_problems(&missing_value, &bad), vec![
+            InvalidPattern,
+            MissingFieldColumns(KiCad),
+            NoPatterns(KiCad),
+            NoValues,
+            ChangesNothing,
+        ]);
+        // patterns, but every one of the tool's values empty, whatever the other tools' fields have.
+        let no_values = substitution_with(
+            DipTrace,
+            &[("name", "R0402")],
+            &[("name", ""), ("value", ""), ("package", "R_0402")],
+            None,
+        );
+        assert_eq!(substitution_problems(&columns, &no_values), vec![NoValues]);
+        // a pattern's column missing, too.
+        let missing_pattern = substitution_columns(&["name", "value", "package"], &all, false);
+        assert!(substitution_problems(&missing_pattern, &bad).contains(&MissingFieldColumns(KiCad)));
+
+        // each of the tool's patterns the value it's substituted with.
+        let same = substitution_with(
+            DipTrace,
+            &[("name", "R0402"), ("value", "10K")],
+            &[("name", "R0402"), ("value", "10K")],
+            None,
+        );
+        assert_eq!(substitution_problems(&columns, &same), vec![ChangesNothing]);
+        // only the tool's, the other tools' fields being ignored.
+        let other = substitution_with(
+            DipTrace,
+            &[("name", "R0402"), ("package", "R_0402")],
+            &[("name", "RES_0402"), ("package", "R_0402")],
+            None,
+        );
+        assert_eq!(substitution_problems(&columns, &other), vec![]);
+    }
+
+    /// `VBGUI-14`, a substitution's value's cell is blue if the row's tool doesn't substitute its field, red if it does
+    /// and every one of the tool's values is empty, or has no column, and green otherwise, an empty value too, as a
+    /// field can be substituted with nothing.
+    #[test]
+    fn a_values_cell_says_whether_the_rows_tool_substitutes_it() {
+        use EdaTool::*;
+        use Substitution::*;
+
+        let dip_trace = substitution_with(DipTrace, &[], &[("name", "RES_0402"), ("value", "")], None);
+        assert_eq!(Substitution::of(&dip_trace, "name"), Substituted(DipTrace));
+        assert_eq!(Substitution::of(&dip_trace, "value"), Substituted(DipTrace));
+        assert_eq!(Substitution::of(&dip_trace, "package"), NotSubstituted(DipTrace));
+
+        // `val` has no value, and `package` an empty one, so both are red, whatever the other tools' fields have.
+        let kicad = substitution_with(KiCad, &[], &[("name", "RES_0402"), ("package", "")], None);
+        assert_eq!(Substitution::of(&kicad, "package"), NoValues(KiCad));
+        assert_eq!(Substitution::of(&kicad, "val"), NoValues(KiCad));
+        assert_eq!(Substitution::of(&kicad, "name"), NotSubstituted(KiCad));
+
+        assert_eq!(Substituted(KiCad).background(), Background::Green);
+        assert_eq!(NoValues(KiCad).background(), Background::Red);
+        assert_eq!(NotSubstituted(KiCad).background(), Background::Blue);
+    }
+
+    /// `VBGUI-14`, a substitution's pattern, value and comment are edited as a part mapping's pattern is, a value or a
+    /// comment left empty not being one the row didn't have, so it's the same row as it's read back, with every column's
+    /// value.
+    #[test]
+    fn a_substitutions_cells_are_edited() {
+        let row = TableRow::Substitutions(substitution_with(
+            EdaTool::DipTrace,
+            &[("name", "R0402")],
+            &[("name", "RES_0402")],
+            None,
+        ));
+        let value = ColumnValue::Substitute("name".to_string());
+        assert_eq!(cell_edit(&row, &value), Some(CellEdit::Text("RES_0402".to_string())));
+        assert_eq!(
+            cell_edit(&row, &ColumnValue::Comment),
+            Some(CellEdit::Text(String::new()))
+        );
+
+        let edited = with_edit(&row, &value, CellEdit::Text("RES_0603".to_string()));
+        let edited = with_edit(&edited, &ColumnValue::Comment, CellEdit::Text("comment 1".to_string()));
+        let edited = with_edit(
+            &edited,
+            &ColumnValue::Pattern("value".to_string()),
+            CellEdit::Pattern(Pattern::parse("/10.*/")),
+        );
+        assert_eq!(
+            edited,
+            TableRow::Substitutions(substitution_with(
+                EdaTool::DipTrace,
+                &[("name", "R0402"), ("value", "/10.*/")],
+                &[("name", "RES_0603")],
+                Some("comment 1"),
+            ))
+        );
+
+        // left empty, so unchanged.
+        assert_eq!(
+            with_edit(
+                &row,
+                &ColumnValue::Substitute("value".to_string()),
+                CellEdit::Text(String::new())
+            ),
+            row
+        );
+        assert_eq!(
+            with_edit(&row, &ColumnValue::Comment, CellEdit::Text(String::new())),
+            row
+        );
+
+        // as it's read back, with every column's value, empty if it had none.
+        let read = TableRow::Substitutions(substitution_with(
+            EdaTool::DipTrace,
+            &[("name", "R0402"), ("value", "")],
+            &[("name", "RES_0402"), ("value", "")],
+            Some(""),
+        ));
+        assert!(same_row(&row, &read));
+        assert!(!same_row(&row, &edited));
+    }
+
+    /// `VBGUI-13`, `VBGUI-14`, the status column is first, so a part mappings' or substitutions' table's columns are the
+    /// view's after it, and other tables have none.
+    #[test]
+    fn the_status_column_is_first_of_changeable_tables_only() {
         let item = mapping_with(EdaTool::DipTrace, &[("name", "RES_0402")]);
         let mappings = view_with(columns_with(&["name"], true), &item);
         assert!(view_column(&mappings, 0).is_none());
         assert_eq!(view_column(&mappings, 1), mappings.columns.first());
         assert_eq!(view_column(&mappings, 4), mappings.columns.get(3));
         assert!(view_column(&mappings, 5).is_none());
+
+        let substitutions = substitutions_view(&substitution_columns(&["name"], &["name"], true), &[]);
+        assert!(view_column(&substitutions, 0).is_none());
+        assert_eq!(view_column(&substitutions, 1), substitutions.columns.first());
 
         let bom = TableView {
             table: Table::Bom(vec![]),

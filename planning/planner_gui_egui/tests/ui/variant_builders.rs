@@ -827,6 +827,184 @@ fn a_rows_tool_whose_columns_can_not_be_added_is_left_as_it_was() {
     fs::set_permissions(&mappings, permissions).unwrap();
 }
 
+const SUBSTITUTIONS_HEADERS: &str = "\"Eda\",\"NamePattern\",\"ValuePattern\",\"Name\",\"Value\",\"Comment\"\n";
+
+/// Creates the design variant, adds the substitutions `file_name` to the field, "Design substitutions" or "Global
+/// substitutions", written with `contents`, and shows their panel.
+fn given_substitutions_shown(app: &mut App, field: &str, file_name: &str, contents: &str) -> PathBuf {
+    let folder = app.folder();
+    given_a_design(&folder);
+    let substitutions = folder.join(file_name);
+    fs::write(&substitutions, contents).unwrap();
+    create_design_variant(app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    add(app, field, substitutions.clone());
+
+    // another panel in place of the "Overview", which lists the file too, so only the explorer has it.
+    app.double_click_text("Placements: board1.csv");
+    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text(file_name);
+    app.wait_for_tab(&format!("{field}: {file_name}"));
+    substitutions
+}
+
+/// Waits for the file to have the rows, after the headers `SUBSTITUTIONS_HEADERS` has.
+fn wait_for_substitutions(app: &mut App, path: &Path, rows: &[&str]) {
+    let mut expected = SUBSTITUTIONS_HEADERS.to_string();
+    for row in rows {
+        expected.push_str(row);
+        expected.push('\n');
+    }
+    wait_for_file(app, path, &expected);
+}
+
+/// `VBGUI-14`, `STORE-19`, `STORE-21`, a design substitution's pattern, value and comment are edited in their cells, its
+/// rows added, moved and removed, and a row's EDA tool chosen, whose columns are added first, each written at once, and
+/// a value's cell says whether the row's tool substitutes its field when it's hovered.
+#[test]
+fn a_design_substitutions_values_are_edited_and_its_rows_changed() {
+    let mut app = App::start();
+    let mut contents = SUBSTITUTIONS_HEADERS.to_string();
+    contents.push_str("\"DipTrace\",\"R0402\",\"\",\"RES_0402\",\"\",\"comment 1\"\n");
+    contents.push_str("\"DipTrace\",\"/C.*/\",\"100nF\",\"CAP_0402\",\"\",\"DERATE 50V\"\n");
+    let substitutions = given_substitutions_shown(&mut app, "Design substitutions", "d1.csv", &contents);
+    app.wait_for_text("RES_0402");
+
+    app.edit_data_table_cell_then_press_enter("RES_0402", "NamePattern", "/R04.*/");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"/R04.*/\",\"\",\"RES_0402\",\"\",\"comment 1\"",
+        "\"DipTrace\",\"/C.*/\",\"100nF\",\"CAP_0402\",\"\",\"DERATE 50V\"",
+    ]);
+    app.wait_for_text("/R04.*/");
+    app.edit_data_table_cell_then_press_enter("RES_0402", "Value", "100R");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"/R04.*/\",\"\",\"RES_0402\",\"100R\",\"comment 1\"",
+        "\"DipTrace\",\"/C.*/\",\"100nF\",\"CAP_0402\",\"\",\"DERATE 50V\"",
+    ]);
+    app.wait_for_text("100R");
+    app.edit_data_table_cell_then_press_enter("RES_0402", "Comment", "comment 2");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"/R04.*/\",\"\",\"RES_0402\",\"100R\",\"comment 2\"",
+        "\"DipTrace\",\"/C.*/\",\"100nF\",\"CAP_0402\",\"\",\"DERATE 50V\"",
+    ]);
+    app.wait_for_text("comment 2");
+
+    // green, as DipTrace's `value` is substituted, even with no value.
+    app.hover_data_table_cell("CAP_0402", "Value");
+    app.wait_for_text_containing("Used to substitute DipTrace values.");
+
+    // of the variant builder's EDA tool, with no patterns, values or comment, selected once it's shown, so it's moved.
+    app.click_button("Add row");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"/R04.*/\",\"\",\"RES_0402\",\"100R\",\"comment 2\"",
+        "\"DipTrace\",\"/C.*/\",\"100nF\",\"CAP_0402\",\"\",\"DERATE 50V\"",
+        "\"DipTrace\",\"\",\"\",\"\",\"\",\"\"",
+    ]);
+    app.wait_for_enabled_button("Move up");
+    app.click_button("Move up");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"/R04.*/\",\"\",\"RES_0402\",\"100R\",\"comment 2\"",
+        "\"DipTrace\",\"\",\"\",\"\",\"\",\"\"",
+        "\"DipTrace\",\"/C.*/\",\"100nF\",\"CAP_0402\",\"\",\"DERATE 50V\"",
+    ]);
+
+    app.click_data_table_cell("CAP_0402", "Comment");
+    app.wait_for_enabled_button("Remove row");
+    app.click_button("Remove row");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"/R04.*/\",\"\",\"RES_0402\",\"100R\",\"comment 2\"",
+        "\"DipTrace\",\"\",\"\",\"\",\"\",\"\"",
+    ]);
+    app.wait_until_text_is_gone("CAP_0402");
+
+    // KiCad's patterns' columns added after the last pattern's, and its values' after the last value's, then the row's
+    // tool changed, keeping its patterns and values.
+    app.choose_in_data_table_cell_combo_box("RES_0402", "Eda", "KiCad", &[]);
+    wait_for_file(
+        &mut app,
+        &substitutions,
+        "\"Eda\",\"NamePattern\",\"ValuePattern\",\"PackagePattern\",\"ValPattern\",\"Name\",\"Value\",\"Package\",\"Val\",\"Comment\"\n\
+         \"KiCad\",\"/R04.*/\",\"\",\"\",\"\",\"RES_0402\",\"100R\",\"\",\"\",\"comment 2\"\n\
+         \"DipTrace\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"\n",
+    );
+    app.wait_for_text("PackagePattern");
+    app.hover_data_table_cell("RES_0402", "Value");
+    app.wait_for_text_containing("Not used to substitute KiCad values.");
+    app.hover_data_table_cell("RES_0402", "Val");
+    app.wait_for_text_containing("Used to substitute KiCad values.");
+
+    app.wait_for_logs_in_order(&[
+        "VariantBuilderTab command. command: Table(Substitutions, ",
+        "stores_app: Received event. event: ChangeTable { kind: Substitutions, ",
+        "stores_app: Changed table. kind: Substitutions, source: '",
+        "stores_app: Loaded table. kind: Substitutions, source: '",
+        "ChangeRows(Add {",
+        "ChangeShown(Row(2))",
+        "ChangeRows(Remove {",
+        "ChangeShown(NoRow)",
+        "ChangeAfterColumns(PendingChange { eda_tool: KiCad,",
+        "stores_app: Received event. event: AddTableColumns { kind: Substitutions, ",
+        "ColumnsShown(Some((Update {",
+        "stores_app: Changed table. kind: Substitutions, source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-14`, a global substitutions' panel is changed too, and a substitution's status, first, says what its problems
+/// are when it's hovered, or that it has none. Their colours are checked by `data_sources::table`'s tests, as the GUI's
+/// tests can't see them.
+#[test]
+fn a_global_substitutions_status_says_what_its_problems_are() {
+    let mut app = App::start();
+    let mut contents = SUBSTITUTIONS_HEADERS.to_string();
+    contents.push_str("\"DipTrace\",\"R0402\",\"\",\"RES_0402\",\"\",\"good\"\n");
+    contents.push_str("\"DipTrace\",\"/R_[/\",\"\",\"RES_0603\",\"\",\"invalid\"\n");
+    contents.push_str("\"DipTrace\",\"\",\"\",\"RES_0805\",\"\",\"no patterns\"\n");
+    contents.push_str("\"DipTrace\",\"R1206\",\"10K\",\"R1206\",\"10K\",\"the same\"\n");
+    contents.push_str("\"DipTrace\",\"R2512\",\"\",\"\",\"\",\"no values\"\n");
+    let substitutions = given_substitutions_shown(&mut app, "Global substitutions", "g1.csv", &contents);
+    app.wait_for_text("the same");
+    let headers = ["◑", "Eda", "NamePattern"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
+
+    app.hover_data_table_cell("good", "◑");
+    app.wait_for_text_containing("No problems.");
+    app.hover_data_table_cell("invalid", "◑");
+    app.wait_for_text_containing("A pattern isn't valid.");
+    app.wait_until_no_text_contains("No problems.");
+    app.hover_data_table_cell("no patterns", "◑");
+    app.wait_for_text_containing("None of DipTrace's fields has a pattern.");
+    app.hover_data_table_cell("the same", "◑");
+    app.wait_for_text_containing("Matching patterns and values have no effect.");
+    app.wait_until_no_text_contains("isn't valid.");
+    // red, as neither of DipTrace's fields has a value, which each of its values' cells says too.
+    app.hover_data_table_cell("no values", "◑");
+    app.wait_for_text_containing("Substitution values not defined.");
+    app.wait_until_no_text_contains("have no effect.");
+    app.hover_data_table_cell("no values", "Value");
+    app.wait_for_text_containing("Used to substitute DipTrace values. Substitution values not defined.");
+
+    // changed, so it changes something.
+    app.edit_data_table_cell_then_press_enter("the same", "Value", "10K0");
+    wait_for_substitutions(&mut app, &substitutions, &[
+        "\"DipTrace\",\"R0402\",\"\",\"RES_0402\",\"\",\"good\"",
+        "\"DipTrace\",\"/R_[/\",\"\",\"RES_0603\",\"\",\"invalid\"",
+        "\"DipTrace\",\"\",\"\",\"RES_0805\",\"\",\"no patterns\"",
+        "\"DipTrace\",\"R1206\",\"10K\",\"R1206\",\"10K0\",\"the same\"",
+        "\"DipTrace\",\"R2512\",\"\",\"\",\"\",\"no values\"",
+    ]);
+    app.wait_for_text("10K0");
+    app.hover_data_table_cell("the same", "◑");
+    app.wait_for_text_containing("No problems.");
+
+    app.wait_for_logs_in_order(&[
+        "VariantBuilderTab command. command: Table(Substitutions, ",
+        "stores_app: Received event. event: ChangeTable { kind: Substitutions, ",
+        "stores_app: Changed table. kind: Substitutions, source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+}
+
 /// `VBGUI-12`, `STORE-17`, `STORE-9`, the "Build output" panel is a placeholder for the mapping results, and the BOM,
 /// which isn't there until the variant is built, is shown once it's built.
 #[test]

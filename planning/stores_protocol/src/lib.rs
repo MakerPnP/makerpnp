@@ -469,10 +469,9 @@ impl TableColumn {
         field_name.to_upper_camel_case()
     }
 
-    /// Substitutions' columns, in the EDA tools' order (see [`EdaTool::all_field_names`]), with a pattern's column for
-    /// each of the patterns' fields, before a value's column for it, if it's one of the values' fields, and a comment's,
-    /// last, if they have one, each named as `STORE-17` names them, such as "`NamePattern`" and "`Name`", and no
-    /// references.
+    /// Substitutions' columns: a pattern's column for each of the patterns' fields, then a value's column for each of
+    /// the values' fields, each group in the EDA tools' order (see [`EdaTool::all_field_names`]), and a comment's, last,
+    /// if they have one, each named as `STORE-17` names them, such as "`NamePattern`" and "`Name`", and no references.
     pub fn substitutions(pattern_fields: &[&str], value_fields: &[&str], comment: bool) -> Vec<TableColumn> {
         let mut columns = vec![TableColumn::new("Eda", ColumnValue::Eda)];
         for field_name in EdaTool::all_field_names() {
@@ -482,6 +481,8 @@ impl TableColumn {
                     ColumnValue::Pattern(field_name.to_string()),
                 ));
             }
+        }
+        for field_name in EdaTool::all_field_names() {
             if value_fields.contains(&field_name) {
                 columns.push(TableColumn::new(
                     Self::substitutions_value_name(field_name),

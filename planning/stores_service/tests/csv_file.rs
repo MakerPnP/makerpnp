@@ -260,20 +260,21 @@ fn reads_substitutions_with_their_patterns_and_comment_last() {
     }));
     assert_eq!(
         names(&table),
-        strings(&["Eda", "NamePattern", "Name", "ValuePattern", "Value", "Comment"])
+        strings(&["Eda", "NamePattern", "ValuePattern", "Name", "Value", "Comment"])
     );
     assert_eq!(rows(&table), vec![strings(&[
         "DipTrace",
         "/RES_.*/",
-        "RES_0603",
         "330R",
+        "RES_0603",
         "330",
         "DERATE 50V"
     ])]);
 }
 
 /// `STORE-17`, a substitution has a pattern and a value for each field of any EDA tool the file has a column for, not
-/// only its own tool's, in the EDA tools' order, whatever the columns' order, and one whose tool's field has no column
+/// only its own tool's, every pattern's column before every value's, each group in the EDA tools' order, whatever the
+/// columns' order, and one whose tool's field has no column
 /// is read without it, so it can be shown, and given the column.
 #[test]
 fn reads_substitutions_with_every_eda_tools_fields_the_file_has() {
@@ -323,10 +324,10 @@ fn reads_substitutions_with_every_eda_tools_fields_the_file_has() {
     assert_eq!(references(&records), vec![
         ("Eda", Some("Eda")),
         ("NamePattern", Some("NamePattern")),
-        ("Name", Some("Name")),
         ("ValuePattern", Some("ValuePattern")),
-        ("Value", Some("Value")),
         ("PackagePattern", Some("PackagePattern")),
+        ("Name", Some("Name")),
+        ("Value", Some("Value")),
         ("Package", Some("Package")),
         ("Comment", Some("Comment")),
     ]);
@@ -349,8 +350,8 @@ fn substitutions_with_no_rows_have_their_fields_columns() {
 
     assert_eq!(references(&records), vec![
         ("Eda", Some("Eda")),
-        ("Package", Some("Package")),
         ("ValPattern", Some("ValPattern")),
+        ("Package", Some("Package")),
     ]);
 }
 

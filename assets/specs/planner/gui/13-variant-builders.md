@@ -185,9 +185,17 @@ row's EDA tool chosen, its columns added first if they're needed (`STORE-21`), e
 table's first column its rows' status. A pattern, a value a field is substituted with, and the comment are edited in a
 text field, and "`Add row`" adds a substitution of the variant builder's EDA tool, with no patterns, values or comment.
 Changing a row's tool keeps its patterns and values for the other tools' fields. A pattern's cell is coloured, and says
-so when it's hovered, as a part mapping's is (`VBGUI-13`). A value's cell is blue if the row's tool doesn't substitute
-its field, saying "`Not substituted by <tool>.`", and green if it does, saying "`Substituted by <tool>.`", an empty
-value being one, as a field can be substituted with nothing. The comment isn't coloured. A row's status is red if it
+so when it's hovered, as a part mapping's is (`VBGUI-13`). A value's cell says whether it's used to substitute the
+row's tool's values, as MakerPnP substitutes them, not the tool, the first of these that's so:
+
+- **Blue**: the field isn't one of the row's tool's, so its value isn't used, saying
+  "`Not used to substitute <tool> values.`".
+- **Red**: the field is one of the tool's, and every one of the tool's fields' values in the row is empty, or the data
+  source has no column for it, saying "`Used to substitute <tool> values. Substitution values not defined.`".
+- **Green**: otherwise, saying "`Used to substitute <tool> values.`", an empty value being one, as a field can be
+  substituted with nothing.
+
+The comment isn't coloured. A row's status is red if it
 has any of these problems, in this order, and green, saying "`No problems.`", if not:
 
 - "`A pattern isn't valid.`": one of the row's patterns, of any field, is a regular expression that isn't valid.
@@ -195,8 +203,14 @@ has any of these problems, in this order, and green, saying "`No problems.`", if
   of the row's tool's fields, so the Variant Builder's build refuses it (`STORE-17`).
 - "`None of <tool>'s fields has a pattern.`": every one of the tool's fields' patterns in the row is empty, or the data
   source has no column for it, so it matches only placements whose fields are all empty.
-- "`It changes nothing.`": every one of the tool's fields' patterns is a value matched exactly, the same as the value
-  it's substituted with, so it never changes a placement.
+- "`Substitution values not defined.`": every one of the tool's fields' values in the row is empty, or the data
+  source has no column for it, as a red value's cell says.
+- "`Matching patterns and values have no effect.`": every one of the tool's fields' patterns is a value matched
+  exactly, the same as the value it's substituted with, a missing pattern or value being empty, so it never changes a
+  placement. A row with no patterns and no values, such as one just added, has this problem and the two before.
+
+The table's columns are its rows' EDA tool, then every pattern's column, then every value's column, each group in the
+EDA tools' order, then the comment, as the core shows them (`STORE-17`), whatever their order in the data source.
 
 *Observed*: the tab's commands are logged as `VBGUI-13` says, with the kind "`Substitutions`".
 
@@ -299,8 +313,8 @@ has any of these problems, in this order, and green, saying "`No problems.`", if
   patterns in the row is empty or missing, and green otherwise, a field shared by tools matched by each, each faint,
   and each colour told apart from the others, in either theme, that a manufacturer's or an MPN's cell is red if it's
   empty and green if not, that a part mapping's problems are each found, in order, and none if it has none, that the
-  status column is first only of part mappings, and that its header and circle are glyphs egui's own fonts have
-  (`VBGUI-13`).
+  status column is first only of part mappings and substitutions, and that its header and circle are glyphs egui's
+  own fonts have (`VBGUI-13`, `VBGUI-14`).
 - `tests/ui/variant_builders.rs`'s `a_part_mappings_status_says_what_its_problems_are` checks the status column,
   "`◑`", is before "`Eda`", and hovers each row's status, checking "`No problems.`" for a row with none,
   "`A pattern isn't valid.`" and "`The manufacturer, or the MPN, is empty.`" for a row with an invalid pattern and no
@@ -325,17 +339,24 @@ has any of these problems, in this order, and green, saying "`No problems.`", if
 - `tests/ui/variant_builders.rs`'s `a_table_too_big_for_its_panel_ends_within_it` shows 200 part mappings, and 200
   parts, scrolls each table to its end, and checks its last row is shown above the table's horizontal scroll bar; it's
   the regression test for `ISSUE-25` (`VBGUI-11`).
-- `tests/ui/variant_builders.rs` edits a design substitution's pattern, value and comment in their cells, adds, moves
-  and removes rows, chooses a row's EDA tool, KiCad, whose columns are added first, and checks the file after each,
-  hovers a value's cell of a field the row's tool substitutes, and of one it doesn't, checking
-  "`Substituted by DipTrace.`" and "`Not substituted by KiCad.`", and hovers rows' statuses, checking
-  "`No problems.`", "`A pattern isn't valid.`", "`None of DipTrace's fields has a pattern.`" and
-  "`It changes nothing.`", and checks "`Table(Substitutions, `",
+- `tests/ui/variant_builders.rs`'s `a_design_substitutions_values_are_edited_and_its_rows_changed` edits a design
+  substitution's pattern, value and comment in their cells, adds, moves and removes rows, chooses a row's EDA tool,
+  KiCad, whose columns are added first, and checks the file after each, hovers a value's cell of a field of the row's
+  tool, and of one that isn't, checking "`Used to substitute DipTrace values.`" and
+  "`Not used to substitute KiCad values.`",
+  and checks "`Table(Substitutions, `",
   "`stores_app: Received event. event: ChangeTable { kind: Substitutions, `" and
-  "`stores_app: Changed table. kind: Substitutions, source: '`" are logged, in order, with no "`Event failed.`", and
-  that a global substitutions' panel can be changed too (`VBGUI-14`).
+  "`stores_app: Changed table. kind: Substitutions, source: '`" are logged, in order, with no "`Event failed.`".
+  `a_global_substitutions_status_says_what_its_problems_are` hovers a global substitutions' rows' statuses, checking
+  "`No problems.`", "`A pattern isn't valid.`", "`None of DipTrace's fields has a pattern.`" and
+  "`Matching patterns and values have no effect.`" and "`Substitution values not defined.`", and a value's cell of a
+  row with no values, checking "`Used to substitute DipTrace values. Substitution values not defined.`", then changes
+  a row's value, so it changes something, checking the file, that a global substitutions' panel can be changed too
+  (`VBGUI-14`).
 - `data_sources::table`'s tests check a substitution's value's cell is blue if the row's tool doesn't substitute its
-  field and green if it does, an empty value too, and that a substitution's problems are each found, in order, and
+  field, red if it does and every one of the tool's values is empty, and green otherwise, an empty value too, that a
+  substitution's pattern, value and comment are edited, one
+  left empty not being one the row didn't have, and that a substitution's problems are each found, in order, and
   none if it has none (`VBGUI-14`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them

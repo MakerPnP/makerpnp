@@ -185,9 +185,9 @@ tools write them. Each is a commit, the core first.
 | 11c.2. The stores core and service add a table's columns, named, with where they go, or those an EDA tool needs, as the core works them out (`STORE-21`). | Done |
 | 11c.3. The CLI adds a table's columns: `planner_cli table --kind part-mappings --source <file> add-columns`, with `--eda <TOOL>`, or `--column <NAME>` and where they go (`STORE-20`). | Done |
 | 11c.4. The GUI: choosing a row's EDA tool, or adding a row, adds the tool's columns first, if they're needed, where the data source puts them (`STORE-21`), each pattern's, manufacturer's and MPN's cell is coloured by whether it's as the row needs it, and each row has a status, saying its problems (`VBGUI-13`). | Done |
-| 11d. Substitutions, as part mappings are: the core and the service, the CLI, then the GUI. | Started |
+| 11d. Substitutions, as part mappings are: the core and the service, the CLI, then the GUI. | Done |
 | 11d.1. The stores core and service: a substitution has a pattern and a value for each EDA tool's field the data source has, its rows are changed, and an EDA tool's columns added, each group's after its last (`STORE-17`, `STORE-19`, `STORE-21`). | Done |
 | 11d.2. The CLI changes substitutions: `planner_cli table --kind substitutions --source <file>` `add`, `set`, `remove`, `move` and `add-columns`, with `--value <FIELD>=<VALUE>` and `--comment` (`STORE-20`). | Done |
-| 11d.3. The GUI: a substitutions' panel changes them as a part mappings' does, its value cells coloured, and its rows' statuses saying their problems (`VBGUI-14`). | |
+| 11d.3. The GUI: a substitutions' panel changes them as a part mappings' does, its value cells coloured, and its rows' statuses saying their problems (`VBGUI-14`). | Done |
 | 11e. Assembly rules, as part mappings are. | |
 | 11f. A parts tab's other values, edited in their cells (`PARTSRC`). | |

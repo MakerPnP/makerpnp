@@ -256,7 +256,8 @@ pattern's column, or no value's column, is read, without it, so the row can be s
 (`STORE-21`), though the Variant Builder's build refuses it. Part mappings' columns are made from the file's headers, a
 pattern's column for each EDA tool's field it has a column for, in the EDA tools' order, so they're there even with no
 rows, and substitutions' likewise, a pattern's column for each field it has a pattern's column for, and a value's for
-each it has a value's column for, each field's pattern's before its value's, and a comment's last, if it has one. A BOM is
+each it has a value's column for, every pattern's before every value's, each group in the EDA tools' order, whatever
+their order in the file, and a comment's last, if it has one. A BOM is
 written without headers, as JLCPCB's are, so every row is read, by
 the order of its values, with the columns "`Designator`", "`Footprint`", "`JLCPCB Part`", "`Quantity`" and
 "`Comment`", its designators joined by "`, `", and a quantity as a number. Part mappings' columns are "`Eda`", each

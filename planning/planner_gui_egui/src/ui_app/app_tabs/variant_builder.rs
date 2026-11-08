@@ -28,8 +28,8 @@ use variantbuilder_app::{
 
 use crate::data_sources::parts_table::show_parts_table;
 use crate::data_sources::table::{
-    TableEditing, TableRequest, TableState, TableUiCommand, is_changed_here, new_part_mapping, show_row_buttons,
-    show_table, update_table,
+    TableEditing, TableRequest, TableState, TableUiCommand, is_changed_here, new_row, show_row_buttons, show_table,
+    update_table,
 };
 use crate::file_picker::{FileDialogs, FileFilter, Picker, SaveFile};
 use crate::forms::fields::{FieldGrid, FieldRows, PickerAction, picker};
@@ -1303,11 +1303,11 @@ impl PanelViewer<'_> {
             DataSource::GlobalSubstitutions | DataSource::DesignSubstitutions => TableKind::Substitutions,
             DataSource::AssemblyRules => TableKind::AssemblyRules,
         };
-        // `VBGUI-13`, a part mapping added is of the variant builder's EDA tool.
-        let new_row = match kind {
-            TableKind::PartMappings => view.file.eda_tool.map(new_part_mapping),
-            _ => None,
-        };
+        // `VBGUI-13`, `VBGUI-14`, a part mapping, or a substitution, added is of the variant builder's EDA tool.
+        let new_row = view
+            .file
+            .eda_tool
+            .and_then(|eda_tool| new_row(kind, eda_tool));
         self.show_table(ui, kind, data_source, new_row);
     }
 
