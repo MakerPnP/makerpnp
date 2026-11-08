@@ -324,13 +324,15 @@ such as with `list`, its values as they saw them MAY be given with `--was-eda`, 
 `--was-manufacturer` and `--was-mpn`, and the change is checked against those. As `STORE-19` checks only the values
 an update changes, `set`'s `--was-` values are checked only for the values it sets. A row that isn't there MUST fail,
 saying "`The row doesn't exist. key: '<key>'`". If the core refuses, the CLI MUST fail with the core's error, and the
-file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11). *Target*:
+file is left as it was. The other kinds are to come with the core's (the Variant Builder mission's step 11).
 `add-columns` MUST add columns to the table (`STORE-21`): `--eda <TOOL>` the columns the EDA tool needs that the data
 source doesn't have, as the core works them out, or `--column <NAME>`, once for each column, with where they go,
-`--first`, `--last`, `--before <COLUMN>` or `--after <COLUMN>`, a column named as `list` names it. Each says which
-columns were added, or that none were needed. A row's EDA tool is changed, or a row of another tool added, with `set`
-or `add` after its tool's columns are added; a pattern for a field the data source has no column for fails, as
-`STORE-19` says. The gap: there's no `add-columns`.
+`--first`, `--last`, `--before <COLUMN>` or `--after <COLUMN>`, a column named as the data source names it, which
+`list` shows for the columns it lists; named columns need where they go, and an EDA tool's take none. Each says which
+columns were added, "`Added columns. columns: ['<column>', ...]`", an EDA tool's being those the table shows once
+they're added that it didn't, or that none were needed, "`No columns needed.`", on standard output. A row's EDA tool
+is changed, or a row of another tool added, with `set` or `add` after its tool's columns are added; a pattern for a
+field the data source has no column for fails, as `STORE-19` says.
 
 **STORE-21 — Adding a table's columns.** *Confirmed.* The core MUST add columns to a table when asked
 (`AddTableColumns`), so a user can give a row values the data source has no columns for, such as a part mapping's
@@ -418,6 +420,16 @@ at info level once they're added. Part mappings' columns can be added; the other
   "`stores_app: Changed table. kind: PartMappings, source: '`" are logged, in order, with no "`Event failed.`". It
   checks a change whose `--was-` values aren't the row's, a row that isn't there, and a table that can't be changed,
   fail, saying why, and leave the file as it was (`STORE-20`).
+- `planning/planner_cli/tests/tables.rs` adds EasyEDA's columns to DipTrace's part mappings, only "`Device`", as
+  "`Value`" is there, before "`Manufacturer`", saying so, then adds an EasyEDA row, checks DipTrace's need none, and adds
+  named columns after another, checking the file and what's said after each, and checks
+  "`stores_app: Received event. event: AddTableColumns {`",
+  "`stores_service: Performing stores operation. operation: AddColumns {`", "`Adding columns. source: '`",
+  "`stores_app: Added table columns. kind: PartMappings, source: '`" and
+  "`stores_app: Table columns already there. kind: PartMappings, source: '`" are logged, in order, with no
+  "`Event failed.`". It checks a pattern of a field without a column, a column there already, in any case, one to go by
+  that isn't there, named columns without where they go, an EDA tool's with where they go, and adding columns to a BOM,
+  fail, saying why, and leave the file as it was (`STORE-20`, `STORE-21`).
 - `planning/stores_app/tests/tables.rs` checks named columns are added where they're asked to go, then the table is
   read again and its view sent, that an EDA tool's columns are those of its fields the table doesn't have, whichever
   tool's they are, so a column shared by tools, such as "`Value`", is added once, each before "`Manufacturer`", that

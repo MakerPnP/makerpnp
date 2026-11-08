@@ -127,6 +127,31 @@ pub(crate) enum TableCommand {
         #[command(flatten)]
         was: WasPartMappingArgs,
     },
+    /// Add columns to the table, those an EDA tool's rows need that it doesn't have, e.g. 'add-columns --eda kicad', or
+    /// named, with where they go, e.g. 'add-columns --column Notes --last'
+    #[command(group = clap::ArgGroup::new("to_add").required(true).args(["eda", "columns"]))]
+    #[command(group = clap::ArgGroup::new("position").args(["first", "last", "before", "after"]))]
+    AddColumns {
+        /// The EDA tool whose fields' columns are added, those the table doesn't have, before 'Manufacturer'
+        #[arg(long, value_name = "EDA_TOOL", conflicts_with = "position")]
+        eda: Option<EdaToolArg>,
+        /// A column to add, named as the data source is to name it, e.g. 'Notes'; repeat it for each column, which are
+        /// added in the order given
+        #[arg(long = "column", value_name = "NAME", requires = "position")]
+        columns: Vec<String>,
+        /// Add the columns first
+        #[arg(long)]
+        first: bool,
+        /// Add the columns last
+        #[arg(long)]
+        last: bool,
+        /// Add the columns before the column, named as 'list' names it
+        #[arg(long, value_name = "COLUMN")]
+        before: Option<String>,
+        /// Add the columns after the column, named as 'list' names it
+        #[arg(long, value_name = "COLUMN")]
+        after: Option<String>,
+    },
 }
 
 #[derive(Debug, Args)]

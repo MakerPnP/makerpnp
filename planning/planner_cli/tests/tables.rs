@@ -318,3 +318,163 @@ fn a_change_that_is_refused_fails_and_leaves_the_file() -> Result<(), anyhow::Er
 
     Ok(())
 }
+
+/// `STORE-20`, `STORE-21`, an EDA tool's columns are added, those its rows need that the table doesn't have, a column
+/// shared by tools added once, before "`Manufacturer`", saying which, and a row of that tool is then added; columns
+/// already there need none; and named columns are added where they're to go.
+#[test]
+fn adds_columns_then_a_row_of_another_eda_tool() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let mappings_path = temp_dir
+        .path()
+        .join("part-mappings.csv");
+    write(&mappings_path, MAPPINGS)?;
+    let trace_path = temp_dir.path().join("trace.log");
+
+    // `Value` is DipTrace's, so only `Device` is EasyEDA's to add.
+    let said = change_mappings(&mappings_path, &trace_path, &["add-columns", "--eda", "easyeda"])?;
+    assert_eq!(said, "Added columns. columns: ['Device']\n");
+    assert_eq!(read_to_string(&mappings_path)?, indoc! {r#"
+        "Eda","Name","Value","Device","Manufacturer","Mpn","Notes"
+        "DipTrace","R1","330R","","MFR1","MPN1","note 1"
+        "DipTrace","R2","","","MFR1","MPN2","note 2"
+    "#});
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: AddTableColumns {",
+        "stores_service: Performing stores operation. operation: AddColumns {",
+        "Adding columns. source: '",
+        "columns: ['Device']",
+        "stores_app: Added table columns. kind: PartMappings, source: '",
+        "columns: ['Device'], revision: '",
+        "stores_service: Performing stores operation. operation: ReadTable {",
+    ]);
+    assert!(!trace.contains("Event failed."));
+
+    change_mappings(&mappings_path, &trace_path, &[
+        "add",
+        "--eda",
+        "easyeda",
+        "--pattern",
+        "device=RES",
+        "--pattern",
+        "value=10k",
+        "--manufacturer",
+        "MFR2",
+        "--mpn",
+        "MPN3",
+    ])?;
+    assert_eq!(read_to_string(&mappings_path)?, indoc! {r#"
+        "Eda","Name","Value","Device","Manufacturer","Mpn","Notes"
+        "DipTrace","R1","330R","","MFR1","MPN1","note 1"
+        "DipTrace","R2","","","MFR1","MPN2","note 2"
+        "EasyEda","","10k","RES","MFR2","MPN3",""
+    "#});
+
+    let said = change_mappings(&mappings_path, &trace_path, &["add-columns", "--eda", "diptrace"])?;
+    assert_eq!(said, "No columns needed.\n");
+    let trace = read_to_string(&trace_path)?;
+    assert_contains_inorder!(trace, [
+        "stores_app: Received event. event: AddTableColumns {",
+        "stores_app: Table columns already there. kind: PartMappings, source: '",
+        "eda_tool: DipTrace",
+    ]);
+
+    let said = change_mappings(&mappings_path, &trace_path, &[
+        "add-columns",
+        "--column",
+        "Status",
+        "--column",
+        "Owner",
+        "--after",
+        "Notes",
+    ])?;
+    assert_eq!(said, "Added columns. columns: ['Status', 'Owner']\n");
+    assert_eq!(read_to_string(&mappings_path)?, indoc! {r#"
+        "Eda","Name","Value","Device","Manufacturer","Mpn","Notes","Status","Owner"
+        "DipTrace","R1","330R","","MFR1","MPN1","note 1","",""
+        "DipTrace","R2","","","MFR1","MPN2","note 2","",""
+        "EasyEda","","10k","RES","MFR2","MPN3","","",""
+    "#});
+
+    Ok(())
+}
+
+/// `STORE-20`, `STORE-21`, a pattern for a field the data source has no column for fails, a column already there, or
+/// to go by one that isn't, fails, saying why, as does adding columns to a table that can't be changed, and named
+/// columns need where they go, the file left as it was.
+#[test]
+fn adding_columns_that_can_not_be_added_fails() -> Result<(), anyhow::Error> {
+    let temp_dir = tempdir()?;
+    let mappings_path = temp_dir
+        .path()
+        .join("part-mappings.csv");
+    write(&mappings_path, MAPPINGS)?;
+    let trace_path = temp_dir.path().join("trace.log");
+    let mappings = |args: &[&str]| {
+        let mut all_args = vec!["--kind", "part-mappings", "--source", mappings_path.to_str().unwrap()];
+        all_args.extend_from_slice(args);
+        table(&trace_path, &all_args)
+    };
+
+    let cases: [(&[&str], &str); 5] = [
+        (
+            &[
+                "add",
+                "--eda",
+                "kicad",
+                "--pattern",
+                "package=R_0402",
+                "--manufacturer",
+                "MFR2",
+                "--mpn",
+                "MPN3",
+            ],
+            "The column doesn't exist. kind: PartMappings, source: '",
+        ),
+        (
+            &["add-columns", "--column", "notes", "--last"],
+            "The column already exists. kind: PartMappings, source: '",
+        ),
+        (
+            &["add-columns", "--column", "Status", "--before", "Comment"],
+            "The column doesn't exist. kind: PartMappings, source: '",
+        ),
+        (&["add-columns", "--column", "Status"], "--first"),
+        (&["add-columns", "--eda", "kicad", "--last"], "--last"),
+    ];
+    for (args, expected) in cases {
+        let output = mappings(args)?;
+
+        assert!(!output.status.success(), "{:?}", args);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(expected), "{:?}: {}", args, stderr);
+        assert_eq!(read_to_string(&mappings_path)?, MAPPINGS, "{:?}", args);
+    }
+
+    let bom_path = temp_dir
+        .path()
+        .join("board1_default_bom.csv");
+    let bom = "\"330R\",\"R1,R2\",\"RES_0402\",\"C1234\",\"02\"\n";
+    write(&bom_path, bom)?;
+    let output = table(&trace_path, &[
+        "--kind",
+        "bom",
+        "--source",
+        bom_path.to_str().unwrap(),
+        "add-columns",
+        "--column",
+        "Notes",
+        "--last",
+    ])?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("The table can't be changed. kind: Bom, source: '"),
+        "{}",
+        stderr
+    );
+    assert_eq!(read_to_string(&bom_path)?, bom);
+
+    Ok(())
+}

@@ -8,8 +8,9 @@ use crossbeam_channel::unbounded;
 use futures::executor::block_on;
 use planner_app::{Effect, Event};
 use stores_app::{
-    FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView, PartsViewRendererOperation, Pattern, Revision,
-    RowKey, Stores, StoresError, TableChange, TableRow, TableView, TableViewRendererOperation,
+    quoted_list, ColumnPosition, ColumnsToAdd, FieldPattern, Part, PartMappingsViewItem, PartsChange, PartsView,
+    PartsViewRendererOperation, Pattern, Revision, RowKey, Source, Stores, StoresError, TableChange, TableKind,
+    TableRow, TableView, TableViewRendererOperation,
 };
 
 use crate::core::Core;
@@ -151,11 +152,41 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         .last()
         .ok_or_else(|| anyhow!("No table view. source: '{}'", source))?;
 
+    if let TableCommand::AddColumns {
+        eda,
+        columns,
+        first,
+        last,
+        before,
+        after,
+    } = &table_args.command
+    {
+        let to_add = match eda {
+            Some(eda) => ColumnsToAdd::EdaTool {
+                eda_tool: eda.build(),
+            },
+            None => ColumnsToAdd::Named {
+                columns: columns.clone(),
+                position: match (first, last, before, after) {
+                    (true, _, _, _) => ColumnPosition::First,
+                    (_, true, _, _) => ColumnPosition::Last,
+                    (_, _, Some(before), _) => ColumnPosition::Before(before.clone()),
+                    (_, _, _, Some(after)) => ColumnPosition::After(after.clone()),
+                    _ => bail!("Where the columns go is needed: '--first', '--last', '--before' or '--after'."),
+                },
+            },
+        };
+        return add_columns(&core, view, kind, source, to_add);
+    }
+
     // `STORE-20`, each row changed as it was just read, or as the user saw it, so a change made since is refused.
     let change = match &table_args.command {
         TableCommand::List {
             ..
         } => unreachable!("listed above"),
+        TableCommand::AddColumns {
+            ..
+        } => unreachable!("added above"),
         TableCommand::Add {
             values,
         } => {
@@ -224,6 +255,56 @@ fn run_table(table_args: &TableCommandArgs) -> anyhow::Result<()> {
         source,
         change,
     })?;
+
+    Ok(())
+}
+
+/// Adds the columns to the table, then says which were added, or that none were needed, as the core works out an EDA
+/// tool's (`STORE-20`, `STORE-21`).
+fn add_columns(
+    core: &crux_core::Core<Stores>,
+    view: &TableView,
+    kind: TableKind,
+    source: Source,
+    to_add: ColumnsToAdd,
+) -> anyhow::Result<()> {
+    let views = process_stores(core, stores_app::Event::AddTableColumns {
+        kind,
+        source,
+        columns: to_add.clone(),
+    })?;
+
+    let added = match (&to_add, views.tables.last()) {
+        // a view is sent only if the table changed, so the columns were added.
+        (
+            ColumnsToAdd::Named {
+                columns, ..
+            },
+            Some(_),
+        ) => columns.clone(),
+        // the core worked them out, so they're the columns the table has now that it didn't.
+        (
+            ColumnsToAdd::EdaTool {
+                ..
+            },
+            Some(after),
+        ) => after
+            .columns
+            .iter()
+            .filter(|column| {
+                !view
+                    .columns
+                    .iter()
+                    .any(|before| before.value == column.value)
+            })
+            .map(|column| column.name.clone())
+            .collect(),
+        (_, None) => vec![],
+    };
+    match added.is_empty() {
+        true => println!("No columns needed."),
+        false => println!("Added columns. columns: {}", quoted_list(&added)),
+    }
 
     Ok(())
 }
