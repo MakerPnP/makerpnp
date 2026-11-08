@@ -103,10 +103,13 @@ a data source, with nothing to keep them in step, which matters once data source
 | 7 | The planner's core and the Variant Builder's core are pure, and use the stores service for every file they read and write, an event at a time. | Done |
 | 8 | Changing parts, checked against the revision the change is based on, from the core, the CLI and the GUI. | Done |
 | 9 | A variant builder: define the variant and choose its data sources. | Done |
-| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. | Done, but 10e |
-| 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | Started |
-| 12 | Placements, shopping list and BOM tables, linked to each other and to the PCB. | |
-| 13 | Confirming BOM items. | |
+| 10 | A variant builder's explorer, and its tabs for its data sources and its build's results. 10e moved to step 16. | Done |
+| 11 | Changing a data source's contents from the UI, seen by every variant builder using it. | Done |
+| 12 | Placements: a variant builder's placements table, linked to the PCB, and later to the shopping list and the BOM. To be designed with the project's owner. | Started |
+| 13 | The shopping list: its table, linked to the placements and the BOM. | |
+| 14 | The BOM: its table, linked to the placements and the shopping list. | |
+| 15 | Confirming BOM items. | |
+| 16 | The "Build output" panel shows the mapping results, moved from step 10e, to be done last. To be designed with the project's owner. | |
 
 ### Step 7, an event at a time
 
@@ -165,7 +168,7 @@ data sources changed from them in step 11. Each is a commit, the core first.
 | 10b. The CLI lists a data source's table: `planner_cli table --kind <kind> --source <file> list` (`STORE-18`). | Done |
 | 10c. The Variant Builder's core says where its variant's outputs are written, so a front end can show them (`VARB-9`). | Done |
 | 10d. The GUI: the design variant's explorer, its "Overview" panel, a panel for each data source, a "Build output" panel, a placeholder for the mapping results to come, and the variant's placements and BOM (`VBGUI-9` to `VBGUI-12`). | Done |
-| 10e. The "Build output" panel shows the mapping results. To be designed with the project's owner. | Later |
+| 10e. The "Build output" panel shows the mapping results. Moved to step 16. | Moved |
 
 ### Step 11, changing a data source from the UI
 

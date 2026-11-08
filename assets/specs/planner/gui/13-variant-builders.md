@@ -113,7 +113,7 @@ it can't be read, or why its last change was refused, the row buttons of a table
 "`Panel(Table(<kind>, <source>, <command>))`".
 
 **VBGUI-12 — The build's output.** *Confirmed.* The "`Build output`" panel is where the mapping results are to be
-shown, and until then MUST say "`The mapping results are to come.`" (the Variant Builder mission's step 10e). Its
+shown, and until then MUST say "`The mapping results are to come.`" (the Variant Builder mission's step 16). Its
 "`Placements`" and "`BOM`" nodes MUST open panels named so, showing the variant's placements and BOM as tables, as
 `VBGUI-11` does, from where building writes them (`VARB-9`), as the file says, without the changes not yet saved. Until
 the variant is built, the panel says "`Data source not found.`", and once it's built it's shown, as the output is
@@ -255,7 +255,12 @@ has no EDA tool, so no columns are added for one (`STORE-21`). Only a part's man
 they name it: each is red if it's empty, and green if not. Its other values, such as a comment, may be empty, so
 their cells have no colour. A row's status is green, saying "`No problems.`", if neither its manufacturer nor its MPN
 is empty, and red if either is, saying "`Empty Manufacturer.`", "`Empty Mpn.`", or both, in that order. *Target*: two parts of the same manufacturer and MPN are a
-problem, as one names the other. The gap: each is shown, and changed, as it is. *Observed*: the tab's commands are
+problem, as one names the other. They MUST be found by the data source's back end, searching all of its rows, not by
+the front end checking the rows it has, as a table may later be shown a page at a time, so the rows a front end has
+aren't all of them. A "`Check for errors`" button has the stores core search the data source, and opens an
+"`Issues`" tab listing each issue found, such as each set of duplicate parts; clicking an issue shows its rows, such as
+the duplicate parts, in the data source's table. The gap: duplicates aren't found, and each is shown, and changed, as
+it is. *Observed*: the tab's commands are
 logged as `VBGUI-13` says, with the kind "`Parts`".
 
 ## Acceptance criteria
