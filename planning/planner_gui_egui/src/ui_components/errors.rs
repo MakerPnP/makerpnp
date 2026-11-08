@@ -3,17 +3,24 @@
 //! A tab has one [`Errors`], whose [`Errors::show`] shows each of its errors where it belongs, unless it's dismissed. A
 //! dismissed error stays hidden, while it's the same, until the user next does something in the tab, when the tab calls
 //! [`Errors::clear`], so errors that still apply are shown again, even with the same message.
+//!
+//! Information, such as how a table is to be changed, is shown in the same frame, but blue, with [`show_information`]
+//! (`FORM-14`).
 
 use std::collections::BTreeSet;
 
 use egui::{Align, Color32, Label, Layout, RichText, Stroke, Ui, Vec2};
 use egui_i18n::tr;
-use egui_material_icons::icons::{ICON_CLOSE, ICON_ERROR};
+use egui_material_icons::icons::{ICON_CLOSE, ICON_ERROR, ICON_INFO};
 
-/// The frame's border, and the icon's colour, a high saturation red.
+/// An error frame's border, and its icon's colour, a high saturation red.
 pub const ERROR_BORDER: Color32 = Color32::from_rgb(220, 0, 0);
-/// The frame's background, a faint red, translucent, so it's faint in a light theme and a dark one.
+/// An error frame's background, a faint red, translucent, so it's faint in a light theme and a dark one.
 pub const ERROR_BACKGROUND: Color32 = Color32::from_rgba_premultiplied(28, 0, 0, 28);
+/// An information frame's border, and its icon's colour, a high saturation blue.
+pub const INFORMATION_BORDER: Color32 = Color32::from_rgb(0, 110, 230);
+/// An information frame's background, a faint blue, translucent, as an error frame's is.
+pub const INFORMATION_BACKGROUND: Color32 = Color32::from_rgba_premultiplied(0, 12, 28, 28);
 
 /// Identifies an error a tab shows: where it's shown, and what it says, so that a dismissed error stays hidden while it's
 /// the same, and a different one, there or elsewhere, is shown.
@@ -64,38 +71,81 @@ impl Errors {
         self.dismissed.contains(reference)
     }
 
-    /// Shows the error, unless it's dismissed, in a frame as wide as the space it's in, so as wide as a table below it,
-    /// which fills that space, and never wider, so it doesn't make the tab scroll sideways: a red border, a faint red
-    /// background, an icon, the message, wrapped, and a button to dismiss it, top right (`FORM-12`, `FORM-13`).
+    /// Shows the error, unless it's dismissed, in an error frame, with a button to dismiss it, top right (`FORM-12`,
+    /// `FORM-13`).
     pub fn show(&self, ui: &mut Ui, place: &str, message: &str, send: &dyn Fn(ErrorsUiCommand)) {
         let reference = ErrorReference::new(place, message);
         if self.is_dismissed(&reference) {
             return;
         }
+        let dismiss = || send(ErrorsUiCommand::Dismissed(reference.clone()));
+        message_frame(ui, MessageKind::Error, message, Some(&dismiss));
+    }
+}
 
-        egui::Frame::new()
-            .stroke(Stroke::new(1.5, ERROR_BORDER))
-            .fill(ERROR_BACKGROUND)
-            .corner_radius(4.0)
-            .inner_margin(6.0)
-            .show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal_top(|ui| {
-                    ui.label(
-                        RichText::new(ICON_ERROR)
-                            .color(ERROR_BORDER)
-                            .size(18.0),
-                    );
-                    // the message takes the width the button leaves, so the button is top right, and the frame only
-                    // as tall as the message, leaving the space below for what follows, such as a table.
-                    let button_width = ui.spacing().interact_size.y + 2.0 * ui.spacing().button_padding.x;
-                    let message_width = (ui.available_width() - button_width - ui.spacing().item_spacing.x).max(0.0);
-                    ui.allocate_ui_with_layout(Vec2::new(message_width, 0.0), Layout::top_down(Align::Min), |ui| {
-                        ui.set_width(message_width);
-                        // wrapped, though the tab's style may extend labels, as a process's editor's does.
-                        ui.add(Label::new(message).wrap());
-                    });
+/// Shows information, such as how a table is to be changed, in an information frame, as an error is shown, but blue,
+/// with an information icon, and no button to dismiss it, as it always applies (`FORM-14`).
+pub fn show_information(ui: &mut Ui, message: &str) {
+    message_frame(ui, MessageKind::Information, message, None);
+}
 
+#[derive(Debug, Clone, Copy)]
+enum MessageKind {
+    Error,
+    Information,
+}
+
+impl MessageKind {
+    /// The frame's border, and the icon's colour, and the frame's background.
+    fn colours(self) -> (Color32, Color32) {
+        match self {
+            MessageKind::Error => (ERROR_BORDER, ERROR_BACKGROUND),
+            MessageKind::Information => (INFORMATION_BORDER, INFORMATION_BACKGROUND),
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            MessageKind::Error => ICON_ERROR.into(),
+            MessageKind::Information => ICON_INFO.into(),
+        }
+    }
+}
+
+/// A frame as wide as the space it's in, so as wide as a table below it, which fills that space, and never wider, so
+/// it doesn't make the tab scroll sideways: a border, a faint background, an icon, the message, wrapped, and, if it can
+/// be dismissed, a button to dismiss it, top right (`FORM-12`, `FORM-14`).
+fn message_frame(ui: &mut Ui, kind: MessageKind, message: &str, dismiss: Option<&dyn Fn()>) {
+    let (border, background) = kind.colours();
+    egui::Frame::new()
+        .stroke(Stroke::new(1.5, border))
+        .fill(background)
+        .corner_radius(4.0)
+        .inner_margin(6.0)
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.horizontal_top(|ui| {
+                ui.label(
+                    RichText::new(kind.icon())
+                        .color(border)
+                        .size(18.0),
+                );
+                // the message takes the width the button leaves, so the button is top right, and the frame only as
+                // tall as the message, leaving the space below for what follows, such as a table.
+                let button_width = match dismiss {
+                    Some(_) => {
+                        ui.spacing().interact_size.y + 2.0 * ui.spacing().button_padding.x + ui.spacing().item_spacing.x
+                    }
+                    None => 0.0,
+                };
+                let message_width = (ui.available_width() - button_width).max(0.0);
+                ui.allocate_ui_with_layout(Vec2::new(message_width, 0.0), Layout::top_down(Align::Min), |ui| {
+                    ui.set_width(message_width);
+                    // wrapped, though the tab's style may extend labels, as a process's editor's does.
+                    ui.add(Label::new(message).wrap());
+                });
+
+                if let Some(dismiss) = dismiss {
                     let name = tr!("error-button-dismiss");
                     let response = ui
                         .small_button(ICON_CLOSE)
@@ -105,11 +155,11 @@ impl Errors {
                         .ctx
                         .accesskit_node_builder(response.id, |node| node.set_label(name));
                     if response.clicked() {
-                        send(ErrorsUiCommand::Dismissed(reference.clone()));
+                        dismiss();
                     }
-                });
+                }
             });
-    }
+        });
 }
 
 #[cfg(test)]

@@ -6,8 +6,8 @@ use eda_units::eda_units::dimension_unit::{DimensionUnitPoint2, DimensionUnitPoi
 use eda_units::eda_units::unit_system::UnitSystem;
 use egui::Ui;
 use egui_deferred_table::{
-    Action, ApplyChange, AxisParameters, CellEditState, CellIndex, DeferredTable, DeferredTableDataSource,
-    DeferredTableRenderer, EditableTableRenderer, EditorState, TableDimensions, apply_reordering,
+    Action, ApplyChange, CellEditState, CellIndex, DeferredTable, DeferredTableDataSource, DeferredTableRenderer,
+    EditableTableRenderer, EditorState, TableDimensions, apply_reordering,
 };
 use egui_i18n::tr;
 use planner_app::{
@@ -24,6 +24,7 @@ use crate::i18n::conversions::{
 use crate::sync::Enqueue;
 use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::ui_components::table_columns::{ColumnSettings, build_table_settings, deferred_table_columns, table_id};
 
 mod columns {
     pub const OBJECT_PATH_COL: usize = 0;
@@ -533,33 +534,41 @@ impl UiComponent for PlacementsTableUi {
     fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
         let (source, renderer, editor, editor_state) = &mut *self.source.lock().unwrap();
 
-        let (_response, actions) = DeferredTable::new(ui.make_persistent_id("placements_table"))
-            .min_size((400.0, 400.0).into())
-            .column_parameters(&vec![
-                AxisParameters::default()
-                    .name(tr!("table-placements-column-object-path"))
-                    .default_dimension(200.0),
-                AxisParameters::default().name(tr!("table-placements-column-ordering")),
-                AxisParameters::default()
-                    .name(tr!("table-placements-column-refdes"))
-                    .default_dimension(50.0),
-                AxisParameters::default().name(tr!("table-placements-column-place")),
-                AxisParameters::default()
-                    .name(tr!("table-placements-column-manufacturer"))
-                    .default_dimension(200.0),
-                AxisParameters::default()
-                    .name(tr!("table-placements-column-mpn"))
-                    .expandable(true)
-                    .default_dimension(200.0),
-                AxisParameters::default().name(tr!("table-placements-column-rotation")),
-                AxisParameters::default().name(tr!("table-placements-column-x")),
-                AxisParameters::default().name(tr!("table-placements-column-y")),
-                AxisParameters::default().name(tr!("table-placements-column-pcb-side")),
-                AxisParameters::default().name(tr!("table-placements-column-phase")),
-                AxisParameters::default().name(tr!("table-placements-column-placed")),
-                AxisParameters::default().name(tr!("table-placements-column-status")),
-            ])
-            .show_and_edit(ui, source, renderer, editor, editor_state);
+        // `FORM-15`, each as wide as its field's values usually are, the table's own for its object path, manufacturer
+        // and MPN, the MPN taking the space left.
+        let fields = [
+            ("object path", tr!("table-placements-column-object-path")),
+            ("ordering", tr!("table-placements-column-ordering")),
+            ("refdes", tr!("table-placements-column-refdes")),
+            ("place", tr!("table-placements-column-place")),
+            ("manufacturer", tr!("table-placements-column-manufacturer")),
+            ("mpn", tr!("table-placements-column-mpn")),
+            ("rotation", tr!("table-placements-column-rotation")),
+            ("x", tr!("table-placements-column-x")),
+            ("y", tr!("table-placements-column-y")),
+            ("pcb side", tr!("table-placements-column-pcb-side")),
+            ("phase", tr!("table-placements-column-phase")),
+            ("placed", tr!("table-placements-column-placed")),
+            ("status", tr!("table-placements-column-status")),
+        ];
+        let settings = build_table_settings(fields.iter().map(|(field, _)| *field), |field| match field {
+            "object path" | "manufacturer" => Some(ColumnSettings::points(200.0)),
+            "mpn" => Some(ColumnSettings::points(200.0).use_remaining_space()),
+            _ => None,
+        });
+        let column_parameters = deferred_table_columns(
+            ui,
+            fields
+                .into_iter()
+                .map(|(_, header)| header)
+                .zip(settings),
+        );
+
+        let (_response, actions) =
+            DeferredTable::new(table_id(ui.make_persistent_id("placements_table"), &column_parameters))
+                .min_size((400.0, 400.0).into())
+                .column_parameters(&column_parameters)
+                .show_and_edit(ui, source, renderer, editor, editor_state);
 
         for action in actions {
             match action {

@@ -10,7 +10,7 @@ its data sources and results, are to come (`../../../missions/variant-builder.md
 "`New design variant`" tab, with, in order:
 
 - "`EDA tool`", chosen from a list;
-- "`Placements`", chosen with a dialog that shows the EDA tool's placements files (`VARB-1`), and only once there's an
+- "`EDA placements`", chosen with a dialog that shows the EDA tool's placements files (`VARB-1`), and only once there's an
   EDA tool, and chosen again if the EDA tool is changed;
 - "`Design name`", empty until the placements are chosen, then their file's name, without its extension, unless the
   user has named it;
@@ -19,7 +19,7 @@ its data sources and results, are to come (`../../../missions/variant-builder.md
 Each is required before "`Ok`" is enabled. "`Ok`" MUST create `<design name>_<variant name>.variant.json` in the
 placements' folder (`VARB-2`), with the EDA tool, the placements, and the names, without replacing a file that's there,
 and the tab MUST then be the variant builder's, named after its file. If the core refuses, the tab MUST show why. The
-variant builder's tab MUST show its "`EDA tool`", "`Placements`", "`Design name`" and "`Variant name`", and the user
+variant builder's tab MUST show its "`EDA tool`", "`EDA placements`", "`Design name`" and "`Variant name`", and the user
 can't change them.
 
 **VBGUI-2 — Open design variant.** *Confirmed.* "`Open design variant`" in the toolbar MUST have the user choose a
@@ -85,20 +85,21 @@ explorer and the "`Overview`".
 **VBGUI-10 — The explorer.** *Confirmed.* The "`Explorer`" panel MUST show a tree of the variant builder, as the
 "`Overview`" shows it, with the changes not yet saved, each node showing its panel, opening it if it isn't open, when
 it's double-clicked (`VBGUI-9`): the root, named after the variant builder's file, and an "`Overview`" node under it,
-showing the "`Overview`"; the placements, as "`Placements: <file>`"; a folder for each of the "`Overview`"'s groups,
+showing the "`Overview`"; the EDA tool's placements, as "`EDA placements: <file>`", so they aren't taken for the variant's placements, which building writes (`VBGUI-17`); a folder for each of the "`Overview`"'s groups,
 "`Part matching`" and "`Design specific`", named as the groups are, showing the "`Overview`", with a node for each of
 its data sources, "`<field>: <file>`", or "`<field>: (none)`" if it isn't set, which shows nothing, and a folder for
 each list of files, named after the field, showing the "`Overview`", where the list is changed, with a node for each
 file, in order, its path as in its list; and a "`Build output`" folder, showing the "`Build output`" panel, with the
-nodes "`Placements`" and "`BOM`" (`VBGUI-12`). Each folder is open to begin with.
+nodes "`Variant placements`", the placements building writes, also called the build output's placements, and "`BOM`" (`VBGUI-12`). Each folder is open to begin with.
 
 **VBGUI-11 — A data source's panel.** *Confirmed.* A data source's node MUST open a panel named "`<field>: <file>`",
 showing "`File: <file>`", "`Reload`", which has the stores core read the data source again (`LoadTable`,
 `STORE-17`), and its records as a table, read-only, with the stores core (`STORE-17`), which takes all of
 the panel's space left below what's above it, ending at the panel's bottom, so its last rows can be scrolled to
 (`ISSUE-25`), and scrolls itself, resized with the panel. Each column is named as `STORE-17` names it, in its
-order, a comment's last, and MUST be resizable, by dragging the edge on its right, which stays under the pointer, the last
-filling the rest of the width. Each value is shown as what it is (`STORE-17`): a pattern in blue if it's a value matched
+order, a comment's last, and MUST be resizable, by dragging the edge on its right, which stays under the pointer, each
+as wide as its field's values usually are, and one, a comment's if there's one, otherwise the last, filling the rest of
+the width (`FORM-15`). Each value is shown as what it is (`STORE-17`): a pattern in blue if it's a value matched
 exactly, in green if it's a valid regular expression, and in red if it isn't, saying why when it's hovered, as it was
 parsed when it was read, not as it's shown. The placements are read in the variant builder's EDA tool's format, and
 parts as a table of parts (`STORE-17`). A data source is opened once, however often its panel is shown, and is watched,
@@ -114,7 +115,7 @@ it can't be read, or why its last change was refused, the row buttons of a table
 
 **VBGUI-12 — The build's output.** *Confirmed.* The "`Build output`" panel is where the mapping results are to be
 shown, and until then MUST say "`The mapping results are to come.`" (the Variant Builder mission's step 16). Its
-"`Placements`" and "`BOM`" nodes MUST open panels named so, showing the variant's placements and BOM as tables, as
+"`Variant placements`" and "`BOM`" nodes MUST open panels named so, showing the variant's placements and BOM as tables, as
 `VBGUI-11` does, from where building writes them (`VARB-9`), as the file says, without the changes not yet saved. Until
 the variant is built, the panel says "`Data source not found.`", and once it's built it's shown, as the output is
 watched (`VBGUI-11`).
@@ -263,6 +264,19 @@ the duplicate parts, in the data source's table. The gap: duplicates aren't foun
 it is. *Observed*: the tab's commands are
 logged as `VBGUI-13` says, with the kind "`Parts`".
 
+**VBGUI-17 — EDA placements.** *Confirmed.* The EDA tool writes its placements, so they MUST NOT be changed in the
+GUI, as a change would be lost when the user next exports them, and the user is told so: their panel, "`EDA placements:
+<file>`" (`VBGUI-10`), MUST show, first, below its file, an information frame (`FORM-14`) saying "`Autogenerated file.
+Use your EDA tool to change values and re-export.`", and has no row buttons, and no cell is edited. The table's first
+column is its rows' status, as a changeable table's is (`VBGUI-13`), with its columns as `VBGUI-11` says. A placement
+is a problem if every one of the fields the part mapper uses, its EDA tool's (`STORE-17`), such as DipTrace's `name`
+and `value`, is empty, as it can't be mapped to a part, which the user fixes in their EDA tool: its status is red,
+saying "`Empty fields: <fields>. Change them in <tool>, and export the placements again.`", such as
+"`Empty fields: name, value. Change them in DipTrace, and export the placements again.`", and each of those fields'
+cells is red. Otherwise its status is green, saying "`No problems.`", and each of those fields' cells is green if it
+isn't empty, and has no colour if it is, as another is enough to map it. The other cells have no colour. The panel
+doesn't show the mapping results, which are the Variant Builder mission's step 16's.
+
 ## Acceptance criteria
 
 - `tests/ui/variant_builders.rs` creates a design variant with "`New design variant`", choosing DipTrace and its
@@ -281,7 +295,7 @@ logged as `VBGUI-13` says, with the kind "`Parts`".
   and "`variantbuilder_app: Built variant.`" are logged, in order, with no "`Event failed.`" (`VBGUI-1`, `VBGUI-3`,
   `VBGUI-4`).
 - `tests/ui/variant_builders.rs` checks the fields of the "`New design variant`" form are as wide as each other and
-  fill the width, that a design variant's "`Placements`", "`Exclusion list`" and "`Output BOM`", in different groups,
+  fill the width, that a design variant's "`EDA placements`", "`Exclusion list`" and "`Output BOM`", in different groups,
   start and end at the same place, and are narrower once the window is, and that each of the "`Move up`",
   "`Move down`" and "`Remove`" buttons of a list's rows are lined up (`VBGUI-2`, `VBGUI-8`).
 - `tests/ui/variant_builders.rs` checks the placements are chosen once there's an EDA tool, and again once it's
@@ -298,7 +312,7 @@ logged as `VBGUI-13` says, with the kind "`Parts`".
   file exists isn't created, the tab says "`Variant builder exists already.`" and the file is kept (`VBGUI-1`), and
   that building one that isn't complete says what it's missing (`VBGUI-4`).
 - `tests/ui/variant_builders.rs` checks a design variant has the "`Explorer`" and "`Overview`" panels, that the
-  explorer shows the variant builder's file, "`Overview`", "`Placements: board1.csv`", "`Parts: parts.csv`", chosen
+  explorer shows the variant builder's file, "`Overview`", "`EDA placements: board1.csv`", "`Parts: parts.csv`", chosen
   but not yet saved, "`Part mappings: (none)`", "`Assembly rules: (none)`", "`Build output`" and "`BOM`", the
   folders "`Part matching`", "`Global substitutions`", "`Design specific`" and "`Design substitutions`", as the
   "`Overview`" names them, and a global substitution added but not yet saved (`VBGUI-9`, `VBGUI-10`).
@@ -433,6 +447,17 @@ logged as `VBGUI-13` says, with the kind "`Parts`".
   its other values' have no colour, empty or not, that an empty manufacturer and an empty MPN are each found, in that
   order, an empty other value not being a problem, and none if it has none, that a new row is a part with every value
   empty, and that the status column is first of parts too (`VBGUI-16`).
+- `tests/ui/variant_builders.rs`'s `eda_placements_are_changed_in_the_eda_tool` checks the explorer shows
+  "`Variant placements`", opens "`EDA placements: board1.csv`", and checks it says
+  "`Autogenerated file. Use your EDA tool to change values and re-export.`", that the status column is first, that
+  there are no row buttons and a cell isn't edited, and that a placement's status says "`No problems.`" with a name and
+  a value, and with only a name, and
+  "`Empty fields: name, value. Change them in DipTrace, and export the placements again.`" with neither
+  (`VBGUI-10`, `VBGUI-17`, `FORM-14`).
+- `data_sources::table`'s tests check an EDA placement's problem is every one of the fields the part mapper uses being
+  empty, one being enough, that the status column is first of EDA placements, and that those fields' cells are red if
+  all are empty, green if not empty, with no colour if empty but another isn't, another tool's field having none
+  (`VBGUI-17`).
 - Not covered yet: restoring a variant builder's tab when the GUI starts again (`VBGUI-5`), and its panels
   (`VBGUI-9`), as the GUI's tests start with no saved state, and the changes kept when the core refuses them
   (`VBGUI-3`), as the GUI's tests can't make the file unwritable between it being read and written.

@@ -58,6 +58,38 @@ If the number of rows changes, rows MUST return to their original order, so that
 **FORM-11 — Editing a cell.** *Observed.* In the Parts, Placements and load-out tables, clicking an editable cell MUST select it, and
 clicking it again MUST start editing it. Clicking any other cell MUST finish the edit and apply the change. See `ISSUE-9`.
 
+**FORM-15 — Column widths.** *Confirmed.* A table's column MUST start as wide as its field's values usually are, or
+its header, if that's wider, the same in every table, a data source's (`VBGUI-11`), a parts tab's (`PARTSRC-3`) and a
+project's, so that a value is seen whole without making short ones wide. By the field's name, in any case, with or
+without spaces, "`-`" or "`_`", as wide as:
+
+| Field | As wide as |
+|---|---|
+| X, Y and rotation | "`123.456`" |
+| Side | "`bottom`", the longer of "`top`" and "`bottom`" |
+| Place | "`no-place`", the longest of "`true`", "`false`", "`yes`", "`no`", "`place`" and "`no-place`" |
+| RefDes | "`ABC123`" |
+| Quantity, qty | "`1234`" |
+| A field an EDA tool's part mapping uses, or a footprint: name, value, val, device, package, footprint | "`12345-12345-12345-12345`" |
+| A comment or a note | "`ABCDE-ABCDE`", and taking the width left over |
+| Any other | "`ABCDE-ABCDE`" |
+
+A table MAY have its own width for a field, one with no default of its own, such as a project's parts' processes, or one
+it shows differently, such as a project's placements' MPN, which takes the width left over. One column MUST take the
+width left over, so the table fills its width: the last that would, or the last column if none would, as
+`egui_deferred_table` widens only the first such column it shows, which, as columns can be moved, may not be the one
+meant. A column can still be resized (`VBGUI-11`). Every table does this, a variant builder's EDA placements, its
+variant placements and its BOM included.
+
+The width the user resizes a column to MUST be kept, even when the application restarts. Adding a column to a table,
+such as a field added to a data source's file, MUST NOT change the other columns' widths: the new column starts at its
+default width.
+
+Gaps: `egui_deferred_table` keeps widths by the columns' places, not by the columns, so a table's widths are kept
+only while its columns, their headers and default widths, are the same, and start again from the defaults when they
+change, so that a kept width isn't given to the wrong column. Adding a column changes every column's width back to its
+default, see `ISSUE-26`.
+
 ## Errors
 
 **FORM-12 — Showing an error.** *Confirmed.* An error a tab shows, such as why a data source can't be read, or why a
@@ -78,6 +110,11 @@ even with the same message, as the user's action may have caused it again. What 
 data source, or selecting the row a change added once it's shown, doesn't count. Dismissing is the tab's: another tab
 showing the same error MUST keep showing it. *Observed*: dismissing is logged as the tab's command, such as
 "`PartsTab command. command: Errors(Dismissed(`".
+
+**FORM-14 — Showing information.** *Confirmed.* Information that always applies to what a tab shows, such as how a
+table is to be changed (`VBGUI-17`), MUST be shown in an information frame, by the component that shows errors, as an
+error is shown (`FORM-12`), but blue: a high saturation blue border, a faint blue background, and an information icon,
+an "`i`" in a circle, before the message. It has no button to dismiss it, as it always applies.
 
 ## Acceptance criteria
 
@@ -100,6 +137,14 @@ showing the same error MUST keep showing it. *Observed*: dismissing is logged as
 - `FORM-1` is about appearance, so no test checks it.
 - Reducing and then increasing a value keeps what was entered (`FORM-5`), covered for a PCB's units (`PCBCFG-5`). Other
   fields, rows and elements created on the fly have not been checked yet.
+- `ui_components::table_columns`'s tests check each field's default width, by its name, in any case, with or without
+  spaces, "`-`" or "`_`", that a table's own width is used for a field it gives one for, that only one column takes
+  the width left over, the last that would, or the last column, and that a column is as wide as its text, or its
+  header, if that's wider, and that a table's id, by which its widths are kept, is the same while its columns are,
+  and changes when a column's default width does, or a column is added (`FORM-15`).
+- `tests/ui/variant_builders.rs` checks an EDA placements' value column is wider than its X column, a BOM's footprint
+  column wider than its quantity column, and a variant placements' manufacturer column wider than its X column
+  (`FORM-15`). Not covered yet: a project's tables, and widths kept between runs, as the tests start with none.
 - `ui_components::errors`'s test checks a dismissed error stays dismissed while it's the same, that one with a
   different message, or in a different place, isn't, and that clearing shows it again (`FORM-13`).
 - `tests/ui/parts_sources.rs`'s `an_error_is_dismissed_until_the_user_next_does_something` opens a file without the
@@ -109,3 +154,5 @@ showing the same error MUST keep showing it. *Observed*: dismissing is logged as
   file in another tab, which shows it, checks it's still hidden in the first, and clicks "`Reload`" there, checking it's
   shown again (`FORM-13`). The other errors use the same component, and their tests check their messages are shown.
   Not covered yet: dismissing them, and how an error frame looks, its colours, icon, wrapping and width (`FORM-12`).
+- `tests/ui/variant_builders.rs`'s `eda_placements_are_changed_in_the_eda_tool` checks an EDA placements' panel says
+  its information (`FORM-14`, `VBGUI-17`). Not covered yet: how an information frame looks.

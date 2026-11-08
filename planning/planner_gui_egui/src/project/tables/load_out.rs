@@ -1,8 +1,8 @@
 use derivative::Derivative;
 use egui::{Color32, CornerRadius, Stroke, StrokeKind, Ui};
 use egui_deferred_table::{
-    Action, ApplyChange, AxisParameters, CellEditState, CellIndex, DeferredTable, DeferredTableDataSource,
-    DeferredTableRenderer, EditableTableRenderer, EditorState, TableDimensions, apply_reordering,
+    Action, ApplyChange, CellEditState, CellIndex, DeferredTable, DeferredTableDataSource, DeferredTableRenderer,
+    EditableTableRenderer, EditorState, TableDimensions, apply_reordering,
 };
 use egui_i18n::tr;
 use planner_app::{LoadOut, LoadOutItem, Reference};
@@ -12,6 +12,7 @@ use crate::filter::{Filter, FilterUiAction, FilterUiCommand, FilterUiContext};
 use crate::sync::Enqueue;
 use crate::sync::Value;
 use crate::ui_component::{ComponentState, UiComponent};
+use crate::ui_components::table_columns::{ColumnSettings, build_table_settings, deferred_table_columns, table_id};
 
 mod columns {
     pub const FEEDER_REFERENCE_COL: usize = 0;
@@ -317,21 +318,29 @@ impl UiComponent for LoadOutTableUi {
     fn ui<'context>(&self, ui: &mut Ui, _context: &mut Self::UiContext<'context>) {
         let (source, renderer, editor, editor_state) = &mut *self.table_state.lock().unwrap();
 
-        let (_response, actions) = DeferredTable::new(ui.make_persistent_id("load_out_table"))
-            .min_size((400.0, 400.0).into())
-            .column_parameters(&vec![
-                AxisParameters::default()
-                    .default_dimension(200.0)
-                    .name(tr!("table-load-out-column-reference")),
-                AxisParameters::default()
-                    .default_dimension(200.0)
-                    .name(tr!("table-load-out-column-manufacturer")),
-                AxisParameters::default()
-                    .default_dimension(200.0)
-                    .expandable(true)
-                    .name(tr!("table-load-out-column-mpn")),
-            ])
-            .show_and_edit(ui, source, renderer, editor, editor_state);
+        // `FORM-15`, the table's own widths, as its fields have no defaults, the MPN taking the space left.
+        let fields = [
+            ("reference", tr!("table-load-out-column-reference")),
+            ("manufacturer", tr!("table-load-out-column-manufacturer")),
+            ("mpn", tr!("table-load-out-column-mpn")),
+        ];
+        let settings = build_table_settings(fields.iter().map(|(field, _)| *field), |field| match field {
+            "mpn" => Some(ColumnSettings::points(200.0).use_remaining_space()),
+            _ => Some(ColumnSettings::points(200.0)),
+        });
+        let column_parameters = deferred_table_columns(
+            ui,
+            fields
+                .into_iter()
+                .map(|(_, header)| header)
+                .zip(settings),
+        );
+
+        let (_response, actions) =
+            DeferredTable::new(table_id(ui.make_persistent_id("load_out_table"), &column_parameters))
+                .min_size((400.0, 400.0).into())
+                .column_parameters(&column_parameters)
+                .show_and_edit(ui, source, renderer, editor, editor_state);
 
         for action in actions {
             match action {

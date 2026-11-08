@@ -127,7 +127,7 @@ From the CLI, in an empty folder:
 
 ## Open issues
 
-The highest ID used so far is `ISSUE-25`, so the next issue is `ISSUE-26`. A fixed issue's row is deleted with its file.
+The highest ID used so far is `ISSUE-26`, so the next issue is `ISSUE-27`. A fixed issue's row is deleted with its file.
 
 | ID | Status | Tool | Issue |
 |---|---|---|---|
@@ -148,6 +148,7 @@ The highest ID used so far is `ISSUE-25`, so the next issue is `ISSUE-26`. A fix
 | [`ISSUE-20`](ISSUE-20-renamed-process-tab-shows-a-spinner.md) | Open | Planner: GUI | A process's tab shows a spinner after a refresh renames the process |
 | [`ISSUE-21`](ISSUE-21-cli-help-gives-the-wrong-file-reference-format.md) | Open | Planner: CLI | The CLI's help gives the wrong format for a file reference |
 | [`ISSUE-22`](ISSUE-22-cli-absolute-paths-keep-their-prefix.md) | Open | Planner: CLI | A file given to the CLI as `absolute=` keeps the prefix in its path |
+| [`ISSUE-26`](ISSUE-26-adding-a-column-resets-the-column-widths.md) | Open | Planner: GUI | Adding a column to a table changes the other columns' widths |
 
 ## Contributing
 

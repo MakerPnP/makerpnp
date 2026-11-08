@@ -30,7 +30,7 @@ fn choose_eda_tool_and_placements(app: &mut App, folder: &Path) {
     app.click_button("New design variant");
     app.wait_for_tab("New design variant");
     app.choose_from_combo_box("EDA tool", "DipTrace");
-    choose(app, "Placements", folder.join("board1.csv"));
+    choose(app, "EDA placements", folder.join("board1.csv"));
 }
 
 /// Creates `board1_default.variant.json` in the folder, with "New design variant".
@@ -69,10 +69,10 @@ fn a_new_design_variant_is_configured_saved_and_built() {
     app.wait_until_no_tab_contains("New design variant");
     // `VBGUI-1`, what it's of is shown, and can't be changed.
     app.wait_for_field_value("EDA tool", "DipTrace");
-    app.wait_for_field_value("Placements", "board1.csv");
+    app.wait_for_field_value("EDA placements", "board1.csv");
     app.wait_for_field_value("Design name", "board1");
     app.wait_for_field_value("Variant name", "default");
-    assert!(!app.is_button_shown("Placements: Choose"));
+    assert!(!app.is_button_shown("EDA placements: Choose"));
 
     // `VARB-1`, the files chosen are kept relative to the variant builder's folder.
     choose(&mut app, "Parts", folder.join("parts.csv"));
@@ -142,7 +142,7 @@ fn a_new_design_variant_is_named_after_its_placements_unless_named() {
 
     app.click_button("New design variant");
     app.wait_for_tab("New design variant");
-    assert!(!app.is_button_shown("Placements: Choose"));
+    assert!(!app.is_button_shown("EDA placements: Choose"));
     app.wait_for_field_value("Design name", "");
     app.wait_for_field_value("Variant name", "default");
     // `VBGUI-8`, the fields are as wide as each other, filling the width.
@@ -152,15 +152,15 @@ fn a_new_design_variant_is_named_after_its_placements_unless_named() {
     assert!(design_name.width() > 1500.0, "{design_name:?}");
 
     app.choose_from_combo_box("EDA tool", "DipTrace");
-    choose(&mut app, "Placements", folder.join("board1.csv"));
+    choose(&mut app, "EDA placements", folder.join("board1.csv"));
     app.wait_for_field_value("Design name", "board1");
-    choose(&mut app, "Placements", folder.join("board2.csv"));
+    choose(&mut app, "EDA placements", folder.join("board2.csv"));
     app.wait_for_field_value("Design name", "board2");
 
     app.type_into("Design name", "design1");
-    choose(&mut app, "Placements", folder.join("board1.csv"));
+    choose(&mut app, "EDA placements", folder.join("board1.csv"));
     app.wait_for_field_value(
-        "Placements",
+        "EDA placements",
         &folder
             .join("board1.csv")
             .display()
@@ -169,10 +169,10 @@ fn a_new_design_variant_is_named_after_its_placements_unless_named() {
     app.wait_for_field_value("Design name", "design1");
 
     app.choose_from_combo_box("EDA tool", "KiCad");
-    app.wait_for_field_value("Placements", "");
+    app.wait_for_field_value("EDA placements", "");
     app.wait_until_button_is_disabled("Ok");
 
-    choose(&mut app, "Placements", folder.join("board1.csv"));
+    choose(&mut app, "EDA placements", folder.join("board1.csv"));
     app.type_into("Variant name", "variant1");
     app.wait_for_enabled_button("Ok");
     app.click_button("Ok");
@@ -210,7 +210,7 @@ fn open_design_variant_shows_what_its_file_says() {
     app.wait_for_field_value("Design name", "board1");
     app.wait_for_field_value("Variant name", "Variant_1");
     app.wait_for_field_value("EDA tool", "KiCad");
-    app.wait_for_field_value("Placements", "placements.csv");
+    app.wait_for_field_value("EDA placements", "placements.csv");
     app.wait_for_field_value("Parts", "");
     app.wait_for_button("Global substitutions: Remove a.csv");
     app.wait_for_button("Global substitutions: Remove b.csv");
@@ -248,11 +248,12 @@ fn a_design_variant_has_an_explorer_and_an_overview() {
     for text in [
         FILE_NAME,
         "Overview",
-        "Placements: board1.csv",
+        "EDA placements: board1.csv",
         "Parts: parts.csv",
         "Part mappings: (none)",
         "Assembly rules: (none)",
         "Build output",
+        "Variant placements",
         "BOM",
     ] {
         app.wait_for_text(text);
@@ -297,8 +298,8 @@ fn double_clicking_a_data_source_shows_its_table() {
     app.wait_for_text("MFR1");
     app.wait_for_text("MPN1");
 
-    app.double_click_text("Placements: board1.csv");
-    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
     app.wait_for_text("RefDes");
     app.wait_for_text("R1");
 
@@ -320,6 +321,53 @@ fn double_clicking_a_data_source_shows_its_table() {
         "stores_app: Loaded table. kind: EdaPlacements { eda_tool: DipTrace }, source: '",
         "planner_gui_egui::ui_app::app_tabs::variant_builder: VariantBuilderTab command. command: ShowPanel(Overview)",
     ]);
+    app.assert_not_logged("Event failed.");
+}
+
+/// `VBGUI-10`, `VBGUI-17`, `FORM-14`, the EDA tool's placements are "EDA placements", said to be changed in the EDA
+/// tool, as it writes them, with no row buttons and no cell edited, each placement's status saying whether the fields
+/// the part mapper uses, DipTrace's name and value, are all empty, and the variant's are "Variant placements".
+#[test]
+fn eda_placements_are_changed_in_the_eda_tool() {
+    let mut app = App::start();
+    let folder = app.folder();
+    given_a_design(&folder);
+    let mut placements = PLACEMENTS.to_string();
+    // only the name, which is enough to map.
+    placements.push_str("\"R2\",\"RES_0603\",\"\",\"Top\",\"30\",\"20\",\"0\"\n");
+    // neither.
+    placements.push_str("\"R3\",\"\",\"\",\"Bottom\",\"40\",\"20\",\"0\"\n");
+    fs::write(folder.join("board1.csv"), placements).unwrap();
+    create_design_variant(&mut app, &folder);
+    app.wait_for_tab(FILE_NAME);
+    app.wait_for_text("Variant placements");
+
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
+    app.wait_for_text("R3");
+    app.wait_for_text_containing("Autogenerated file. Use your EDA tool to change values and re-export.");
+    let headers = ["◑", "RefDes"].map(|header| app.text_position(header).x);
+    assert!(headers.is_sorted(), "{headers:?}");
+    // `FORM-15`, a coordinate's column is as wide as "123.456", and the part mapper's fields' as "12345-12345-12345-12345".
+    let [x, y, name, value] = ["X", "Y", "name", "value"].map(|header| app.text_position(header).x);
+    assert!(
+        value - name > 2.0 * (y - x),
+        "X: {x}, Y: {y}, name: {name}, value: {value}"
+    );
+    for button in ["Add row", "Remove row", "Move up", "Move down"] {
+        assert!(!app.is_button_shown(button), "{button}");
+    }
+
+    app.hover_data_table_cell("R1", "◑");
+    app.wait_for_text_containing("No problems.");
+    app.hover_data_table_cell("R2", "◑");
+    app.wait_for_text_containing("No problems.");
+    app.hover_data_table_cell("R3", "◑");
+    app.wait_for_text_containing(
+        "Empty fields: name, value. Change them in DipTrace, and export the placements again.",
+    );
+
+    app.assert_data_table_cell_is_not_editable("R1", "RefDes");
     app.assert_not_logged("Event failed.");
 }
 
@@ -684,8 +732,8 @@ fn a_part_mappings_rows_are_added_moved_and_removed() {
     ]);
     app.assert_not_logged("Event failed.");
 
-    app.double_click_text("Placements: board1.csv");
-    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
     app.wait_for_text("RefDes");
     app.wait_until_button_is_gone("Add row");
     app.assert_data_table_cell_is_not_editable("R1", "RefDes");
@@ -842,8 +890,8 @@ fn given_substitutions_shown(app: &mut App, field: &str, file_name: &str, conten
     add(app, field, substitutions.clone());
 
     // another panel in place of the "Overview", which lists the file too, so only the explorer has it.
-    app.double_click_text("Placements: board1.csv");
-    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
     app.double_click_text(file_name);
     app.wait_for_tab(&format!("{field}: {file_name}"));
     substitutions
@@ -929,6 +977,9 @@ fn a_design_substitutions_values_are_edited_and_its_rows_changed() {
          \"DipTrace\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\"\n",
     );
     app.wait_for_text("PackagePattern");
+    // both tools' columns, each as wide as an EDA tool's field (`FORM-15`), are wider than the window was, and
+    // `egui_deferred_table` draws only the columns that are shown.
+    app.resize_window(egui::vec2(2800.0, 1080.0));
     app.hover_data_table_cell("RES_0402", "Value");
     app.wait_for_text_containing("Not used to substitute KiCad values.");
     app.hover_data_table_cell("RES_0402", "Val");
@@ -969,8 +1020,8 @@ fn a_rows_status_and_eda_tool_can_not_be_selected() {
     fs::write(&substitutions, contents).unwrap();
     app.double_click_text(FILE_NAME);
     add(&mut app, "Design substitutions", substitutions);
-    app.double_click_text("Placements: board1.csv");
-    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
     app.double_click_text("d1.csv");
     app.wait_for_tab("Design substitutions: d1.csv");
     app.wait_for_text("comment 1");
@@ -1067,8 +1118,8 @@ fn an_assembly_rules_values_are_edited_and_its_rows_changed() {
     app.wait_for_tab(FILE_NAME);
     choose(&mut app, "Assembly rules", rules.clone());
     // another panel in place of the "Overview", which lists the file too, so only the explorer has it.
-    app.double_click_text("Placements: board1.csv");
-    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
     app.double_click_text("Assembly rules: rules.csv");
     app.wait_for_tab("Assembly rules: rules.csv");
     app.wait_for_text("MFR2");
@@ -1165,8 +1216,8 @@ fn a_variant_builders_parts_are_changed_in_its_panel() {
     app.wait_for_tab(FILE_NAME);
     choose(&mut app, "Parts", parts.clone());
     // another panel in place of the "Overview", which lists the file too, so only the explorer has it.
-    app.double_click_text("Placements: board1.csv");
-    app.wait_for_tab("Placements: board1.csv");
+    app.double_click_text("EDA placements: board1.csv");
+    app.wait_for_tab("EDA placements: board1.csv");
     app.double_click_text("Parts: my-parts.csv");
     app.wait_for_tab("Parts: my-parts.csv");
     app.wait_for_text("CAPCO");
@@ -1284,6 +1335,20 @@ fn the_bom_is_shown_once_the_variant_is_built() {
         "stores_app: Received event. event: TableSourceChanged { kind: Bom, ",
         "stores_app: Loaded table. kind: Bom, source: '",
     ]);
+
+    // `FORM-15`, a footprint's column is as wide as an EDA tool's field, wider than a quantity's.
+    let [footprint, jlcpcb_part, quantity, comment] = headers[1..].try_into().unwrap();
+    assert!(jlcpcb_part - footprint > comment - quantity, "{headers:?}");
+
+    // and the variant's placements', a coordinate's narrower than a manufacturer's.
+    app.double_click_text("Variant placements");
+    app.wait_for_tab("Variant placements");
+    app.wait_for_text("Rotation");
+    let [manufacturer, mpn, x, y] = ["Manufacturer", "Mpn", "X", "Y"].map(|header| app.text_position(header).x);
+    assert!(
+        mpn - manufacturer > y - x,
+        "Manufacturer: {manufacturer}, Mpn: {mpn}, X: {x}, Y: {y}"
+    );
 }
 
 /// The table of the substitutions as they're applied, its header and its rows (`VBGUI-7`).
@@ -1307,7 +1372,7 @@ fn the_fields_fill_the_width_and_the_buttons_of_a_list_line_up() {
     add(&mut app, "Design substitutions", folder.join("a-longer-name.csv"));
 
     let widths = |app: &mut App| {
-        ["Placements", "Exclusion list", "Output BOM"]
+        ["EDA placements", "Exclusion list", "Output BOM"]
             .map(|label| app.field_rect(label))
             .map(|rect| (rect.left(), rect.right()))
     };

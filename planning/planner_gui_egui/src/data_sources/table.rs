@@ -13,10 +13,12 @@ use egui_deferred_table::{
 };
 use egui_i18n::tr;
 use stores_app::{
-    AssemblyRule, AssemblyRulesViewItem, Cell, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern,
-    Part, PartMappingsViewItem, PartsViewItem, Pattern, Revision, RowKey, RowOrdering, SubstitutionsViewItem, Table,
-    TableChange, TableColumn, TableKind, TableRow, TableView,
+    AssemblyRule, AssemblyRulesViewItem, Cell, ColumnValue, EdaPlacementsViewItem, EdaSubstitutionRuleTransformItem,
+    EdaTool, FieldPattern, Part, PartMappingsViewItem, PartsViewItem, Pattern, Revision, RowKey, RowOrdering,
+    SubstitutionsViewItem, Table, TableChange, TableColumn, TableKind, TableRow, TableView,
 };
+
+use crate::ui_components::table_columns::{build_table_settings, deferred_table_columns, table_id};
 
 /// The view the stores core sent, shared with every other table showing the same data source, not a copy of it.
 struct TableDataSource {
@@ -31,9 +33,30 @@ impl TableDataSource {
 }
 
 /// Whether the table has a status column, first, shown only by the GUI, as its rows' kind can be changed, so each can
-/// have problems (`VBGUI-13`).
+/// have problems (`VBGUI-13`), or, though the GUI doesn't change them, they're EDA placements, which can have problems
+/// the user fixes in their EDA tool (`VBGUI-17`).
 fn has_status(view: &TableView) -> bool {
-    is_changed_here(view)
+    is_changed_here(view) || matches!(view.table, Table::EdaPlacements(_))
+}
+
+/// The row's problems, in order, none if it can be used as it is, or if its table has no status column.
+fn problems_of(view: &TableView, index: usize) -> Vec<Problem> {
+    match (&view.table, view.kind) {
+        (
+            Table::EdaPlacements(items),
+            TableKind::EdaPlacements {
+                eda_tool,
+            },
+        ) => items
+            .get(index)
+            .map(|item| Problem::of_eda_placement(eda_tool, item))
+            .unwrap_or_default(),
+        _ => view
+            .table
+            .row(index)
+            .map(|row| Problem::of(view, &row))
+            .unwrap_or_default(),
+    }
 }
 
 /// Whether the GUI changes the table: part mappings (`VBGUI-13`), substitutions (`VBGUI-14`), assembly rules
@@ -856,9 +879,7 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
     fn render_cell(&self, ui: &mut Ui, cell_index: CellIndex, source: &TableDataSource) {
         let row = source.view.table.row(cell_index.row);
         let Some(column) = source.column(cell_index.column) else {
-            if let Some(row) = &row {
-                show_status(ui, &Problem::of(&source.view, row));
-            }
+            show_status(ui, &problems_of(&source.view, cell_index.row));
             return;
         };
         // `VBGUI-13`, a pattern's cell of a row whose kind can be changed says how the row's EDA tool uses it, even with
@@ -887,6 +908,21 @@ impl DeferredTableRenderer<TableDataSource> for TableRenderer {
             (value, Some(TableRow::AssemblyRules(item))) => (Background::of_assembly_rule(item, value), None),
             // `VBGUI-16`, likewise each of a part's values, its other values too.
             (value, Some(TableRow::Parts(item))) => (Background::of_part(item, value), None),
+            // `VBGUI-17`, an EDA placement's field the part mapper uses says whether they're all empty.
+            (ColumnValue::EdaField(name), None) => match (&source.view.table, source.view.kind) {
+                (
+                    Table::EdaPlacements(items),
+                    TableKind::EdaPlacements {
+                        eda_tool,
+                    },
+                ) => (
+                    items
+                        .get(cell_index.row)
+                        .and_then(|item| Background::of_eda_field(eda_tool, item, name)),
+                    None,
+                ),
+                _ => (None, None),
+            },
             _ => (None, None),
         };
         if let Some(background) = background {
@@ -1099,6 +1135,20 @@ impl Background {
         Some(Self::of_needed_value(value))
     }
 
+    /// An EDA placement's field's, if the part mapper uses it, as the EDA tool's fields: red if every one of them is
+    /// empty, as nothing can be mapped, green if it isn't empty, and none if it's empty but another isn't, or the field
+    /// isn't used (`VBGUI-17`).
+    fn of_eda_field(eda_tool: EdaTool, item: &EdaPlacementsViewItem, name: &str) -> Option<Self> {
+        if !eda_tool.field_names().contains(&name) {
+            return None;
+        }
+        if has_no_mapped_fields(eda_tool, item) {
+            return Some(Background::Red);
+        }
+        let empty = eda_field_value(item, name).is_empty();
+        (!empty).then_some(Background::Green)
+    }
+
     /// A part's manufacturer's or MPN's, as they name it, none for its other values, which may be empty, such as a
     /// comment (`VBGUI-16`).
     fn of_part(item: &PartsViewItem, column: &ColumnValue) -> Option<Self> {
@@ -1109,6 +1159,24 @@ impl Background {
         };
         Some(Self::of_needed_value(value))
     }
+}
+
+/// An EDA placement's field's value, empty if it hasn't the field.
+fn eda_field_value<'a>(item: &'a EdaPlacementsViewItem, name: &str) -> &'a str {
+    item.placement
+        .fields
+        .iter()
+        .find(|field| field.name == name)
+        .map_or("", |field| field.value.as_str())
+}
+
+/// Whether every one of the EDA tool's fields the part mapper uses is empty, such as DipTrace's `name` and `value`, so
+/// the placement can't be mapped to a part (`VBGUI-17`).
+fn has_no_mapped_fields(eda_tool: EdaTool, item: &EdaPlacementsViewItem) -> bool {
+    eda_tool
+        .field_names()
+        .iter()
+        .all(|name| eda_field_value(item, name).is_empty())
 }
 
 /// What keeps a part mapping (`VBGUI-13`), a substitution (`VBGUI-14`), an assembly rule (`VBGUI-15`), or a part
@@ -1133,6 +1201,9 @@ enum Problem {
     EmptyPart,
     /// None of a substitution's EDA tool's fields has a value, empty or with no column.
     NoValues,
+    /// Every one of an EDA placement's fields the part mapper uses, its EDA tool's, is empty, which the user fixes in
+    /// their EDA tool (`VBGUI-17`).
+    NoMappedFields(EdaTool),
     /// A substitution's every one of its EDA tool's fields' patterns is a value matched exactly, the same as the value
     /// it's substituted with, so it never changes a placement.
     ChangesNothing,
@@ -1190,6 +1261,14 @@ impl Problem {
         .filter(|(value, _problem)| value.is_empty())
         .map(|(_value, problem)| problem)
         .collect()
+    }
+
+    /// An EDA placement's problem, if every one of the fields the part mapper uses is empty (`VBGUI-17`).
+    fn of_eda_placement(eda_tool: EdaTool, item: &EdaPlacementsViewItem) -> Vec<Problem> {
+        match has_no_mapped_fields(eda_tool, item) {
+            true => vec![Problem::NoMappedFields(eda_tool)],
+            false => vec![],
+        }
     }
 
     /// A part's empty manufacturer and MPN, in that order, as they name it; its other values may be empty, such as a
@@ -1264,6 +1343,10 @@ impl Problem {
             Problem::MissingPartColumns => tr!("data-table-problem-missing-part-columns"),
             Problem::EmptyPart => tr!("data-table-problem-empty-part"),
             Problem::NoValues => tr!("data-table-problem-no-values"),
+            Problem::NoMappedFields(eda_tool) => {
+                let fields = eda_tool.field_names().join(", ");
+                tr!("data-table-problem-no-mapped-fields", { fields: fields, tool: eda_tool_name(eda_tool) })
+            }
             Problem::ChangesNothing => tr!("data-table-problem-changes-nothing"),
         }
     }
@@ -1326,6 +1409,32 @@ fn pattern_color(pattern: &Pattern, visuals: &Visuals) -> Color32 {
     }
 }
 
+/// The field a column shows, by which its width is chosen (`FORM-15`): an EDA placement's field, a pattern or a value
+/// of a field, and a part's other value by the field's name, so a part mapping's `name` pattern is as wide as an EDA
+/// placement's `name`, and the others by what they are.
+fn field_name(column: &TableColumn) -> String {
+    match &column.value {
+        ColumnValue::RefDes => "refdes".to_string(),
+        ColumnValue::Place => "place".to_string(),
+        ColumnValue::Side => "side".to_string(),
+        ColumnValue::X => "x".to_string(),
+        ColumnValue::Y => "y".to_string(),
+        ColumnValue::Rotation => "rotation".to_string(),
+        ColumnValue::Comment => "comment".to_string(),
+        ColumnValue::Footprint => "footprint".to_string(),
+        ColumnValue::EdaField(name)
+        | ColumnValue::Pattern(name)
+        | ColumnValue::Substitute(name)
+        | ColumnValue::Field(name) => name.clone(),
+        ColumnValue::Eda
+        | ColumnValue::Manufacturer
+        | ColumnValue::Mpn
+        | ColumnValue::Designator
+        | ColumnValue::JlcpcbPart
+        | ColumnValue::Quantity => column.name.clone(),
+    }
+}
+
 /// Shows the table, a row for each of the data source's records, with its columns as the headers, each resizable, taking
 /// all the space left in the `Ui`, so it's resized with its container. Its cells are edited if it's `editing`, and its
 /// kind can be changed (`VBGUI-13`), else it's read-only.
@@ -1337,22 +1446,28 @@ pub fn show_table(ui: &mut Ui, id: egui::Id, view: Arc<TableView>, editing: Opti
             .resizable(false)
             .name(STATUS_HEADER.to_string())
     });
-    let mut column_parameters: Vec<AxisParameters> = status
-        .into_iter()
-        .chain(view.columns.iter().map(|column| {
-            AxisParameters::default()
-                .default_dimension(150.0)
-                .resizable(true)
-                .name(column.name.clone())
-        }))
+    // `FORM-15`, each as wide as its field's values usually are, only one taking the space left.
+    let fields: Vec<String> = view
+        .columns
+        .iter()
+        .map(|column| field_name(column))
         .collect();
-    if let Some(last) = column_parameters.pop() {
-        column_parameters.push(last.expandable(true));
-    }
+    let settings = build_table_settings(fields.iter().map(String::as_str), |_| None);
+    let column_parameters: Vec<AxisParameters> = status
+        .into_iter()
+        .chain(deferred_table_columns(
+            ui,
+            view.columns
+                .iter()
+                .map(|column| column.name.clone())
+                .zip(settings),
+        ))
+        .collect();
 
     let mut renderer = TableRenderer {};
     // `egui_deferred_table` takes the space left below what's above it (`ISSUE-25`).
-    let table = DeferredTable::new(id)
+    // `FORM-15`, the widths the user left kept while the columns are the same.
+    let table = DeferredTable::new(table_id(id, &column_parameters))
         .min_size((100.0, 100.0).into())
         .column_parameters(&column_parameters)
         .select_rows_on_cell_click();
@@ -1415,15 +1530,17 @@ mod tests {
     use egui::Visuals;
     use egui_deferred_table::{CellEditState, CellIndex};
     use stores_app::{
-        AssemblyRule, AssemblyRulesViewItem, ColumnRef, ColumnValue, EdaSubstitutionRuleTransformItem, EdaTool,
-        FieldPattern, Part, PartMappingsViewItem, PartsViewItem, Pattern, Revision, RowKey, RowOrdering, Source,
-        SubstitutionsViewItem, Table, TableChange, TableColumn, TableKind, TableRow, TableView,
+        AssemblyRule, AssemblyRulesViewItem, ColumnRef, ColumnValue, EdaPlacement, EdaPlacementsViewItem,
+        EdaSubstitutionRuleTransformItem, EdaTool, FieldPattern, Part, PartMappingsViewItem, PartsViewItem, Pattern,
+        Revision, RowKey, RowOrdering, Source, SubstitutionsViewItem, Table, TableChange, TableColumn, TableKind,
+        TableRow, TableView,
     };
 
     use super::{
         AfterChange, Background, CellEdit, EditedRow, PatternMatch, PendingChange, PendingRowChange, Problem,
         STATUS_GLYPH, STATUS_HEADER, SelectAfterChange, ShownAfterChange, Substitution, TableEditorState, TableRequest,
-        TableState, TableUiCommand, cell_edit, new_row, pattern_color, same_row, update_table, view_column, with_edit,
+        TableState, TableUiCommand, cell_edit, new_row, pattern_color, problems_of, same_row, update_table,
+        view_column, with_edit,
     };
 
     fn row(name: &str, mpn: &str) -> TableRow {
@@ -2423,5 +2540,74 @@ mod tests {
             assert!(valid.g() > valid.r() && valid.g() > valid.b(), "green: {valid:?}");
             assert!(exact.b() > exact.r() && exact.b() > exact.g(), "blue: {exact:?}");
         }
+    }
+
+    fn eda_placement(ref_des: &str, name: &str, value: &str) -> EdaPlacementsViewItem {
+        EdaPlacementsViewItem {
+            placement: EdaPlacement {
+                ref_des: ref_des.to_string(),
+                fields: EdaTool::DipTrace.placement_fields(&[name, value]),
+                ..EdaPlacement::default()
+            },
+        }
+    }
+
+    fn eda_placements_view(items: &[EdaPlacementsViewItem]) -> TableView {
+        let table = Table::EdaPlacements(items.to_vec());
+        TableView {
+            kind: TableKind::EdaPlacements {
+                eda_tool: EdaTool::DipTrace,
+            },
+            columns: table.columns(),
+            keys: (0..items.len())
+                .map(|index| RowKey(index.to_string()))
+                .collect(),
+            table,
+            ..view("1", &[])
+        }
+    }
+
+    /// `VBGUI-17`, an EDA placement's problem is every one of the fields the part mapper uses, its EDA tool's, being
+    /// empty, one of them being enough to map it, and the status column is first, though the GUI doesn't change them.
+    #[test]
+    fn an_eda_placements_problem_is_its_mapped_fields_all_empty() {
+        let items = [
+            eda_placement("R1", "RES_0402", "330R"),
+            eda_placement("R2", "RES_0402", ""),
+            eda_placement("R3", "", "330R"),
+            eda_placement("R4", "", ""),
+        ];
+        let view = eda_placements_view(&items);
+        let problems: Vec<Vec<Problem>> = (0..items.len())
+            .map(|index| problems_of(&view, index))
+            .collect();
+        assert_eq!(problems, vec![vec![], vec![], vec![], vec![Problem::NoMappedFields(
+            EdaTool::DipTrace
+        )]]);
+
+        assert!(view_column(&view, 0).is_none());
+        assert_eq!(view_column(&view, 1), view.columns.first());
+    }
+
+    /// `VBGUI-17`, an EDA placement's field the part mapper uses is red if they're all empty, green if it isn't empty,
+    /// and has no colour if it's empty but another isn't, and the other columns have none.
+    #[test]
+    fn an_eda_placements_mapped_fields_are_red_if_all_are_empty() {
+        let background =
+            |item: &EdaPlacementsViewItem, name: &str| Background::of_eda_field(EdaTool::DipTrace, item, name);
+
+        let both = eda_placement("R1", "RES_0402", "330R");
+        assert_eq!(background(&both, "name"), Some(Background::Green));
+        assert_eq!(background(&both, "value"), Some(Background::Green));
+
+        let name_only = eda_placement("R2", "RES_0402", "");
+        assert_eq!(background(&name_only, "name"), Some(Background::Green));
+        assert_eq!(background(&name_only, "value"), None);
+
+        let neither = eda_placement("R3", "", "");
+        assert_eq!(background(&neither, "name"), Some(Background::Red));
+        assert_eq!(background(&neither, "value"), Some(Background::Red));
+        // KiCad's, not DipTrace's.
+        assert_eq!(background(&neither, "package"), None);
     }
 }
