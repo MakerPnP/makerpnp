@@ -340,3 +340,66 @@ fn adding_and_removing_a_part_changes_the_file() {
     app.assert_not_logged("Event failed.");
     assert_eq!(fs::read_to_string(&parts).unwrap(), PARTS);
 }
+
+/// Waits for the file to have the contents, as the stores service writes it once the core changes it.
+fn wait_for_file(app: &mut App, path: &Path, expected: &str) {
+    app.wait_until(&format!("the file had: {expected}"), |_app| {
+        fs::read_to_string(path).is_ok_and(|contents| contents == expected)
+    });
+}
+
+/// `PARTSRC-7`, `STORE-15`, a part's other values are edited in their cells, each written at once, finished with Enter
+/// or by clicking elsewhere, an empty one too, and its manufacturer and MPN aren't, as they name it.
+#[test]
+fn a_parts_other_values_are_edited_in_their_cells() {
+    let mut app = App::start();
+    let parts = given_a_parts_file(&app.folder(), "parts.csv", PARTS);
+
+    choose_csv_file(&mut app, &parts);
+    app.click_button("Ok");
+    app.wait_for_text("C1234");
+
+    app.edit_data_table_cell_then_press_enter("RESCO", "LCSC", "C5678");
+    wait_for_file(
+        &mut app,
+        &parts,
+        "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n\
+         \"RESCO\",\"1234\",\"0402\",\"C5678\"\n\
+         \"CAPCO\",\"CAP1\",\"0603\",\"\"\n",
+    );
+    app.wait_for_text("C5678");
+
+    // empty, finished by clicking another part's cell.
+    app.edit_data_table_cell("CAPCO", "LCSC", "C9", "RESCO");
+    wait_for_file(
+        &mut app,
+        &parts,
+        "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n\
+         \"RESCO\",\"1234\",\"0402\",\"C5678\"\n\
+         \"CAPCO\",\"CAP1\",\"0603\",\"C9\"\n",
+    );
+    app.wait_for_text("C9");
+    app.edit_data_table_cell_then_press_enter("CAPCO", "Package", "");
+    wait_for_file(
+        &mut app,
+        &parts,
+        "\"Manufacturer\",\"Mpn\",\"Package\",\"LCSC\"\n\
+         \"RESCO\",\"1234\",\"0402\",\"C5678\"\n\
+         \"CAPCO\",\"CAP1\",\"\",\"C9\"\n",
+    );
+    app.wait_until_text_is_gone("0603");
+
+    app.assert_data_table_cell_is_not_editable("RESCO", "Manufacturer");
+    app.assert_data_table_cell_is_not_editable("CAP1", "MPN");
+
+    app.wait_for_logs_in_order(&[
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Table(EditSubmitted)",
+        "stores_app: Received event. event: ChangeParts {",
+        "stores_app: Changed parts. source: '",
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Table(Change(PartsEdit {",
+        "stores_app: Changed parts. source: '",
+        "planner_gui_egui::ui_app::app_tabs::parts: PartsTab command. command: Table(EditSubmitted)",
+        "stores_app: Changed parts. source: '",
+    ]);
+    app.assert_not_logged("Event failed.");
+}

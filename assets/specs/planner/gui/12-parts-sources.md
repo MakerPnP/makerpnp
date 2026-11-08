@@ -51,6 +51,20 @@ show the change, or, if it's refused, why, until a change succeeds, as the error
 no other values; they're empty, as each part has a value of every name. The part typed is kept once it's added or
 removed.
 
+**PARTSRC-7 — Changing a part's other values.** *Confirmed.* A parts tab's table MUST edit a part's other values in
+their cells, as a variant builder's changeable tables edit theirs (`VBGUI-13`): a cell clicked once is chosen, and
+clicked again is edited, in a text field, the edit finished with Enter, or by clicking elsewhere, and abandoned with
+Escape, leaving the value as it was. A finished edit that changes the value MUST be written at once, the stores core
+setting only that value of the part, keeping its others (`STORE-15`), an empty value too, as each part has a value of
+every name. The change MUST be based on the revision of the parts shown when the edit began, so it's refused if the
+data source has changed since, the refusal shown as `PARTSRC-6`'s are, and the change's text lost, as the value shown
+is the data source's. A part's manufacturer and MPN MUST NOT be edited, as they name the part; a part is renamed by
+removing it and adding it again (`PARTSRC-6`). *Target*: renaming a part in its cells. The gap: `STORE-15` has no
+change for it. An edit MUST NOT begin while a change to the data source is being written, as it would be based on
+the parts before it, and so refused. *Observed*: the tab's commands are logged as
+"`PartsTab command. command: Table(<command>)`", such as "`Table(EditSubmitted)`", or "`Table(Change(PartsEdit {`" for
+an edit finished by clicking elsewhere. A variant builder's parts panel stays read-only for now.
+
 ## Acceptance criteria
 
 - `tests/ui/parts_sources.rs` opens a CSV file using "`Open parts`", and checks the tab's label, the columns, and each
@@ -98,6 +112,14 @@ removed.
   order, with no "`Event failed.`", and that the file has the part, with empty values. It then removes it, and checks
   "`RemovePartClicked`" and "`Changed parts.`" are logged, in order, and that the file is as it was (`PARTSRC-6`,
   `STORE-15`).
+- `tests/ui/parts_sources.rs`'s `a_parts_other_values_are_edited_in_their_cells` edits a part's other value, finished
+  with Enter, an empty one, finished by clicking another part's cell, and a value left empty, checking the file after
+  each, that a part's manufacturer and MPN can't be edited, and that "`Table(EditSubmitted)`",
+  "`stores_app: Received event. event: ChangeParts {`", "`stores_app: Changed parts. source: '`" and
+  "`Table(Change(PartsEdit {`" are logged, in order, with no "`Event failed.`" (`PARTSRC-7`, `STORE-15`).
+- `data_sources::parts_table`'s tests check an edit finished with Enter sets only the part's value, based on the
+  revision shown, keeping the cell chosen, that one leaving the value as it was, abandoned, or of another cell, changes
+  nothing, and that one finished elsewhere is a change if it changes the value (`PARTSRC-7`).
 - Not covered yet: restoring a parts tab when the GUI starts again (`PARTSRC-4`), as the GUI's tests start with no saved
   state, and "`Loading the parts...`", which is shown only until the stores service has read the file. A change refused
   as the file changed since, in the GUI (`PARTSRC-6`), as the watch reads the file again as soon as it's changed, so

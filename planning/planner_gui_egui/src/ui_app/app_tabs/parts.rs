@@ -14,7 +14,9 @@ use stores_app::{Event, Part, PartsChange, PartsSource, PartsSourceStatus, Parts
 use tracing::debug;
 use validator::{Validate, ValidationError};
 
-use crate::data_sources::parts_table::show_parts_table;
+use crate::data_sources::parts_table::{
+    PartsEditing, PartsTableState, PartsTableUiCommand, show_parts_table, update_parts_table,
+};
 use crate::file_picker::{FileDialogs, Picker};
 use crate::forms::{Form, NamedResponse, PickerFieldAction, picker_field};
 use crate::stores_core::StoresCoreService;
@@ -53,6 +55,10 @@ pub struct PartsTab {
     manufacturer: String,
     #[serde(skip)]
     mpn: String,
+
+    /// The parts table's own state, kept across frames, as egui keeps a widget's (`PARTSRC-7`).
+    #[serde(skip)]
+    table: Value<PartsTableState>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +73,8 @@ pub enum PartsTabUiCommand {
     MpnChanged(String),
     AddPartClicked,
     RemovePartClicked,
+    /// The parts table's command, such as a part's other value edited (`PARTSRC-7`).
+    Table(PartsTableUiCommand),
 
     // internal
     /// Opens the data source, using its parts if they're loaded already, as when another tab shows them.
@@ -277,6 +285,16 @@ impl UiComponent for PartsTab {
                 });
                 None
             }
+            PartsTabUiCommand::Table(command) => {
+                let edit = update_parts_table(&mut self.table.lock().unwrap(), command)?;
+                // written at once, based on the revision of the parts the value was edited in (`STORE-15`).
+                self.process(&context.stores, |source| Event::ChangeParts {
+                    source,
+                    revision: edit.revision,
+                    change: edit.change,
+                });
+                None
+            }
         }
     }
 }
@@ -429,7 +447,22 @@ impl PartsTab {
                 if view.parts.is_empty() {
                     ui.label(tr!("parts-source-no-parts"));
                 } else {
-                    show_parts_table(ui, view);
+                    let send = |command: PartsTableUiCommand| {
+                        self.component
+                            .send(PartsTabUiCommand::Table(command))
+                    };
+                    let mut state = self.table.lock().unwrap();
+                    show_parts_table(
+                        ui,
+                        view,
+                        Some(PartsEditing {
+                            state: &mut state,
+                            send: &send,
+                            changing: status
+                                .as_ref()
+                                .is_some_and(|status| status.changing),
+                        }),
+                    );
                 }
             });
     }

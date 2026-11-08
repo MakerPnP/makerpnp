@@ -1423,7 +1423,7 @@ impl PanelViewer<'_> {
                 .and_then(|status| status.error.as_ref()),
         );
         match view {
-            Some(view) => show_parts_table(ui, view),
+            Some(view) => show_parts_table(ui, view, None),
             None if status
                 .as_ref()
                 .is_none_or(|status| status.reading) =>

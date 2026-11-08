@@ -193,4 +193,4 @@ tools write them. Each is a commit, the core first.
 | 11e.1. The stores core and service: assembly rules' rows are changed, by their headers as they're written, and named columns added, an EDA tool's refused, as a rule has none (`STORE-17`, `STORE-19`, `STORE-21`). | Done |
 | 11e.2. The CLI changes assembly rules: `planner_cli table --kind assembly-rules --source <file>` `add`, `set`, `remove`, `move` and `add-columns`, with `--ref-des`, `--manufacturer` and `--mpn`, and the other kinds' options refused (`STORE-20`). | Done |
 | 11e.3. The GUI: an assembly rules' panel changes them as a part mappings' does, each empty cell red, and its rows' statuses saying which are empty (`VBGUI-15`). | Done |
-| 11f. A parts tab's other values, edited in their cells (`PARTSRC`). | |
+| 11f. A parts tab's other values, edited in their cells (`PARTSRC-7`). | Done |
